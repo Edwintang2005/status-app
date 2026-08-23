@@ -39,7 +39,9 @@ struct MomentComposerView: View {
                     VStack(spacing: 18) {
                         square
                         if isDrawing {
-                            DrawingPalette(controller: controller).card(padding: 16)
+                            DrawingPalette(controller: controller,
+                                           showsBackdrop: photo == nil)
+                                .card(padding: 16)
                         }
                         sourceRow
                         captionField
@@ -82,30 +84,32 @@ struct MomentComposerView: View {
     // MARK: - Canvas
 
     private var square: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(Color.white)
+        SquareFill {
+            ZStack {
+                Rectangle().fill(controller.backdrop.color)
 
-            if let photo {
-                Image(uiImage: photo)
-                    .resizable()
-                    .scaledToFill()
-            } else if !isDrawing {
-                VStack(spacing: 10) {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .font(.system(size: 34))
-                    Text("Pick a photo, or start drawing")
-                        .font(Theme.rounded(14))
+                if let photo {
+                    Image(uiImage: photo)
+                        .resizable()
+                        .scaledToFill()
+                } else if !isDrawing {
+                    VStack(spacing: 10) {
+                        Image(systemName: "photo.on.rectangle.angled")
+                            .font(.system(size: 34))
+                        Text("Pick a photo, or start drawing")
+                            .font(Theme.rounded(14))
+                    }
+                    .foregroundStyle(controller.backdrop.isDark
+                                     ? Color.white.opacity(0.6)
+                                     : Color.secondary)
                 }
-                .foregroundStyle(.secondary)
-            }
 
-            // Always mounted so strokes survive toggling the palette; only
-            // accepts touches while drawing is on.
-            DrawingCanvas(controller: controller)
-                .allowsHitTesting(isDrawing)
+                // Always mounted so strokes survive toggling the palette; only
+                // accepts touches while drawing is on.
+                DrawingCanvas(controller: controller)
+                    .allowsHitTesting(isDrawing)
+            }
         }
-        .aspectRatio(1, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 28, style: .continuous)

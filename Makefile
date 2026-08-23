@@ -46,8 +46,9 @@ local: project
 		-destination 'platform=iOS Simulator,name=$(SIM)' \
 		-configuration Debug $(LOCAL_FLAGS) -showBuildSettings 2>/dev/null \
 		| awk -F' = ' '/ BUILT_PRODUCTS_DIR /{print $$2; exit}')/Tether.app; \
-	codesign -f -s - --entitlements Config/Local.entitlements \
-		"$$APP/PlugIns/TetherWidgetExtension.appex"; \
+	for EXT in "$$APP"/PlugIns/*.appex; do \
+		codesign -f -s - --entitlements Config/Local.entitlements "$$EXT"; \
+	done; \
 	codesign -f -s - --entitlements Config/Local.entitlements "$$APP"; \
 	xcrun simctl boot "$(SIM)" 2>/dev/null || true; \
 	open -a Simulator; \

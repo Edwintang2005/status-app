@@ -52,13 +52,28 @@ enum PairRole: String, Codable {
         }
     }
 
-    /// The server holds only the newest moment per person, at a fixed name;
-    /// each device accumulates its own history locally.
-    var momentRecordName: String {
+    /// Nudges are their own record type, not a field on `Status`, so that a
+    /// nudge can carry a *visible* push while a status change stays silent —
+    /// `CKDatabaseSubscription` filters by record type.
+    var nudgeRecordName: String {
         switch self {
-        case .owner: return "moment-owner"
-        case .participant: return "moment-participant"
+        case .owner: return "nudge-owner"
+        case .participant: return "nudge-participant"
         }
+    }
+
+    /// Moments are one record each, named `moment-<role>-<uuid>`. The role in
+    /// the name is how a device tells its own sends from its partner's without
+    /// an extra field or a lookup.
+    var momentRecordPrefix: String { "moment-\(rawValue)-" }
+
+    func momentRecordName(id: String) -> String { momentRecordPrefix + id }
+
+    /// The moment id back out of a record name, or `nil` if it isn't ours.
+    func momentID(fromRecordName name: String) -> String? {
+        name.hasPrefix(momentRecordPrefix)
+            ? String(name.dropFirst(momentRecordPrefix.count))
+            : nil
     }
 
     var other: PairRole {
@@ -82,9 +97,6 @@ struct PairingInfo: Codable, Hashable {
 struct Snapshot: Codable, Hashable {
     var mine: StatusPayload?
     var theirs: StatusPayload?
-    /// Local nickname override for the partner. Never synced — each side picks
-    /// what they want to see.
-    var partnerNickname: String?
     var isPaired: Bool
     var lastSyncedAt: Date?
 
@@ -93,39 +105,39 @@ struct Snapshot: Codable, Hashable {
     /// When this device last *sent* a nudge, for cooldown enforcement.
     var lastNudgeSentAt: Date?
 
-    /// Newest first, both directions, capped at `AppConfig.momentHistoryLimit`.
-    /// Image bytes live on disk in the App Group; this is only the index.
-    var moments: [Moment] = []
-    /// The partner moment id already surfaced as a notification here.
-    var lastSeenMomentID: String?
+    /// Only the newest in each direction. The widget decodes this snapshot on
+    /// every render, so the full history deliberately lives elsewhere — see
+    /// `MomentIndex`.
+    var latestPartnerMoment: Moment?
+    var latestOwnMoment: Moment?
+    /// The partner moment id already announced by a notification here. Not the
+    /// same as `Moment.seen`, which is about the user actually looking at it.
+    var lastNotifiedMomentID: String?
 
     static let empty = Snapshot(
         mine: nil,
         theirs: nil,
-        partnerNickname: nil,
         isPaired: false,
         lastSyncedAt: nil,
         lastSeenPartnerNudgeCount: 0,
         lastNudgeSentAt: nil,
-        moments: [],
-        lastSeenMomentID: nil
+        latestPartnerMoment: nil,
+        latestOwnMoment: nil,
+        lastNotifiedMomentID: nil
     )
 
-    /// The newest thing the partner sent — what the moment widget shows.
-    var latestPartnerMoment: Moment? {
-        moments.first { !$0.fromMe }
+    /// Newest in either direction — what the home card shows, so sending
+    /// something gives you visible confirmation.
+    var latestMoment: Moment? {
+        [latestPartnerMoment, latestOwnMoment]
+            .compactMap { $0 }
+            .max { $0.sentAt < $1.sentAt }
     }
 
-    var latestOwnMoment: Moment? {
-        moments.first { $0.fromMe }
-    }
-
-    /// Nickname wins over whatever the partner calls themselves.
+    /// Whatever the partner calls themselves. There is deliberately no local
+    /// override: a person's name is theirs to set, and the name that arrives
+    /// with a moment is the name that gets shown.
     var partnerDisplayName: String {
-        if let nickname = partnerNickname?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !nickname.isEmpty {
-            return nickname
-        }
         let synced = theirs?.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         return (synced?.isEmpty == false ? synced! : "Partner")
     }
@@ -148,19 +160,17 @@ struct Snapshot: Codable, Hashable {
             nudgeCount: 3,
             lastNudgeAt: Date().addingTimeInterval(-3_600)
         ),
-        partnerNickname: nil,
         isPaired: true,
         lastSyncedAt: Date(),
         lastSeenPartnerNudgeCount: 3,
         lastNudgeSentAt: nil,
-        moments: [
-            Moment(id: "preview-moment",
-                   kind: .photo,
-                   caption: "morning ☕️",
-                   senderName: "Sam",
-                   sentAt: Date().addingTimeInterval(-5_400),
-                   fromMe: false)
-        ],
-        lastSeenMomentID: "preview-moment"
+        latestPartnerMoment: Moment(id: "preview-moment",
+                                    kind: .photo,
+                                    caption: "morning ☕️",
+                                    senderName: "Sam",
+                                    sentAt: Date().addingTimeInterval(-5_400),
+                                    fromMe: false),
+        latestOwnMoment: nil,
+        lastNotifiedMomentID: "preview-moment"
     )
 }

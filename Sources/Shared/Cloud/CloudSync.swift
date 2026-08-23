@@ -37,13 +37,14 @@ enum SyncError: LocalizedError {
     }
 }
 
-/// All CloudKit access, for both the app and the widget extension.
+/// All CloudKit access, shared by the app, the widget and the notification
+/// service extension.
 ///
 /// Pairing uses a **zone-wide `CKShare`**: whoever pairs first owns a custom
 /// zone in their private database and shares the whole zone; the other side
-/// accepts and sees that zone in their shared database. Both partners can then
-/// write into it. Each side writes exactly one record, named after its role,
-/// which is why neither device ever needs to learn the other's CloudKit user ID.
+/// accepts and sees that zone in their shared database. Each side writes only
+/// records named after its own role, so the two phones can never conflict and
+/// neither needs to learn the other's CloudKit user ID.
 actor CloudSync: SyncBackend {
     static let shared = CloudSync()
 
@@ -53,19 +54,20 @@ actor CloudSync: SyncBackend {
 
     private enum RecordType {
         static let status = "Status"
+        static let nudge = "Nudge"
         static let moment = "Moment"
     }
 
     private enum Field {
-        // Encrypted: only the two devices can read these, not CloudKit's
-        // server-side indexes.
+        // Status. The human-readable parts are encrypted; CloudKit's servers
+        // never see them.
         static let emoji = "emoji"
         static let message = "message"
         static let displayName = "displayName"
-        // Plain: needed for cheap comparison and never revealing.
         static let updatedAt = "updatedAt"
-        static let nudgeCount = "nudgeCount"
-        static let lastNudgeAt = "lastNudgeAt"
+
+        // Nudge.
+        static let count = "count"
 
         // Moment. `image`/`thumb` are CKAssets, which CloudKit encrypts by
         // default — they must NOT go through `encryptedValues`.
@@ -78,7 +80,16 @@ actor CloudSync: SyncBackend {
         static let thumb = "thumb"
     }
 
-    private static let subscriptionID = "couple-zone-changes"
+    /// One subscription per record type, because they want different payloads:
+    /// a status change must stay silent, a nudge must be seen, and a moment
+    /// must additionally wake the notification service extension.
+    private enum SubscriptionID {
+        static let status = "status-changes"
+        static let nudge = "nudge-alerts"
+        static let moment = "moment-alerts"
+
+        static let all = [status, nudge, moment]
+    }
 
     /// `CKContainer(identifier:)` traps at launch when the identifier isn't in
     /// the running binary's entitlements — which is true of any unsigned build.
@@ -214,7 +225,7 @@ actor CloudSync: SyncBackend {
         return record as? CKShare
     }
 
-    // MARK: - Reading and writing status
+    // MARK: - Status
 
     /// Writes this device's own status record. Only ever touches the record
     /// belonging to our own role, so the two phones can never conflict.
@@ -243,29 +254,161 @@ actor CloudSync: SyncBackend {
                             in database: CKDatabase) async throws {
         let record = try await fetchRecord(recordID, in: database)
             ?? CKRecord(recordType: RecordType.status, recordID: recordID)
-        apply(payload, to: record)
+        record.encryptedValues[Field.emoji] = payload.emoji
+        record.encryptedValues[Field.message] = payload.message
+        record.encryptedValues[Field.displayName] = payload.displayName
+        record[Field.updatedAt] = payload.updatedAt as CKRecordValue
         _ = try await database.modifyRecords(saving: [record],
                                              deleting: [],
                                              savePolicy: .changedKeys)
     }
 
-    /// Pulls both status records plus the partner's latest moment, and folds
-    /// everything into the shared snapshot.
+    // MARK: - Refresh
+
+    /// Pulls everything that has changed in the shared zone since last time.
+    ///
+    /// Uses `CKFetchRecordZoneChangesOperation` rather than fetching known
+    /// record names, for two reasons: moments are one record each with a UUID
+    /// name, so there's nothing fixed to ask for; and a device with no stored
+    /// token gets the **entire zone** back, which is how a reinstall recovers
+    /// the full history. No `CKQuery`, so no Console indexes to configure.
     @discardableResult
     func refresh() async throws -> RefreshResult {
         let pairing = try await requirePairing()
         let database = try self.database(for: pairing)
         let zone = zoneID(for: pairing)
+        let tokenKey = pairing.role == .owner ? "private" : "shared"
 
-        let mineID = CKRecord.ID(recordName: pairing.role.statusRecordName, zoneID: zone)
-        let theirsID = CKRecord.ID(recordName: pairing.role.other.statusRecordName, zoneID: zone)
+        var previous = await MainActor.run {
+            Self.decodeToken(SharedStore.shared.changeToken(for: tokenKey))
+        }
 
-        let results = try await database.records(for: [mineID, theirsID])
-        let mine = Self.payload(from: results[mineID])
-        let theirs = Self.payload(from: results[theirsID])
+        let changes: ZoneChanges
+        do {
+            changes = try await fetchZoneChanges(zone: zone, in: database, since: previous)
+        } catch let error as CKError where error.code == .changeTokenExpired {
+            // The server aged our token out. Start clean and take the lot.
+            log.notice("Change token expired, resyncing the whole zone.")
+            previous = nil
+            await MainActor.run { SharedStore.shared.setChangeToken(nil, for: tokenKey) }
+            changes = try await fetchZoneChanges(zone: zone, in: database, since: nil)
+        }
+
+        if let token = changes.token {
+            let encoded = Self.encodeToken(token)
+            await MainActor.run { SharedStore.shared.setChangeToken(encoded, for: tokenKey) }
+        }
+
+        return await apply(changes, pairing: pairing, database: database)
+    }
+
+    /// A reference type on purpose: the operation's per-record callbacks are
+    /// escaping closures, and accumulating into a captured `var` struct is a
+    /// data race as far as the compiler is concerned. CloudKit calls them
+    /// serially, so a plain box is enough.
+    private final class ZoneChanges: @unchecked Sendable {
+        var records: [CKRecord] = []
+        var deletedIDs: [CKRecord.ID] = []
+        var token: CKServerChangeToken?
+    }
+
+    /// Assets are excluded via `desiredKeys` — this runs on every push, and a
+    /// first sync could otherwise pull down every photo ever sent. Images are
+    /// fetched separately, and only for what's recent or actually being looked
+    /// at.
+    private func fetchZoneChanges(zone: CKRecordZone.ID,
+                                  in database: CKDatabase,
+                                  since previous: CKServerChangeToken?) async throws -> ZoneChanges {
+        let configuration = CKFetchRecordZoneChangesOperation.ZoneConfiguration(
+            previousServerChangeToken: previous,
+            resultsLimit: nil,
+            desiredKeys: [
+                Field.emoji, Field.message, Field.displayName, Field.updatedAt,
+                Field.count,
+                Field.momentID, Field.kind, Field.caption, Field.senderName, Field.sentAt,
+            ]
+        )
+
+        let operation = CKFetchRecordZoneChangesOperation(
+            recordZoneIDs: [zone],
+            configurationsByRecordZoneID: [zone: configuration]
+        )
+        operation.fetchAllChanges = true
+
+        let changes = ZoneChanges()
+        operation.recordWasChangedBlock = { _, result in
+            if case .success(let record) = result { changes.records.append(record) }
+        }
+        operation.recordWithIDWasDeletedBlock = { recordID, _ in
+            changes.deletedIDs.append(recordID)
+        }
+        operation.recordZoneFetchResultBlock = { _, result in
+            if case .success(let value) = result { changes.token = value.serverChangeToken }
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            operation.fetchRecordZoneChangesResultBlock = { result in
+                switch result {
+                case .success: continuation.resume(returning: changes)
+                case .failure(let error): continuation.resume(throwing: error)
+                }
+            }
+            database.add(operation)
+        }
+    }
+
+    /// Folds a batch of changed records into local state.
+    private func apply(_ changes: ZoneChanges,
+                       pairing: PairingInfo,
+                       database: CKDatabase) async -> RefreshResult {
+        let mineRole = pairing.role
+        let theirsRole = pairing.role.other
+
+        var myStatus: CKRecord?
+        var theirStatus: CKRecord?
+        var myNudge: CKRecord?
+        var theirNudge: CKRecord?
+        var moments: [Moment] = []
+
+        for record in changes.records {
+            let name = record.recordID.recordName
+            switch record.recordType {
+            case RecordType.status:
+                if name == mineRole.statusRecordName { myStatus = record }
+                if name == theirsRole.statusRecordName { theirStatus = record }
+            case RecordType.nudge:
+                if name == mineRole.nudgeRecordName { myNudge = record }
+                if name == theirsRole.nudgeRecordName { theirNudge = record }
+            case RecordType.moment:
+                if let moment = Self.moment(from: record, mineRole: mineRole, theirsRole: theirsRole) {
+                    moments.append(moment)
+                }
+            default:
+                break
+            }
+        }
+
+        for recordID in changes.deletedIDs {
+            let name = recordID.recordName
+            if let id = mineRole.momentID(fromRecordName: name)
+                ?? theirsRole.momentID(fromRecordName: name) {
+                MomentIndex.shared.remove(id: id)
+                MomentStore.shared.delete(id: id)
+            }
+        }
+
+        let store = SharedStore.shared
+        let previousStatus = await MainActor.run { store.snapshot.theirs }
+
+        // A status record and its nudge counter arrive independently, so fold
+        // each into whatever the other side already knew.
+        let mine = Self.payload(from: myStatus, nudge: myNudge,
+                                existing: await MainActor.run { store.snapshot.mine })
+        let theirs = Self.payload(from: theirStatus, nudge: theirNudge,
+                                  existing: previousStatus)
 
         await MainActor.run {
-            _ = SharedStore.shared.mutate {
+            _ = store.mutate(reloadWidgets: false) {
                 if let mine { $0.mine = mine }
                 if let theirs { $0.theirs = theirs }
                 $0.isPaired = true
@@ -273,91 +416,38 @@ actor CloudSync: SyncBackend {
             }
         }
 
-        let newMoment = try? await fetchPartnerMoment(pairing: pairing, in: database, zone: zone)
-        return RefreshResult(partnerStatus: theirs, newPartnerMoment: newMoment ?? nil)
-    }
-
-    /// Checks the partner's moment slot cheaply, and only pays for the image
-    /// download when the id is one this device hasn't stored yet.
-    private func fetchPartnerMoment(pairing: PairingInfo,
-                                    in database: CKDatabase,
-                                    zone: CKRecordZone.ID) async throws -> Moment? {
-        let recordID = CKRecord.ID(recordName: pairing.role.other.momentRecordName, zoneID: zone)
-
-        // Assets are excluded from this fetch on purpose — it runs on every
-        // push, and re-downloading a photo we already have would be wasteful.
-        let meta = try await database.records(for: [recordID],
-                                              desiredKeys: [Field.momentID, Field.sentAt])
-        guard case .success(let stub)? = meta[recordID],
-              let remoteID = stub[Field.momentID] as? String else { return nil }
-
-        let alreadyHave = await MainActor.run {
-            SharedStore.shared.snapshot.moments.contains { $0.id == remoteID }
-        }
-        guard !alreadyHave else { return nil }
-
-        guard let record = try await fetchRecord(recordID, in: database),
-              let kindRaw = record[Field.kind] as? String,
-              let kind = Moment.Kind(rawValue: kindRaw) else { return nil }
-
-        let store = MomentStore.shared
-        try Self.copyAsset(record[Field.image] as? CKAsset, to: store.imageURL(for: remoteID))
-        try Self.copyAsset(record[Field.thumb] as? CKAsset, to: store.thumbURL(for: remoteID))
-
-        let moment = Moment(
-            id: remoteID,
-            kind: kind,
-            caption: record.encryptedValues[Field.caption] as? String ?? "",
-            senderName: record.encryptedValues[Field.senderName] as? String ?? "",
-            sentAt: record[Field.sentAt] as? Date ?? record.modificationDate ?? Date(),
-            fromMe: false
-        )
-        await MainActor.run { SharedStore.shared.record(moment) }
-        return moment
-    }
-
-    private static func copyAsset(_ asset: CKAsset?, to destination: URL?) throws {
-        guard let source = asset?.fileURL, let destination else { return }
-        try? FileManager.default.removeItem(at: destination)
-        try FileManager.default.copyItem(at: source, to: destination)
-    }
-
-    // MARK: - Moments
-
-    /// Overwrites this device's single moment slot. The image files are
-    /// already on disk under `moment.id`.
-    func send(_ moment: Moment) async throws {
-        let pairing = try await requirePairing()
-        let database = try self.database(for: pairing)
-        let recordID = CKRecord.ID(recordName: pairing.role.momentRecordName,
-                                   zoneID: zoneID(for: pairing))
-
-        let store = MomentStore.shared
-        guard let fullURL = store.imageURL(for: moment.id),
-              let thumbURL = store.thumbURL(for: moment.id) else {
-            throw MomentStoreError.containerUnavailable
+        // Bound to a `let` before crossing into the main actor: capturing the
+        // mutable array is a data race under strict concurrency.
+        let arrived = moments.sorted { $0.sentAt < $1.sentAt }
+        if arrived.isEmpty {
+            SharedStore.reloadWidgets()
+        } else {
+            await MainActor.run { store.record(arrived) }
+            await downloadRecentImages(for: arrived, pairing: pairing, in: database)
         }
 
-        let record = try await fetchRecord(recordID, in: database)
-            ?? CKRecord(recordType: RecordType.moment, recordID: recordID)
-        record[Field.momentID] = moment.id as CKRecordValue
-        record[Field.kind] = moment.kind.rawValue as CKRecordValue
-        record[Field.sentAt] = moment.sentAt as CKRecordValue
-        record.encryptedValues[Field.caption] = moment.caption
-        record.encryptedValues[Field.senderName] = moment.senderName
-        record[Field.image] = CKAsset(fileURL: fullURL)
-        record[Field.thumb] = CKAsset(fileURL: thumbURL)
+        let newFromPartner = arrived.filter { !$0.fromMe }
+        return RefreshResult(partnerStatus: theirs ?? previousStatus,
+                             newPartnerMoments: newFromPartner)
+    }
 
-        _ = try await database.modifyRecords(saving: [record],
-                                             deleting: [],
-                                             savePolicy: .changedKeys)
+    /// Only the newest few, so a first sync after reinstall doesn't pull down
+    /// hundreds of photos at once. The rest arrive on demand.
+    private func downloadRecentImages(for moments: [Moment],
+                                      pairing: PairingInfo,
+                                      in database: CKDatabase) async {
+        let recent = moments.sorted { $0.sentAt > $1.sentAt }.prefix(10)
+        for moment in recent where !MomentStore.shared.hasImage(for: moment.id) {
+            try? await downloadImages(for: moment, pairing: pairing, in: database)
+        }
+        SharedStore.reloadWidgets()
     }
 
     // MARK: - Nudges
 
-    /// Bumps the counter on our own record. The partner's device notices the
-    /// higher count on its next fetch and raises a local notification.
-    /// Returns `false` if the cooldown hasn't elapsed.
+    /// Writes the partner-visible nudge record. Because `Nudge` is its own
+    /// record type, its subscription can carry a real alert while status
+    /// changes stay silent. Returns `false` if the cooldown hasn't elapsed.
     @discardableResult
     func sendNudge() async throws -> Bool {
         let store = SharedStore.shared
@@ -370,7 +460,7 @@ actor CloudSync: SyncBackend {
             }
             // Claim the cooldown before the network call so a double-tap can't
             // slip a second nudge through while the first is in flight.
-            store.mutate(reloadWidgets: false) { $0.lastNudgeSentAt = now }
+            _ = store.mutate(reloadWidgets: false) { $0.lastNudgeSentAt = now }
             return true
         }
         guard allowed else { return false }
@@ -378,19 +468,14 @@ actor CloudSync: SyncBackend {
         do {
             let pairing = try await requirePairing()
             let database = try self.database(for: pairing)
-            let recordID = CKRecord.ID(recordName: pairing.role.statusRecordName,
+            let recordID = CKRecord.ID(recordName: pairing.role.nudgeRecordName,
                                        zoneID: zoneID(for: pairing))
 
-            let existing = try await fetchRecord(recordID, in: database)
-            let record = existing ?? CKRecord(recordType: RecordType.status, recordID: recordID)
-            if existing == nil {
-                let name = await MainActor.run { store.snapshot.mine?.displayName ?? "Me" }
-                apply(.initial(displayName: name), to: record)
-            }
-
-            let current = record[Field.nudgeCount] as? Int ?? 0
-            record[Field.nudgeCount] = (current + 1) as CKRecordValue
-            record[Field.lastNudgeAt] = now as CKRecordValue
+            let record = try await fetchRecord(recordID, in: database)
+                ?? CKRecord(recordType: RecordType.nudge, recordID: recordID)
+            let next = (record[Field.count] as? Int ?? 0) + 1
+            record[Field.count] = next as CKRecordValue
+            record[Field.sentAt] = now as CKRecordValue
 
             _ = try await database.modifyRecords(saving: [record],
                                                  deleting: [],
@@ -398,7 +483,7 @@ actor CloudSync: SyncBackend {
 
             await MainActor.run {
                 _ = store.mutate { snapshot in
-                    snapshot.mine?.nudgeCount = current + 1
+                    snapshot.mine?.nudgeCount = next
                     snapshot.mine?.lastNudgeAt = now
                 }
             }
@@ -412,29 +497,164 @@ actor CloudSync: SyncBackend {
         }
     }
 
+    // MARK: - Moments
+
+    /// Writes a new moment record. One record per moment, kept indefinitely —
+    /// that's what makes the history durable and recoverable.
+    func send(_ moment: Moment) async throws {
+        let pairing = try await requirePairing()
+        let database = try self.database(for: pairing)
+
+        let recordID = CKRecord.ID(recordName: pairing.role.momentRecordName(id: moment.id),
+                                   zoneID: zoneID(for: pairing))
+
+        let store = MomentStore.shared
+        guard let fullURL = store.imageURL(for: moment.id),
+              let thumbURL = store.thumbURL(for: moment.id) else {
+            throw MomentStoreError.containerUnavailable
+        }
+
+        let record = CKRecord(recordType: RecordType.moment, recordID: recordID)
+        record[Field.momentID] = moment.id as CKRecordValue
+        record[Field.kind] = moment.kind.rawValue as CKRecordValue
+        record[Field.sentAt] = moment.sentAt as CKRecordValue
+        record.encryptedValues[Field.caption] = moment.caption
+        record.encryptedValues[Field.senderName] = moment.senderName
+        record[Field.image] = CKAsset(fileURL: fullURL)
+        record[Field.thumb] = CKAsset(fileURL: thumbURL)
+
+        _ = try await database.modifyRecords(saving: [record],
+                                             deleting: [],
+                                             savePolicy: .allKeys)
+    }
+
+    /// Pulls the image files for one history entry that isn't cached locally.
+    /// Called by the gallery when you scroll back past the cache window.
+    func fetchImages(for moment: Moment) async throws {
+        let pairing = try await requirePairing()
+        let database = try self.database(for: pairing)
+        try await downloadImages(for: moment, pairing: pairing, in: database)
+    }
+
+    private func downloadImages(for moment: Moment,
+                                pairing: PairingInfo,
+                                in database: CKDatabase) async throws {
+        let role = moment.fromMe ? pairing.role : pairing.role.other
+        let recordID = CKRecord.ID(recordName: role.momentRecordName(id: moment.id),
+                                   zoneID: zoneID(for: pairing))
+        guard let record = try await fetchRecord(recordID, in: database) else { return }
+
+        let store = MomentStore.shared
+        try Self.copyAsset(record[Field.image] as? CKAsset, to: store.imageURL(for: moment.id))
+        try Self.copyAsset(record[Field.thumb] as? CKAsset, to: store.thumbURL(for: moment.id))
+    }
+
+    private static func moment(from record: CKRecord,
+                               mineRole: PairRole,
+                               theirsRole: PairRole) -> Moment? {
+        let name = record.recordID.recordName
+        let fromMe: Bool
+        if mineRole.momentID(fromRecordName: name) != nil {
+            fromMe = true
+        } else if theirsRole.momentID(fromRecordName: name) != nil {
+            fromMe = false
+        } else {
+            return nil
+        }
+
+        guard let id = record[Field.momentID] as? String,
+              let kindRaw = record[Field.kind] as? String,
+              let kind = Moment.Kind(rawValue: kindRaw) else { return nil }
+
+        return Moment(
+            id: id,
+            kind: kind,
+            caption: record.encryptedValues[Field.caption] as? String ?? "",
+            senderName: record.encryptedValues[Field.senderName] as? String ?? "",
+            sentAt: record[Field.sentAt] as? Date ?? record.modificationDate ?? Date(),
+            fromMe: fromMe
+        )
+    }
+
+    private static func copyAsset(_ asset: CKAsset?, to destination: URL?) throws {
+        guard let source = asset?.fileURL, let destination else { return }
+        try? FileManager.default.removeItem(at: destination)
+        try FileManager.default.copyItem(at: source, to: destination)
+    }
+
+    private static func encodeToken(_ token: CKServerChangeToken) -> Data? {
+        try? NSKeyedArchiver.archivedData(withRootObject: token, requiringSecureCoding: true)
+    }
+
+    private static func decodeToken(_ data: Data?) -> CKServerChangeToken? {
+        guard let data else { return nil }
+        return try? NSKeyedUnarchiver.unarchivedObject(ofClass: CKServerChangeToken.self, from: data)
+    }
+
     // MARK: - Push subscriptions
 
-    /// A database subscription fires a silent push whenever anything in the
-    /// shared zone changes. Query subscriptions aren't available on the shared
-    /// database, which is why this is database-scoped rather than record-scoped.
+    /// Three database subscriptions, filtered by record type.
+    ///
+    /// Only the status one is silent. Nudges and moments set `alertBody`, which
+    /// makes CloudKit send a **visible, higher-priority** push — delivered by
+    /// APNs whether or not the app is running, which is what makes them survive
+    /// a force-quit. Moments additionally set `shouldSendMutableContent` so the
+    /// notification service extension gets to enrich them first.
+    ///
+    /// The alert text is deliberately generic: CloudKit composes it server-side
+    /// and cannot read `encryptedValues`, so personalising it would mean
+    /// storing names in the clear. The service extension decrypts on-device and
+    /// replaces the text with the real thing before it's shown.
     func registerSubscription() async throws {
         let pairing = try await requirePairing()
         let database = try self.database(for: pairing)
 
-        let existing = try? await database.allSubscriptions()
-        if existing?.contains(where: { $0.subscriptionID == Self.subscriptionID }) == true { return }
+        let existing = (try? await database.allSubscriptions()) ?? []
+        let existingIDs = Set(existing.map(\.subscriptionID))
 
-        let subscription = CKDatabaseSubscription(subscriptionID: Self.subscriptionID)
-        let info = CKSubscription.NotificationInfo()
-        // Database subscriptions are silent by design; the app turns the wake-up
-        // into a user-visible notification itself.
-        info.shouldSendContentAvailable = true
-        subscription.notificationInfo = info
+        var toSave: [CKSubscription] = []
+
+        if !existingIDs.contains(SubscriptionID.status) {
+            let subscription = CKDatabaseSubscription(subscriptionID: SubscriptionID.status)
+            subscription.recordType = RecordType.status
+            let info = CKSubscription.NotificationInfo()
+            // Silent: nobody needs a banner because their partner started
+            // cooking. This wakes the app to refresh the widget.
+            info.shouldSendContentAvailable = true
+            subscription.notificationInfo = info
+            toSave.append(subscription)
+        }
+
+        if !existingIDs.contains(SubscriptionID.nudge) {
+            let subscription = CKDatabaseSubscription(subscriptionID: SubscriptionID.nudge)
+            subscription.recordType = RecordType.nudge
+            let info = CKSubscription.NotificationInfo()
+            info.title = AppConfig.appName
+            info.alertBody = "Thinking of you 💭"
+            info.soundName = "default"
+            info.shouldSendMutableContent = true
+            subscription.notificationInfo = info
+            toSave.append(subscription)
+        }
+
+        if !existingIDs.contains(SubscriptionID.moment) {
+            let subscription = CKDatabaseSubscription(subscriptionID: SubscriptionID.moment)
+            subscription.recordType = RecordType.moment
+            let info = CKSubscription.NotificationInfo()
+            info.title = AppConfig.appName
+            info.alertBody = "Sent you something 📷"
+            info.soundName = "default"
+            info.shouldSendMutableContent = true
+            subscription.notificationInfo = info
+            toSave.append(subscription)
+        }
+
+        guard !toSave.isEmpty else { return }
 
         do {
-            _ = try await database.modifySubscriptions(saving: [subscription], deleting: [])
+            _ = try await database.modifySubscriptions(saving: toSave, deleting: [])
         } catch let error as CKError where error.code == .serverRejectedRequest {
-            log.notice("Subscription already registered.")
+            log.notice("Subscriptions already registered.")
         }
     }
 
@@ -446,7 +666,7 @@ actor CloudSync: SyncBackend {
         if let pairing = await MainActor.run(body: { SharedStore.shared.pairing }),
            let database = try? self.database(for: pairing) {
             _ = try? await database.modifySubscriptions(saving: [],
-                                                        deleting: [Self.subscriptionID])
+                                                        deleting: SubscriptionID.all)
             if pairing.role == .owner {
                 _ = try? await database.modifyRecordZones(saving: [],
                                                           deleting: [zoneID(for: pairing)])
@@ -481,27 +701,36 @@ actor CloudSync: SyncBackend {
         }
     }
 
-    private func apply(_ payload: StatusPayload, to record: CKRecord) {
-        record.encryptedValues[Field.emoji] = payload.emoji
-        record.encryptedValues[Field.message] = payload.message
-        record.encryptedValues[Field.displayName] = payload.displayName
-        record[Field.updatedAt] = payload.updatedAt as CKRecordValue
-        record[Field.nudgeCount] = payload.nudgeCount as CKRecordValue
-        if let lastNudgeAt = payload.lastNudgeAt {
-            record[Field.lastNudgeAt] = lastNudgeAt as CKRecordValue
-        }
-    }
+    /// Merges whichever of the two records changed into what we already knew.
+    /// The status record and its nudge counter are separate records now, so a
+    /// change feed will often carry one without the other.
+    private static func payload(from record: CKRecord?,
+                                nudge: CKRecord?,
+                                existing: StatusPayload?) -> StatusPayload? {
+        guard record != nil || nudge != nil else { return nil }
 
-    private static func payload(from result: Result<CKRecord, Error>?) -> StatusPayload? {
-        guard case .success(let record)? = result else { return nil }
-        return StatusPayload(
-            emoji: record.encryptedValues[Field.emoji] as? String ?? "💭",
-            message: record.encryptedValues[Field.message] as? String ?? "",
-            displayName: record.encryptedValues[Field.displayName] as? String ?? "",
-            updatedAt: record[Field.updatedAt] as? Date ?? record.modificationDate ?? Date(),
-            nudgeCount: record[Field.nudgeCount] as? Int ?? 0,
-            lastNudgeAt: record[Field.lastNudgeAt] as? Date
-        )
+        var payload = existing ?? StatusPayload(emoji: "💭",
+                                                message: "",
+                                                displayName: "",
+                                                updatedAt: .distantPast,
+                                                nudgeCount: 0,
+                                                lastNudgeAt: nil)
+
+        if let record {
+            payload.emoji = record.encryptedValues[Field.emoji] as? String ?? payload.emoji
+            payload.message = record.encryptedValues[Field.message] as? String ?? payload.message
+            payload.displayName = record.encryptedValues[Field.displayName] as? String ?? payload.displayName
+            payload.updatedAt = record[Field.updatedAt] as? Date
+                ?? record.modificationDate
+                ?? payload.updatedAt
+        }
+
+        if let nudge {
+            payload.nudgeCount = nudge[Field.count] as? Int ?? payload.nudgeCount
+            payload.lastNudgeAt = nudge[Field.sentAt] as? Date ?? payload.lastNudgeAt
+        }
+
+        return payload
     }
 
     private static func firstSavedRecord(

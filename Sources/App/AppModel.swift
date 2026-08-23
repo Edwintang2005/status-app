@@ -17,6 +17,9 @@ final class AppModel {
     private(set) var inviteURL: URL?
     /// Non-nil when the backend can't work — no iCloud account, and so on.
     private(set) var readinessMessage: String?
+    /// The full moment history, newest first. Read from `MomentIndex` rather
+    /// than the snapshot, which only carries the newest in each direction.
+    private(set) var history: [Moment] = []
 
     var errorMessage: String?
     /// Set by the `tether://compose` deep link so the widget can open straight
@@ -44,14 +47,17 @@ final class AppModel {
         set { updateMyDisplayName(newValue) }
     }
 
-    var partnerNickname: String {
-        get { snapshot.partnerNickname ?? "" }
+    #if TETHER_LOCAL_MODE
+    /// Demo builds only. Stands in for the partner setting their *own* name on
+    /// their own phone — there is no way to rename someone in the real app.
+    var demoPartnerName: String {
+        get { snapshot.theirs?.displayName ?? "" }
         set {
-            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            store.mutate { $0.partnerNickname = trimmed.isEmpty ? nil : trimmed }
+            store.mutate { $0.theirs?.displayName = newValue }
             reload()
         }
     }
+    #endif
 
     var nudgeCooldownRemaining: TimeInterval {
         guard let last = snapshot.lastNudgeSentAt else { return 0 }
@@ -61,6 +67,28 @@ final class AppModel {
     var canNudge: Bool { isPaired && nudgeCooldownRemaining == 0 }
 
     var latestPartnerMoment: Moment? { snapshot.latestPartnerMoment }
+    var latestMoment: Moment? { snapshot.latestMoment }
+
+    /// Things the partner sent that haven't been looked at yet, newest first —
+    /// the same order the home card previews, so tapping it opens the picture
+    /// you were just looking at rather than jumping to the oldest.
+    var unseenMoments: [Moment] {
+        history.filter { !$0.fromMe && !$0.seen }.sorted { $0.sentAt > $1.sentAt }
+    }
+
+    /// What tapping the home card opens: whatever is waiting, or — when you're
+    /// caught up — just the most recent thing, rather than the entire archive.
+    var carouselMoments: [Moment] {
+        let unseen = unseenMoments
+        if !unseen.isEmpty { return unseen }
+        return [latestMoment].compactMap { $0 }
+    }
+
+    func markSeen(_ moment: Moment) {
+        guard !moment.seen, !moment.fromMe else { return }
+        history = MomentIndex.shared.markSeen(ids: [moment.id])
+        SharedStore.reloadWidgets()
+    }
 
     // MARK: - Lifecycle
 
@@ -90,6 +118,22 @@ final class AppModel {
         snapshot = store.snapshot
         isPaired = store.pairing != nil
         role = store.pairing?.role
+        history = MomentIndex.shared.load()
+    }
+
+    /// Older history entries keep their metadata but not their image files.
+    /// The gallery calls this when it reaches one, and CloudKit hands the
+    /// image back — which is the whole point of keeping every moment as its
+    /// own record.
+    func ensureImage(for moment: Moment) async -> Bool {
+        if MomentStore.shared.hasImage(for: moment.id) { return true }
+        do {
+            try await Backend.current.fetchImages(for: moment)
+            return MomentStore.shared.hasImage(for: moment.id)
+        } catch {
+            log.error("Couldn't fetch image for \(moment.id): \(error.localizedDescription)")
+            return false
+        }
     }
 
     // MARK: - Sync
@@ -170,6 +214,9 @@ final class AppModel {
         isBusy = true
         defer { isBusy = false }
 
+        // `senderName` is what the recipient will see, so it has to be the
+        // name you set for yourself — captured at send time, which is why an
+        // older moment keeps the name you had when you sent it.
         let moment = Moment(
             kind: kind,
             caption: caption.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -186,6 +233,7 @@ final class AppModel {
 
         store.record(moment)
         reload()
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
 
         guard isPaired else { return }
         do {
@@ -224,7 +272,7 @@ final class AppModel {
     func simulatePartnerMoment(image: UIImage, kind: Moment.Kind, caption: String) async {
         let moment = Moment(kind: kind,
                             caption: caption,
-                            senderName: LocalSync.demoPartnerName,
+                            senderName: snapshot.theirs?.displayName ?? LocalSync.demoPartnerName,
                             fromMe: false)
         do {
             try MomentStore.shared.write(image, id: moment.id)
@@ -233,7 +281,7 @@ final class AppModel {
             return
         }
         await LocalSync.shared.simulatePartnerMoment(moment)
-        store.mutate(reloadWidgets: false) { $0.lastSeenMomentID = moment.id }
+        store.mutate(reloadWidgets: false) { $0.lastNotifiedMomentID = moment.id }
         await NotificationManager.postMoment(moment, from: snapshot.partnerDisplayName)
         reload()
     }

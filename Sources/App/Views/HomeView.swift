@@ -5,7 +5,11 @@ struct HomeView: View {
     @State private var showingPicker = false
     @State private var showingSettings = false
     @State private var showingComposer = false
-    @State private var galleryStart: Moment?
+    @State private var showingLibrary = false
+    /// Captured when the carousel opens. Reading `model.carouselMoments`
+    /// straight from the sheet would shrink the list underneath the user:
+    /// paging marks each one seen, which removes it from the unseen set.
+    @State private var carouselQueue: [Moment] = []
 
     var body: some View {
         @Bindable var model = model
@@ -22,7 +26,7 @@ struct HomeView: View {
                         }
                         momentButton
                         partnerCard
-                        if let moment = model.snapshot.moments.first {
+                        if let moment = model.unseenMoments.first ?? model.latestMoment {
                             momentCard(moment)
                         }
                         myStatusCard
@@ -36,6 +40,14 @@ struct HomeView: View {
             .navigationTitle(AppConfig.appName)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showingLibrary = true
+                    } label: {
+                        Image(systemName: "photo.stack")
+                    }
+                    .disabled(model.history.isEmpty)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showingSettings = true
@@ -60,8 +72,16 @@ struct HomeView: View {
                 Task { await model.sendMoment(image: image, kind: kind, caption: caption) }
             }
         }
-        .sheet(item: $galleryStart) { moment in
-            MomentGalleryView(moments: model.snapshot.moments, startAt: moment)
+        .sheet(isPresented: Binding(get: { !carouselQueue.isEmpty },
+                                    set: { if !$0 { carouselQueue = [] } })) {
+            if let first = carouselQueue.first {
+                MomentGalleryView(moments: carouselQueue, startAt: first)
+                    .environment(model)
+            }
+        }
+        .sheet(isPresented: $showingLibrary) {
+            MomentLibraryView()
+                .environment(model)
         }
         .onChange(of: model.pendingComposer) { _, pending in
             if pending {
@@ -120,22 +140,26 @@ struct HomeView: View {
     // MARK: - Latest moment
 
     private func momentCard(_ moment: Moment) -> some View {
-        Button {
-            galleryStart = moment
+        let unseen = model.unseenMoments.count
+
+        // Only what's waiting — or, when caught up, just the latest. The whole
+        // archive lives behind the library button instead.
+        return Button {
+            carouselQueue = model.carouselMoments
         } label: {
             VStack(spacing: 0) {
-                if let image = MomentStore.shared.thumbnail(for: moment.id) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .aspectRatio(1, contentMode: .fit)
-                        .clipped()
-                } else {
-                    Rectangle()
-                        .fill(Color.primary.opacity(0.06))
-                        .aspectRatio(1, contentMode: .fit)
-                        .overlay(Image(systemName: "photo").foregroundStyle(.secondary))
+                SquareFill {
+                    if let image = MomentStore.shared.thumbnail(for: moment.id) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        Rectangle()
+                            .fill(Color.primary.opacity(0.06))
+                            .overlay(Image(systemName: "photo").foregroundStyle(.secondary))
+                    }
                 }
+                .clipped()
 
                 HStack(spacing: 8) {
                     Image(systemName: moment.kind == .photo ? "camera.fill" : "scribble")
@@ -145,13 +169,13 @@ struct HomeView: View {
                         .font(Theme.rounded(15, .medium))
                         .lineLimit(1)
                     Spacer(minLength: 0)
-                    if model.snapshot.moments.count > 1 {
-                        Text("\(model.snapshot.moments.count)")
+                    if unseen > 0 {
+                        Text(unseen == 1 ? "new" : "\(unseen) new")
                             .font(Theme.rounded(11, .semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 7)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 8)
                             .padding(.vertical, 3)
-                            .background(Color.primary.opacity(0.08), in: Capsule())
+                            .background(Theme.warm, in: Capsule())
                     }
                 }
                 .padding(.horizontal, 16)

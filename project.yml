@@ -58,10 +58,19 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.edwintang.tether
         PRODUCT_NAME: Tether
         INFOPLIST_FILE: Sources/App/Resources/Info.plist
-        CODE_SIGN_ENTITLEMENTS: Sources/App/Resources/Tether.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      # aps-environment must be `production` in anything you archive for
+      # TestFlight or the App Store, and `development` for Xcode runs.
+      configs:
+        Debug:
+          CODE_SIGN_ENTITLEMENTS: Sources/App/Resources/Tether.entitlements
+        Release:
+          CODE_SIGN_ENTITLEMENTS: Sources/App/Resources/Tether-Release.entitlements
     dependencies:
       - target: TetherWidgetExtension
+        embed: true
+        codeSign: true
+      - target: TetherNotificationService
         embed: true
         codeSign: true
 
@@ -85,12 +94,35 @@ targets:
         INFOPLIST_FILE: Sources/Widget/Resources/Info.plist
         CODE_SIGN_ENTITLEMENTS: Sources/Widget/Resources/TetherWidget.entitlements
 
+  # Runs when CloudKit delivers a nudge or moment push, including when the app
+  # has been force-quit. See Sources/NotificationService/NotificationService.swift.
+  TetherNotificationService:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Sources/Shared
+      - path: Sources/NotificationService
+        excludes:
+          - "Resources/Info.plist"
+          - "Resources/TetherNotificationService.entitlements"
+      - path: Sources/NotificationService/Resources/Info.plist
+        buildPhase: none
+      - path: Sources/NotificationService/Resources/TetherNotificationService.entitlements
+        buildPhase: none
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.edwintang.tether.notifications
+        PRODUCT_NAME: TetherNotificationService
+        INFOPLIST_FILE: Sources/NotificationService/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Sources/NotificationService/Resources/TetherNotificationService.entitlements
+
 schemes:
   Tether:
     build:
       targets:
         Tether: all
         TetherWidgetExtension: all
+        TetherNotificationService: all
     run:
       config: Debug
     archive:

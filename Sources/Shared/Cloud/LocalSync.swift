@@ -56,8 +56,7 @@ actor LocalSync: SyncBackend {
     func refresh() async throws -> RefreshResult {
         await MainActor.run {
             _ = SharedStore.shared.mutate { $0.lastSyncedAt = Date() }
-            return RefreshResult(partnerStatus: SharedStore.shared.snapshot.theirs,
-                                 newPartnerMoment: nil)
+            return RefreshResult(partnerStatus: SharedStore.shared.snapshot.theirs)
         }
     }
 
@@ -81,6 +80,9 @@ actor LocalSync: SyncBackend {
     /// The files are already written; in demo mode "sending" is just keeping
     /// the local record.
     func send(_ moment: Moment) async throws {}
+
+    /// Demo images only ever exist locally, so there is nowhere to fetch from.
+    func fetchImages(for moment: Moment) async throws {}
 
     func registerSubscription() async throws {}
 

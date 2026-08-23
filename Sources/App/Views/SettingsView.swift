@@ -27,21 +27,13 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    LabeledContent("You") {
+                    LabeledContent("Your name") {
                         TextField("Your name", text: $model.myDisplayName)
                             .multilineTextAlignment(.trailing)
                             .textInputAutocapitalization(.words)
                     }
-                    LabeledContent("Them") {
-                        TextField(model.snapshot.theirs?.displayName ?? "Partner",
-                                  text: $model.partnerNickname)
-                            .multilineTextAlignment(.trailing)
-                            .textInputAutocapitalization(.words)
-                    }
-                } header: {
-                    Text("Names")
                 } footer: {
-                    Text("The nickname you set for them is yours alone — it shows on your widget and never syncs to their phone.")
+                    Text("This is the name \(model.partnerName) sees on your status, your nudges and anything you send. Their name is theirs to set.")
                 }
 
                 Section("Notifications") {
@@ -60,6 +52,11 @@ struct SettingsView: View {
 
                 #if TETHER_LOCAL_MODE
                 Section {
+                    LabeledContent("Their name") {
+                        TextField("Partner", text: $model.demoPartnerName)
+                            .multilineTextAlignment(.trailing)
+                            .textInputAutocapitalization(.words)
+                    }
                     Button("Set their status…") { demoSheet = .status }
                     Button("Make them nudge you") {
                         Task { await model.simulatePartnerNudge() }
@@ -68,7 +65,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Demo controls")
                 } footer: {
-                    Text("Drive the other side of the conversation. Everything you trigger here behaves exactly as a real update would — widgets and notifications included.")
+                    Text("Drive the other side of the conversation, including the name they'd have set for themselves. Everything here behaves exactly as a real update would — widgets and notifications included.")
                 }
                 #else
                 if model.role == .owner {

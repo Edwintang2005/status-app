@@ -15,7 +15,17 @@ struct MoodPickerView: View {
 
     @State private var emoji = ""
     @State private var message = ""
+    @State private var query = ""
     @FocusState private var messageFocused: Bool
+
+    /// Groups with their matching presets, empty groups dropped. With ~90
+    /// presets, scrolling alone isn't a reasonable way to find one.
+    private var filteredGroups: [(group: MoodGroup, moods: [Mood])] {
+        MoodGroup.allCases.compactMap { group in
+            let matches = group.moods.filter { $0.matches(query) }
+            return matches.isEmpty ? nil : (group, matches)
+        }
+    }
 
     private let columns = [GridItem(.adaptive(minimum: 78), spacing: 12)]
 
@@ -26,8 +36,17 @@ struct MoodPickerView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 26) {
                         customRow
-                        ForEach(MoodGroup.allCases) { group in
-                            section(group)
+                        searchField
+                        if filteredGroups.isEmpty {
+                            Text("No status matches \u{201C}\(query)\u{201D}")
+                                .font(Theme.rounded(15))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 40)
+                        } else {
+                            ForEach(filteredGroups, id: \.group) { entry in
+                                section(entry.group, moods: entry.moods)
+                            }
                         }
                     }
                     .padding(20)
@@ -81,7 +100,31 @@ struct MoodPickerView: View {
         }
     }
 
-    private func section(_ group: MoodGroup) -> some View {
+    private var searchField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("Search statuses", text: $query)
+                .font(Theme.rounded(16))
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+            if !query.isEmpty {
+                Button {
+                    query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 11)
+        .padding(.horizontal, 14)
+        .background(Color.primary.opacity(0.05),
+                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func section(_ group: MoodGroup, moods: [Mood]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(group.rawValue.uppercased())
                 .font(Theme.rounded(12, .semibold))
@@ -89,7 +132,7 @@ struct MoodPickerView: View {
                 .foregroundStyle(.secondary)
 
             LazyVGrid(columns: columns, spacing: 12) {
-                ForEach(group.moods) { mood in
+                ForEach(moods) { mood in
                     moodTile(mood)
                 }
             }

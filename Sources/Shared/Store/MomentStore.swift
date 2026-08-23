@@ -66,10 +66,27 @@ struct MomentStore {
         return UIImage(contentsOfFile: url.path)
     }
 
-    /// Always prefer this in the widget.
+    /// Decoded thumbnails, so scrolling the library grid isn't re-reading and
+    /// re-decoding the same JPEGs. `NSCache` evicts itself under pressure,
+    /// which matters in the widget's tight memory budget.
+    private static let thumbnailCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 120
+        return cache
+    }()
+
+    /// Always prefer this over `image(for:)` in the widget and in grids.
     func thumbnail(for id: String) -> UIImage? {
-        guard let url = thumbURL(for: id) else { return nil }
-        return UIImage(contentsOfFile: url.path)
+        if let cached = Self.thumbnailCache.object(forKey: id as NSString) { return cached }
+        guard let url = thumbURL(for: id),
+              let image = UIImage(contentsOfFile: url.path) else { return nil }
+        Self.thumbnailCache.setObject(image, forKey: id as NSString)
+        return image
+    }
+
+    func hasThumbnail(for id: String) -> Bool {
+        guard let url = thumbURL(for: id) else { return false }
+        return FileManager.default.fileExists(atPath: url.path)
     }
 
     private static func jpeg(_ image: UIImage,
@@ -102,6 +119,13 @@ struct MomentStore {
     }
 
     // MARK: - Housekeeping
+
+    /// Whether the full-size image is on this device. History entries older
+    /// than the cache limit will answer `false` until re-fetched.
+    func hasImage(for id: String) -> Bool {
+        guard let url = imageURL(for: id) else { return false }
+        return FileManager.default.fileExists(atPath: url.path)
+    }
 
     func delete(id: String) {
         [imageURL(for: id), thumbURL(for: id)]

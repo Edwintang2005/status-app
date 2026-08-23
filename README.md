@@ -14,8 +14,9 @@ with the text fields end-to-end encrypted.
 |---|---|
 | **Status** | An emoji plus a short message — `🥰 missing you`, `😴 sleeping`. Two taps from a preset, or type your own. |
 | **Nudge** | A heart on your lock screen. Tapping it makes their phone show *"Sam is thinking of you 💭"*. |
-| **Photos & doodles** | Snap a photo, draw a doodle, or scribble over a photo, and it lands on their home screen widget. Swipe back through the last 30 in the app, and save any to Photos. |
-| **Nicknames** | What you call them is stored on *your* phone only. They never see it, and it overrides whatever they call themselves. |
+| **Photos & doodles** | Snap a photo, draw a doodle, or scribble over a photo, and it lands on their home screen widget. Pick the paper colour for a doodle. |
+| **History** | Every photo and doodle is kept. Browse the lot in the library, save any to Photos, and get it all back on a new phone. |
+| **Names** | You set your own name; they set theirs. Whatever they call themselves is what you see — there's no renaming other people. |
 
 Widgets:
 
@@ -124,115 +125,228 @@ In the app, the nudge cooldown owns a one-second countdown that runs **only
 during the sixty seconds after a nudge**, scoped to the button so it doesn't
 invalidate the screen.
 
-Updates reach the widget by three independent paths, because no single one is
-reliable enough on its own:
+### Three subscriptions, deliberately different
 
-1. **Silent push.** A `CKDatabaseSubscription` fires whenever the shared zone
-   changes. The app wakes, fetches, writes the snapshot to the App Group and
-   reloads the widget. This subscription is deliberately silent
-   (`shouldSendContentAvailable`) — a banner per status change would be
-   unbearable — which does mean iOS throttles it and drops it entirely while
-   the app is force-quit. Paths 2 and 3 are the backstop.
+`CKDatabaseSubscription` can filter by record type, and the payload it sends
+decides how much of the system wakes up. That's why nudges and moments are
+their own record types rather than fields on `Status`:
 
-   Note that a database subscription is only silent *because* we leave
-   `alertBody`/`soundName`/`shouldBadge` unset; setting any of them makes
-   CloudKit deliver a visible, higher-priority push. See *Possible
-   improvements*.
+| Record type | Payload | What happens |
+|---|---|---|
+| `Status` | `shouldSendContentAvailable` | **Silent.** Wakes the app to refresh the widget. Nobody wants a banner because their partner started cooking. |
+| `Nudge` | `alertBody` + sound + `shouldSendMutableContent` | **Visible.** APNs displays it whether or not the app is running. |
+| `Moment` | `alertBody` + sound + `shouldSendMutableContent` | **Visible**, and the image is attached by the service extension. |
+
+Setting `alertBody` is what makes CloudKit send at normal priority as a
+displayed alert rather than a throttled background wake — which is what makes
+nudges and photos **survive a force-quit**, with no server anywhere.
+
+### The notification service extension
+
+`shouldSendMutableContent` sets `mutable-content: 1`, which hands the push to
+[TetherNotificationService](Sources/NotificationService/NotificationService.swift)
+for about thirty seconds before the user sees anything. It is often the only
+part of the app that runs at all.
+
+In that window it fetches the change from CloudKit, **decrypts it on-device**,
+writes it into the App Group, reloads the widget, and replaces CloudKit's
+wording with the real caption and name.
+
+That last part is the reason it exists. CloudKit composes alert text
+server-side and cannot read `encryptedValues`, so the subscription's own copy
+has to stay generic — *"Sent you something 📷"*. Rather than store names and
+captions in the clear just to personalise a push, the extension decrypts
+locally and rewrites it. Nothing readable ever reaches Apple's servers, and the
+notification still says *"Sam — morning ☕️"* with the photo attached.
+
+It also marks the event as seen in the shared snapshot, so the app doesn't
+raise a duplicate local notification the next time it refreshes.
+
+### The remaining paths
+
+Status changes stay silent by design, so the widget still relies on:
+
+1. **The silent push**, when iOS grants the app a background wake. Throttled,
+   and skipped entirely while the app is force-quit.
 2. **Foreground refresh**, whenever the app becomes active.
 3. **The widget's own fetch**, on its hourly timeline refresh, with an 8s
    timeout and the cached snapshot as fallback. This is the only battery cost
-   in the widget: one process launch and one CloudKit round trip per tick. It's
-   a backstop for dropped pushes, not the primary path, so it's deliberately
-   lazy — `StatusProvider.refreshInterval` if you want it keener.
+   in the widget: one process launch and one CloudKit round trip per tick.
+   `StatusProvider.refreshInterval` if you want it keener.
 
-Nudges are a counter on your own status record rather than a separate record
-type. The other side notices the number went up and raises a notification —
-which makes delivery idempotent, so a record fetched twice can't buzz twice.
+A nudge or a moment arriving also runs a full refresh in the extension, so in
+practice status tends to ride along with them.
 
 ## Photos and doodles
 
-### Where they're stored, and what it costs
+### Two ways in: what's waiting, and everything
 
-**On the phone:** two JPEGs per moment in the App Group container — a 1280px
-copy for the app and a 512px one for the widget — capped at the most recent 30,
-with older image files deleted as they fall off the end. Doodles measure around
-30 KB + 12 KB each; camera photos run larger, roughly 200–400 KB. So the cap
-works out at **a few MB, and single-digit MB worst case**. It cannot grow
-without bound.
+The home card is for **what's waiting**. Tapping it opens a carousel of the
+moments you haven't looked at yet, newest first — the same one the card is
+previewing, so tapping a picture opens that picture. Once you're caught up it
+falls back to just the most recent, rather than replaying the archive.
 
-**In iCloud:** almost nothing, and it does not accumulate. Each person has
-exactly **one moment slot** on the server (`moment-owner` /
-`moment-participant`), overwritten on every send — so the container holds four
-image files total, under about 1.5 MB between the two of you, forever. Your
-iCloud quota won't notice.
+**Everything else lives in the library**, behind the photo button in the top
+left: a grid of the full history, unseen ones marked with a dot, your own sends
+flagged with a small arrow. Tap any of them to open the pager over the whole
+history.
 
-### Why one slot
+`Moment.seen` is local-only and never written to CloudKit — "seen" means seen
+*on this device*, and your own sends count as seen the moment you make them.
+Note that it's a different thing from `Snapshot.lastNotifiedMomentID`, which
+only stops a notification firing twice.
 
-It avoids `CKQuery` entirely. Queries need indexes configured by hand in the
-CloudKit Console, whereas a fixed record name can just be fetched. The
-**trade-off is real**: if your partner sends two photos before your phone syncs
-even once, the first is gone from the server and you'll never see it. In
-practice a sync happens on every silent push and every app open, so this needs
-two sends inside one quiet window.
+One subtlety worth knowing if you touch this: the carousel's list is **captured
+when it opens**. Reading the unseen set live would shrink the list underneath
+the user, because paging marks each one seen as it appears.
 
-If you'd rather never miss one, the fix is a small **ring of N slots**
-(`moment-owner-0…4`) written round-robin, with the receiver checking all of
-them. It's a contained change to `CloudSync` and would raise iCloud usage to
-maybe 5 MB. Worth doing once the CloudKit path is actually being tested.
+### Whose name shows
+
+**A name belongs to the person it names.** You set yours in Settings, they set
+theirs on their phone, and there is no way to rename anyone else — no nickname
+override anywhere in the app.
+
+Two sources, for two different things:
+
+- **Moments** display `Moment.senderName`, captured at send time from the
+  sender's own `displayName`. That means an old photo keeps the name they were
+  using when they sent it, which is the honest thing for a historical record to
+  do. Notifications for a moment use the same field.
+- **Everything live** — the status card, the widget, a nudge — uses
+  `Snapshot.partnerDisplayName`, which is simply their current
+  `Status.displayName`, or "Partner" if they haven't set one.
+
+Changing your own name republishes your `Status` record immediately, so your
+partner sees it on their next sync. It does not rewrite anything you've already
+sent.
+
+In `make local` builds the demo controls include a **Their name** field. That
+isn't a rename feature leaking through — it stands in for the partner setting
+their own name on their own phone, which is the only way it can happen for
+real.
+
+### History, and where it lives
+
+Every moment is its own CloudKit record, kept indefinitely. Nothing is
+overwritten and nothing expires, so the history is **complete and recoverable**
+— sign in on a new phone and the whole thing comes back.
+
+Syncing uses `CKFetchRecordZoneChangesOperation` with a stored server change
+token rather than fetching known record names. Three things fall out of that:
+
+- **No `CKQuery`, so no indexes** to configure in the CloudKit Console. Change
+  tracking is index-free by design.
+- **A device with no token gets the entire zone**, which is exactly what a
+  fresh install needs. Recovery isn't a special path; it's the ordinary one
+  with an empty starting point.
+- Deletions propagate, so removing a moment later is a one-line change.
+
+### What it costs
+
+**In iCloud:** roughly **270 KB per moment** (a 1280px copy plus a 512px
+thumbnail), and it accumulates. A thousand moments is around 270 MB against
+your iCloud quota — real, but comfortable inside the free 5 GB, and it only
+grows as fast as you actually send things.
+
+**On the phone:** bounded, and much smaller. The device keeps
+metadata for the last `AppConfig.momentHistoryLimit` (500) entries — a few
+hundred bytes each, so well under 100 KB — but image files only for the
+`momentImageCacheLimit` (60) most recent, around 16 MB. Scroll further back in
+the gallery and the image is **fetched from CloudKit on demand**, with a
+spinner while it lands.
+
+That split is what lets the history be unlimited without the phone carrying
+every photo you've ever exchanged. The index is a JSON file in the App Group
+rather than part of `Snapshot`, because the widget decodes the snapshot on
+every render and has no business parsing hundreds of history entries.
 
 ### Mechanics
 
-Every refresh fetches the moment slot with `desiredKeys` limited to the id, and
-only downloads the image when that id is one this device hasn't stored. Two
-sizes are written per moment: a full copy for the app and a ~512px one for the
-widget, because widget extensions have a hard memory ceiling and decoding a
-full-resolution photo there is the quickest way to get jetsammed.
+Change fetches use `desiredKeys` to exclude the two `CKAsset` fields, so a
+sync — including the big first one after a reinstall — moves only metadata.
+Images for the ten newest arrivals are pulled straight after; everything older
+waits until you look at it.
 
 Images travel as `CKAsset`s, which **CloudKit encrypts by default** — they must
 *not* be put through `encryptedValues`, which rejects them. The caption and
 sender name are explicitly encrypted alongside.
 
+Anywhere a photo is shown in a square — the composer, the home card, the
+library grid — it goes through `SquareFill`. `Image.resizable().scaledToFill()`
+reports the size it needs *in order to fill*, so as a plain child it drags its
+parent out to that size and a later `.aspectRatio(1, contentMode: .fit)` can't
+pull it back. `SquareFill` sizes from a `Color.clear` (no intrinsic size) and
+hangs the image in an `overlay`, which reverses the negotiation: the box
+decides, the content fits. Use it rather than reinventing the frame.
+
 Drawing is PencilKit (`PKCanvasView`) with a small custom palette rather than
 `PKToolPicker`, which docks itself to the window and fights with sheets on
-iPhone. The canvas is square because the widget is square — composing in the
-destination's shape means nothing gets unexpectedly cropped later. Strokes are
-rasterised at export resolution, not upscaled from the on-screen canvas.
+iPhone. Doodles with no photo behind them get a **backdrop colour**; choosing
+the dark one flips black ink to white so you can't end up drawing
+black-on-black. The canvas is square because the widget is square — composing
+in the destination's shape means nothing gets unexpectedly cropped later.
+Strokes are rasterised at export resolution, not upscaled from the on-screen
+canvas.
 
 ## Possible improvements
 
-**Deliver nudges as a real alert push.** Today a nudge is a counter on your
-status record: the silent push wakes the app, which raises a *local*
-notification. That inherits every silent-push weakness — throttled, and dead
-while the app is force-quit.
-
-`CKDatabaseSubscription` has a `recordType` property, so the two concerns can be
-split into two subscriptions against the same database:
-
-| record type | notificationInfo | behaviour |
-|---|---|---|
-| `Status` | `shouldSendContentAvailable` | silent; refreshes the widget |
-| `Nudge` | `alertBody` + `soundName` | visible, higher priority, delivered by APNs without waking the app |
-
-That makes nudges reliable even when the app is force-quit, with no server. It
-needs `Nudge` restored as its own record type rather than a counter.
-
-One trade-off: CloudKit's server composes the alert text and cannot read
-`encryptedValues`, so personalising it to *"Sam is thinking of you"* requires
-the sender's name in an unencrypted field on the `Nudge` record. A generic
-*"💭 Thinking of you"* keeps everything encrypted.
+- **Reactions on a moment** — a heart or a quick emoji back, without composing
+  a whole reply. Would need a small `Reaction` record type and a fourth
+  subscription.
+- **Status history** — the app keeps only the current status. Keeping a rolling
+  log would make "you were asleep when I sent that" legible.
+- **A shared countdown** to the next time you're in the same place, as a
+  dedicated lock screen widget.
 
 ## Known limitations
 
 - **Lock screen widgets are monochrome.** iOS renders accessory widgets in a
   vibrant, desaturated style; emoji become white silhouettes. Every layout
   therefore pairs the emoji with words rather than relying on colour.
-- **Silent pushes are throttled by iOS** and stop entirely if the app is
-  force-quit. The widget's own periodic fetch is the backstop.
-- **Before a TestFlight or App Store build**, change `aps-environment` in
-  [Tether.entitlements](Sources/App/Resources/Tether.entitlements) from
-  `development` to `production`, and deploy the CloudKit schema to Production
-  from the CloudKit Console. The dev environment creates the schema for you on
-  first save; production does not.
+- **Status updates are silent, so they can lag.** Nudges and photos arrive as
+  real alerts and survive a force-quit; a plain status change relies on a
+  throttled background wake, and won't reach a force-quit phone until something
+  else wakes the app. The widget's hourly fetch is the backstop.
+- **The first sync after a reinstall pulls the whole zone.** Metadata only, so
+  it's quick, but the images arrive gradually — the ten newest immediately and
+  the rest as you scroll back. Expect placeholders in the gallery for a while
+  on a fresh phone.
+- **The service extension has ~30 seconds and a small memory ceiling.** If the
+  CloudKit fetch is slow it falls back to CloudKit's generic wording rather
+  than showing nothing — you'd see *"Sent you something 📷"* instead of the
+  caption, and the app fills in the detail on next launch.
+
+## Shipping it
+
+Everything below is already wired up; this is the order to do it in.
+
+1. **Set your team** on all three targets (`Tether`,
+   `TetherWidgetExtension`, `TetherNotificationService`), or set
+   `DEVELOPMENT_TEAM` in [project.yml](project.yml) and re-run `make project`.
+2. **Run once on a device** with a Debug build. That creates the CloudKit
+   *Development* schema automatically — record types `Status`, `Nudge` and
+   `Moment` with their fields — the first time each record is saved. Pair, set
+   a status, send a nudge and send a photo, so every type and field actually
+   gets created.
+3. **Deploy the schema to Production** in the CloudKit Console
+   (*Schema → Deploy Schema Changes*). Production does **not** auto-create
+   anything, so an App Store build against an undeployed schema fails on every
+   write. Re-deploy whenever you add a field.
+4. **Archive.** The Release configuration already points at
+   [Tether-Release.entitlements](Sources/App/Resources/Tether-Release.entitlements),
+   which sets `aps-environment` to `production`; Debug uses the `development`
+   file. This is per-configuration in `project.yml`, so there's nothing to
+   remember at archive time.
+
+Two things to know about the CloudKit schema:
+
+- **Encryption is fixed at field creation.** CloudKit won't let you encrypt a
+  field that already exists unencrypted. If you experimented with an earlier
+  build and the dev schema has the wrong shape, reset the Development
+  environment in the Console before running again.
+- **Subscriptions must be created in Development first**, then promoted — the
+  app registers them on launch and after pairing, so this happens on its own
+  as long as step 2 was done in Debug.
 
 ## Layout
 
@@ -244,6 +358,7 @@ Sources/
     Models/                  Mood, StatusPayload, PairingInfo, Snapshot, Moment
     Store/SharedStore.swift  App Group cache — the app↔widget channel
     Store/MomentStore.swift  image files in the App Group, full + thumb
+    Store/MomentIndex.swift  the durable history list, kept out of the snapshot
     Cloud/SyncBackend.swift  the protocol both backends implement
     Cloud/CloudSync.swift    CloudKit: sharing, records, assets, subscriptions
     Cloud/LocalSync.swift    the no-network demo partner
@@ -259,6 +374,8 @@ Sources/
     StatusWidget.swift, WidgetViews.swift, StatusProvider.swift
     MomentWidget.swift                   the photo/doodle widget
     SendNudgeIntent.swift                the lock screen heart
+  NotificationService/
+    NotificationService.swift            enriches pushes; runs when the app can't
 Config/
   Local.entitlements                     App Group only, for `make local`
 ```

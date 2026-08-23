@@ -4,10 +4,14 @@ import Foundation
 /// notification.
 struct RefreshResult: Sendable {
     var partnerStatus: StatusPayload?
-    /// Non-nil only when the partner sent something this device hadn't seen.
-    var newPartnerMoment: Moment?
+    /// Anything the partner sent that this device hadn't already stored,
+    /// oldest first. Often several at once — a change fetch returns everything
+    /// since the last token, and a fresh install returns the whole zone.
+    var newPartnerMoments: [Moment] = []
 
-    static let empty = RefreshResult(partnerStatus: nil, newPartnerMoment: nil)
+    var newestPartnerMoment: Moment? { newPartnerMoments.last }
+
+    static let empty = RefreshResult(partnerStatus: nil, newPartnerMoments: [])
 }
 
 /// Whether the backend can actually do anything right now.
@@ -30,6 +34,9 @@ protocol SyncBackend: Sendable {
     @discardableResult func sendNudge() async throws -> Bool
     /// Image files are already on disk in the App Group under `moment.id`.
     func send(_ moment: Moment) async throws
+    /// Pulls the image files for a history entry whose images aren't cached
+    /// locally any more. No-op for backends that never evict.
+    func fetchImages(for moment: Moment) async throws
     func registerSubscription() async throws
     func unpair() async
 }

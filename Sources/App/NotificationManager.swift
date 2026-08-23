@@ -27,9 +27,11 @@ enum NotificationManager {
 
     /// A photo or drawing arrived. The image rides along as an attachment so
     /// it's visible from the lock screen without opening the app.
+    /// `name` is only a fallback: the moment carries the name its sender had
+    /// when they sent it, and that's what should appear.
     static func postMoment(_ moment: Moment, from name: String) async {
         let content = UNMutableNotificationContent()
-        content.title = name
+        content.title = moment.senderName.isEmpty ? name : moment.senderName
         content.body = moment.caption.isEmpty
             ? (moment.kind == .photo ? "sent you a photo 📷" : "sent you a drawing ✏️")
             : moment.caption

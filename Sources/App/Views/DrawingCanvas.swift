@@ -20,6 +20,35 @@ final class DrawingController {
     ]
     static let widths: [CGFloat] = [4, 10, 22]
 
+    /// Backdrops for a doodle with no photo behind it. `isDark` drives the
+    /// automatic ink flip, so picking charcoal doesn't leave you drawing
+    /// black-on-black.
+    struct Backdrop: Identifiable, Equatable {
+        let color: Color
+        let isDark: Bool
+        var id: String { "\(color)" }
+    }
+
+    static let backdrops: [Backdrop] = [
+        Backdrop(color: .white, isDark: false),
+        Backdrop(color: Color(red: 1.00, green: 0.96, blue: 0.90), isDark: false),
+        Backdrop(color: Color(red: 1.00, green: 0.88, blue: 0.90), isDark: false),
+        Backdrop(color: Color(red: 0.87, green: 0.92, blue: 1.00), isDark: false),
+        Backdrop(color: Color(red: 0.86, green: 0.96, blue: 0.92), isDark: false),
+        Backdrop(color: Color(red: 0.91, green: 0.88, blue: 1.00), isDark: false),
+        Backdrop(color: Color(red: 0.17, green: 0.17, blue: 0.19), isDark: true),
+    ]
+
+    var backdrop: Backdrop = backdrops[0] {
+        didSet {
+            guard backdrop != oldValue else { return }
+            // Flip the ink only if it would otherwise vanish, and only from
+            // the two extremes — a pink pen stays pink.
+            if backdrop.isDark, color == .black { color = .white }
+            if !backdrop.isDark, color == .white { color = .black }
+        }
+    }
+
     var color: Color = .black { didSet { applyTool() } }
     var width: CGFloat = 10 { didSet { applyTool() } }
     var isErasing = false { didSet { applyTool() } }
@@ -65,7 +94,7 @@ final class DrawingController {
         format.opaque = true
 
         return UIGraphicsImageRenderer(size: rect.size, format: format).image { context in
-            UIColor.white.setFill()
+            UIColor(backdrop.color).setFill()
             context.fill(rect)
             photo?.drawAspectFill(in: rect)
 
@@ -112,6 +141,9 @@ struct DrawingCanvas: UIViewRepresentable {
 /// The palette: colours, three widths, eraser, undo, clear.
 struct DrawingPalette: View {
     @Bindable var controller: DrawingController
+    /// Hidden when a photo is behind the canvas, where a backdrop would never
+    /// be visible.
+    var showsBackdrop: Bool = true
 
     var body: some View {
         VStack(spacing: 14) {
@@ -163,6 +195,41 @@ struct DrawingPalette: View {
                 }
                 toolButton("arrow.uturn.backward", active: false) { controller.undo() }
                 toolButton("trash", active: false) { controller.clear() }
+            }
+
+            if showsBackdrop {
+                Divider()
+                // Label above rather than beside: inline, it wrapped mid-word
+                // once seven swatches were competing for the same row.
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("BACKGROUND")
+                        .font(Theme.rounded(10, .semibold))
+                        .tracking(1.0)
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 12) {
+                        ForEach(DrawingController.backdrops) { backdrop in
+                            Button {
+                                controller.backdrop = backdrop
+                            } label: {
+                                Circle()
+                                    .fill(backdrop.color)
+                                    .frame(width: 26, height: 26)
+                                    .overlay(Circle().strokeBorder(Color.primary.opacity(0.15),
+                                                                   lineWidth: 1))
+                                    .overlay(
+                                        Circle()
+                                            .strokeBorder(Theme.accent, lineWidth: 2.5)
+                                            .padding(-3.5)
+                                            .opacity(controller.backdrop == backdrop ? 1 : 0)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }

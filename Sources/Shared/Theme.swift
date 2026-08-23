@@ -47,6 +47,29 @@ enum Theme {
     }
 }
 
+// MARK: - Square
+
+/// A square box whose contents cannot change its size.
+///
+/// `Image.resizable().scaledToFill()` reports the size it needs in order to
+/// fill, which for a tall photo is far bigger than the space offered. As a
+/// plain child that drags its parent out with it, and a later
+/// `.aspectRatio(1, contentMode: .fit)` can't pull it back — the frame is
+/// already wrong by the time it applies. Sizing from `Color.clear` (no
+/// intrinsic size) and hanging the content in an `overlay` fixes the direction
+/// of that negotiation: the box decides, the content fits.
+///
+/// Callers still supply their own clip shape.
+struct SquareFill<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        Color.clear
+            .aspectRatio(1, contentMode: .fit)
+            .overlay { content }
+    }
+}
+
 // MARK: - Card
 
 private struct CardModifier: ViewModifier {

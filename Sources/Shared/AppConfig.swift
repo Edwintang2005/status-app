@@ -19,13 +19,20 @@ enum AppConfig {
     /// Identifier passed to `WidgetCenter` reloads and declared by the widget.
     static let widgetKind = "TetherStatusWidget"
 
-    /// Minimum gap between nudges, so a stuck thumb can't spam the other phone.
-    static let nudgeCooldown: TimeInterval = 60
+    /// Minimum gap between nudges. Short on purpose: this exists to stop a
+    /// double-tap sending twice while the first write is still in flight, not
+    /// to ration affection. Sending a few hearts in a row is the point.
+    static let nudgeCooldown: TimeInterval = 3
 
     /// Identifier for the photo/drawing widget.
     static let momentWidgetKind = "TetherMomentWidget"
 
-    /// How many moments each device keeps locally. The server only ever holds
-    /// the latest one per person; history is accumulated on-device.
-    static let momentHistoryLimit = 30
+    /// Entries kept in the on-device history index. Metadata only, so this can
+    /// be generous — CloudKit keeps everything regardless, and a fresh install
+    /// pulls the whole zone back.
+    static let momentHistoryLimit = 500
+
+    /// How many recent moments keep their image files on this device. Older
+    /// ones are fetched from CloudKit on demand when you scroll to them.
+    static let momentImageCacheLimit = 60
 }

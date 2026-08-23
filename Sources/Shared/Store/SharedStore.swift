@@ -70,49 +70,90 @@ final class SharedStore {
         set { defaults.set(newValue, forKey: Key.notificationsRequested) }
     }
 
-    /// Wipes pairing and cached statuses but keeps the nickname, so re-pairing
-    /// doesn't lose a preference the user typed.
+    /// Wipes pairing, cached statuses and the whole moment history.
     func resetPairing() {
-        let nickname = snapshot.partnerNickname
         pairing = nil
+        MomentIndex.shared.clear()
+        MomentStore.shared.prune(keeping: [])
+        for key in ["private", "shared"] { setChangeToken(nil, for: key) }
         snapshot = Snapshot(
             mine: nil,
             theirs: nil,
-            partnerNickname: nickname,
             isPaired: false,
             lastSyncedAt: nil,
             lastSeenPartnerNudgeCount: 0,
-            lastNudgeSentAt: nil
+            lastNudgeSentAt: nil,
+            latestPartnerMoment: nil,
+            latestOwnMoment: nil,
+            lastNotifiedMomentID: nil
         )
         Self.reloadWidgets()
     }
 
     // MARK: - Widgets
 
-    /// `true` when this code is running inside the widget extension rather
-    /// than the app.
-    static let isRunningInExtension = Bundle.main.bundlePath.hasSuffix(".appex")
+    /// `true` only inside the WidgetKit extension — deliberately not "any
+    /// extension", because the notification service extension *does* need to
+    /// reload widgets: it may be the only part of the app that runs when a
+    /// photo arrives on a force-quit phone.
+    static let isRunningInWidgetExtension: Bool = {
+        guard let extensionInfo = Bundle.main.infoDictionary?["NSExtension"] as? [String: Any],
+              let point = extensionInfo["NSExtensionPointIdentifier"] as? String else {
+            return false
+        }
+        return point == "com.apple.widgetkit-extension"
+    }()
 
-    /// Inserts a moment at the head, trims to the history limit and deletes
-    /// the image files of anything that fell off the end.
-    func record(_ moment: Moment) {
-        mutate { snapshot in
-            snapshot.moments.removeAll { $0.id == moment.id }
-            snapshot.moments.insert(moment, at: 0)
-            if snapshot.moments.count > AppConfig.momentHistoryLimit {
-                snapshot.moments = Array(snapshot.moments.prefix(AppConfig.momentHistoryLimit))
+    /// Files the moment in the durable history index, promotes it to the
+    /// snapshot if it's the newest in its direction, and trims cached images.
+    func record(_ moments: [Moment]) {
+        guard !moments.isEmpty else { return }
+        let all = MomentIndex.shared.insert(moments)
+
+        mutate(reloadWidgets: false) { snapshot in
+            if let newestTheirs = all.first(where: { !$0.fromMe }) {
+                snapshot.latestPartnerMoment = newestTheirs
+            }
+            if let newestMine = all.first(where: { $0.fromMe }) {
+                snapshot.latestOwnMoment = newestMine
             }
         }
-        MomentStore.shared.prune(keeping: snapshot.moments.map(\.id))
+
+        // Keep every entry in the index but only recent images on disk; older
+        // ones are re-fetched from CloudKit when the gallery reaches them.
+        let keep = all.prefix(AppConfig.momentImageCacheLimit).map(\.id)
+        MomentStore.shared.prune(keeping: keep)
         Self.reloadWidgets()
+    }
+
+    func record(_ moment: Moment) {
+        record([moment])
+    }
+
+    // MARK: - CloudKit change tokens
+
+    /// Opaque per-zone `CKServerChangeToken`, so a sync only asks for what has
+    /// changed. Clearing it makes the next sync pull the entire zone, which is
+    /// how a reinstalled app recovers its whole history.
+    func changeToken(for key: String) -> Data? {
+        defaults.data(forKey: "changeToken-\(key)")
+    }
+
+    func setChangeToken(_ data: Data?, for key: String) {
+        let name = "changeToken-\(key)"
+        if let data {
+            defaults.set(data, forKey: name)
+        } else {
+            defaults.removeObject(forKey: name)
+        }
     }
 
     static func reloadWidgets() {
         #if canImport(WidgetKit)
         // A reload requested from inside the widget process would re-enter the
         // timeline provider that just wrote the snapshot. WidgetKit already
-        // refreshes after an interactive intent, so extensions never need this.
-        guard !isRunningInExtension else { return }
+        // refreshes after an interactive intent, so it never needs this.
+        guard !isRunningInWidgetExtension else { return }
         WidgetCenter.shared.reloadTimelines(ofKind: AppConfig.widgetKind)
         WidgetCenter.shared.reloadTimelines(ofKind: AppConfig.momentWidgetKind)
         #endif
