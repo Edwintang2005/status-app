@@ -22,6 +22,10 @@ struct TetherApp: App {
                 .onReceive(NotificationCenter.default.publisher(for: .pairingDidFail)) { note in
                     model.errorMessage = note.object as? String
                 }
+                .onOpenURL { url in
+                    // Tapping the photo widget jumps straight to the composer.
+                    if url.host == "compose" { model.pendingComposer = true }
+                }
         }
     }
 }

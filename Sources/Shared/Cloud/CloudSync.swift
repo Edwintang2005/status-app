@@ -30,7 +30,7 @@ enum SyncError: LocalizedError {
         case .cloudKitDisabled:
             return """
             This build was compiled without CloudKit, so pairing is unavailable. \
-            Rebuild without TETHER_NO_CLOUDKIT and sign with your Apple \
+            Rebuild without TETHER_LOCAL_MODE and sign with your Apple \
             Developer team.
             """
         }
@@ -44,15 +44,16 @@ enum SyncError: LocalizedError {
 /// accepts and sees that zone in their shared database. Both partners can then
 /// write into it. Each side writes exactly one record, named after its role,
 /// which is why neither device ever needs to learn the other's CloudKit user ID.
-actor CloudSync {
+actor CloudSync: SyncBackend {
     static let shared = CloudSync()
 
-    /// `nil` only in `TETHER_NO_CLOUDKIT` builds.
+    /// `nil` only in `TETHER_LOCAL_MODE` builds.
     private let container: CKContainer?
     private let log = Logger(subsystem: AppConfig.appGroupID, category: "CloudSync")
 
     private enum RecordType {
         static let status = "Status"
+        static let moment = "Moment"
     }
 
     private enum Field {
@@ -65,17 +66,27 @@ actor CloudSync {
         static let updatedAt = "updatedAt"
         static let nudgeCount = "nudgeCount"
         static let lastNudgeAt = "lastNudgeAt"
+
+        // Moment. `image`/`thumb` are CKAssets, which CloudKit encrypts by
+        // default — they must NOT go through `encryptedValues`.
+        static let momentID = "momentID"
+        static let kind = "kind"
+        static let caption = "caption"
+        static let senderName = "senderName"
+        static let sentAt = "sentAt"
+        static let image = "image"
+        static let thumb = "thumb"
     }
 
     private static let subscriptionID = "couple-zone-changes"
 
     /// `CKContainer(identifier:)` traps at launch when the identifier isn't in
     /// the running binary's entitlements — which is true of any unsigned build.
-    /// Compiling with `TETHER_NO_CLOUDKIT` skips creating it, so the UI can be
-    /// built and run before an Apple Developer team and iCloud container are
-    /// set up. Every sync call then throws `SyncError.cloudKitDisabled`.
+    /// Compiling with `TETHER_LOCAL_MODE` skips creating it. That build talks
+    /// to `LocalSync` instead, so this type is never used there — but the guard
+    /// keeps a stray `CloudSync.shared` from taking the whole app down.
     init(container: CKContainer? = nil) {
-        #if TETHER_NO_CLOUDKIT
+        #if TETHER_LOCAL_MODE
         self.container = container
         #else
         self.container = container ?? CKContainer(identifier: AppConfig.cloudContainerID)
@@ -91,6 +102,19 @@ actor CloudSync {
 
     func accountStatus() async throws -> CKAccountStatus {
         try await requireContainer().accountStatus()
+    }
+
+    func readiness() async -> BackendReadiness {
+        do {
+            let status = try await accountStatus()
+            guard status == .available else {
+                return .unavailable(SyncError.iCloudUnavailable(status).errorDescription ?? "")
+            }
+            return .ready
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            return .unavailable(message)
+        }
     }
 
     private func requireAvailableAccount() async throws {
@@ -171,7 +195,7 @@ actor CloudSync {
     private func bootstrapAfterPairing(displayName: String) async throws {
         try? await registerSubscription()
         try await publish(.initial(displayName: displayName))
-        let theirs = (try? await fetchStatuses()) ?? nil
+        let theirs = (try? await refresh())?.partnerStatus
         // Seed the nudge watermark from whatever is already on the server, so
         // pairing against an existing history doesn't fire a burst of stale
         // "thinking of you" notifications.
@@ -225,11 +249,10 @@ actor CloudSync {
                                              savePolicy: .changedKeys)
     }
 
-    /// Fetches both status records in one round trip and folds them into the
-    /// shared snapshot. Returns the partner's payload when it changed, so the
-    /// caller can decide whether to notify.
+    /// Pulls both status records plus the partner's latest moment, and folds
+    /// everything into the shared snapshot.
     @discardableResult
-    func fetchStatuses() async throws -> StatusPayload? {
+    func refresh() async throws -> RefreshResult {
         let pairing = try await requirePairing()
         let database = try self.database(for: pairing)
         let zone = zoneID(for: pairing)
@@ -249,7 +272,85 @@ actor CloudSync {
                 $0.lastSyncedAt = Date()
             }
         }
-        return theirs
+
+        let newMoment = try? await fetchPartnerMoment(pairing: pairing, in: database, zone: zone)
+        return RefreshResult(partnerStatus: theirs, newPartnerMoment: newMoment ?? nil)
+    }
+
+    /// Checks the partner's moment slot cheaply, and only pays for the image
+    /// download when the id is one this device hasn't stored yet.
+    private func fetchPartnerMoment(pairing: PairingInfo,
+                                    in database: CKDatabase,
+                                    zone: CKRecordZone.ID) async throws -> Moment? {
+        let recordID = CKRecord.ID(recordName: pairing.role.other.momentRecordName, zoneID: zone)
+
+        // Assets are excluded from this fetch on purpose — it runs on every
+        // push, and re-downloading a photo we already have would be wasteful.
+        let meta = try await database.records(for: [recordID],
+                                              desiredKeys: [Field.momentID, Field.sentAt])
+        guard case .success(let stub)? = meta[recordID],
+              let remoteID = stub[Field.momentID] as? String else { return nil }
+
+        let alreadyHave = await MainActor.run {
+            SharedStore.shared.snapshot.moments.contains { $0.id == remoteID }
+        }
+        guard !alreadyHave else { return nil }
+
+        guard let record = try await fetchRecord(recordID, in: database),
+              let kindRaw = record[Field.kind] as? String,
+              let kind = Moment.Kind(rawValue: kindRaw) else { return nil }
+
+        let store = MomentStore.shared
+        try Self.copyAsset(record[Field.image] as? CKAsset, to: store.imageURL(for: remoteID))
+        try Self.copyAsset(record[Field.thumb] as? CKAsset, to: store.thumbURL(for: remoteID))
+
+        let moment = Moment(
+            id: remoteID,
+            kind: kind,
+            caption: record.encryptedValues[Field.caption] as? String ?? "",
+            senderName: record.encryptedValues[Field.senderName] as? String ?? "",
+            sentAt: record[Field.sentAt] as? Date ?? record.modificationDate ?? Date(),
+            fromMe: false
+        )
+        await MainActor.run { SharedStore.shared.record(moment) }
+        return moment
+    }
+
+    private static func copyAsset(_ asset: CKAsset?, to destination: URL?) throws {
+        guard let source = asset?.fileURL, let destination else { return }
+        try? FileManager.default.removeItem(at: destination)
+        try FileManager.default.copyItem(at: source, to: destination)
+    }
+
+    // MARK: - Moments
+
+    /// Overwrites this device's single moment slot. The image files are
+    /// already on disk under `moment.id`.
+    func send(_ moment: Moment) async throws {
+        let pairing = try await requirePairing()
+        let database = try self.database(for: pairing)
+        let recordID = CKRecord.ID(recordName: pairing.role.momentRecordName,
+                                   zoneID: zoneID(for: pairing))
+
+        let store = MomentStore.shared
+        guard let fullURL = store.imageURL(for: moment.id),
+              let thumbURL = store.thumbURL(for: moment.id) else {
+            throw MomentStoreError.containerUnavailable
+        }
+
+        let record = try await fetchRecord(recordID, in: database)
+            ?? CKRecord(recordType: RecordType.moment, recordID: recordID)
+        record[Field.momentID] = moment.id as CKRecordValue
+        record[Field.kind] = moment.kind.rawValue as CKRecordValue
+        record[Field.sentAt] = moment.sentAt as CKRecordValue
+        record.encryptedValues[Field.caption] = moment.caption
+        record.encryptedValues[Field.senderName] = moment.senderName
+        record[Field.image] = CKAsset(fileURL: fullURL)
+        record[Field.thumb] = CKAsset(fileURL: thumbURL)
+
+        _ = try await database.modifyRecords(saving: [record],
+                                             deleting: [],
+                                             savePolicy: .changedKeys)
     }
 
     // MARK: - Nudges

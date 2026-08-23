@@ -14,7 +14,10 @@ struct StatusProvider: TimelineProvider {
 
     /// WidgetKit gives the provider a limited budget; give up well before it.
     private static let fetchTimeout: Duration = .seconds(8)
-    private static let refreshInterval: TimeInterval = 30 * 60
+    /// The only part of the widget that costs battery: each tick spends a
+    /// process launch and a CloudKit round trip. It's a backstop for dropped
+    /// silent pushes, not the primary path, so it can afford to be lazy.
+    private static let refreshInterval: TimeInterval = 60 * 60
 
     func placeholder(in context: Context) -> StatusEntry {
         StatusEntry(date: Date(), snapshot: .preview)
@@ -40,7 +43,7 @@ struct StatusProvider: TimelineProvider {
         guard await MainActor.run(body: { SharedStore.shared.pairing != nil }) else { return }
         do {
             try await withThrowingTaskGroup(of: Void.self) { group in
-                group.addTask { _ = try await CloudSync.shared.fetchStatuses() }
+                group.addTask { _ = try await Backend.current.refresh() }
                 group.addTask {
                     try await Task.sleep(for: fetchTimeout)
                     throw CancellationError()

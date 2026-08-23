@@ -52,6 +52,15 @@ enum PairRole: String, Codable {
         }
     }
 
+    /// The server holds only the newest moment per person, at a fixed name;
+    /// each device accumulates its own history locally.
+    var momentRecordName: String {
+        switch self {
+        case .owner: return "moment-owner"
+        case .participant: return "moment-participant"
+        }
+    }
+
     var other: PairRole {
         self == .owner ? .participant : .owner
     }
@@ -84,6 +93,12 @@ struct Snapshot: Codable, Hashable {
     /// When this device last *sent* a nudge, for cooldown enforcement.
     var lastNudgeSentAt: Date?
 
+    /// Newest first, both directions, capped at `AppConfig.momentHistoryLimit`.
+    /// Image bytes live on disk in the App Group; this is only the index.
+    var moments: [Moment] = []
+    /// The partner moment id already surfaced as a notification here.
+    var lastSeenMomentID: String?
+
     static let empty = Snapshot(
         mine: nil,
         theirs: nil,
@@ -91,8 +106,19 @@ struct Snapshot: Codable, Hashable {
         isPaired: false,
         lastSyncedAt: nil,
         lastSeenPartnerNudgeCount: 0,
-        lastNudgeSentAt: nil
+        lastNudgeSentAt: nil,
+        moments: [],
+        lastSeenMomentID: nil
     )
+
+    /// The newest thing the partner sent — what the moment widget shows.
+    var latestPartnerMoment: Moment? {
+        moments.first { !$0.fromMe }
+    }
+
+    var latestOwnMoment: Moment? {
+        moments.first { $0.fromMe }
+    }
 
     /// Nickname wins over whatever the partner calls themselves.
     var partnerDisplayName: String {
@@ -126,6 +152,15 @@ struct Snapshot: Codable, Hashable {
         isPaired: true,
         lastSyncedAt: Date(),
         lastSeenPartnerNudgeCount: 3,
-        lastNudgeSentAt: nil
+        lastNudgeSentAt: nil,
+        moments: [
+            Moment(id: "preview-moment",
+                   kind: .photo,
+                   caption: "morning ☕️",
+                   senderName: "Sam",
+                   sentAt: Date().addingTimeInterval(-5_400),
+                   fromMe: false)
+        ],
+        lastSeenMomentID: "preview-moment"
     )
 }

@@ -1,31 +1,36 @@
 import Foundation
 import os
 
-/// The one place that turns "something changed in CloudKit" into updated local
-/// state, a refreshed widget, and — when the partner has nudged — a
-/// notification. Called from the UI, from foregrounding, and from silent
-/// pushes, so the behaviour is identical however the refresh was triggered.
+/// The one place that turns "something changed" into updated local state, a
+/// refreshed widget, and — where warranted — a notification. Called from the
+/// UI, from foregrounding, and from silent pushes, so behaviour is identical
+/// however the refresh was triggered.
 @MainActor
 enum SyncRunner {
     private static let log = Logger(subsystem: AppConfig.appGroupID, category: "SyncRunner")
 
-    /// - Returns: `true` if anything about the partner's status changed.
+    /// - Returns: `true` if anything the user would notice changed.
     @discardableResult
-    static func refresh(announceNudges: Bool = true) async throws -> Bool {
+    static func refresh(announce: Bool = true) async throws -> Bool {
         let store = SharedStore.shared
-        let before = store.snapshot.theirs
+        let previousStatus = store.snapshot.theirs
 
-        guard let theirs = try await CloudSync.shared.fetchStatuses() else { return false }
+        let result = try await Backend.current.refresh()
 
-        if announceNudges, theirs.nudgeCount > store.snapshot.lastSeenPartnerNudgeCount {
+        if let theirs = result.partnerStatus,
+           theirs.nudgeCount > store.snapshot.lastSeenPartnerNudgeCount {
             let name = store.snapshot.partnerDisplayName
             store.mutate(reloadWidgets: false) { $0.lastSeenPartnerNudgeCount = theirs.nudgeCount }
-            await NotificationManager.postNudge(from: name)
-        } else if theirs.nudgeCount > store.snapshot.lastSeenPartnerNudgeCount {
-            store.mutate(reloadWidgets: false) { $0.lastSeenPartnerNudgeCount = theirs.nudgeCount }
+            if announce { await NotificationManager.postNudge(from: name) }
         }
 
-        return before != theirs
+        if let moment = result.newPartnerMoment, store.snapshot.lastSeenMomentID != moment.id {
+            let name = store.snapshot.partnerDisplayName
+            store.mutate(reloadWidgets: false) { $0.lastSeenMomentID = moment.id }
+            if announce { await NotificationManager.postMoment(moment, from: name) }
+        }
+
+        return previousStatus != result.partnerStatus || result.newPartnerMoment != nil
     }
 
     /// Best-effort variant for background wake-ups, where throwing is pointless.

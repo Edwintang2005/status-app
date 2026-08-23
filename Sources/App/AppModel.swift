@@ -1,4 +1,3 @@
-import CloudKit
 import Foundation
 import Observation
 import SwiftUI
@@ -16,11 +15,16 @@ final class AppModel {
     private(set) var isBusy = false
     private(set) var isRefreshing = false
     private(set) var inviteURL: URL?
-    private(set) var accountStatus: CKAccountStatus?
+    /// Non-nil when the backend can't work — no iCloud account, and so on.
+    private(set) var readinessMessage: String?
 
     var errorMessage: String?
-    /// Set briefly after a successful nudge so the UI can confirm it landed.
-    var nudgeConfirmation: Date?
+    /// Set by the `tether://compose` deep link so the widget can open straight
+    /// into the composer.
+    var pendingComposer = false
+
+    /// True in `make local` builds: no CloudKit, a fictional partner.
+    let isLocalDemo = Backend.isLocalDemo
 
     /// The store is injectable so SwiftUI previews and tests can run against a
     /// throwaway defaults suite instead of the real App Group.
@@ -56,14 +60,20 @@ final class AppModel {
 
     var canNudge: Bool { isPaired && nudgeCooldownRemaining == 0 }
 
+    var latestPartnerMoment: Moment? { snapshot.latestPartnerMoment }
+
     // MARK: - Lifecycle
 
     func onLaunch() async {
-        accountStatus = try? await CloudSync.shared.accountStatus()
+        if case .unavailable(let message) = await Backend.current.readiness() {
+            readinessMessage = message
+        } else {
+            readinessMessage = nil
+        }
         guard isPaired else { return }
         // Subscriptions are cheap to re-assert and easy to lose across
         // reinstalls, so confirm on every launch rather than only at pairing.
-        try? await CloudSync.shared.registerSubscription()
+        try? await Backend.current.registerSubscription()
         await refresh()
     }
 
@@ -102,23 +112,22 @@ final class AppModel {
     // MARK: - Status
 
     func setStatus(emoji: String, message: String) async {
-        let name = snapshot.mine?.displayName ?? ""
         let payload = StatusPayload(
             emoji: emoji,
             message: message.trimmingCharacters(in: .whitespacesAndNewlines),
-            displayName: name,
+            displayName: snapshot.mine?.displayName ?? "",
             updatedAt: Date(),
             nudgeCount: snapshot.mine?.nudgeCount ?? 0,
             lastNudgeAt: snapshot.mine?.lastNudgeAt
         )
 
-        // Show it immediately; CloudKit catches up underneath.
+        // Show it immediately; the backend catches up underneath.
         store.mutate { $0.mine = payload }
         reload()
 
         guard isPaired else { return }
         do {
-            try await CloudSync.shared.publish(payload)
+            try await Backend.current.publish(payload)
             reload()
         } catch {
             present(error)
@@ -127,15 +136,14 @@ final class AppModel {
 
     private func updateMyDisplayName(_ newValue: String) {
         let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        let existing = snapshot.mine ?? .initial(displayName: trimmed)
-        var payload = existing
+        var payload = snapshot.mine ?? .initial(displayName: trimmed)
         payload.displayName = trimmed
         store.mutate { $0.mine = payload }
         reload()
 
         guard isPaired else { return }
         Task { [payload] in
-            do { try await CloudSync.shared.publish(payload) } catch { present(error) }
+            do { try await Backend.current.publish(payload) } catch { present(error) }
         }
     }
 
@@ -144,8 +152,7 @@ final class AppModel {
     func sendNudge() async {
         guard canNudge else { return }
         do {
-            if try await CloudSync.shared.sendNudge() {
-                nudgeConfirmation = Date()
+            if try await Backend.current.sendNudge() {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             }
             reload()
@@ -155,8 +162,82 @@ final class AppModel {
         }
     }
 
+    // MARK: - Moments
+
+    /// Writes the image to the App Group first so the UI and widget update
+    /// instantly, then uploads. A failed upload leaves the local copy in place.
+    func sendMoment(image: UIImage, kind: Moment.Kind, caption: String) async {
+        isBusy = true
+        defer { isBusy = false }
+
+        let moment = Moment(
+            kind: kind,
+            caption: caption.trimmingCharacters(in: .whitespacesAndNewlines),
+            senderName: snapshot.mine?.displayName ?? "",
+            fromMe: true
+        )
+
+        do {
+            try MomentStore.shared.write(image, id: moment.id)
+        } catch {
+            present(error)
+            return
+        }
+
+        store.record(moment)
+        reload()
+
+        guard isPaired else { return }
+        do {
+            try await Backend.current.send(moment)
+        } catch {
+            present(error)
+        }
+    }
+
     // MARK: - Pairing
 
+    #if TETHER_LOCAL_MODE
+    /// Local builds skip invites entirely and pair with the fictional partner.
+    func startDemo() async {
+        isBusy = true
+        defer { isBusy = false }
+        let name = snapshot.mine?.displayName.isEmpty == false
+            ? snapshot.mine!.displayName
+            : UIDevice.current.name
+        await LocalSync.shared.startDemo(displayName: name)
+        reload()
+        await NotificationManager.requestAuthorizationIfNeeded()
+    }
+
+    func simulatePartnerStatus(emoji: String, message: String) async {
+        await LocalSync.shared.simulatePartnerStatus(emoji: emoji, message: message)
+        reload()
+    }
+
+    func simulatePartnerNudge() async {
+        let name = await LocalSync.shared.simulatePartnerNudge()
+        await NotificationManager.postNudge(from: name)
+        reload()
+    }
+
+    func simulatePartnerMoment(image: UIImage, kind: Moment.Kind, caption: String) async {
+        let moment = Moment(kind: kind,
+                            caption: caption,
+                            senderName: LocalSync.demoPartnerName,
+                            fromMe: false)
+        do {
+            try MomentStore.shared.write(image, id: moment.id)
+        } catch {
+            present(error)
+            return
+        }
+        await LocalSync.shared.simulatePartnerMoment(moment)
+        store.mutate(reloadWidgets: false) { $0.lastSeenMomentID = moment.id }
+        await NotificationManager.postMoment(moment, from: snapshot.partnerDisplayName)
+        reload()
+    }
+    #else
     func createInvite() async {
         isBusy = true
         defer { isBusy = false }
@@ -182,11 +263,12 @@ final class AppModel {
             present(error)
         }
     }
+    #endif
 
     func unpair() async {
         isBusy = true
         defer { isBusy = false }
-        await CloudSync.shared.unpair()
+        await Backend.current.unpair()
         inviteURL = nil
         reload()
     }

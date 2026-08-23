@@ -4,12 +4,12 @@ struct HomeView: View {
     @Environment(AppModel.self) private var model
     @State private var showingPicker = false
     @State private var showingSettings = false
-    /// Drives the nudge cooldown countdown without a timer per view update.
-    @State private var now = Date()
-
-    private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    @State private var showingComposer = false
+    @State private var galleryStart: Moment?
 
     var body: some View {
+        @Bindable var model = model
+
         NavigationStack {
             ZStack {
                 // Inside the stack, not behind it: NavigationStack paints an
@@ -17,8 +17,14 @@ struct HomeView: View {
                 Theme.Background()
                 ScrollView {
                     VStack(spacing: 18) {
+                        NudgeButton(lastSentAt: model.snapshot.lastNudgeSentAt) {
+                            await model.sendNudge()
+                        }
+                        momentButton
                         partnerCard
-                        nudgeButton
+                        if let moment = model.snapshot.moments.first {
+                            momentCard(moment)
+                        }
                         myStatusCard
                         syncFooter
                     }
@@ -41,17 +47,42 @@ struct HomeView: View {
             .toolbarBackground(.hidden, for: .navigationBar)
         }
         .sheet(isPresented: $showingPicker) {
-            MoodPickerView { emoji, message in
+            MoodPickerView(initialEmoji: model.snapshot.mine?.emoji ?? "",
+                           initialMessage: model.snapshot.mine?.message ?? "") { emoji, message in
                 Task { await model.setStatus(emoji: emoji, message: message) }
             }
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
         }
-        .onReceive(tick) { now = $0 }
+        .sheet(isPresented: $showingComposer) {
+            MomentComposerView { image, kind, caption in
+                Task { await model.sendMoment(image: image, kind: kind, caption: caption) }
+            }
+        }
+        .sheet(item: $galleryStart) { moment in
+            MomentGalleryView(moments: model.snapshot.moments, startAt: moment)
+        }
+        .onChange(of: model.pendingComposer) { _, pending in
+            if pending {
+                showingComposer = true
+                model.pendingComposer = false
+            }
+        }
     }
 
-    // MARK: - Partner
+    // MARK: - Actions
+
+    private var momentButton: some View {
+        Button {
+            showingComposer = true
+        } label: {
+            Label("Send a photo or doodle", systemImage: "camera.viewfinder")
+        }
+        .buttonStyle(SecondaryButtonStyle())
+    }
+
+    // MARK: - Partner status
 
     private var partnerCard: some View {
         VStack(spacing: 14) {
@@ -86,21 +117,63 @@ struct HomeView: View {
         .card(padding: 24)
     }
 
-    // MARK: - Nudge
+    // MARK: - Latest moment
 
-    private var nudgeButton: some View {
-        let remaining = max(0, AppConfig.nudgeCooldown - now.timeIntervalSince(model.snapshot.lastNudgeSentAt ?? .distantPast))
-        let ready = remaining == 0
-
-        return Button {
-            Task { await model.sendNudge() }
+    private func momentCard(_ moment: Moment) -> some View {
+        Button {
+            galleryStart = moment
         } label: {
-            Label(ready ? "Thinking of you" : "Sent · \(Int(remaining))s",
-                  systemImage: ready ? "heart.fill" : "checkmark")
+            VStack(spacing: 0) {
+                if let image = MomentStore.shared.thumbnail(for: moment.id) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .aspectRatio(1, contentMode: .fit)
+                        .clipped()
+                } else {
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.06))
+                        .aspectRatio(1, contentMode: .fit)
+                        .overlay(Image(systemName: "photo").foregroundStyle(.secondary))
+                }
+
+                HStack(spacing: 8) {
+                    Image(systemName: moment.kind == .photo ? "camera.fill" : "scribble")
+                        .font(Theme.rounded(12))
+                        .foregroundStyle(.secondary)
+                    Text(momentLabel(moment))
+                        .font(Theme.rounded(15, .medium))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    if model.snapshot.moments.count > 1 {
+                        Text("\(model.snapshot.moments.count)")
+                            .font(Theme.rounded(11, .semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(Color.primary.opacity(0.08), in: Capsule())
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.4), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.10), radius: 20, y: 10)
         }
-        .buttonStyle(PrimaryButtonStyle(tint: ready ? Theme.warm : Color.secondary.opacity(0.4)))
-        .disabled(!ready)
-        .animation(.smooth, value: ready)
+        .buttonStyle(.plain)
+    }
+
+    private func momentLabel(_ moment: Moment) -> String {
+        let noun = moment.kind == .photo ? "photo" : "drawing"
+        if moment.caption.isEmpty {
+            return moment.fromMe ? "You sent a \(noun)" : "Sent you a \(noun)"
+        }
+        return moment.fromMe ? "You: \(moment.caption)" : moment.caption
     }
 
     // MARK: - Mine
@@ -141,6 +214,9 @@ struct HomeView: View {
             if model.isRefreshing {
                 ProgressView().controlSize(.mini)
                 Text("Syncing…")
+            } else if model.isLocalDemo {
+                Image(systemName: "hammer")
+                Text("Demo mode — nothing leaves this device")
             } else if let synced = model.snapshot.lastSyncedAt {
                 Image(systemName: "checkmark.icloud")
                 Text("Synced \(synced, format: .relative(presentation: .named))")
@@ -152,6 +228,40 @@ struct HomeView: View {
         .font(Theme.rounded(12))
         .foregroundStyle(.tertiary)
         .padding(.top, 4)
+    }
+}
+
+/// Owns its own countdown so the ticking is scoped to this button rather than
+/// invalidating the whole screen — and, more importantly, so no timer runs at
+/// all outside the sixty seconds after a nudge.
+private struct NudgeButton: View {
+    let lastSentAt: Date?
+    let action: () async -> Void
+
+    @State private var remaining: TimeInterval = 0
+
+    private var ready: Bool { remaining == 0 }
+
+    var body: some View {
+        Button {
+            Task { await action() }
+        } label: {
+            Label(ready ? "Thinking of you" : "Sent · \(Int(remaining))s",
+                  systemImage: ready ? "heart.fill" : "checkmark")
+        }
+        .buttonStyle(PrimaryButtonStyle(tint: ready ? Theme.warm : Color.secondary.opacity(0.4)))
+        .disabled(!ready)
+        .animation(.smooth, value: ready)
+        .task(id: lastSentAt) { await countDown() }
+    }
+
+    private func countDown() async {
+        while !Task.isCancelled {
+            let elapsed = Date().timeIntervalSince(lastSentAt ?? .distantPast)
+            remaining = max(0, AppConfig.nudgeCooldown - elapsed)
+            guard remaining > 0 else { return }
+            try? await Task.sleep(for: .seconds(1))
+        }
     }
 }
 

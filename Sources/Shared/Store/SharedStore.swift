@@ -93,6 +93,20 @@ final class SharedStore {
     /// than the app.
     static let isRunningInExtension = Bundle.main.bundlePath.hasSuffix(".appex")
 
+    /// Inserts a moment at the head, trims to the history limit and deletes
+    /// the image files of anything that fell off the end.
+    func record(_ moment: Moment) {
+        mutate { snapshot in
+            snapshot.moments.removeAll { $0.id == moment.id }
+            snapshot.moments.insert(moment, at: 0)
+            if snapshot.moments.count > AppConfig.momentHistoryLimit {
+                snapshot.moments = Array(snapshot.moments.prefix(AppConfig.momentHistoryLimit))
+            }
+        }
+        MomentStore.shared.prune(keeping: snapshot.moments.map(\.id))
+        Self.reloadWidgets()
+    }
+
     static func reloadWidgets() {
         #if canImport(WidgetKit)
         // A reload requested from inside the widget process would re-enter the
@@ -100,6 +114,7 @@ final class SharedStore {
         // refreshes after an interactive intent, so extensions never need this.
         guard !isRunningInExtension else { return }
         WidgetCenter.shared.reloadTimelines(ofKind: AppConfig.widgetKind)
+        WidgetCenter.shared.reloadTimelines(ofKind: AppConfig.momentWidgetKind)
         #endif
     }
 

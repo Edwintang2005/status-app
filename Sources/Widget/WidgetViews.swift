@@ -46,15 +46,8 @@ struct StatusWidgetView: View {
         ZStack {
             AccessoryWidgetBackground()
             if let status {
-                VStack(spacing: 0) {
-                    Text(status.emoji)
-                        .font(.system(size: 22))
-                    Text(status.updatedAt, style: .relative)
-                        .font(.system(size: 8, weight: .medium, design: .rounded))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.6)
-                        .padding(.horizontal, 2)
-                }
+                Text(status.emoji)
+                    .font(.system(size: 30))
             } else {
                 Image(systemName: "link.badge.plus")
                     .font(.system(size: 20))
@@ -70,21 +63,16 @@ struct StatusWidgetView: View {
                 Text(status.emoji)
                     .font(.system(size: 30))
 
-                VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(name)
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
                         .widgetAccentable()
                         .lineLimit(1)
 
                     Text(status.message.isEmpty ? "no message" : status.message)
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .lineLimit(1)
+                        .font(.system(size: 15, weight: .medium, design: .rounded))
+                        .lineLimit(2)
                         .minimumScaleFactor(0.8)
-
-                    Text(status.updatedAt, style: .relative)
-                        .font(.system(size: 11, design: .rounded))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
                 }
                 Spacer(minLength: 0)
             } else {
@@ -115,11 +103,6 @@ struct StatusWidgetView: View {
                 Spacer(minLength: 0)
 
                 HStack(spacing: 4) {
-                    Text(status.updatedAt, style: .relative)
-                        .font(.system(size: 10, design: .rounded))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-
                     Spacer(minLength: 0)
 
                     Button(intent: SendNudgeIntent()) {

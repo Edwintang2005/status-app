@@ -21,4 +21,11 @@ enum AppConfig {
 
     /// Minimum gap between nudges, so a stuck thumb can't spam the other phone.
     static let nudgeCooldown: TimeInterval = 60
+
+    /// Identifier for the photo/drawing widget.
+    static let momentWidgetKind = "TetherMomentWidget"
+
+    /// How many moments each device keeps locally. The server only ever holds
+    /// the latest one per person; history is accumulated on-device.
+    static let momentHistoryLimit = 30
 }

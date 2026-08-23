@@ -29,8 +29,15 @@ settings:
     SWIFT_EMIT_LOC_STRINGS: YES
     GENERATE_INFOPLIST_FILE: NO
     ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-    # Lets `make preview` compile out CloudKit (see CloudSync.init).
-    SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) $(TETHER_CONDITIONS)
+  # Set per-configuration, NOT in `base`: a base-level override replaces
+  # Xcode's built-in Debug value instead of adding to it, which silently
+  # strips DEBUG and compiles out every #if DEBUG block — previews included.
+  # $(TETHER_CONDITIONS) is how `make local` injects TETHER_LOCAL_MODE.
+  configs:
+    Debug:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG $(TETHER_CONDITIONS)
+    Release:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(TETHER_CONDITIONS)
 
 targets:
   Tether:
