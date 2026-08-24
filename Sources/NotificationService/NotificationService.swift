@@ -15,9 +15,9 @@ import WidgetKit
 ///
 /// That window is used to do the work the app would otherwise have to be alive
 /// for: fetch the change, **decrypt it on-device**, write it into the App Group,
-/// reload the widget, and replace CloudKit's deliberately generic wording with
-/// the real caption and name. None of that is possible server-side, because
-/// CloudKit cannot read the encrypted fields.
+/// reload the widget, attach the photo or recording, and replace CloudKit's
+/// deliberately generic wording with the real caption and name. None of that is
+/// possible server-side, because CloudKit cannot read the encrypted fields.
 final class NotificationService: UNNotificationServiceExtension {
     private let log = Logger(subsystem: AppConfig.appGroupID, category: "NotificationService")
 
@@ -84,11 +84,9 @@ final class NotificationService: UNNotificationServiceExtension {
         // The moment carries the sender's own name; `partnerName` is a
         // fallback for records written before they'd set one.
         content.title = moment.senderName.isEmpty ? partnerName : moment.senderName
-        content.body = moment.caption.isEmpty
-            ? (moment.kind == .photo ? "sent you a photo 📷" : "sent you a drawing ✏️")
-            : moment.caption
+        content.body = moment.caption.isEmpty ? moment.arrivalSummary : moment.caption
 
-        if let attachment = Self.attachment(for: moment) {
+        if let attachment = MomentAttachment.make(for: moment, suffix: "push") {
             content.attachments = [attachment]
         }
 
@@ -112,22 +110,6 @@ final class NotificationService: UNNotificationServiceExtension {
             _ = SharedStore.shared.mutate(reloadWidgets: false) {
                 $0.lastSeenPartnerNudgeCount = nudgeCount
             }
-        }
-    }
-
-    /// `UNNotificationAttachment` takes ownership of the file it's handed, so
-    /// give it a throwaway copy rather than the App Group original.
-    private static func attachment(for moment: Moment) -> UNNotificationAttachment? {
-        guard let source = MomentStore.shared.thumbURL(for: moment.id),
-              FileManager.default.fileExists(atPath: source.path) else { return nil }
-        let temp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(moment.id)-push.jpg")
-        do {
-            try? FileManager.default.removeItem(at: temp)
-            try FileManager.default.copyItem(at: source, to: temp)
-            return try UNNotificationAttachment(identifier: moment.id, url: temp)
-        } catch {
-            return nil
         }
     }
 }

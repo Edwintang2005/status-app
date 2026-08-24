@@ -1,12 +1,13 @@
 import Photos
 import SwiftUI
 
-/// Swipe back through the whole history, and save any of it to Photos.
+/// Swipe back through the whole history: look at the photos, play the voice
+/// memos, and save or share any of it.
 ///
 /// Entries older than `AppConfig.momentImageCacheLimit` keep their metadata but
-/// not their image files, so a page may have to fetch its picture from CloudKit
-/// when you reach it. That's the trade that lets the history be unlimited
-/// without the device carrying every photo forever.
+/// not their media files, so a page may have to fetch its photo or recording
+/// from CloudKit when you reach it. That's the trade that lets the history be
+/// unlimited without the device carrying every photo forever.
 struct MomentGalleryView: View {
     let moments: [Moment]
     let startAt: Moment
@@ -16,6 +17,9 @@ struct MomentGalleryView: View {
 
     @State private var selection: String
     @State private var saveState: SaveState = .idle
+    /// One player for the whole gallery, so paging to the next memo takes over
+    /// from the last rather than layering two voices.
+    @State private var player = VoicePlayer()
     /// Ids currently being pulled back from CloudKit.
     @State private var loading: Set<String> = []
     /// Ids whose fetch failed, so we show a message instead of a forever-spinner.
@@ -61,14 +65,18 @@ struct MomentGalleryView: View {
                     Button("Done") { dismiss() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    saveButton
+                    exportButton
                 }
             }
             .task(id: selection) {
                 saveState = .idle
+                // Paging away from a memo stops it — hearing the previous page
+                // over the new one is never what you meant.
+                player.stop()
                 markCurrentSeen()
                 await loadIfNeeded()
             }
+            .onDisappear { player.stop() }
         }
     }
 
@@ -85,7 +93,14 @@ struct MomentGalleryView: View {
         VStack(spacing: 16) {
             Spacer(minLength: 0)
 
-            if let image = MomentStore.shared.image(for: moment.id) {
+            if moment.isVoice {
+                VoicePlaybackCard(moment: moment,
+                                  audioURL: MomentStore.shared.mediaURL(for: moment),
+                                  player: player)
+                if !MomentStore.shared.hasAudio(for: moment.id) {
+                    fetchStatus(for: moment)
+                }
+            } else if let image = MomentStore.shared.image(for: moment.id) {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
@@ -137,6 +152,22 @@ struct MomentGalleryView: View {
             }
     }
 
+    /// A memo's card is drawn from metadata and is useful on its own, so a
+    /// missing recording is a line of text under it rather than a placeholder
+    /// in place of it.
+    @ViewBuilder
+    private func fetchStatus(for moment: Moment) -> some View {
+        if loading.contains(moment.id) {
+            Label("Fetching from iCloud…", systemImage: "icloud.and.arrow.down")
+                .font(Theme.rounded(13))
+                .foregroundStyle(.secondary)
+        } else if unavailable.contains(moment.id) {
+            Label("Couldn't load this one", systemImage: "icloud.slash")
+                .font(Theme.rounded(13))
+                .foregroundStyle(.secondary)
+        }
+    }
+
     /// Shows the name the sender attached when they sent it. Falls back to
     /// their current name only if the record carries none — which happens for
     /// anything sent before they'd set one.
@@ -159,17 +190,36 @@ struct MomentGalleryView: View {
 
     private func loadIfNeeded() async {
         guard let moment = current,
-              !MomentStore.shared.hasImage(for: moment.id),
+              !MomentStore.shared.hasMedia(for: moment),
               !loading.contains(moment.id) else { return }
 
         loading.insert(moment.id)
         unavailable.remove(moment.id)
-        let ok = await model.ensureImage(for: moment)
+        let ok = await model.ensureMedia(for: moment)
         loading.remove(moment.id)
         if !ok { unavailable.insert(moment.id) }
     }
 
-    // MARK: - Saving
+    // MARK: - Keeping a copy
+
+    /// A photo goes to Photos; a voice memo has nowhere in Photos to go, so it
+    /// gets the share sheet instead — which is what lets someone keep a memo in
+    /// Voice Memos, Files, or a message thread.
+    @ViewBuilder
+    private var exportButton: some View {
+        if let moment = current, moment.isVoice {
+            if let url = MomentStore.shared.mediaURL(for: moment) {
+                ShareLink(item: url) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+            } else {
+                Image(systemName: "square.and.arrow.up")
+                    .foregroundStyle(.tertiary)
+            }
+        } else {
+            saveButton
+        }
+    }
 
     @ViewBuilder
     private var saveButton: some View {

@@ -5,6 +5,11 @@ import Foundation
 struct Mood: Identifiable, Hashable, Codable {
     let emoji: String
     let label: String
+    /// Marks the one preset that means "we made it another month/year". Picking
+    /// it arms an animation on the *other* phone — see `CelebrationOverlay` —
+    /// and the flag survives editing the wording, so "happy 3 months" and
+    /// "one year today" both still land as a celebration.
+    var isCelebration: Bool = false
 
     var id: String { "\(emoji)-\(label)" }
 
@@ -71,6 +76,10 @@ enum MoodGroup: String, CaseIterable, Identifiable {
                 Mood(emoji: "🫖", label: "spilling tea"),
                 Mood(emoji: "🥊", label: "playfight"),
                 Mood(emoji: "🗓️", label: "counting down"),
+                // Deliberately sitting in the middle of the ordinary presets
+                // rather than in a section of its own: it should read as one
+                // more thing you can say, not as a feature.
+                Mood(emoji: "🎉", label: "happy anniversary", isCelebration: true),
                 Mood(emoji: "🛫", label: "see you soon"),
                 Mood(emoji: "💞", label: "love you"),
             ]
@@ -145,4 +154,8 @@ enum MoodGroup: String, CaseIterable, Identifiable {
     }
 
     static var allMoods: [Mood] { allCases.flatMap(\.moods) }
+
+    /// The celebration preset, for anything that needs to describe it without
+    /// hard-coding the emoji — currently the hint in `MoodPickerView`.
+    static var celebration: Mood? { allMoods.first(where: \.isCelebration) }
 }

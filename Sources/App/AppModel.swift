@@ -1,3 +1,4 @@
+import CloudKit
 import Foundation
 import Observation
 import SwiftUI
@@ -26,8 +27,37 @@ final class AppModel {
     /// into the composer.
     var pendingComposer = false
 
+    /// An invite link that has been tapped but not yet accepted, because the
+    /// person tapping it hasn't told us what to call them.
+    ///
+    /// Accepting a share used to happen the instant the link opened the app,
+    /// which meant a brand-new install joined under whatever the *device* was
+    /// called. The metadata is held here instead until `WelcomeView` has a
+    /// name — see `acceptInvite(name:)`.
+    private(set) var pendingInvite: CKShare.Metadata?
+
     /// True in `make local` builds: no CloudKit, a fictional partner.
     let isLocalDemo = Backend.isLocalDemo
+
+    #if TETHER_LOCAL_MODE
+    /// Whether the demo controls are currently showing in Settings.
+    ///
+    /// They're hidden by default even in demo builds, so the app can be walked
+    /// through — or screenshotted for the App Store — without a "Demo
+    /// controls" section sitting in the middle of Settings. Persisted, so
+    /// unlocking it once is enough for a working session.
+    private(set) var isDemoUnlocked: Bool = SharedStore.shared.isDemoUnlocked
+
+    func unlockDemoControls() {
+        SharedStore.shared.isDemoUnlocked = true
+        isDemoUnlocked = true
+    }
+
+    func hideDemoControls() {
+        SharedStore.shared.isDemoUnlocked = false
+        isDemoUnlocked = false
+    }
+    #endif
 
     /// The store is injectable so SwiftUI previews and tests can run against a
     /// throwaway defaults suite instead of the real App Group.
@@ -41,6 +71,13 @@ final class AppModel {
     // MARK: - Derived
 
     var partnerName: String { snapshot.partnerDisplayName }
+
+    /// Whether this person has ever told us their name. The one gate in front
+    /// of the rest of the app: a status, a nudge and every photo carry this
+    /// name to the other phone, so there is no sensible default to invent.
+    var hasName: Bool {
+        snapshot.mine?.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
 
     var myDisplayName: String {
         get { snapshot.mine?.displayName ?? "" }
@@ -66,33 +103,125 @@ final class AppModel {
 
     var canNudge: Bool { isPaired && nudgeCooldownRemaining == 0 }
 
-    var latestPartnerMoment: Moment? { snapshot.latestPartnerMoment }
-    var latestMoment: Moment? { snapshot.latestMoment }
+    /// The newest photo or doodle in either direction — what the home card
+    /// shows. Voice memos are deliberately excluded: they get their own short
+    /// row, because a waveform stretched into a square photo frame is mostly
+    /// empty space.
+    var latestVisualMoment: Moment? {
+        history.first { !$0.isVoice }
+    }
 
-    /// Things the partner sent that haven't been looked at yet, newest first —
-    /// the same order the home card previews, so tapping it opens the picture
-    /// you were just looking at rather than jumping to the oldest.
-    var unseenMoments: [Moment] {
-        history.filter { !$0.fromMe && !$0.seen }.sorted { $0.sentAt > $1.sentAt }
+    /// Pictures the partner sent that haven't been looked at yet, newest first
+    /// — the same order the home card previews, so tapping it opens the one you
+    /// were just looking at rather than jumping to the oldest.
+    var unseenVisualMoments: [Moment] {
+        history.filter { !$0.fromMe && !$0.seen && !$0.isVoice }
+    }
+
+    /// The last memo the partner sent, heard or not — the one the home screen
+    /// keeps a row for, so it stays playable rather than disappearing the
+    /// moment it's been listened to once. Everything older is in the history.
+    var latestReceivedVoiceMemo: Moment? {
+        history.first { !$0.fromMe && $0.isVoice }
     }
 
     /// What tapping the home card opens: whatever is waiting, or — when you're
     /// caught up — just the most recent thing, rather than the entire archive.
     var carouselMoments: [Moment] {
-        let unseen = unseenMoments
+        let unseen = unseenVisualMoments
         if !unseen.isEmpty { return unseen }
-        return [latestMoment].compactMap { $0 }
+        return [latestVisualMoment].compactMap { $0 }
     }
 
+    /// Looked at, or — for a memo — listened to.
     func markSeen(_ moment: Moment) {
         guard !moment.seen, !moment.fromMe else { return }
         history = MomentIndex.shared.markSeen(ids: [moment.id])
-        SharedStore.reloadWidgets()
+        // Recomputed rather than left alone: the widget's unheard-memo badge is
+        // a snapshot field, and this is what clears it.
+        store.applyDerived(from: history)
+        snapshot = store.snapshot
+    }
+
+    // MARK: - Celebrations
+
+    /// The celebration waiting to be played, if any. Deliberately derived from
+    /// the snapshot rather than latched into its own state: every path that
+    /// could deliver one — a cold launch reading what the notification
+    /// extension already wrote, a foreground refresh, a push — ends in
+    /// `reload()`, so there is nothing extra to remember to set.
+    var pendingCelebration: StatusPayload? { snapshot.pendingCelebration }
+
+    /// Called once the animation has been watched. Stamping the status's own
+    /// `updatedAt` — rather than "now" — is what makes this idempotent: a
+    /// re-fetch of the same record can't bring the greeting back, while a
+    /// genuinely new celebration always has a later timestamp.
+    func celebrationPlayed() {
+        guard let celebration = snapshot.pendingCelebration else { return }
+        store.mutate { $0.lastCelebratedAt = celebration.updatedAt }
+        reload()
+    }
+
+    // MARK: - Onboarding
+
+    /// Records the name from the welcome screen. Publishing is left to the
+    /// pairing step that follows — there is no zone to write to yet.
+    func setName(_ name: String) {
+        updateMyDisplayName(name)
+    }
+
+    /// Whoever sent the invite, if CloudKit will tell us. It only does when
+    /// they're discoverable by their Apple Account, so the joining screen has
+    /// to read well without it.
+    var pendingInviteOwnerName: String? {
+        guard let components = pendingInvite?.ownerIdentity.nameComponents else { return nil }
+        let name = PersonNameComponentsFormatter.localizedString(from: components, style: .short)
+        return name.isEmpty ? nil : name
+    }
+
+    /// Called when a share link opens the app. Held rather than accepted, so
+    /// the welcome screen can ask for a name first.
+    func receiveInvite(_ metadata: CKShare.Metadata) {
+        pendingInvite = metadata
+    }
+
+    /// The name the invitee entered on the joining screen, then the join.
+    func acceptInvite(name: String) async {
+        guard let metadata = pendingInvite else { return }
+        isBusy = true
+        defer { isBusy = false }
+
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        updateMyDisplayName(trimmed)
+
+        do {
+            try await CloudSync.shared.acceptShare(metadata, displayName: trimmed)
+            pendingInvite = nil
+            reload()
+            await NotificationManager.requestAuthorizationIfNeeded()
+            await refresh()
+        } catch {
+            // Kept, not cleared: the link is still the way in, and clearing it
+            // would drop the person on the pairing screen with no explanation.
+            present(error)
+        }
+    }
+
+    /// Backing out of a join — the invite is dropped and the normal pairing
+    /// screen takes over.
+    func declineInvite() {
+        pendingInvite = nil
     }
 
     // MARK: - Lifecycle
 
     func onLaunch() async {
+        // A link tapped from a cold start lands here: the scene delegate ran
+        // before any view could hear the notification.
+        if let invite = InviteInbox.shared.take() {
+            receiveInvite(invite)
+        }
         if case .unavailable(let message) = await Backend.current.readiness() {
             readinessMessage = message
         } else {
@@ -121,17 +250,17 @@ final class AppModel {
         history = MomentIndex.shared.load()
     }
 
-    /// Older history entries keep their metadata but not their image files.
+    /// Older history entries keep their metadata but not their media files.
     /// The gallery calls this when it reaches one, and CloudKit hands the
-    /// image back — which is the whole point of keeping every moment as its
-    /// own record.
-    func ensureImage(for moment: Moment) async -> Bool {
-        if MomentStore.shared.hasImage(for: moment.id) { return true }
+    /// photo or recording back — which is the whole point of keeping every
+    /// moment as its own record.
+    func ensureMedia(for moment: Moment) async -> Bool {
+        if MomentStore.shared.hasMedia(for: moment) { return true }
         do {
-            try await Backend.current.fetchImages(for: moment)
-            return MomentStore.shared.hasImage(for: moment.id)
+            try await Backend.current.fetchMedia(for: moment)
+            return MomentStore.shared.hasMedia(for: moment)
         } catch {
-            log.error("Couldn't fetch image for \(moment.id): \(error.localizedDescription)")
+            log.error("Couldn't fetch media for \(moment.id): \(error.localizedDescription)")
             return false
         }
     }
@@ -155,14 +284,15 @@ final class AppModel {
 
     // MARK: - Status
 
-    func setStatus(emoji: String, message: String) async {
+    func setStatus(emoji: String, message: String, isCelebration: Bool = false) async {
         let payload = StatusPayload(
             emoji: emoji,
             message: message.trimmingCharacters(in: .whitespacesAndNewlines),
             displayName: snapshot.mine?.displayName ?? "",
             updatedAt: Date(),
             nudgeCount: snapshot.mine?.nudgeCount ?? 0,
-            lastNudgeAt: snapshot.mine?.lastNudgeAt
+            lastNudgeAt: snapshot.mine?.lastNudgeAt,
+            isCelebration: isCelebration
         )
 
         // Show it immediately; the backend catches up underneath.
@@ -243,6 +373,47 @@ final class AppModel {
         }
     }
 
+    /// Same shape as `sendMoment(image:kind:caption:)`: the recording is filed
+    /// locally first so the history and widget are right immediately, then
+    /// uploaded. A failed upload leaves the memo playable on this device.
+    ///
+    /// `fileURL` is the recorder's temporary file and is **moved**, not copied,
+    /// so the caller must not use it afterwards.
+    func sendVoiceMemo(fileURL: URL,
+                       duration: TimeInterval,
+                       waveform: [Double],
+                       caption: String) async {
+        isBusy = true
+        defer { isBusy = false }
+
+        let moment = Moment(
+            kind: .voice,
+            caption: caption.trimmingCharacters(in: .whitespacesAndNewlines),
+            senderName: snapshot.mine?.displayName ?? "",
+            fromMe: true,
+            duration: duration,
+            waveform: waveform
+        )
+
+        do {
+            try MomentStore.shared.adoptAudio(from: fileURL, id: moment.id)
+        } catch {
+            present(error)
+            return
+        }
+
+        store.record(moment)
+        reload()
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+
+        guard isPaired else { return }
+        do {
+            try await Backend.current.send(moment)
+        } catch {
+            present(error)
+        }
+    }
+
     // MARK: - Pairing
 
     #if TETHER_LOCAL_MODE
@@ -250,16 +421,16 @@ final class AppModel {
     func startDemo() async {
         isBusy = true
         defer { isBusy = false }
-        let name = snapshot.mine?.displayName.isEmpty == false
-            ? snapshot.mine!.displayName
-            : UIDevice.current.name
-        await LocalSync.shared.startDemo(displayName: name)
+        // `hasName` gates the whole app, so by here there is always one.
+        await LocalSync.shared.startDemo(displayName: myDisplayName)
         reload()
         await NotificationManager.requestAuthorizationIfNeeded()
     }
 
-    func simulatePartnerStatus(emoji: String, message: String) async {
-        await LocalSync.shared.simulatePartnerStatus(emoji: emoji, message: message)
+    func simulatePartnerStatus(emoji: String, message: String, isCelebration: Bool) async {
+        await LocalSync.shared.simulatePartnerStatus(emoji: emoji,
+                                                     message: message,
+                                                     isCelebration: isCelebration)
         reload()
     }
 
@@ -280,6 +451,32 @@ final class AppModel {
             present(error)
             return
         }
+        await receiveFromDemoPartner(moment)
+    }
+
+    func simulatePartnerVoiceMemo(fileURL: URL,
+                                  duration: TimeInterval,
+                                  waveform: [Double],
+                                  caption: String) async {
+        let moment = Moment(kind: .voice,
+                            caption: caption,
+                            senderName: snapshot.theirs?.displayName ?? LocalSync.demoPartnerName,
+                            fromMe: false,
+                            duration: duration,
+                            waveform: waveform)
+        do {
+            try MomentStore.shared.adoptAudio(from: fileURL, id: moment.id)
+        } catch {
+            present(error)
+            return
+        }
+        await receiveFromDemoPartner(moment)
+    }
+
+    /// The tail end of every simulated arrival: file it, mark it announced so
+    /// the next refresh doesn't double up, and raise the notification the real
+    /// backend would have.
+    private func receiveFromDemoPartner(_ moment: Moment) async {
         await LocalSync.shared.simulatePartnerMoment(moment)
         store.mutate(reloadWidgets: false) { $0.lastNotifiedMomentID = moment.id }
         await NotificationManager.postMoment(moment, from: snapshot.partnerDisplayName)
@@ -289,11 +486,8 @@ final class AppModel {
     func createInvite() async {
         isBusy = true
         defer { isBusy = false }
-        let name = snapshot.mine?.displayName.isEmpty == false
-            ? snapshot.mine!.displayName
-            : UIDevice.current.name
         do {
-            inviteURL = try await CloudSync.shared.createPairInvite(displayName: name)
+            inviteURL = try await CloudSync.shared.createPairInvite(displayName: myDisplayName)
             reload()
             await NotificationManager.requestAuthorizationIfNeeded()
         } catch {

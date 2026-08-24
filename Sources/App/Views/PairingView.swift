@@ -20,7 +20,7 @@ struct PairingView: View {
                     warning(message)
                 }
 
-                nameCard
+                nameRow
 
                 #if TETHER_LOCAL_MODE
                 demoActions
@@ -55,23 +55,23 @@ struct PairingView: View {
         }
     }
 
-    private var nameCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(model.isLocalDemo ? "What's your name?" : "What should they call you?")
-                .font(Theme.rounded(15, .medium))
+    /// A confirmation, not a question — `WelcomeView` already asked. It stays
+    /// editable because this is the last screen before a name is sent to
+    /// someone else, and a typo is easiest to fix while it's still yours.
+    private var nameRow: some View {
+        HStack(spacing: 12) {
+            Text("You'll appear as")
+                .font(Theme.rounded(14))
                 .foregroundStyle(.secondary)
 
             TextField("Your name", text: $name)
-                .font(Theme.rounded(20, .semibold))
+                .font(Theme.rounded(17, .semibold))
+                .multilineTextAlignment(.trailing)
                 .textInputAutocapitalization(.words)
                 .submitLabel(.done)
                 .focused($nameFocused)
-                .padding(.vertical, 12)
-                .padding(.horizontal, 16)
-                .background(Color.primary.opacity(0.05),
-                            in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
-        .card()
+        .card(padding: 16)
     }
 
     // MARK: - Local demo
@@ -95,7 +95,7 @@ struct PairingView: View {
             .opacity(trimmedName.isEmpty ? 0.5 : 1)
 
             Label {
-                Text("This build has no iCloud. You'll be paired with a stand-in partner you can drive yourself from Settings — set their status, make them nudge you, send yourself photos. Widgets work for real.")
+                Text("This build has no iCloud. You'll be paired with a stand-in partner you can drive yourself: in Settings, tap Version seven times to reveal the demo controls. Widgets work for real.")
                     .font(Theme.rounded(13))
                     .foregroundStyle(.secondary)
             } icon: {

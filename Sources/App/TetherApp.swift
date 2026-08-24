@@ -1,3 +1,4 @@
+import CloudKit
 import SwiftUI
 
 @main
@@ -21,6 +22,11 @@ struct TetherApp: App {
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .pairingDidFail)) { note in
                     model.errorMessage = note.object as? String
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .inviteDidArrive)) { note in
+                    guard let metadata = note.object as? CKShare.Metadata else { return }
+                    _ = InviteInbox.shared.take()
+                    model.receiveInvite(metadata)
                 }
                 .onOpenURL { url in
                     // Tapping the photo widget jumps straight to the composer.

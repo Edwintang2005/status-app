@@ -32,7 +32,16 @@ enum AppConfig {
     /// pulls the whole zone back.
     static let momentHistoryLimit = 500
 
-    /// How many recent moments keep their image files on this device. Older
+    /// How many recent moments keep their media files on this device. Older
     /// ones are fetched from CloudKit on demand when you scroll to them.
     static let momentImageCacheLimit = 60
+
+    /// Hard ceiling on a voice memo. This is a "thinking of you" channel, not
+    /// voicemail — a long recording is also a slow upload on a bad connection,
+    /// and recording stops itself here rather than failing later.
+    static let voiceMemoMaxDuration: TimeInterval = 60
+
+    /// Loudness samples kept per voice memo. Enough to read as a waveform at
+    /// full width, few enough that the metadata stays a few hundred bytes.
+    static let voiceWaveformSampleCount = 48
 }

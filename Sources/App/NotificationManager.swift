@@ -25,19 +25,19 @@ enum NotificationManager {
         await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
     }
 
-    /// A photo or drawing arrived. The image rides along as an attachment so
-    /// it's visible from the lock screen without opening the app.
+    /// A photo, drawing or voice memo arrived. The file rides along as an
+    /// attachment, which for an image means it's visible from the lock screen
+    /// and for a memo means it can be played from the expanded notification —
+    /// either way without opening the app.
     /// `name` is only a fallback: the moment carries the name its sender had
     /// when they sent it, and that's what should appear.
     static func postMoment(_ moment: Moment, from name: String) async {
         let content = UNMutableNotificationContent()
         content.title = moment.senderName.isEmpty ? name : moment.senderName
-        content.body = moment.caption.isEmpty
-            ? (moment.kind == .photo ? "sent you a photo 📷" : "sent you a drawing ✏️")
-            : moment.caption
+        content.body = moment.caption.isEmpty ? moment.arrivalSummary : moment.caption
         content.sound = .default
 
-        if let attachment = attachment(for: moment) {
+        if let attachment = MomentAttachment.make(for: moment, suffix: "notify") {
             content.attachments = [attachment]
         }
 
@@ -48,23 +48,6 @@ enum NotificationManager {
             try await UNUserNotificationCenter.current().add(request)
         } catch {
             log.error("Failed to post moment notification: \(error.localizedDescription)")
-        }
-    }
-
-    /// UNNotificationAttachment takes ownership of the file it's handed, so
-    /// give it a throwaway copy rather than the App Group original.
-    private static func attachment(for moment: Moment) -> UNNotificationAttachment? {
-        guard let source = MomentStore.shared.thumbURL(for: moment.id),
-              FileManager.default.fileExists(atPath: source.path) else { return nil }
-        let temp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(moment.id)-notify.jpg")
-        do {
-            try? FileManager.default.removeItem(at: temp)
-            try FileManager.default.copyItem(at: source, to: temp)
-            return try UNNotificationAttachment(identifier: moment.id, url: temp)
-        } catch {
-            log.error("Couldn't attach moment image: \(error.localizedDescription)")
-            return nil
         }
     }
 

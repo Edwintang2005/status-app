@@ -8,30 +8,29 @@ import WidgetKit
 /// The App Group is the only channel between the app process and the widget
 /// extension process. Both read the same `Snapshot`; only the app normally
 /// writes it (the exception is `SendNudgeIntent`, which bumps the cooldown).
+///
+/// Backed by files in the group container rather than by `UserDefaults` — see
+/// `GroupFileStore` for the (thoroughly unpleasant) reason why.
 final class SharedStore {
     static let shared = SharedStore()
 
-    private let defaults: UserDefaults
+    private let store: GroupKeyValueStore
     private let log = Logger(subsystem: AppConfig.appGroupID, category: "SharedStore")
 
     private enum Key {
         static let snapshot = "snapshot"
         static let pairing = "pairing"
         static let notificationsRequested = "notificationsRequested"
+        static let demoUnlocked = "demoUnlocked"
     }
 
-    init(defaults: UserDefaults? = nil) {
-        if let defaults {
-            self.defaults = defaults
-        } else if let suite = UserDefaults(suiteName: AppConfig.appGroupID) {
-            self.defaults = suite
-        } else {
-            // Only happens when the App Group entitlement is missing or the ID
-            // is misspelled. Falling back keeps the app usable (as a single
-            // device) instead of crashing, and the log says why sync is dead.
-            assertionFailure("App Group \(AppConfig.appGroupID) unavailable — check entitlements.")
-            self.defaults = .standard
-        }
+    init(store: GroupKeyValueStore = GroupFileStore()) {
+        self.store = store
+    }
+
+    /// Previews and tests: an isolated defaults suite, never the real container.
+    convenience init(defaults: UserDefaults) {
+        self.init(store: defaults)
     }
 
     // MARK: - Snapshot
@@ -60,14 +59,22 @@ final class SharedStore {
             if let newValue {
                 encode(newValue, forKey: Key.pairing)
             } else {
-                defaults.removeObject(forKey: Key.pairing)
+                store.setData(nil, forKey: Key.pairing)
             }
         }
     }
 
     var hasRequestedNotifications: Bool {
-        get { defaults.bool(forKey: Key.notificationsRequested) }
-        set { defaults.set(newValue, forKey: Key.notificationsRequested) }
+        get { store.bool(forKey: Key.notificationsRequested) }
+        set { store.setBool(newValue, forKey: Key.notificationsRequested) }
+    }
+
+    /// Whether the hidden demo controls have been revealed. Only ever read by
+    /// `TETHER_LOCAL_MODE` builds — the demo code isn't compiled into a release
+    /// build at all, so there is nothing for this to unlock there.
+    var isDemoUnlocked: Bool {
+        get { store.bool(forKey: Key.demoUnlocked) }
+        set { store.setBool(newValue, forKey: Key.demoUnlocked) }
     }
 
     /// Wipes pairing, cached statuses and the whole moment history.
@@ -105,21 +112,13 @@ final class SharedStore {
     }()
 
     /// Files the moment in the durable history index, promotes it to the
-    /// snapshot if it's the newest in its direction, and trims cached images.
+    /// snapshot if it's the newest in its direction, and trims cached media.
     func record(_ moments: [Moment]) {
         guard !moments.isEmpty else { return }
         let all = MomentIndex.shared.insert(moments)
+        applyDerived(from: all, reloadWidgets: false)
 
-        mutate(reloadWidgets: false) { snapshot in
-            if let newestTheirs = all.first(where: { !$0.fromMe }) {
-                snapshot.latestPartnerMoment = newestTheirs
-            }
-            if let newestMine = all.first(where: { $0.fromMe }) {
-                snapshot.latestOwnMoment = newestMine
-            }
-        }
-
-        // Keep every entry in the index but only recent images on disk; older
+        // Keep every entry in the index but only recent files on disk; older
         // ones are re-fetched from CloudKit when the gallery reaches them.
         let keep = all.prefix(AppConfig.momentImageCacheLimit).map(\.id)
         MomentStore.shared.prune(keeping: keep)
@@ -130,22 +129,41 @@ final class SharedStore {
         record([moment])
     }
 
+    /// Recomputes every snapshot field that is really a summary of the history
+    /// index, and must therefore be refreshed whenever the index changes —
+    /// on arrival *and* when something is marked as looked-at or heard.
+    ///
+    /// `moments` must be the whole index, newest first, as returned by
+    /// `MomentIndex`.
+    func applyDerived(from all: [Moment], reloadWidgets: Bool = true) {
+        mutate(reloadWidgets: reloadWidgets) { snapshot in
+            if let newestTheirs = all.first(where: { !$0.fromMe }) {
+                snapshot.latestPartnerMoment = newestTheirs
+            }
+            if let newestMine = all.first(where: { $0.fromMe }) {
+                snapshot.latestOwnMoment = newestMine
+            }
+            // Not conditional, unlike the two above: the widget shows this
+            // one, and it has to be able to go back to `nil` when the only
+            // picture is deleted.
+            snapshot.latestPartnerVisualMoment = all.first { !$0.fromMe && !$0.isVoice }
+            snapshot.unheardVoiceMemoCount = all
+                .filter { !$0.fromMe && $0.isVoice && !$0.seen }
+                .count
+        }
+    }
+
     // MARK: - CloudKit change tokens
 
     /// Opaque per-zone `CKServerChangeToken`, so a sync only asks for what has
     /// changed. Clearing it makes the next sync pull the entire zone, which is
     /// how a reinstalled app recovers its whole history.
     func changeToken(for key: String) -> Data? {
-        defaults.data(forKey: "changeToken-\(key)")
+        store.data(forKey: "changeToken-\(key)")
     }
 
     func setChangeToken(_ data: Data?, for key: String) {
-        let name = "changeToken-\(key)"
-        if let data {
-            defaults.set(data, forKey: name)
-        } else {
-            defaults.removeObject(forKey: name)
-        }
+        store.setData(data, forKey: "changeToken-\(key)")
     }
 
     static func reloadWidgets() {
@@ -162,7 +180,7 @@ final class SharedStore {
     // MARK: - Codable plumbing
 
     private func decode<T: Decodable>(_ type: T.Type, forKey key: String) -> T? {
-        guard let data = defaults.data(forKey: key) else { return nil }
+        guard let data = store.data(forKey: key) else { return nil }
         do {
             return try JSONDecoder.shared.decode(type, from: data)
         } catch {
@@ -173,7 +191,7 @@ final class SharedStore {
 
     private func encode<T: Encodable>(_ value: T, forKey key: String) {
         do {
-            defaults.set(try JSONEncoder.shared.encode(value), forKey: key)
+            store.setData(try JSONEncoder.shared.encode(value), forKey: key)
         } catch {
             log.error("Failed to encode \(String(describing: T.self)): \(error.localizedDescription)")
         }

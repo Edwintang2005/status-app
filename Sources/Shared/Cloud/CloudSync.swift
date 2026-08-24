@@ -65,12 +65,16 @@ actor CloudSync: SyncBackend {
         static let message = "message"
         static let displayName = "displayName"
         static let updatedAt = "updatedAt"
+        /// CloudKit has no boolean type, so this is an Int64 (1/0). Encrypted
+        /// alongside the message it belongs to rather than left in the clear
+        /// with the timestamps.
+        static let isCelebration = "isCelebration"
 
         // Nudge.
         static let count = "count"
 
-        // Moment. `image`/`thumb` are CKAssets, which CloudKit encrypts by
-        // default — they must NOT go through `encryptedValues`.
+        // Moment. `image`/`thumb`/`audio` are CKAssets, which CloudKit
+        // encrypts by default — they must NOT go through `encryptedValues`.
         static let momentID = "momentID"
         static let kind = "kind"
         static let caption = "caption"
@@ -78,6 +82,12 @@ actor CloudSync: SyncBackend {
         static let sentAt = "sentAt"
         static let image = "image"
         static let thumb = "thumb"
+        // Voice memos only. `waveform` is a loudness envelope of someone
+        // speaking, so it's treated like the caption rather than like a
+        // timestamp and goes through `encryptedValues`.
+        static let audio = "audio"
+        static let duration = "duration"
+        static let waveform = "waveform"
     }
 
     /// One subscription per record type, because they want different payloads:
@@ -257,6 +267,7 @@ actor CloudSync: SyncBackend {
         record.encryptedValues[Field.emoji] = payload.emoji
         record.encryptedValues[Field.message] = payload.message
         record.encryptedValues[Field.displayName] = payload.displayName
+        record.encryptedValues[Field.isCelebration] = payload.isCelebration ? 1 : 0
         record[Field.updatedAt] = payload.updatedAt as CKRecordValue
         _ = try await database.modifyRecords(saving: [record],
                                              deleting: [],
@@ -313,9 +324,9 @@ actor CloudSync: SyncBackend {
     }
 
     /// Assets are excluded via `desiredKeys` — this runs on every push, and a
-    /// first sync could otherwise pull down every photo ever sent. Images are
-    /// fetched separately, and only for what's recent or actually being looked
-    /// at.
+    /// first sync could otherwise pull down every photo and recording ever
+    /// sent. Media is fetched separately, and only for what's recent or
+    /// actually being looked at.
     private func fetchZoneChanges(zone: CKRecordZone.ID,
                                   in database: CKDatabase,
                                   since previous: CKServerChangeToken?) async throws -> ZoneChanges {
@@ -324,8 +335,10 @@ actor CloudSync: SyncBackend {
             resultsLimit: nil,
             desiredKeys: [
                 Field.emoji, Field.message, Field.displayName, Field.updatedAt,
+                Field.isCelebration,
                 Field.count,
                 Field.momentID, Field.kind, Field.caption, Field.senderName, Field.sentAt,
+                Field.duration, Field.waveform,
             ]
         )
 
@@ -423,7 +436,7 @@ actor CloudSync: SyncBackend {
             SharedStore.reloadWidgets()
         } else {
             await MainActor.run { store.record(arrived) }
-            await downloadRecentImages(for: arrived, pairing: pairing, in: database)
+            await downloadRecentMedia(for: arrived, pairing: pairing, in: database)
         }
 
         let newFromPartner = arrived.filter { !$0.fromMe }
@@ -432,13 +445,13 @@ actor CloudSync: SyncBackend {
     }
 
     /// Only the newest few, so a first sync after reinstall doesn't pull down
-    /// hundreds of photos at once. The rest arrive on demand.
-    private func downloadRecentImages(for moments: [Moment],
-                                      pairing: PairingInfo,
-                                      in database: CKDatabase) async {
+    /// hundreds of photos and recordings at once. The rest arrive on demand.
+    private func downloadRecentMedia(for moments: [Moment],
+                                     pairing: PairingInfo,
+                                     in database: CKDatabase) async {
         let recent = moments.sorted { $0.sentAt > $1.sentAt }.prefix(10)
-        for moment in recent where !MomentStore.shared.hasImage(for: moment.id) {
-            try? await downloadImages(for: moment, pairing: pairing, in: database)
+        for moment in recent where !MomentStore.shared.hasMedia(for: moment) {
+            try? await downloadMedia(for: moment, pairing: pairing, in: database)
         }
         SharedStore.reloadWidgets()
     }
@@ -508,45 +521,59 @@ actor CloudSync: SyncBackend {
         let recordID = CKRecord.ID(recordName: pairing.role.momentRecordName(id: moment.id),
                                    zoneID: zoneID(for: pairing))
 
-        let store = MomentStore.shared
-        guard let fullURL = store.imageURL(for: moment.id),
-              let thumbURL = store.thumbURL(for: moment.id) else {
-            throw MomentStoreError.containerUnavailable
-        }
-
         let record = CKRecord(recordType: RecordType.moment, recordID: recordID)
         record[Field.momentID] = moment.id as CKRecordValue
         record[Field.kind] = moment.kind.rawValue as CKRecordValue
         record[Field.sentAt] = moment.sentAt as CKRecordValue
         record.encryptedValues[Field.caption] = moment.caption
         record.encryptedValues[Field.senderName] = moment.senderName
-        record[Field.image] = CKAsset(fileURL: fullURL)
-        record[Field.thumb] = CKAsset(fileURL: thumbURL)
+
+        let store = MomentStore.shared
+        if moment.isVoice {
+            guard let audioURL = store.audioURL(for: moment.id),
+                  FileManager.default.fileExists(atPath: audioURL.path) else {
+                throw MomentStoreError.audioMissing
+            }
+            record[Field.audio] = CKAsset(fileURL: audioURL)
+            record[Field.duration] = moment.duration as CKRecordValue
+            record.encryptedValues[Field.waveform] = moment.waveform
+        } else {
+            guard let fullURL = store.imageURL(for: moment.id),
+                  let thumbURL = store.thumbURL(for: moment.id) else {
+                throw MomentStoreError.containerUnavailable
+            }
+            record[Field.image] = CKAsset(fileURL: fullURL)
+            record[Field.thumb] = CKAsset(fileURL: thumbURL)
+        }
 
         _ = try await database.modifyRecords(saving: [record],
                                              deleting: [],
                                              savePolicy: .allKeys)
     }
 
-    /// Pulls the image files for one history entry that isn't cached locally.
+    /// Pulls the media file(s) for one history entry that isn't cached locally.
     /// Called by the gallery when you scroll back past the cache window.
-    func fetchImages(for moment: Moment) async throws {
+    func fetchMedia(for moment: Moment) async throws {
         let pairing = try await requirePairing()
         let database = try self.database(for: pairing)
-        try await downloadImages(for: moment, pairing: pairing, in: database)
+        try await downloadMedia(for: moment, pairing: pairing, in: database)
     }
 
-    private func downloadImages(for moment: Moment,
-                                pairing: PairingInfo,
-                                in database: CKDatabase) async throws {
+    private func downloadMedia(for moment: Moment,
+                               pairing: PairingInfo,
+                               in database: CKDatabase) async throws {
         let role = moment.fromMe ? pairing.role : pairing.role.other
         let recordID = CKRecord.ID(recordName: role.momentRecordName(id: moment.id),
                                    zoneID: zoneID(for: pairing))
         guard let record = try await fetchRecord(recordID, in: database) else { return }
 
         let store = MomentStore.shared
-        try Self.copyAsset(record[Field.image] as? CKAsset, to: store.imageURL(for: moment.id))
-        try Self.copyAsset(record[Field.thumb] as? CKAsset, to: store.thumbURL(for: moment.id))
+        if moment.isVoice {
+            try Self.copyAsset(record[Field.audio] as? CKAsset, to: store.audioURL(for: moment.id))
+        } else {
+            try Self.copyAsset(record[Field.image] as? CKAsset, to: store.imageURL(for: moment.id))
+            try Self.copyAsset(record[Field.thumb] as? CKAsset, to: store.thumbURL(for: moment.id))
+        }
     }
 
     private static func moment(from record: CKRecord,
@@ -572,7 +599,9 @@ actor CloudSync: SyncBackend {
             caption: record.encryptedValues[Field.caption] as? String ?? "",
             senderName: record.encryptedValues[Field.senderName] as? String ?? "",
             sentAt: record[Field.sentAt] as? Date ?? record.modificationDate ?? Date(),
-            fromMe: fromMe
+            fromMe: fromMe,
+            duration: record[Field.duration] as? Double ?? 0,
+            waveform: record.encryptedValues[Field.waveform] as? [Double] ?? []
         )
     }
 
@@ -723,6 +752,12 @@ actor CloudSync: SyncBackend {
             payload.updatedAt = record[Field.updatedAt] as? Date
                 ?? record.modificationDate
                 ?? payload.updatedAt
+            // Absent on records written before this field existed, and on
+            // every ordinary status, so the fallback is `false` rather than
+            // whatever the last status happened to be — otherwise a
+            // celebration would stick to the next thing they said.
+            payload.isCelebration =
+                (record.encryptedValues[Field.isCelebration] as? Int).map { $0 != 0 } ?? false
         }
 
         if let nudge {

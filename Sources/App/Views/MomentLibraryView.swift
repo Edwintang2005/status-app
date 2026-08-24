@@ -18,7 +18,7 @@ struct MomentLibraryView: View {
 
                 if model.history.isEmpty {
                     ContentUnavailableView {
-                        Label("No photos yet", systemImage: "photo.on.rectangle.angled")
+                        Label("Nothing here yet", systemImage: "photo.on.rectangle.angled")
                     } description: {
                         Text("Anything you send each other shows up here.")
                     }
@@ -82,12 +82,17 @@ struct MomentLibraryView: View {
         .buttonStyle(.plain)
     }
 
-    /// Entries older than the image cache window have no local file. They're
+    /// Entries older than the media cache window have no local file. They're
     /// fetched on demand when opened, not eagerly for the whole grid — that
     /// would defeat the point of the cache.
+    ///
+    /// A voice memo is the exception: its tile is drawn from the waveform in
+    /// the index, so it looks right whether or not the audio is still here.
     @ViewBuilder
     private func thumbnail(_ moment: Moment) -> some View {
-        if let image = MomentStore.shared.thumbnail(for: moment.id) {
+        if moment.isVoice {
+            VoiceMomentTile(moment: moment)
+        } else if let image = MomentStore.shared.thumbnail(for: moment.id) {
             Image(uiImage: image).resizable().scaledToFill()
         } else {
             Rectangle()

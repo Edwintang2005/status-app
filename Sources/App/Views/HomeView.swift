@@ -5,7 +5,11 @@ struct HomeView: View {
     @State private var showingPicker = false
     @State private var showingSettings = false
     @State private var showingComposer = false
+    @State private var showingVoiceComposer = false
     @State private var showingLibrary = false
+    /// One player for the memo rows, owned here so leaving the screen — or
+    /// starting a second memo — stops whatever was playing.
+    @State private var voicePlayer = VoicePlayer()
     /// Captured when the carousel opens. Reading `model.carouselMoments`
     /// straight from the sheet would shrink the list underneath the user:
     /// paging marks each one seen, which removes it from the unseen set.
@@ -20,19 +24,26 @@ struct HomeView: View {
                 // opaque system background over anything layered underneath.
                 Theme.Background()
                 ScrollView {
-                    VStack(spacing: 18) {
+                    // Ordered by what you came here to do: set your own status,
+                    // send something, see how they are, then whatever is
+                    // waiting for you.
+                    VStack(spacing: 12) {
+                        myStatusRow
                         NudgeButton(lastSentAt: model.snapshot.lastNudgeSentAt) {
                             await model.sendNudge()
                         }
-                        momentButton
+                        sendRow
                         partnerCard
-                        if let moment = model.unseenMoments.first ?? model.latestMoment {
+                        if let moment = model.unseenVisualMoments.first ?? model.latestVisualMoment {
                             momentCard(moment)
                         }
-                        myStatusCard
+                        if let memo = model.latestReceivedVoiceMemo {
+                            voiceMemoRow(memo)
+                        }
                         syncFooter
                     }
-                    .padding(20)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 14)
                 }
                 .scrollIndicators(.hidden)
                 .refreshable { await model.refresh() }
@@ -60,8 +71,13 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showingPicker) {
             MoodPickerView(initialEmoji: model.snapshot.mine?.emoji ?? "",
-                           initialMessage: model.snapshot.mine?.message ?? "") { emoji, message in
-                Task { await model.setStatus(emoji: emoji, message: message) }
+                           initialMessage: model.snapshot.mine?.message ?? "",
+                           initialIsCelebration: model.snapshot.mine?.isCelebration ?? false) { emoji, message, isCelebration in
+                Task {
+                    await model.setStatus(emoji: emoji,
+                                          message: message,
+                                          isCelebration: isCelebration)
+                }
             }
         }
         .sheet(isPresented: $showingSettings) {
@@ -70,6 +86,16 @@ struct HomeView: View {
         .sheet(isPresented: $showingComposer) {
             MomentComposerView { image, kind, caption in
                 Task { await model.sendMoment(image: image, kind: kind, caption: caption) }
+            }
+        }
+        .sheet(isPresented: $showingVoiceComposer) {
+            VoiceMemoComposerView { url, duration, waveform, caption in
+                Task {
+                    await model.sendVoiceMemo(fileURL: url,
+                                              duration: duration,
+                                              waveform: waveform,
+                                              caption: caption)
+                }
             }
         }
         .sheet(isPresented: Binding(get: { !carouselQueue.isEmpty },
@@ -93,54 +119,75 @@ struct HomeView: View {
 
     // MARK: - Actions
 
-    private var momentButton: some View {
-        Button {
-            showingComposer = true
-        } label: {
-            Label("Send a photo or doodle", systemImage: "camera.viewfinder")
+    /// Two ways to send something, side by side. Equal weight on purpose — a
+    /// memo is as much a moment as a photo is, not a secondary option buried
+    /// inside the photo composer.
+    private var sendRow: some View {
+        HStack(spacing: 10) {
+            Button {
+                showingComposer = true
+            } label: {
+                Label("Photo", systemImage: "camera.viewfinder")
+            }
+            .buttonStyle(SecondaryButtonStyle())
+
+            Button {
+                showingVoiceComposer = true
+            } label: {
+                Label("Voice memo", systemImage: "mic.fill")
+            }
+            .buttonStyle(SecondaryButtonStyle())
         }
-        .buttonStyle(SecondaryButtonStyle())
     }
 
     // MARK: - Partner status
 
+    /// Laid out sideways rather than as a tall centred block: their status is
+    /// the thing you check most often, and it shouldn't cost most of a screen
+    /// to read.
     private var partnerCard: some View {
-        VStack(spacing: 14) {
-            Text(model.partnerName.uppercased())
-                .font(Theme.rounded(13, .semibold))
-                .tracking(1.4)
-                .foregroundStyle(.secondary)
-
+        HStack(spacing: 14) {
             if let theirs = model.snapshot.theirs {
                 Text(theirs.emoji)
-                    .font(.system(size: 88))
+                    .font(.system(size: 46))
                     .contentTransition(.opacity)
                     .animation(.smooth, value: theirs.emoji)
 
-                Text(theirs.message.isEmpty ? "no message" : theirs.message)
-                    .font(Theme.rounded(24, .semibold))
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(theirs.message.isEmpty ? .secondary : .primary)
-
-                Text(theirs.updatedAt, format: .relative(presentation: .named))
-                    .font(Theme.rounded(13))
-                    .foregroundStyle(.tertiary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.partnerName.uppercased())
+                        .font(Theme.rounded(11, .semibold))
+                        .tracking(1.2)
+                        .foregroundStyle(.secondary)
+                    Text(theirs.message.isEmpty ? "no message" : theirs.message)
+                        .font(Theme.rounded(20, .semibold))
+                        .lineLimit(2)
+                        .foregroundStyle(theirs.message.isEmpty ? .secondary : .primary)
+                    Text(theirs.updatedAt, format: .relative(presentation: .named))
+                        .font(Theme.rounded(11))
+                        .foregroundStyle(.tertiary)
+                }
             } else {
-                Text("💭").font(.system(size: 88)).opacity(0.4)
-                Text("Waiting for their first status")
-                    .font(Theme.rounded(18, .medium))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+                Text("💭").font(.system(size: 46)).opacity(0.4)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.partnerName.uppercased())
+                        .font(Theme.rounded(11, .semibold))
+                        .tracking(1.2)
+                        .foregroundStyle(.secondary)
+                    Text("Waiting for their first status")
+                        .font(Theme.rounded(16, .medium))
+                        .foregroundStyle(.secondary)
+                }
             }
+
+            Spacer(minLength: 0)
         }
-        .padding(.vertical, 12)
-        .card(padding: 24)
+        .card(padding: 16)
     }
 
     // MARK: - Latest moment
 
     private func momentCard(_ moment: Moment) -> some View {
-        let unseen = model.unseenMoments.count
+        let unseen = model.unseenVisualMoments.count
 
         // Only what's waiting — or, when caught up, just the latest. The whole
         // archive lives behind the library button instead.
@@ -162,7 +209,7 @@ struct HomeView: View {
                 .clipped()
 
                 HStack(spacing: 8) {
-                    Image(systemName: moment.kind == .photo ? "camera.fill" : "scribble")
+                    Image(systemName: moment.symbolName)
                         .font(Theme.rounded(12))
                         .foregroundStyle(.secondary)
                     Text(momentLabel(moment))
@@ -192,43 +239,73 @@ struct HomeView: View {
         .buttonStyle(.plain)
     }
 
+    // MARK: - Latest voice memo
+
+    /// Plays in place. Nothing opens, because there is nothing to look at.
+    /// The row stays put after it's been played — it's the last thing they
+    /// said, and wanting to hear that twice is normal — while playing it marks
+    /// it heard, which is what clears the widget's badge.
+    private func voiceMemoRow(_ memo: Moment) -> some View {
+        VoiceMemoRow(moment: memo,
+                     audioURL: MomentStore.shared.mediaURL(for: memo),
+                     player: voicePlayer) {
+            if let url = MomentStore.shared.mediaURL(for: memo),
+               voicePlayer.isPlaying(url) {
+                voicePlayer.pause()
+                return
+            }
+            Task {
+                // Recent memos are already cached; one that isn't comes back
+                // from CloudKit first.
+                guard await model.ensureMedia(for: memo),
+                      let url = MomentStore.shared.mediaURL(for: memo) else { return }
+                voicePlayer.play(url)
+                model.markSeen(memo)
+            }
+        }
+    }
+
     private func momentLabel(_ moment: Moment) -> String {
-        let noun = moment.kind == .photo ? "photo" : "drawing"
         if moment.caption.isEmpty {
-            return moment.fromMe ? "You sent a \(noun)" : "Sent you a \(noun)"
+            return moment.fromMe
+                ? "You sent a \(moment.noun)"
+                : "Sent you a \(moment.noun)"
         }
         return moment.fromMe ? "You: \(moment.caption)" : moment.caption
     }
 
     // MARK: - Mine
 
-    private var myStatusCard: some View {
+    /// A single slim row at the top of the screen. Setting your own status is
+    /// the most frequent thing anyone does here, so it wants to be reachable
+    /// without scrolling — and a whole card's worth of height buys nothing,
+    /// since it's one emoji and one line of text.
+    private var myStatusRow: some View {
         Button {
             showingPicker = true
         } label: {
-            HStack(spacing: 16) {
+            HStack(spacing: 12) {
                 Text(model.snapshot.mine?.emoji ?? "➕")
-                    .font(.system(size: 40))
+                    .font(.system(size: 26))
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("You")
-                        .font(Theme.rounded(12, .semibold))
-                        .tracking(1.1)
-                        .foregroundStyle(.secondary)
-                    Text(model.snapshot.mine?.message.isEmpty == false
-                         ? model.snapshot.mine!.message
-                         : "Set your status")
-                        .font(Theme.rounded(18, .semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                }
+                Text(model.snapshot.mine?.message.isEmpty == false
+                     ? model.snapshot.mine!.message
+                     : "Set your status")
+                    .font(Theme.rounded(17, .semibold))
+                    .foregroundStyle(model.snapshot.mine?.message.isEmpty == false
+                                     ? .primary
+                                     : .secondary)
+                    .lineLimit(1)
 
-                Spacer()
+                Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
-                    .font(Theme.rounded(14, .semibold))
+                    .font(Theme.rounded(13, .semibold))
                     .foregroundStyle(.tertiary)
             }
-            .card()
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.35), lineWidth: 1))
         }
         .buttonStyle(.plain)
     }

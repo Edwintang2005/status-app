@@ -81,8 +81,8 @@ actor LocalSync: SyncBackend {
     /// the local record.
     func send(_ moment: Moment) async throws {}
 
-    /// Demo images only ever exist locally, so there is nowhere to fetch from.
-    func fetchImages(for moment: Moment) async throws {}
+    /// Demo media only ever exists locally, so there is nowhere to fetch from.
+    func fetchMedia(for moment: Moment) async throws {}
 
     func registerSubscription() async throws {}
 
@@ -93,7 +93,7 @@ actor LocalSync: SyncBackend {
     // MARK: - Demo controls
 
     /// Pretend the partner changed their status.
-    func simulatePartnerStatus(emoji: String, message: String) async {
+    func simulatePartnerStatus(emoji: String, message: String, isCelebration: Bool) async {
         await MainActor.run {
             _ = SharedStore.shared.mutate { snapshot in
                 let existing = snapshot.theirs
@@ -103,7 +103,8 @@ actor LocalSync: SyncBackend {
                     displayName: existing?.displayName ?? Self.demoPartnerName,
                     updatedAt: Date(),
                     nudgeCount: existing?.nudgeCount ?? 0,
-                    lastNudgeAt: existing?.lastNudgeAt
+                    lastNudgeAt: existing?.lastNudgeAt,
+                    isCelebration: isCelebration
                 )
             }
         }
@@ -122,8 +123,8 @@ actor LocalSync: SyncBackend {
         }
     }
 
-    /// Pretend the partner sent a photo or drawing. The image must already be
-    /// written to `MomentStore` under `moment.id`.
+    /// Pretend the partner sent a photo, drawing or voice memo. The media file
+    /// must already be written to `MomentStore` under `moment.id`.
     func simulatePartnerMoment(_ moment: Moment) async {
         await MainActor.run { SharedStore.shared.record(moment) }
     }

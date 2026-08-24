@@ -87,22 +87,43 @@ final class SceneDelegate: NSObject, UIWindowSceneDelegate {
         accept(cloudKitShareMetadata)
     }
 
+    /// Hands the invite to the UI rather than accepting it here.
+    ///
+    /// The join needs a display name, and on a fresh install — by far the
+    /// common case for the person being invited — there isn't one yet. This
+    /// used to fall back to `UIDevice.current.name`, so people joined as
+    /// "Edwin's iPhone". `WelcomeView` asks first, then calls
+    /// `AppModel.acceptInvite(name:)`.
     private func accept(_ metadata: CKShare.Metadata) {
+        log.notice("Invite link opened; waiting on a name before joining.")
         Task { @MainActor in
-            let name = SharedStore.shared.snapshot.mine?.displayName ?? UIDevice.current.name
-            do {
-                try await CloudSync.shared.acceptShare(metadata, displayName: name)
-                NotificationCenter.default.post(name: .pairingDidChange, object: nil)
-            } catch {
-                log.error("Failed to accept share: \(error.localizedDescription)")
-                NotificationCenter.default.post(name: .pairingDidFail,
-                                                object: error.localizedDescription)
-            }
+            // Both the box and the notification, because the two arrival paths
+            // have opposite timing: a cold launch delivers the share *before*
+            // any SwiftUI view exists to hear a notification, so `onLaunch`
+            // drains the box instead.
+            InviteInbox.shared.metadata = metadata
+            NotificationCenter.default.post(name: .inviteDidArrive, object: metadata)
         }
+    }
+}
+
+/// Holds an invite between the scene delegate and the first view that can act
+/// on it. Not in `SharedStore`: `CKShare.Metadata` isn't `Codable`, and an
+/// invite that doesn't survive a relaunch is fine — the link still works.
+@MainActor
+final class InviteInbox {
+    static let shared = InviteInbox()
+    var metadata: CKShare.Metadata?
+
+    func take() -> CKShare.Metadata? {
+        defer { metadata = nil }
+        return metadata
     }
 }
 
 extension Notification.Name {
     static let pairingDidChange = Notification.Name("TetherPairingDidChange")
     static let pairingDidFail = Notification.Name("TetherPairingDidFail")
+    /// Object is the `CKShare.Metadata` from the tapped link.
+    static let inviteDidArrive = Notification.Name("TetherInviteDidArrive")
 }

@@ -9,13 +9,18 @@ struct MoodPickerView: View {
     var title: String = "Your status"
     var initialEmoji: String = ""
     var initialMessage: String = ""
-    let onSelect: (String, String) -> Void
+    var initialIsCelebration: Bool = false
+    let onSelect: (String, String, Bool) -> Void
 
     @Environment(\.dismiss) private var dismiss
 
     @State private var emoji = ""
     @State private var message = ""
     @State private var query = ""
+    /// Armed by tapping the celebration preset, and kept while you retype the
+    /// wording — "happy 3 months" is the whole point, and it would be lost if
+    /// the flag were inferred from the text.
+    @State private var isCelebration = false
     @FocusState private var messageFocused: Bool
 
     /// Groups with their matching presets, empty groups dropped. With ~90
@@ -71,6 +76,7 @@ struct MoodPickerView: View {
         .onAppear {
             emoji = initialEmoji
             message = initialMessage
+            isCelebration = initialIsCelebration
         }
     }
 
@@ -97,7 +103,37 @@ struct MoodPickerView: View {
             .padding(.horizontal, 14)
             .background(Color.primary.opacity(0.05),
                         in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+            if isCelebration { celebrationChip }
         }
+        .animation(.smooth(duration: 0.25), value: isCelebration)
+    }
+
+    /// The only sign that this status is more than its text. Without it the
+    /// flag would be invisible after you edited the wording, and turning it
+    /// back off would mean picking another preset and starting again.
+    private var celebrationChip: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "sparkles")
+                .font(Theme.rounded(13, .semibold))
+            Text("Fills their screen when they next open the app")
+                .font(Theme.rounded(13, .medium))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Button {
+                isCelebration = false
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(Theme.rounded(15))
+            }
+            .buttonStyle(.plain)
+        }
+        .foregroundStyle(Theme.warm)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .background(Theme.warm.opacity(0.12),
+                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
     }
 
     private var searchField: some View {
@@ -145,11 +181,27 @@ struct MoodPickerView: View {
         return Button {
             emoji = mood.emoji
             message = mood.label
+            isCelebration = mood.isCelebration
             messageFocused = false
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            if mood.isCelebration {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            } else {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            }
         } label: {
             VStack(spacing: 6) {
-                Text(mood.emoji).font(.system(size: 30))
+                Text(mood.emoji)
+                    .font(.system(size: 30))
+                    // Enough of a hint to be findable once you know it's there,
+                    // quiet enough that the Us list still reads as one list.
+                    .overlay(alignment: .topTrailing) {
+                        if mood.isCelebration {
+                            Image(systemName: "sparkles")
+                                .font(Theme.rounded(10, .bold))
+                                .foregroundStyle(Theme.warm)
+                                .offset(x: 10, y: -4)
+                        }
+                    }
                 Text(mood.label)
                     .font(Theme.rounded(11, .medium))
                     .foregroundStyle(.secondary)
@@ -174,14 +226,14 @@ struct MoodPickerView: View {
 
     private func commit() {
         guard !emoji.isEmpty else { return }
-        onSelect(emoji, message)
+        onSelect(emoji, message, isCelebration)
         dismiss()
     }
 }
 
 #if DEBUG
 #Preview("Mood picker") {
-    MoodPickerView(initialEmoji: "💼", initialMessage: "working") { _, _ in }
+    MoodPickerView(initialEmoji: "💼", initialMessage: "working") { _, _, _ in }
         .tint(Theme.accent)
 }
 #endif

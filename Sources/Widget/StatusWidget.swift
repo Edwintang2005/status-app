@@ -1,16 +1,18 @@
 import SwiftUI
 import WidgetKit
 
-/// The partner's status. Lock screen families render monochrome by system
-/// design, so every layout pairs the emoji with words rather than relying on
-/// the glyph's colour to carry meaning.
+/// How the two of you are doing.
+///
+/// Lock screen families render vibrant — desaturated and tinted to the
+/// wallpaper — so a glyph's colour can never carry meaning there. Every layout
+/// with room for it pairs the emoji with a name instead.
 struct StatusWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: AppConfig.widgetKind, provider: StatusProvider()) { entry in
             StatusWidgetView(entry: entry)
         }
-        .configurationDisplayName("Their status")
-        .description("What they're up to, at a glance.")
+        .configurationDisplayName("Statuses")
+        .description("How you're both doing, at a glance.")
         .supportedFamilies([
             .accessoryRectangular,
             .accessoryCircular,

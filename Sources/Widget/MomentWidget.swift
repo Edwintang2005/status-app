@@ -1,7 +1,13 @@
 import SwiftUI
 import WidgetKit
 
-/// The Locket-style widget: whatever your partner last sent, filling the tile.
+/// The Locket-style widget: the last picture your partner sent, filling the
+/// tile.
+///
+/// Voice memos deliberately do *not* take the tile over. A widget can't play
+/// audio, so a waveform here would be a picture-sized thing you can't use, in
+/// place of the photo you could. A waiting memo is a small badge instead —
+/// enough to say "there's something to hear", and tapping through plays it.
 ///
 /// Home screen only. Lock screen accessory widgets are rendered monochrome and
 /// are a couple of hundred points across — a photo there would be an
@@ -12,7 +18,7 @@ struct MomentWidget: Widget {
             MomentWidgetView(entry: entry)
         }
         .configurationDisplayName("Their photo")
-        .description("The last photo or doodle they sent you.")
+        .description("The last photo or doodle they sent you, and a badge when a voice memo is waiting.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }
@@ -22,7 +28,9 @@ struct MomentWidgetView: View {
 
     @Environment(\.widgetFamily) private var family
 
-    private var moment: Moment? { entry.snapshot.latestPartnerMoment }
+    /// The picture only — a memo never displaces it.
+    private var moment: Moment? { entry.snapshot.latestPartnerVisualMoment }
+    private var unheardMemos: Int { entry.snapshot.unheardVoiceMemoCount }
 
     var body: some View {
         ZStack {
@@ -32,7 +40,28 @@ struct MomentWidgetView: View {
                 empty
             }
         }
+        .overlay(alignment: .topTrailing) {
+            if unheardMemos > 0 { memoBadge }
+        }
         .containerBackground(for: .widget) { background }
+    }
+
+    /// Small on purpose. It says a memo is waiting and how many; hearing one
+    /// happens in the app, which is where tapping the tile goes anyway.
+    private var memoBadge: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "mic.fill")
+            if unheardMemos > 1 {
+                Text("\(unheardMemos)").monospacedDigit()
+            }
+        }
+        .font(.system(size: 11, weight: .bold, design: .rounded))
+        .foregroundStyle(.white)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 5)
+        .background(Theme.warm, in: Capsule())
+        .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
+        .padding(9)
     }
 
     // MARK: - Content
@@ -74,14 +103,24 @@ struct MomentWidgetView: View {
 
     private var empty: some View {
         VStack(spacing: 6) {
-            Image(systemName: "photo.on.rectangle.angled")
+            Image(systemName: unheardMemos > 0 ? "waveform" : "photo.on.rectangle.angled")
                 .font(.system(size: 26))
                 .foregroundStyle(.secondary)
-            Text(entry.snapshot.isPaired ? "No photos yet" : "Open to pair")
+            Text(emptyLabel)
                 .font(.system(size: 12, weight: .medium, design: .rounded))
                 .foregroundStyle(.secondary)
         }
-        .widgetURL(URL(string: "tether://compose"))
+        // A memo waiting with no picture behind it is worth opening the app
+        // for; otherwise the empty tile is an invitation to send something.
+        .widgetURL(URL(string: unheardMemos > 0 ? "tether://open" : "tether://compose"))
+    }
+
+    private var emptyLabel: String {
+        guard entry.snapshot.isPaired else { return "Open to pair" }
+        if unheardMemos > 0 {
+            return unheardMemos == 1 ? "Voice memo waiting" : "\(unheardMemos) memos waiting"
+        }
+        return "No photos yet"
     }
 
     // MARK: - Background
@@ -104,6 +143,7 @@ struct MomentWidgetView: View {
             ContainerRelativeShape().fill(Theme.accent.opacity(0.14))
         }
     }
+
 
     @ViewBuilder
     private func imageView(_ image: UIImage) -> some View {

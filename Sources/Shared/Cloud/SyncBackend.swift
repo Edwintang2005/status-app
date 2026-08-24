@@ -32,11 +32,11 @@ protocol SyncBackend: Sendable {
     @discardableResult func refresh() async throws -> RefreshResult
     /// `false` when the cooldown blocked it.
     @discardableResult func sendNudge() async throws -> Bool
-    /// Image files are already on disk in the App Group under `moment.id`.
+    /// Media files are already on disk in the App Group under `moment.id`.
     func send(_ moment: Moment) async throws
-    /// Pulls the image files for a history entry whose images aren't cached
-    /// locally any more. No-op for backends that never evict.
-    func fetchImages(for moment: Moment) async throws
+    /// Pulls the media files for a history entry whose photo or recording
+    /// isn't cached locally any more. No-op for backends that never evict.
+    func fetchMedia(for moment: Moment) async throws
     func registerSubscription() async throws
     func unpair() async
 }
