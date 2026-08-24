@@ -47,11 +47,17 @@ struct SettingsView: View {
 
                 if model.role == .owner {
                     Section {
-                        Button("Close the invite link") {
-                            Task { await model.lockPairing() }
+                        if model.inviteClosed {
+                            LabeledContent("Invite link", value: "Closed")
+                        } else {
+                            Button("Close the invite link") {
+                                Task { await model.lockPairing() }
+                            }
                         }
                     } footer: {
-                        Text("Stops anyone else joining with a link you've already sent. Do this once your partner is paired.")
+                        Text(model.inviteClosed
+                             ? "Closed automatically when \(model.partnerName) joined. Nobody else can use the link you sent, even if it was forwarded or screenshotted."
+                             : "Anyone holding the link can still join. It closes itself the moment \(model.partnerName) does — close it now if you sent it to the wrong person.")
                     }
                 }
 

@@ -13,6 +13,9 @@ final class AppModel {
     private(set) var snapshot: Snapshot
     private(set) var isPaired: Bool
     private(set) var role: PairRole?
+    /// Owner side: whether the invite link has been revoked, either by the
+    /// button in Settings or automatically once the partner joined.
+    private(set) var inviteClosed: Bool = SharedStore.shared.inviteClosed
     private(set) var isBusy = false
     private(set) var isRefreshing = false
     private(set) var inviteURL: URL?
@@ -212,6 +215,7 @@ final class AppModel {
         snapshot = store.snapshot
         isPaired = store.pairing != nil
         role = store.pairing?.role
+        inviteClosed = store.inviteClosed
         history = MomentIndex.shared.load()
     }
 

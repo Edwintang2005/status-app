@@ -82,7 +82,7 @@ final class VoiceRecorder {
             // instead of the earpiece.
             try session.setCategory(.playAndRecord,
                                     mode: .spokenAudio,
-                                    options: [.defaultToSpeaker, .allowBluetooth])
+                                    options: [.defaultToSpeaker, .allowBluetoothHFP])
             try session.setActive(true)
 
             // Mono AAC at 32 kHz: speech-sized, and the one encoding every

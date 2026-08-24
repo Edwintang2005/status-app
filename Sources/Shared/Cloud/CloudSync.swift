@@ -138,7 +138,8 @@ actor CloudSync: SyncBackend {
     ///
     /// The share is created with `publicPermission = .readWrite` so the partner
     /// can join from the link alone — no need to know their Apple Account
-    /// address. `lockPairing()` closes it afterwards.
+    /// address. `closeInviteIfPartnerJoined()` revokes that the moment they're
+    /// in, and this reopens it for a genuinely new invite.
     func createPairInvite(displayName: String) async throws -> URL {
         try await requireAvailableAccount()
 
@@ -151,7 +152,19 @@ actor CloudSync: SyncBackend {
 
         let share: CKShare
         if let existing = try await existingZoneShare(in: database, zoneID: zoneID) {
-            share = existing
+            // A share left over from a previous pairing, which — now that the
+            // link closes itself once someone joins — is very likely locked.
+            // Reachable when an unlink couldn't reach iCloud and the user took
+            // the "remove from this iPhone only" escape hatch: the zone and its
+            // closed share outlive the local reset. Handing back a URL nobody
+            // can join with would be a silent dead end, so reopen it.
+            if existing.publicPermission != .readWrite {
+                existing.publicPermission = .readWrite
+                let result = try await database.modifyRecords(saving: [existing], deleting: [])
+                share = try Self.firstSavedRecord(from: result) as? CKShare ?? existing
+            } else {
+                share = existing
+            }
         } else {
             let newShare = CKShare(recordZoneID: zoneID)
             newShare[CKShare.SystemFieldKey.title] = "\(AppConfig.appName) — \(displayName)" as CKRecordValue
@@ -166,13 +179,21 @@ actor CloudSync: SyncBackend {
                                zoneName: zoneID.zoneName,
                                zoneOwnerName: zoneID.ownerName,
                                pairedAt: Date())
-        await MainActor.run { SharedStore.shared.pairing = info }
+        await MainActor.run {
+            SharedStore.shared.pairing = info
+            // A fresh invite is an open invite: re-arm the auto-close so it
+            // fires again for whoever joins with this link.
+            SharedStore.shared.inviteClosed = false
+        }
         try await bootstrapAfterPairing(displayName: displayName)
         return url
     }
 
     /// Owner side. Revokes link-based joining once the partner is in, so a
     /// forwarded or screenshotted link can't add a third person.
+    ///
+    /// Idempotent: an already-closed share is left untouched, and the local
+    /// flag is set either way so `closeInviteIfPartnerJoined` stops looking.
     func lockPairing() async throws {
         guard let pairing = await MainActor.run(body: { SharedStore.shared.pairing }),
               pairing.role == .owner else { throw SyncError.notPaired }
@@ -180,8 +201,43 @@ actor CloudSync: SyncBackend {
         let database = container.privateCloudDatabase
         let zoneID = self.zoneID(for: pairing)
         guard let share = try await existingZoneShare(in: database, zoneID: zoneID) else { return }
-        share.publicPermission = .none
-        _ = try await database.modifyRecords(saving: [share], deleting: [])
+        if share.publicPermission != .none {
+            share.publicPermission = .none
+            _ = try await database.modifyRecords(saving: [share], deleting: [])
+        }
+        await MainActor.run { SharedStore.shared.inviteClosed = true }
+    }
+
+    /// Closes the invite link as soon as there is proof the partner is in.
+    ///
+    /// The link is a bearer token: `publicPermission = .readWrite` means whoever
+    /// holds the URL can join, and a joining device with no change token is
+    /// handed the **entire zone** — every photo, drawing and memo ever sent, not
+    /// just what happens next. Leaving that open until someone remembers a
+    /// button in Settings is the wrong default for a forwarded screenshot, so
+    /// the app closes it rather than the user.
+    ///
+    /// The proof is a `status-participant` record existing: only a share
+    /// participant can write one, and pairing publishes it immediately. That
+    /// costs no extra fetch — the refresh just read it — so the one round trip
+    /// to revoke happens once per pairing, and never for an owner still waiting
+    /// to be joined.
+    ///
+    /// Best-effort on purpose: a failure here must not fail the refresh that
+    /// carried it. The flag stays unset, so the next refresh tries again.
+    private func closeInviteIfPartnerJoined(_ pairing: PairingInfo) async {
+        guard pairing.role == .owner else { return }
+        let shouldClose = await MainActor.run {
+            !SharedStore.shared.inviteClosed && SharedStore.shared.snapshot.theirs != nil
+        }
+        guard shouldClose else { return }
+
+        do {
+            try await lockPairing()
+            log.notice("Partner has joined — invite link closed automatically.")
+        } catch {
+            log.error("Couldn't close the invite link: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Participant side. Called from the scene delegate when iOS hands us an
@@ -308,7 +364,9 @@ actor CloudSync: SyncBackend {
             await MainActor.run { SharedStore.shared.setChangeToken(encoded, for: tokenKey) }
         }
 
-        return await apply(changes, pairing: pairing, database: database)
+        let result = await apply(changes, pairing: pairing, database: database)
+        await closeInviteIfPartnerJoined(pairing)
+        return result
     }
 
     /// A reference type on purpose: the operation's per-record callbacks are

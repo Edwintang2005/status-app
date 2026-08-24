@@ -21,6 +21,7 @@ final class SharedStore {
         static let snapshot = "snapshot"
         static let pairing = "pairing"
         static let notificationsRequested = "notificationsRequested"
+        static let inviteClosed = "inviteClosed"
     }
 
     init(store: GroupKeyValueStore = GroupFileStore()) {
@@ -68,6 +69,15 @@ final class SharedStore {
         set { store.setBool(newValue, forKey: Key.notificationsRequested) }
     }
 
+    /// Owner side: whether the invite link has been revoked, so `CloudSync`
+    /// stops asking the server about a share it already closed. Local memory of
+    /// a server fact — the share's `publicPermission` is the truth, this only
+    /// keeps a settled pairing from re-checking it on every refresh.
+    var inviteClosed: Bool {
+        get { store.bool(forKey: Key.inviteClosed) }
+        set { store.setBool(newValue, forKey: Key.inviteClosed) }
+    }
+
     /// Forgets the link, both partners' statuses and the sync cursors.
     ///
     /// `keepingName` decides which of the two endings this is: unlinking keeps
@@ -80,6 +90,8 @@ final class SharedStore {
             : nil
 
         pairing = nil
+        // The next pairing gets a new share with a new link, which starts open.
+        inviteClosed = false
         for key in ["private", "shared"] { setChangeToken(nil, for: key) }
         snapshot = Snapshot(
             mine: (name?.isEmpty == false) ? .initial(displayName: name!) : nil,

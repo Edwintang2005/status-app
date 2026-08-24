@@ -92,10 +92,32 @@ custom zone in their private database and shares the whole zone; the other side
 accepts, and the zone shows up in their shared database. Both can then write
 into it.
 
-The invite link is created with `publicPermission = .readWrite`, so anyone
-holding the link could join. Once your partner is in, use **Settings → Close
-the invite link** to revoke that, so a forwarded screenshot can't add a third
-person.
+### The invite link closes itself
+
+The link is created with `publicPermission = .readWrite`, which makes it a
+**bearer token**: whoever holds the URL can join, not just the person you sent
+it to. That matters more than it first looks, because a device joining with no
+change token is handed the *entire zone* — every photo, drawing and voice memo
+ever sent, not just what happens next.
+
+So the app revokes it rather than the user. On the owner's next refresh after
+the partner has joined, `closeInviteIfPartnerJoined()` sets the share's
+`publicPermission` to `.none`. The proof it waits for is a `status-participant`
+record existing — only a share participant can write one — so it costs no extra
+fetch, and the single round trip to revoke happens once per pairing. A
+forwarded screenshot is then worthless.
+
+**Settings → Close the invite link** is still there for closing it *early*,
+before anyone joins, if you sent it to the wrong person; once closed the row
+reads "Invite link — Closed" instead. The local `inviteClosed` flag only stops
+a settled pairing re-checking the server; the share's own permission is the
+truth. Creating a genuinely new invite reopens the share and re-arms the
+auto-close.
+
+Two things this deliberately does **not** claim to protect against: the window
+between your partner joining and the owner's next refresh (small, and a silent
+push usually closes it within seconds), and anyone with access to the owner's
+unlocked phone.
 
 ## How it stays current
 
