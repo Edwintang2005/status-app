@@ -21,7 +21,6 @@ final class SharedStore {
         static let snapshot = "snapshot"
         static let pairing = "pairing"
         static let notificationsRequested = "notificationsRequested"
-        static let demoUnlocked = "demoUnlocked"
     }
 
     init(store: GroupKeyValueStore = GroupFileStore()) {
@@ -67,14 +66,6 @@ final class SharedStore {
     var hasRequestedNotifications: Bool {
         get { store.bool(forKey: Key.notificationsRequested) }
         set { store.setBool(newValue, forKey: Key.notificationsRequested) }
-    }
-
-    /// Whether the hidden demo controls have been revealed. Only ever read by
-    /// `TETHER_LOCAL_MODE` builds — the demo code isn't compiled into a release
-    /// build at all, so there is nothing for this to unlock there.
-    var isDemoUnlocked: Bool {
-        get { store.bool(forKey: Key.demoUnlocked) }
-        set { store.setBool(newValue, forKey: Key.demoUnlocked) }
     }
 
     /// Forgets the link, both partners' statuses and the sync cursors.

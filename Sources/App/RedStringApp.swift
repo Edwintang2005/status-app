@@ -2,7 +2,7 @@ import CloudKit
 import SwiftUI
 
 @main
-struct TetherApp: App {
+struct RedStringApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model = AppModel()
     @Environment(\.scenePhase) private var scenePhase

@@ -86,7 +86,7 @@ struct MomentWidgetView: View {
                 // Small widgets only get a single tap target (widgetURL), so
                 // the compose shortcut is limited to the roomier families.
                 if family != .systemSmall {
-                    Link(destination: URL(string: "tether://compose")!) {
+                    Link(destination: URL(string: "redstring://compose")!) {
                         Image(systemName: "square.and.pencil")
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(.white)
@@ -98,7 +98,7 @@ struct MomentWidgetView: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 10)
         }
-        .widgetURL(URL(string: "tether://open"))
+        .widgetURL(URL(string: "redstring://open"))
     }
 
     private var empty: some View {
@@ -112,7 +112,7 @@ struct MomentWidgetView: View {
         }
         // A memo waiting with no picture behind it is worth opening the app
         // for; otherwise the empty tile is an invitation to send something.
-        .widgetURL(URL(string: unheardMemos > 0 ? "tether://open" : "tether://compose"))
+        .widgetURL(URL(string: unheardMemos > 0 ? "redstring://open" : "redstring://compose"))
     }
 
     private var emptyLabel: String {

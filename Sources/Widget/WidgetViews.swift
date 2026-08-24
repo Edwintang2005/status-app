@@ -23,7 +23,7 @@ struct StatusWidgetView: View {
             default: small
             }
         }
-        .widgetURL(URL(string: "tether://open"))
+        .widgetURL(URL(string: "redstring://open"))
         .containerBackground(for: .widget) {
             if family == .systemSmall {
                 ContainerRelativeShape().fill(Theme.accent.opacity(0.14))

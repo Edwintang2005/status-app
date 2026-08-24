@@ -1,4 +1,4 @@
-# Tether
+# Red String
 
 A private lock screen status app for two people. Your partner sets a status;
 it appears on your lock screen. You tap a heart; their phone buzzes.
@@ -45,51 +45,35 @@ into the canvas.
 ```bash
 brew install xcodegen
 make project
-open Tether.xcodeproj
+open RedString.xcodeproj
 ```
 
 Then, once:
 
-1. **Pick your team.** Select both the `Tether` and `TetherWidgetExtension`
-   targets → Signing & Capabilities → choose your team. Or set
-   `DEVELOPMENT_TEAM` in [project.yml](project.yml) and re-run `make project`.
-2. **Change the bundle IDs** if `com.edwintang.tether` isn't yours. Three
+1. **Pick your team.** Select all three targets (`RedString`,
+   `RedStringWidgetExtension`, `RedStringNotificationService`) → Signing &
+   Capabilities → choose your team. Or set `DEVELOPMENT_TEAM` in
+   [project.yml](project.yml) and re-run `make project`.
+2. **Change the bundle IDs** if `com.edwintang.redstring` isn't yours. Four
    places must agree:
-   - `PRODUCT_BUNDLE_IDENTIFIER` in [project.yml](project.yml) (both targets)
+   - `PRODUCT_BUNDLE_IDENTIFIER` in [project.yml](project.yml) (all three targets)
    - the identifiers in [Sources/Shared/AppConfig.swift](Sources/Shared/AppConfig.swift)
-   - the container and group IDs in both `.entitlements` files
+   - the container and group IDs in all four `.entitlements` files
+   - the `NSUbiquitousContainers` key in
+     [Info.plist](Sources/App/Resources/Info.plist)
 3. **Create the CloudKit container** — Xcode does this for you the first time
    you build with the iCloud capability enabled.
 4. Build and run on both phones.
 
-`make project` regenerates `Tether.xcodeproj` from `project.yml`; the
+There is no offline or unsigned path. The app↔widget channel is a file in the
+App Group container, so a build without that entitlement traps at launch on
+`GroupFileStore`'s `assertionFailure` in Debug, and in Release quietly comes up
+with nowhere to store anything. App Groups, CloudKit and push all need the paid
+team. `make build` is a compile check only; `make run` signs first.
+
+`make project` regenerates `RedString.xcodeproj` from `project.yml`; the
 `.xcodeproj` is gitignored on purpose, so add new files to the folder and
 re-run it rather than editing project settings by hand.
-
-## Running it without an Apple Developer account
-
-```bash
-make local
-```
-
-A **fully working build with no iCloud at all**, for playing with the app
-before paying for anything. It pairs you with a fictional partner you drive
-yourself from **Settings → Demo controls**: set their status, make them nudge
-you, send yourself photos and doodles. Statuses, images, notifications and
-**real widgets** all work — the only thing missing is the network.
-
-Simulator only, and worth knowing why. Xcode strips entitlements when it can't
-produce a provisioning profile, so `make local` re-applies the App Group by
-hand with `codesign` afterwards. The Simulator honours an App Group entitlement
-without a provisioning profile, which is what lets the widget share data with
-the app; a real device would reject the ad-hoc signature. Personal (free) teams
-can't use App Groups at all, so on real hardware the widget genuinely needs the
-paid account.
-
-Internally this is the `TETHER_LOCAL_MODE` compile flag, which swaps
-`Backend.current` from `CloudSync` to `LocalSync`. Both conform to
-`SyncBackend`, so every screen above the backend is identical in the two
-builds — the demo isn't a mock of the app, it *is* the app.
 
 ## Pairing
 
@@ -144,7 +128,7 @@ nudges and photos **survive a force-quit**, with no server anywhere.
 ### The notification service extension
 
 `shouldSendMutableContent` sets `mutable-content: 1`, which hands the push to
-[TetherNotificationService](Sources/NotificationService/NotificationService.swift)
+[RedStringNotificationService](Sources/NotificationService/NotificationService.swift)
 for about thirty seconds before the user sees anything. It is often the only
 part of the app that runs at all.
 
@@ -219,11 +203,6 @@ Two sources, for two different things:
 Changing your own name republishes your `Status` record immediately, so your
 partner sees it on their next sync. It does not rewrite anything you've already
 sent.
-
-In `make local` builds the demo controls include a **Their name** field. That
-isn't a rename feature leaking through — it stands in for the partner setting
-their own name on their own phone, which is the only way it can happen for
-real.
 
 ### History, and where it lives
 
@@ -320,8 +299,8 @@ canvas.
 
 Everything below is already wired up; this is the order to do it in.
 
-1. **Set your team** on all three targets (`Tether`,
-   `TetherWidgetExtension`, `TetherNotificationService`), or set
+1. **Set your team** on all three targets (`RedString`,
+   `RedStringWidgetExtension`, `RedStringNotificationService`), or set
    `DEVELOPMENT_TEAM` in [project.yml](project.yml) and re-run `make project`.
 2. **Run once on a device** with a Debug build. That creates the CloudKit
    *Development* schema automatically — record types `Status`, `Nudge` and
@@ -332,11 +311,17 @@ Everything below is already wired up; this is the order to do it in.
    (*Schema → Deploy Schema Changes*). Production does **not** auto-create
    anything, so an App Store build against an undeployed schema fails on every
    write. Re-deploy whenever you add a field.
-4. **Archive.** The Release configuration already points at
-   [Tether-Release.entitlements](Sources/App/Resources/Tether-Release.entitlements),
+4. **Archive** with `make archive` (or Xcode's *Product → Archive*). The
+   Release configuration already points at
+   [RedString-Release.entitlements](Sources/App/Resources/RedString-Release.entitlements),
    which sets `aps-environment` to `production`; Debug uses the `development`
    file. This is per-configuration in `project.yml`, so there's nothing to
    remember at archive time.
+5. **Check the app icon.**
+   [icon-1024.png](Sources/App/Resources/AppIcon.xcassets/AppIcon.appiconset/icon-1024.png)
+   is still the two-ring artwork drawn for the old name. It's a valid icon and
+   will pass review, but it's off-brand now — replace it with a 1024×1024
+   **opaque** PNG (no alpha channel; the App Store rejects transparency).
 
 Two things to know about the CloudKit schema:
 
@@ -359,11 +344,10 @@ Sources/
     Store/SharedStore.swift  App Group cache — the app↔widget channel
     Store/MomentStore.swift  image files in the App Group, full + thumb
     Store/MomentIndex.swift  the durable history list, kept out of the snapshot
-    Cloud/SyncBackend.swift  the protocol both backends implement
+    Cloud/SyncBackend.swift  the sync surface the UI depends on
     Cloud/CloudSync.swift    CloudKit: sharing, records, assets, subscriptions
-    Cloud/LocalSync.swift    the no-network demo partner
   App/
-    TetherApp.swift, AppDelegate.swift   push registration, share acceptance
+    RedStringApp.swift, AppDelegate.swift   push registration, share acceptance
     AppModel.swift, SyncRunner.swift     state and the refresh→notify path
     Views/
       HomeView, PairingView, SettingsView, MoodPickerView
@@ -376,8 +360,10 @@ Sources/
     SendNudgeIntent.swift                the lock screen heart
   NotificationService/
     NotificationService.swift            enriches pushes; runs when the app can't
-Config/
-  Local.entitlements                     App Group only, for `make local`
+
+Each target's Resources/ also carries a PrivacyInfo.xcprivacy — required for
+App Store submission. Red String declares no tracking and no collected data;
+the one required-reason API is the App Group defaults suite (CA92.1).
 ```
 
 ## Commands
@@ -385,7 +371,7 @@ Config/
 | | |
 |---|---|
 | `make project` | regenerate the Xcode project from `project.yml` |
-| `make build` | build for the Simulator |
-| `make run` | build, install and launch |
-| `make local` | build, sign and run the no-iCloud demo (Simulator only) |
+| `make build` | compile check for the Simulator (unsigned — don't launch it) |
+| `make run` | build signed, install and launch on the Simulator |
+| `make archive` | archive the Release config for TestFlight / the App Store |
 | `make clean` | |

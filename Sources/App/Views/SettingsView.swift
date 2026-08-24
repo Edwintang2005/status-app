@@ -1,17 +1,6 @@
 import SwiftUI
 import UserNotifications
 
-/// Which demo sheet is showing. Declared unconditionally so the `.sheet`
-/// modifier below doesn't need to appear and disappear between build
-/// configurations; in CloudKit builds nothing ever sets it.
-enum DemoSheet: String, Identifiable {
-    case status
-    case moment
-    case voice
-
-    var id: String { rawValue }
-}
-
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -26,13 +15,6 @@ struct SettingsView: View {
     /// The outcome of a successful archive, for the alert that says where it
     /// went. Not the archive itself — by then it's out of the app's hands.
     @State private var archiveSummary: ArchiveSummary?
-    /// Owned here, not by the Section. A `.sheet` attached to a `Section`
-    /// inside a `Form` dismisses the enclosing sheet instead of presenting.
-    @State private var demoSheet: DemoSheet?
-    /// Counts taps on the Version row towards revealing the demo controls.
-    /// Deliberately not persisted — the count restarts every time Settings
-    /// opens, so a half-finished sequence can't linger.
-    @State private var versionTaps = 0
 
     var body: some View {
         @Bindable var model = model
@@ -63,27 +45,6 @@ struct SettingsView: View {
                     }
                 }
 
-                #if TETHER_LOCAL_MODE
-                if model.isDemoUnlocked {
-                Section {
-                    LabeledContent("Their name") {
-                        TextField("Partner", text: $model.demoPartnerName)
-                            .multilineTextAlignment(.trailing)
-                            .textInputAutocapitalization(.words)
-                    }
-                    Button("Set their status…") { demoSheet = .status }
-                    Button("Make them nudge you") {
-                        Task { await model.simulatePartnerNudge() }
-                    }
-                    Button("Send yourself a photo or doodle…") { demoSheet = .moment }
-                    Button("Send yourself a voice memo…") { demoSheet = .voice }
-                } header: {
-                    Text("Demo controls")
-                } footer: {
-                    Text("Drive the other side of the conversation, including the name they'd have set for themselves. Everything here behaves exactly as a real update would — widgets and notifications included.\n\nHidden by default. Tap Version seven times to bring it back.")
-                }
-                }
-                #else
                 if model.role == .owner {
                     Section {
                         Button("Close the invite link") {
@@ -93,7 +54,6 @@ struct SettingsView: View {
                         Text("Stops anyone else joining with a link you've already sent. Do this once your partner is paired.")
                     }
                 }
-                #endif
 
                 if !model.history.isEmpty {
                     Section {
@@ -138,23 +98,8 @@ struct SettingsView: View {
 
                 Section {
                     LabeledContent("Version", value: versionString)
-                        // The hidden switch for the demo controls. A row, not a
-                        // button, so it reads as what it is — a version number
-                        // — to anyone who isn't counting taps.
-                        .contentShape(Rectangle())
-                        .onTapGesture(perform: countVersionTap)
-
-                    #if TETHER_LOCAL_MODE
-                    if model.isDemoUnlocked {
-                        Button("Hide demo controls") { model.hideDemoControls() }
-                    }
-                    #endif
                 } footer: {
-                    // Deliberately no longer points at "the controls above":
-                    // they're hidden until the switch above is found.
-                    Text(model.isLocalDemo
-                         ? "Demo build. Nothing is sent anywhere — the other side of the conversation is simulated on this device."
-                         : "Statuses are stored in your own iCloud with the text end-to-end encrypted. Photos, drawings and voice memos are CloudKit assets, which are encrypted by default.")
+                    Text("Statuses are stored in your own iCloud with the text end-to-end encrypted. Photos, drawings and voice memos are CloudKit assets, which are encrypted by default.")
                 }
             }
             .scrollContentBackground(.hidden)
@@ -171,11 +116,11 @@ struct SettingsView: View {
                                 isPresented: $confirmingUnlink,
                                 titleVisibility: .visible) {
                 if !model.history.isEmpty {
-                    Button("Save memories, then \(model.isLocalDemo ? "reset" : "unlink")") {
+                    Button("Save memories, then unlink") {
                         Task { await saveMemories(then: .unlink) }
                     }
                 }
-                Button(model.isLocalDemo ? "Reset" : "Unlink", role: .destructive) {
+                Button("Unlink", role: .destructive) {
                     Task { await end(.unlink) }
                 }
                 Button("Cancel", role: .cancel) {}
@@ -211,9 +156,6 @@ struct SettingsView: View {
             } message: {
                 Text("Nothing was deleted from iCloud, so what you've shared is still in \(model.partnerName)'s copy. You can clear this iPhone now and try again from a better connection, or cancel and wait.")
             }
-            .sheet(item: $demoSheet) { sheet in
-                demoSheetContent(sheet)
-            }
             // Only reachable when iCloud Drive wasn't available. Nothing has
             // been deleted at this point, so the archive can't be lost by
             // dismissing this.
@@ -232,72 +174,10 @@ struct SettingsView: View {
         }
     }
 
-    @ViewBuilder
-    private func demoSheetContent(_ sheet: DemoSheet) -> some View {
-        #if TETHER_LOCAL_MODE
-        switch sheet {
-        case .status:
-            MoodPickerView(title: "\(model.partnerName)'s status",
-                           initialEmoji: model.snapshot.theirs?.emoji ?? "",
-                           initialMessage: model.snapshot.theirs?.message ?? "",
-                           initialIsCelebration: model.snapshot.theirs?.isCelebration ?? false) { emoji, message, isCelebration in
-                Task {
-                    await model.simulatePartnerStatus(emoji: emoji,
-                                                      message: message,
-                                                      isCelebration: isCelebration)
-                }
-            }
-        case .moment:
-            MomentComposerView(title: "Send as \(model.partnerName)",
-                               sendLabel: "Receive") { image, kind, caption in
-                Task { await model.simulatePartnerMoment(image: image, kind: kind, caption: caption) }
-            }
-            .environment(model)
-        case .voice:
-            // Recorded on this device but filed as though it arrived, so the
-            // notification, the widget and the history all behave exactly as
-            // they would for a real memo.
-            VoiceMemoComposerView(title: "Record as \(model.partnerName)",
-                                  sendLabel: "Receive") { url, duration, waveform, caption in
-                Task {
-                    await model.simulatePartnerVoiceMemo(fileURL: url,
-                                                         duration: duration,
-                                                         waveform: waveform,
-                                                         caption: caption)
-                }
-            }
-            .environment(model)
-        }
-        #else
-        EmptyView()
-        #endif
-    }
-
     private var versionString: String {
         let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
         return "\(short) (\(build))"
-    }
-
-    /// Seven taps, the same count iOS itself uses for its hidden switches.
-    /// A no-op in CloudKit builds: there is no demo code in them to reveal.
-    private func countVersionTap() {
-        #if TETHER_LOCAL_MODE
-        guard !model.isDemoUnlocked else { return }
-        versionTaps += 1
-        switch versionTaps {
-        case 7:
-            versionTaps = 0
-            model.unlockDemoControls()
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-        case 4...:
-            // A nudge that something is counting, only once you're most of the
-            // way there — otherwise a stray tap gives the game away.
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        default:
-            break
-        }
-        #endif
     }
 
     private struct ArchiveSummary: Identifiable {
@@ -353,20 +233,17 @@ struct SettingsView: View {
     }
 
     private var unlinkLabel: String {
-        model.isLocalDemo ? "Reset demo" : "Unlink from \(model.partnerName)"
+        "Unlink from \(model.partnerName)"
     }
 
     private var unlinkTitle: String {
-        model.isLocalDemo ? "Reset the demo?" : "Unlink from \(model.partnerName)?"
+        "Unlink from \(model.partnerName)?"
     }
 
     /// Says exactly what leaves and what stays. The two roles genuinely differ
     /// — the owner holds the shared space, the other person is a guest in it —
     /// and glossing over that is the one thing nobody would forgive.
     private var unlinkFooter: String {
-        if model.isLocalDemo {
-            return "Clears the demo partner and everything sent locally. Your name stays."
-        }
         if model.role == .owner {
             return "Deletes the shared space from your iCloud: both your statuses, "
                 + "and every photo, drawing and voice memo either of you sent. "
@@ -380,9 +257,8 @@ struct SettingsView: View {
     }
 
     private var wipeFooter: String {
-        let first = model.isLocalDemo ? "Clears the demo" : "Does everything unlinking does"
-        return "\(first), and also forgets your name and clears every photo, "
-            + "drawing and voice memo held on this iPhone. \(AppConfig.appName) "
+        return "Does everything unlinking does, and also forgets your name and "
+            + "clears every photo, drawing and voice memo held on this iPhone. \(AppConfig.appName) "
             + "starts as it did the day you installed it. There is no undo."
     }
 

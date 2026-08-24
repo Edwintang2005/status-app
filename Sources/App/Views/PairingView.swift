@@ -3,9 +3,6 @@ import SwiftUI
 /// Two ways in: create an invite link, or tap the one your partner sent. There
 /// are no accounts, no sign-up and no email addresses to type — the CloudKit
 /// share link carries the whole handshake.
-///
-/// In `make local` builds there's no CloudKit at all, so this collapses to a
-/// single button that pairs you with a fictional partner.
 struct PairingView: View {
     @Environment(AppModel.self) private var model
     @State private var name: String = ""
@@ -22,11 +19,7 @@ struct PairingView: View {
 
                 nameRow
 
-                #if TETHER_LOCAL_MODE
-                demoActions
-                #else
                 cloudActions
-                #endif
 
                 privacyNote
             }
@@ -73,40 +66,6 @@ struct PairingView: View {
         }
         .card(padding: 16)
     }
-
-    // MARK: - Local demo
-
-    #if TETHER_LOCAL_MODE
-    @ViewBuilder
-    private var demoActions: some View {
-        VStack(spacing: 14) {
-            Button {
-                nameFocused = false
-                Task { await model.startDemo() }
-            } label: {
-                if model.isBusy {
-                    ProgressView().tint(.white)
-                } else {
-                    Text("Start demo")
-                }
-            }
-            .buttonStyle(PrimaryButtonStyle())
-            .disabled(trimmedName.isEmpty || model.isBusy)
-            .opacity(trimmedName.isEmpty ? 0.5 : 1)
-
-            Label {
-                Text("This build has no iCloud. You'll be paired with a stand-in partner you can drive yourself: in Settings, tap Version seven times to reveal the demo controls. Widgets work for real.")
-                    .font(Theme.rounded(13))
-                    .foregroundStyle(.secondary)
-            } icon: {
-                Image(systemName: "hammer")
-                    .foregroundStyle(Theme.accent)
-            }
-            .padding(.horizontal, 4)
-        }
-    }
-
-    #else
 
     // MARK: - CloudKit
 
@@ -165,7 +124,6 @@ struct PairingView: View {
         }
         .card()
     }
-    #endif
 
     // MARK: - Chrome
 
@@ -181,9 +139,7 @@ struct PairingView: View {
 
     private var privacyNote: some View {
         Label {
-            Text(model.isLocalDemo
-                 ? "Nothing leaves this device in demo mode."
-                 : "Your statuses, photos and drawings are end-to-end encrypted in your own iCloud. No servers, no accounts, no ads.")
+            Text("Your statuses, photos and drawings are end-to-end encrypted in your own iCloud. No servers, no accounts, no ads.")
                 .font(Theme.rounded(12))
                 .foregroundStyle(.secondary)
         } icon: {

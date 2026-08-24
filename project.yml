@@ -1,10 +1,12 @@
-# XcodeGen spec — the source of truth for Tether.app.
+# XcodeGen spec — the source of truth for Red String.app.
 # Regenerate the Xcode project with:  make project     (or: xcodegen generate)
 #
 # To rebrand: change `bundleIdPrefix` and the PRODUCT_BUNDLE_IDENTIFIERs below,
-# then the matching IDs in Sources/Shared/AppConfig.swift, and re-run `make project`.
+# then the matching IDs in Sources/Shared/AppConfig.swift, the three
+# .entitlements files and the NSUbiquitousContainers key in
+# Sources/App/Resources/Info.plist, and re-run `make project`.
 
-name: Tether
+name: RedString
 
 options:
   bundleIdPrefix: com.edwintang
@@ -29,18 +31,23 @@ settings:
     SWIFT_EMIT_LOC_STRINGS: YES
     GENERATE_INFOPLIST_FILE: NO
     ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    # dSYMs for every archive, so TestFlight and App Store crash reports come
+    # back symbolicated rather than as raw addresses.
+    DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
   # Set per-configuration, NOT in `base`: a base-level override replaces
   # Xcode's built-in Debug value instead of adding to it, which silently
   # strips DEBUG and compiles out every #if DEBUG block — previews included.
-  # $(TETHER_CONDITIONS) is how `make local` injects TETHER_LOCAL_MODE.
   configs:
     Debug:
-      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG $(TETHER_CONDITIONS)
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+      ONLY_ACTIVE_ARCH: YES
     Release:
-      SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(TETHER_CONDITIONS)
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: ""
+      SWIFT_COMPILATION_MODE: wholemodule
+      VALIDATE_PRODUCT: YES
 
 targets:
-  Tether:
+  RedString:
     type: application
     platform: iOS
     sources:
@@ -48,33 +55,36 @@ targets:
       - path: Sources/App
         excludes:
           - "Resources/Info.plist"
-          - "Resources/Tether.entitlements"
+          - "Resources/RedString.entitlements"
+          - "Resources/RedString-Release.entitlements"
       - path: Sources/App/Resources/Info.plist
         buildPhase: none
-      - path: Sources/App/Resources/Tether.entitlements
+      - path: Sources/App/Resources/RedString.entitlements
+        buildPhase: none
+      - path: Sources/App/Resources/RedString-Release.entitlements
         buildPhase: none
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.edwintang.tether
-        PRODUCT_NAME: Tether
+        PRODUCT_BUNDLE_IDENTIFIER: com.edwintang.redstring
+        PRODUCT_NAME: RedString
         INFOPLIST_FILE: Sources/App/Resources/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       # aps-environment must be `production` in anything you archive for
       # TestFlight or the App Store, and `development` for Xcode runs.
       configs:
         Debug:
-          CODE_SIGN_ENTITLEMENTS: Sources/App/Resources/Tether.entitlements
+          CODE_SIGN_ENTITLEMENTS: Sources/App/Resources/RedString.entitlements
         Release:
-          CODE_SIGN_ENTITLEMENTS: Sources/App/Resources/Tether-Release.entitlements
+          CODE_SIGN_ENTITLEMENTS: Sources/App/Resources/RedString-Release.entitlements
     dependencies:
-      - target: TetherWidgetExtension
+      - target: RedStringWidgetExtension
         embed: true
         codeSign: true
-      - target: TetherNotificationService
+      - target: RedStringNotificationService
         embed: true
         codeSign: true
 
-  TetherWidgetExtension:
+  RedStringWidgetExtension:
     type: app-extension
     platform: iOS
     sources:
@@ -82,21 +92,21 @@ targets:
       - path: Sources/Widget
         excludes:
           - "Resources/Info.plist"
-          - "Resources/TetherWidget.entitlements"
+          - "Resources/RedStringWidget.entitlements"
       - path: Sources/Widget/Resources/Info.plist
         buildPhase: none
-      - path: Sources/Widget/Resources/TetherWidget.entitlements
+      - path: Sources/Widget/Resources/RedStringWidget.entitlements
         buildPhase: none
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.edwintang.tether.widget
-        PRODUCT_NAME: TetherWidgetExtension
+        PRODUCT_BUNDLE_IDENTIFIER: com.edwintang.redstring.widget
+        PRODUCT_NAME: RedStringWidgetExtension
         INFOPLIST_FILE: Sources/Widget/Resources/Info.plist
-        CODE_SIGN_ENTITLEMENTS: Sources/Widget/Resources/TetherWidget.entitlements
+        CODE_SIGN_ENTITLEMENTS: Sources/Widget/Resources/RedStringWidget.entitlements
 
   # Runs when CloudKit delivers a nudge or moment push, including when the app
   # has been force-quit. See Sources/NotificationService/NotificationService.swift.
-  TetherNotificationService:
+  RedStringNotificationService:
     type: app-extension
     platform: iOS
     sources:
@@ -104,25 +114,25 @@ targets:
       - path: Sources/NotificationService
         excludes:
           - "Resources/Info.plist"
-          - "Resources/TetherNotificationService.entitlements"
+          - "Resources/RedStringNotificationService.entitlements"
       - path: Sources/NotificationService/Resources/Info.plist
         buildPhase: none
-      - path: Sources/NotificationService/Resources/TetherNotificationService.entitlements
+      - path: Sources/NotificationService/Resources/RedStringNotificationService.entitlements
         buildPhase: none
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.edwintang.tether.notifications
-        PRODUCT_NAME: TetherNotificationService
+        PRODUCT_BUNDLE_IDENTIFIER: com.edwintang.redstring.notifications
+        PRODUCT_NAME: RedStringNotificationService
         INFOPLIST_FILE: Sources/NotificationService/Resources/Info.plist
-        CODE_SIGN_ENTITLEMENTS: Sources/NotificationService/Resources/TetherNotificationService.entitlements
+        CODE_SIGN_ENTITLEMENTS: Sources/NotificationService/Resources/RedStringNotificationService.entitlements
 
 schemes:
-  Tether:
+  RedString:
     build:
       targets:
-        Tether: all
-        TetherWidgetExtension: all
-        TetherNotificationService: all
+        RedString: all
+        RedStringWidgetExtension: all
+        RedStringNotificationService: all
     run:
       config: Debug
     archive:

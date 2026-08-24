@@ -1,56 +1,49 @@
-SIM ?= iPhone 17 Pro
-SCHEME := Tether
-PROJECT := Tether.xcodeproj
+SIM ?= iPhone 17
+SCHEME := RedString
+PROJECT := RedString.xcodeproj
+BUNDLE_ID := com.edwintang.redstring
 
-.PHONY: project build test run clean
+.PHONY: project build test run archive clean
 
-## Regenerate Tether.xcodeproj from project.yml (run after adding files)
+## Regenerate RedString.xcodeproj from project.yml (run after adding files)
 project:
 	xcodegen generate
 
-## Build for the simulator without code signing
+## Compile check only — no signing, so the result must NOT be launched.
+## Without the App Group entitlement the app fatal-errors on startup
+## (GroupState.swift): the widget channel is a file in the group container,
+## and there is no offline fallback. Use `make run` to actually run it.
 build: project
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 		-destination 'platform=iOS Simulator,name=$(SIM)' \
 		-configuration Debug CODE_SIGNING_ALLOWED=NO build
 
-## Build, install and launch on the simulator
-run: build
+## Build signed, install and launch on the simulator. Needs DEVELOPMENT_TEAM
+## set (project.yml or Xcode's Signing tab) — the App Group and CloudKit
+## entitlements have to be in the binary for the app to get past launch, and
+## a free personal team can't issue App Groups at all.
+run: project
+	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
+		-destination 'platform=iOS Simulator,name=$(SIM)' \
+		-configuration Debug build
 	@xcrun simctl boot "$(SIM)" 2>/dev/null || true
 	@open -a Simulator
 	@APP=$$(xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 		-destination 'platform=iOS Simulator,name=$(SIM)' \
 		-configuration Debug -showBuildSettings 2>/dev/null \
-		| awk -F' = ' '/ BUILT_PRODUCTS_DIR /{print $$2; exit}')/Tether.app; \
+		| awk -F' = ' '/ BUILT_PRODUCTS_DIR /{print $$2; exit}')/RedString.app; \
 	xcrun simctl install "$(SIM)" "$$APP"; \
-	xcrun simctl launch "$(SIM)" com.edwintang.tether
+	xcrun simctl launch "$(SIM)" $(BUNDLE_ID)
+
+## Archive for TestFlight / App Store. Needs DEVELOPMENT_TEAM set (project.yml
+## or Xcode's Signing tab) and the Release entitlements, which carry
+## aps-environment=production.
+archive: project
+	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
+		-destination 'generic/platform=iOS' \
+		-configuration Release \
+		-archivePath build/RedString.xcarchive archive
 
 clean:
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) clean
 	rm -rf build DerivedData
-
-## Fully working build with no CloudKit and no Apple Developer account: a
-## fictional partner you drive from Settings → Demo controls.
-##
-## Xcode drops entitlements when it can't produce a provisioning profile, so
-## the App Group is re-applied by hand afterwards. The Simulator honours it
-## without a profile, which is what lets the widget share data with the app.
-## Simulator only — a real device would reject the ad-hoc signature.
-LOCAL_FLAGS := TETHER_CONDITIONS=TETHER_LOCAL_MODE CODE_SIGNING_ALLOWED=NO
-
-local: project
-	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
-		-destination 'platform=iOS Simulator,name=$(SIM)' \
-		-configuration Debug $(LOCAL_FLAGS) build
-	@APP=$$(xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
-		-destination 'platform=iOS Simulator,name=$(SIM)' \
-		-configuration Debug $(LOCAL_FLAGS) -showBuildSettings 2>/dev/null \
-		| awk -F' = ' '/ BUILT_PRODUCTS_DIR /{print $$2; exit}')/Tether.app; \
-	for EXT in "$$APP"/PlugIns/*.appex; do \
-		codesign -f -s - --entitlements Config/Local.entitlements "$$EXT"; \
-	done; \
-	codesign -f -s - --entitlements Config/Local.entitlements "$$APP"; \
-	xcrun simctl boot "$(SIM)" 2>/dev/null || true; \
-	open -a Simulator; \
-	xcrun simctl install "$(SIM)" "$$APP"; \
-	xcrun simctl launch "$(SIM)" com.edwintang.tether

@@ -23,7 +23,7 @@ final class AppModel {
     private(set) var history: [Moment] = []
 
     var errorMessage: String?
-    /// Set by the `tether://compose` deep link so the widget can open straight
+    /// Set by the `redstring://compose` deep link so the widget can open straight
     /// into the composer.
     var pendingComposer = false
 
@@ -35,29 +35,6 @@ final class AppModel {
     /// called. The metadata is held here instead until `WelcomeView` has a
     /// name — see `acceptInvite(name:)`.
     private(set) var pendingInvite: CKShare.Metadata?
-
-    /// True in `make local` builds: no CloudKit, a fictional partner.
-    let isLocalDemo = Backend.isLocalDemo
-
-    #if TETHER_LOCAL_MODE
-    /// Whether the demo controls are currently showing in Settings.
-    ///
-    /// They're hidden by default even in demo builds, so the app can be walked
-    /// through — or screenshotted for the App Store — without a "Demo
-    /// controls" section sitting in the middle of Settings. Persisted, so
-    /// unlocking it once is enough for a working session.
-    private(set) var isDemoUnlocked: Bool = SharedStore.shared.isDemoUnlocked
-
-    func unlockDemoControls() {
-        SharedStore.shared.isDemoUnlocked = true
-        isDemoUnlocked = true
-    }
-
-    func hideDemoControls() {
-        SharedStore.shared.isDemoUnlocked = false
-        isDemoUnlocked = false
-    }
-    #endif
 
     /// The store is injectable so SwiftUI previews and tests can run against a
     /// throwaway defaults suite instead of the real App Group.
@@ -83,18 +60,6 @@ final class AppModel {
         get { snapshot.mine?.displayName ?? "" }
         set { updateMyDisplayName(newValue) }
     }
-
-    #if TETHER_LOCAL_MODE
-    /// Demo builds only. Stands in for the partner setting their *own* name on
-    /// their own phone — there is no way to rename someone in the real app.
-    var demoPartnerName: String {
-        get { snapshot.theirs?.displayName ?? "" }
-        set {
-            store.mutate { $0.theirs?.displayName = newValue }
-            reload()
-        }
-    }
-    #endif
 
     var nudgeCooldownRemaining: TimeInterval {
         guard let last = snapshot.lastNudgeSentAt else { return 0 }
@@ -425,73 +390,6 @@ final class AppModel {
 
     // MARK: - Pairing
 
-    #if TETHER_LOCAL_MODE
-    /// Local builds skip invites entirely and pair with the fictional partner.
-    func startDemo() async {
-        isBusy = true
-        defer { isBusy = false }
-        // `hasName` gates the whole app, so by here there is always one.
-        await LocalSync.shared.startDemo(displayName: myDisplayName)
-        reload()
-        await NotificationManager.requestAuthorizationIfNeeded()
-    }
-
-    func simulatePartnerStatus(emoji: String, message: String, isCelebration: Bool) async {
-        await LocalSync.shared.simulatePartnerStatus(emoji: emoji,
-                                                     message: message,
-                                                     isCelebration: isCelebration)
-        reload()
-    }
-
-    func simulatePartnerNudge() async {
-        let name = await LocalSync.shared.simulatePartnerNudge()
-        await NotificationManager.postNudge(from: name)
-        reload()
-    }
-
-    func simulatePartnerMoment(image: UIImage, kind: Moment.Kind, caption: String) async {
-        let moment = Moment(kind: kind,
-                            caption: caption,
-                            senderName: snapshot.theirs?.displayName ?? LocalSync.demoPartnerName,
-                            fromMe: false)
-        do {
-            try MomentStore.shared.write(image, id: moment.id)
-        } catch {
-            present(error)
-            return
-        }
-        await receiveFromDemoPartner(moment)
-    }
-
-    func simulatePartnerVoiceMemo(fileURL: URL,
-                                  duration: TimeInterval,
-                                  waveform: [Double],
-                                  caption: String) async {
-        let moment = Moment(kind: .voice,
-                            caption: caption,
-                            senderName: snapshot.theirs?.displayName ?? LocalSync.demoPartnerName,
-                            fromMe: false,
-                            duration: duration,
-                            waveform: waveform)
-        do {
-            try MomentStore.shared.adoptAudio(from: fileURL, id: moment.id)
-        } catch {
-            present(error)
-            return
-        }
-        await receiveFromDemoPartner(moment)
-    }
-
-    /// The tail end of every simulated arrival: file it, mark it announced so
-    /// the next refresh doesn't double up, and raise the notification the real
-    /// backend would have.
-    private func receiveFromDemoPartner(_ moment: Moment) async {
-        await LocalSync.shared.simulatePartnerMoment(moment)
-        store.mutate(reloadWidgets: false) { $0.lastNotifiedMomentID = moment.id }
-        await NotificationManager.postMoment(moment, from: snapshot.partnerDisplayName)
-        reload()
-    }
-    #else
     func createInvite() async {
         isBusy = true
         defer { isBusy = false }
@@ -514,7 +412,6 @@ final class AppModel {
             present(error)
         }
     }
-    #endif
 
     // MARK: - Memories
 
@@ -615,7 +512,7 @@ final class AppModel {
 extension AppModel {
     /// A model backed by an isolated defaults suite, for previews.
     static func previewModel(paired: Bool = true) -> AppModel {
-        let suite = UserDefaults(suiteName: "tether.preview.\(UUID().uuidString)")!
+        let suite = UserDefaults(suiteName: "redstring.preview.\(UUID().uuidString)")!
         let store = SharedStore(defaults: suite)
         if paired {
             store.pairing = PairingInfo(role: .owner,

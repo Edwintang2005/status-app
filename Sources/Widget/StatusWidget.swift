@@ -26,7 +26,7 @@ struct StatusWidget: Widget {
 /// widget so the tap target is unambiguous.
 struct NudgeWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "TetherNudgeWidget", provider: StatusProvider()) { entry in
+        StaticConfiguration(kind: "RedStringNudgeWidget", provider: StatusProvider()) { entry in
             NudgeWidgetView(entry: entry)
         }
         .configurationDisplayName("Nudge")

@@ -3,10 +3,6 @@ import SwiftUI
 /// Two taps to a new status: pick a preset, done. Typing is available but never
 /// required — the custom field is seeded from whichever preset you tapped.
 struct MoodPickerView: View {
-    /// Seeded and titled by the caller: in demo builds this same screen is
-    /// reused to set the *partner's* status, where "Your status" would be wrong
-    /// and seeding from your own emoji would be misleading.
-    var title: String = "Your status"
     var initialEmoji: String = ""
     var initialMessage: String = ""
     var initialIsCelebration: Bool = false
@@ -59,7 +55,7 @@ struct MoodPickerView: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
             }
-            .navigationTitle(title)
+            .navigationTitle("Your status")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

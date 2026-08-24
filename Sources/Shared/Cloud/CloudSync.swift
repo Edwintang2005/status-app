@@ -8,7 +8,6 @@ enum SyncError: LocalizedError {
     case notPaired
     case iCloudUnavailable(CKAccountStatus)
     case shareURLMissing
-    case cloudKitDisabled
     /// The shared zone is gone: the other person unlinked, and this device has
     /// just found out.
     case linkEnded
@@ -33,12 +32,6 @@ enum SyncError: LocalizedError {
         case .linkEnded:
             return "The shared space no longer exists — the other person ended "
                 + "the link. Everything shared has been removed from this device."
-        case .cloudKitDisabled:
-            return """
-            This build was compiled without CloudKit, so pairing is unavailable. \
-            Rebuild without TETHER_LOCAL_MODE and sign with your Apple \
-            Developer team.
-            """
         }
     }
 }
@@ -54,8 +47,7 @@ enum SyncError: LocalizedError {
 actor CloudSync: SyncBackend {
     static let shared = CloudSync()
 
-    /// `nil` only in `TETHER_LOCAL_MODE` builds.
-    private let container: CKContainer?
+    private let container: CKContainer
     private let log = Logger(subsystem: AppConfig.appGroupID, category: "CloudSync")
 
     private enum RecordType {
@@ -108,27 +100,17 @@ actor CloudSync: SyncBackend {
     }
 
     /// `CKContainer(identifier:)` traps at launch when the identifier isn't in
-    /// the running binary's entitlements — which is true of any unsigned build.
-    /// Compiling with `TETHER_LOCAL_MODE` skips creating it. That build talks
-    /// to `LocalSync` instead, so this type is never used there — but the guard
-    /// keeps a stray `CloudSync.shared` from taking the whole app down.
+    /// the running binary's entitlements, so an unsigned build — or one signed
+    /// by a team without the iCloud capability — fails here rather than limping
+    /// on. Injectable so tests can hand in their own container.
     init(container: CKContainer? = nil) {
-        #if TETHER_LOCAL_MODE
-        self.container = container
-        #else
         self.container = container ?? CKContainer(identifier: AppConfig.cloudContainerID)
-        #endif
-    }
-
-    private func requireContainer() throws -> CKContainer {
-        guard let container else { throw SyncError.cloudKitDisabled }
-        return container
     }
 
     // MARK: - Account
 
     func accountStatus() async throws -> CKAccountStatus {
-        try await requireContainer().accountStatus()
+        try await container.accountStatus()
     }
 
     func readiness() async -> BackendReadiness {
@@ -145,7 +127,7 @@ actor CloudSync: SyncBackend {
     }
 
     private func requireAvailableAccount() async throws {
-        let status = try await requireContainer().accountStatus()
+        let status = try await container.accountStatus()
         guard status == .available else { throw SyncError.iCloudUnavailable(status) }
     }
 
@@ -160,7 +142,7 @@ actor CloudSync: SyncBackend {
     func createPairInvite(displayName: String) async throws -> URL {
         try await requireAvailableAccount()
 
-        let database = try requireContainer().privateCloudDatabase
+        let database = container.privateCloudDatabase
         let zoneID = CKRecordZone.ID(zoneName: AppConfig.coupleZoneName,
                                      ownerName: CKCurrentUserDefaultName)
 
@@ -195,7 +177,7 @@ actor CloudSync: SyncBackend {
         guard let pairing = await MainActor.run(body: { SharedStore.shared.pairing }),
               pairing.role == .owner else { throw SyncError.notPaired }
 
-        let database = try requireContainer().privateCloudDatabase
+        let database = container.privateCloudDatabase
         let zoneID = self.zoneID(for: pairing)
         guard let share = try await existingZoneShare(in: database, zoneID: zoneID) else { return }
         share.publicPermission = .none
@@ -206,7 +188,7 @@ actor CloudSync: SyncBackend {
     /// accepted `CKShare.Metadata`.
     func acceptShare(_ metadata: CKShare.Metadata, displayName: String) async throws {
         try await requireAvailableAccount()
-        _ = try await requireContainer().accept(metadata)
+        _ = try await container.accept(metadata)
 
         let zoneID = metadata.share.recordID.zoneID
         let info = PairingInfo(role: .participant,
@@ -247,7 +229,7 @@ actor CloudSync: SyncBackend {
     /// belonging to our own role, so the two phones can never conflict.
     func publish(_ payload: StatusPayload) async throws {
         let pairing = try await requirePairing()
-        let database = try self.database(for: pairing)
+        let database = self.database(for: pairing)
         let recordID = CKRecord.ID(recordName: pairing.role.statusRecordName,
                                    zoneID: zoneID(for: pairing))
 
@@ -292,7 +274,7 @@ actor CloudSync: SyncBackend {
     @discardableResult
     func refresh() async throws -> RefreshResult {
         let pairing = try await requirePairing()
-        let database = try self.database(for: pairing)
+        let database = self.database(for: pairing)
         let zone = zoneID(for: pairing)
         let tokenKey = pairing.role == .owner ? "private" : "shared"
 
@@ -496,7 +478,7 @@ actor CloudSync: SyncBackend {
 
         do {
             let pairing = try await requirePairing()
-            let database = try self.database(for: pairing)
+            let database = self.database(for: pairing)
             let recordID = CKRecord.ID(recordName: pairing.role.nudgeRecordName,
                                        zoneID: zoneID(for: pairing))
 
@@ -532,7 +514,7 @@ actor CloudSync: SyncBackend {
     /// that's what makes the history durable and recoverable.
     func send(_ moment: Moment) async throws {
         let pairing = try await requirePairing()
-        let database = try self.database(for: pairing)
+        let database = self.database(for: pairing)
 
         let recordID = CKRecord.ID(recordName: pairing.role.momentRecordName(id: moment.id),
                                    zoneID: zoneID(for: pairing))
@@ -571,7 +553,7 @@ actor CloudSync: SyncBackend {
     /// Called by the gallery when you scroll back past the cache window.
     func fetchMedia(for moment: Moment) async throws {
         let pairing = try await requirePairing()
-        let database = try self.database(for: pairing)
+        let database = self.database(for: pairing)
         try await downloadMedia(for: moment, pairing: pairing, in: database)
     }
 
@@ -652,7 +634,7 @@ actor CloudSync: SyncBackend {
     /// replaces the text with the real thing before it's shown.
     func registerSubscription() async throws {
         let pairing = try await requirePairing()
-        let database = try self.database(for: pairing)
+        let database = self.database(for: pairing)
 
         let existing = (try? await database.allSubscriptions()) ?? []
         let existingIDs = Set(existing.map(\.subscriptionID))
@@ -724,7 +706,7 @@ actor CloudSync: SyncBackend {
         guard let pairing = await MainActor.run(body: { SharedStore.shared.pairing }) else {
             return
         }
-        let database = try self.database(for: pairing)
+        let database = self.database(for: pairing)
         let zone = zoneID(for: pairing)
 
         // Best effort, deliberately: a stale subscription costs nothing, and
@@ -807,9 +789,8 @@ actor CloudSync: SyncBackend {
         return pairing
     }
 
-    private func database(for pairing: PairingInfo) throws -> CKDatabase {
-        let container = try requireContainer()
-        return pairing.role == .owner ? container.privateCloudDatabase : container.sharedCloudDatabase
+    private func database(for pairing: PairingInfo) -> CKDatabase {
+        pairing.role == .owner ? container.privateCloudDatabase : container.sharedCloudDatabase
     }
 
     private func zoneID(for pairing: PairingInfo) -> CKRecordZone.ID {

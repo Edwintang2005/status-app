@@ -20,12 +20,11 @@ enum BackendReadiness: Equatable, Sendable {
     case unavailable(String)
 }
 
-/// The operations the UI needs, independent of whether they're backed by
-/// CloudKit or by the on-device demo.
+/// The whole sync surface the UI depends on, in one place.
 ///
-/// Pairing deliberately isn't here: creating an invite link and starting a
-/// demo are genuinely different flows with different UI, so `AppModel` branches
-/// on the build for that and shares everything else.
+/// Pairing deliberately isn't here: creating an invite link and accepting one
+/// are CloudKit-share flows with their own UI, so `AppModel` calls
+/// `CloudSync` directly for those and goes through this for everything else.
 protocol SyncBackend: Sendable {
     func readiness() async -> BackendReadiness
     func publish(_ payload: StatusPayload) async throws
@@ -48,22 +47,7 @@ protocol SyncBackend: Sendable {
     func unpair() async throws
 }
 
-/// The backend this build talks to.
+/// The backend the app talks to.
 enum Backend {
-    static var current: any SyncBackend {
-        #if TETHER_LOCAL_MODE
-        return LocalSync.shared
-        #else
-        return CloudSync.shared
-        #endif
-    }
-
-    /// True when this build has no CloudKit at all and fakes the other person.
-    static var isLocalDemo: Bool {
-        #if TETHER_LOCAL_MODE
-        return true
-        #else
-        return false
-        #endif
-    }
+    static var current: any SyncBackend { CloudSync.shared }
 }

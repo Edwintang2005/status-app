@@ -7,8 +7,6 @@ import SwiftUI
 /// The frame is square because that's what the widget is — composing in the
 /// same shape as the destination means nothing gets unexpectedly cropped later.
 struct MomentComposerView: View {
-    var title: String = "Send a moment"
-    var sendLabel: String = "Send"
     var onSend: (UIImage, Moment.Kind, String) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -50,14 +48,14 @@ struct MomentComposerView: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
             }
-            .navigationTitle(title)
+            .navigationTitle("Send a moment")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(sendLabel) { send() }
+                    Button("Send") { send() }
                         .font(Theme.rounded(17, .semibold))
                         .disabled(!canSend)
                 }

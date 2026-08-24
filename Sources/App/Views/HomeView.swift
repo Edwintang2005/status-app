@@ -315,9 +315,6 @@ struct HomeView: View {
             if model.isRefreshing {
                 ProgressView().controlSize(.mini)
                 Text("Syncing…")
-            } else if model.isLocalDemo {
-                Image(systemName: "hammer")
-                Text("Demo mode — nothing leaves this device")
             } else if let synced = model.snapshot.lastSyncedAt {
                 Image(systemName: "checkmark.icloud")
                 Text("Synced \(synced, format: .relative(presentation: .named))")

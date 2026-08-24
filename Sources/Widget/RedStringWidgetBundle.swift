@@ -2,7 +2,7 @@ import SwiftUI
 import WidgetKit
 
 @main
-struct TetherWidgetBundle: WidgetBundle {
+struct RedStringWidgetBundle: WidgetBundle {
     var body: some Widget {
         StatusWidget()
         NudgeWidget()

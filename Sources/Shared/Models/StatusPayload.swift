@@ -304,7 +304,8 @@ struct Snapshot: Codable, Hashable {
     )
 }
 
-#if DEBUG
+/// Deliberately not behind `#if DEBUG`: `Snapshot.preview` above is what the
+/// widget gallery renders, so this ships in Release too.
 extension Moment {
     static let previewPhoto = Moment(id: "preview-moment",
                                      kind: .photo,
@@ -312,14 +313,4 @@ extension Moment {
                                      senderName: "Sam",
                                      sentAt: Date().addingTimeInterval(-5_400),
                                      fromMe: false)
-
-    static let previewMemo = Moment(id: "preview-memo",
-                                    kind: .voice,
-                                    caption: "listen to this",
-                                    senderName: "Sam",
-                                    sentAt: Date().addingTimeInterval(-900),
-                                    fromMe: false,
-                                    duration: 14,
-                                    waveform: (0..<48).map { abs(sin(Double($0) / 2.5)) * 0.85 + 0.1 })
 }
-#endif

@@ -3,21 +3,21 @@ import Foundation
 /// Every identifier that has to stay in lockstep with the entitlements files
 /// and `project.yml`. Change these four strings together when rebranding.
 enum AppConfig {
-    static let appName = "Tether"
+    static let appName = "Red String"
 
     /// Must match `com.apple.security.application-groups` in both entitlements files.
-    static let appGroupID = "group.com.edwintang.tether"
+    static let appGroupID = "group.com.edwintang.redstring"
 
     /// Must match `com.apple.developer.icloud-container-identifiers` in both
     /// entitlements files.
-    static let cloudContainerID = "iCloud.com.edwintang.tether"
+    static let cloudContainerID = "iCloud.com.edwintang.redstring"
 
     /// Custom zone holding both partners' status records. Custom (not default)
     /// zones are required for both zone sharing and database subscriptions.
     static let coupleZoneName = "CoupleZone"
 
     /// Identifier passed to `WidgetCenter` reloads and declared by the widget.
-    static let widgetKind = "TetherStatusWidget"
+    static let widgetKind = "RedStringStatusWidget"
 
     /// Minimum gap between nudges. Short on purpose: this exists to stop a
     /// double-tap sending twice while the first write is still in flight, not
@@ -25,7 +25,7 @@ enum AppConfig {
     static let nudgeCooldown: TimeInterval = 3
 
     /// Identifier for the photo/drawing widget.
-    static let momentWidgetKind = "TetherMomentWidget"
+    static let momentWidgetKind = "RedStringMomentWidget"
 
     /// Entries kept in the on-device history index. Metadata only, so this can
     /// be generous — CloudKit keeps everything regardless, and a fresh install

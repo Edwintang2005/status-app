@@ -4,12 +4,7 @@ import SwiftUI
 ///
 /// Its own screen rather than a fourth tab in `MomentComposerView`: a memo has
 /// no image to compose over, and the two share nothing but the caption field.
-/// What they do share is the shape of the flow — capture, caption, send — so
-/// this takes the same `title`/`sendLabel` overrides, which is what lets the
-/// demo controls reuse it to "receive" a memo.
 struct VoiceMemoComposerView: View {
-    var title: String = "Send a voice memo"
-    var sendLabel: String = "Send"
     /// The recording is handed over as a temporary file the caller must move,
     /// along with the metadata that can't be recovered from it afterwards.
     var onSend: (URL, TimeInterval, [Double], String) -> Void
@@ -42,14 +37,14 @@ struct VoiceMemoComposerView: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
             }
-            .navigationTitle(title)
+            .navigationTitle("Send a voice memo")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(sendLabel) { send() }
+                    Button("Send") { send() }
                         .font(Theme.rounded(17, .semibold))
                         .disabled(!recorder.hasTake)
                 }

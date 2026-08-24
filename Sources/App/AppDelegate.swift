@@ -122,8 +122,8 @@ final class InviteInbox {
 }
 
 extension Notification.Name {
-    static let pairingDidChange = Notification.Name("TetherPairingDidChange")
-    static let pairingDidFail = Notification.Name("TetherPairingDidFail")
+    static let pairingDidChange = Notification.Name("RedStringPairingDidChange")
+    static let pairingDidFail = Notification.Name("RedStringPairingDidFail")
     /// Object is the `CKShare.Metadata` from the tapped link.
-    static let inviteDidArrive = Notification.Name("TetherInviteDidArrive")
+    static let inviteDidArrive = Notification.Name("RedStringInviteDidArrive")
 }
