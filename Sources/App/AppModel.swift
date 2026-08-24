@@ -275,9 +275,18 @@ final class AppModel {
             try await SyncRunner.refresh()
             reload()
         } catch {
-            // Background refreshes fail routinely (no signal, iCloud hiccup).
-            // The "Synced …" footer already shows staleness, so don't throw a
-            // modal alert over a screen the user didn't ask to refresh.
+            // The backend may have unlinked us on its own — a zone that no
+            // longer exists is the other person having ended things — so the
+            // local state is re-read either way.
+            reload()
+            if let sync = error as? SyncError, case .linkEnded = sync {
+                // Worth interrupting for: this is the one refresh failure that
+                // is really a message from another person.
+                errorMessage = sync.errorDescription
+            }
+            // Otherwise background refreshes fail routinely (no signal, iCloud
+            // hiccup). The "Synced …" footer already shows staleness, so don't
+            // throw a modal alert over a screen the user didn't ask to refresh.
             log.error("Refresh failed: \(error.localizedDescription)")
         }
     }
@@ -507,12 +516,91 @@ final class AppModel {
     }
     #endif
 
-    func unpair() async {
+    // MARK: - Memories
+
+    /// `0...1` while an archive is being written, `nil` otherwise.
+    private(set) var archiveProgress: Double?
+    /// The last archive that only made it as far as this device — the caller
+    /// has to offer to share it before anything gets deleted.
+    var archiveToShare: URL?
+
+    var canArchiveMemories: Bool { !history.isEmpty && archiveProgress == nil }
+
+    /// Writes the history out as plain files in iCloud Drive.
+    ///
+    /// Long histories keep their metadata but not their media, so most of an
+    /// archive is fetched back from CloudKit here rather than copied — which is
+    /// why this reports progress and why it has to finish *before* anything is
+    /// deleted.
+    @discardableResult
+    func archiveMemories() async -> MemoryArchive.Outcome? {
+        guard !history.isEmpty else { return nil }
+        archiveProgress = 0
+        defer { archiveProgress = nil }
+
+        do {
+            let outcome = try await MemoryArchive.write(history,
+                                                        partnerName: partnerName) { fraction in
+                Task { @MainActor in self.archiveProgress = fraction }
+            }
+            if outcome.destination == .deviceOnly {
+                // Nothing is safe yet: iCloud Drive wasn't available, so the
+                // folder only exists here until the user saves it somewhere.
+                archiveToShare = outcome.folder
+            }
+            return outcome
+        } catch {
+            present(error)
+            return nil
+        }
+    }
+
+    // MARK: - Ending it
+
+    /// Ends the link, cloud first, then locally.
+    ///
+    /// Order matters and is the whole point: if iCloud can't be cleaned up we
+    /// keep the pairing, report why, and change nothing — because a local reset
+    /// that leaves your photos in someone else's iCloud, while telling you it
+    /// didn't, is the worst possible outcome here. `forceLocalReset` is the
+    /// deliberate escape hatch for when someone wants out of this app *now* and
+    /// will accept that.
+    ///
+    /// - Parameter startingOver: also forgets your name, leaving the app as it
+    ///   was on install. Otherwise the name survives, so pairing again is one
+    ///   step rather than two.
+    /// - Returns: `false` if nothing was changed.
+    @discardableResult
+    func unlink(startingOver: Bool) async -> Bool {
         isBusy = true
         defer { isBusy = false }
-        await Backend.current.unpair()
+
+        do {
+            try await Backend.current.unpair()
+        } catch {
+            present(error)
+            return false
+        }
+
+        finishUnlink(startingOver: startingOver)
+        return true
+    }
+
+    /// Cuts this device loose without touching iCloud. For when the delete
+    /// can't go through — no signal, an iCloud outage, an account that's been
+    /// signed out — and waiting isn't acceptable. What stays behind in the
+    /// other person's iCloud stays behind; the caller says so plainly.
+    func forceLocalReset(startingOver: Bool) {
+        finishUnlink(startingOver: startingOver)
+    }
+
+    private func finishUnlink(startingOver: Bool) {
+        store.eraseLocalMedia()
+        store.clearPairing(keepingName: !startingOver)
         inviteURL = nil
+        pendingInvite = nil
         reload()
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
 
     // MARK: - Errors

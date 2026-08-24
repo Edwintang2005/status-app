@@ -22,6 +22,21 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<!-- Makes the iCloud Drive container visible in the Files app, which is
+	     the whole point of the memories archive: a folder of plain files the
+	     user still has after the app is gone. -->
+	<key>NSUbiquitousContainers</key>
+	<dict>
+		<key>iCloud.com.edwintang.tether</key>
+		<dict>
+			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
+			<true/>
+			<key>NSUbiquitousContainerName</key>
+			<string>Tether</string>
+			<key>NSUbiquitousContainerSupportedFolderLevels</key>
+			<string>Any</string>
+		</dict>
+	</dict>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Save a photo or doodle they sent you to your own library.</string>
 	<key>NSCameraUsageDescription</key>

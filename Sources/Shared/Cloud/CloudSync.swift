@@ -9,6 +9,9 @@ enum SyncError: LocalizedError {
     case iCloudUnavailable(CKAccountStatus)
     case shareURLMissing
     case cloudKitDisabled
+    /// The shared zone is gone: the other person unlinked, and this device has
+    /// just found out.
+    case linkEnded
 
     var errorDescription: String? {
         switch self {
@@ -27,6 +30,9 @@ enum SyncError: LocalizedError {
             }
         case .shareURLMissing:
             return "CloudKit didn't return an invite link. Try again."
+        case .linkEnded:
+            return "The shared space no longer exists — the other person ended "
+                + "the link. Everything shared has been removed from this device."
         case .cloudKitDisabled:
             return """
             This build was compiled without CloudKit, so pairing is unavailable. \
@@ -303,6 +309,16 @@ actor CloudSync: SyncBackend {
             previous = nil
             await MainActor.run { SharedStore.shared.setChangeToken(nil, for: tokenKey) }
             changes = try await fetchZoneChanges(zone: zone, in: database, since: nil)
+        } catch let error as CKError where Self.isAlreadyGone(error) {
+            // The other side unlinked. Without this the app would keep showing
+            // their last status forever and quietly retry a zone that no longer
+            // exists — so this device unlinks itself and says so.
+            log.notice("Shared zone is gone; unlinking this device.")
+            await MainActor.run {
+                SharedStore.shared.eraseLocalMedia()
+                SharedStore.shared.clearPairing(keepingName: true)
+            }
+            throw SyncError.linkEnded
         }
 
         if let token = changes.token {
@@ -691,17 +707,95 @@ actor CloudSync: SyncBackend {
 
     /// Owner deletes the zone (which revokes the share); participant just stops
     /// listening. Either way local state is cleared.
-    func unpair() async {
-        if let pairing = await MainActor.run(body: { SharedStore.shared.pairing }),
-           let database = try? self.database(for: pairing) {
-            _ = try? await database.modifySubscriptions(saving: [],
-                                                        deleting: SubscriptionID.all)
-            if pairing.role == .owner {
-                _ = try? await database.modifyRecordZones(saving: [],
-                                                          deleting: [zoneID(for: pairing)])
-            }
+    /// Ends the link from this side, cloud-first.
+    ///
+    /// What that means depends on who owns the zone, and the difference is not
+    /// cosmetic:
+    ///
+    /// - **Owner**: the zone *is* the shared space, so deleting it removes
+    ///   both people's statuses and every photo, drawing and recording either
+    ///   of them sent. The other device finds out on its next refresh.
+    /// - **Participant**: someone else's zone can't be deleted, so our own
+    ///   records are deleted out of it first and then the share is left.
+    ///   Skipping that first step would leave our last status and every photo
+    ///   we ever sent sitting in their iCloud after we'd gone — which is
+    ///   exactly what someone unlinking is trying to undo.
+    func unpair() async throws {
+        guard let pairing = await MainActor.run(body: { SharedStore.shared.pairing }) else {
+            return
         }
-        await MainActor.run { SharedStore.shared.resetPairing() }
+        let database = try self.database(for: pairing)
+        let zone = zoneID(for: pairing)
+
+        // Best effort, deliberately: a stale subscription costs nothing, and
+        // failing the unlink over one would be perverse.
+        _ = try? await database.modifySubscriptions(saving: [], deleting: SubscriptionID.all)
+
+        do {
+            switch pairing.role {
+            case .owner:
+                _ = try await database.modifyRecordZones(saving: [], deleting: [zone])
+            case .participant:
+                try await deleteOwnRecords(role: pairing.role, in: zone, database: database)
+                try await leaveShare(zone: zone, database: database)
+            }
+        } catch let error as CKError where Self.isAlreadyGone(error) {
+            // They got there first. Nothing to delete is the outcome we wanted.
+            log.notice("Shared zone already gone; unlink is a no-op.")
+        }
+    }
+
+    /// Deletes every record in the zone that belongs to our own role. Uses a
+    /// full change fetch rather than a query because moment records have UUID
+    /// names — there is nothing to ask for by name, and no query index to rely
+    /// on. Assets go with their records.
+    private func deleteOwnRecords(role: PairRole,
+                                  in zone: CKRecordZone.ID,
+                                  database: CKDatabase) async throws {
+        let changes = try await fetchZoneChanges(zone: zone, in: database, since: nil)
+        let mine = changes.records.map(\.recordID).filter { id in
+            let name = id.recordName
+            return name == role.statusRecordName
+                || name == role.nudgeRecordName
+                || role.momentID(fromRecordName: name) != nil
+        }
+        guard !mine.isEmpty else { return }
+
+        // Batched: one modify operation carrying hundreds of deletions is how
+        // you get a `limitExceeded` instead of an unlink.
+        for start in stride(from: 0, to: mine.count, by: 200) {
+            let batch = Array(mine[start..<min(start + 200, mine.count)])
+            _ = try await database.modifyRecords(saving: [], deleting: batch)
+        }
+        log.notice("Deleted \(mine.count) of our own records before leaving the share.")
+    }
+
+    /// Removes this account from the share, which is what makes the zone
+    /// disappear from our shared database.
+    private func leaveShare(zone: CKRecordZone.ID, database: CKDatabase) async throws {
+        let zones = try await database.recordZones(for: [zone])
+        guard case .success(let record)? = zones[zone],
+              let shareID = record.share?.recordID else {
+            // No share reference to delete — drop the whole zone from our own
+            // shared database instead, which has the same effect for us.
+            _ = try await database.modifyRecordZones(saving: [], deleting: [zone])
+            return
+        }
+        _ = try await database.modifyRecords(saving: [], deleting: [shareID])
+    }
+
+    /// Whether an error means "the thing you asked about isn't there any more",
+    /// which for an unlink is success. Partial failures are unwrapped because a
+    /// batch delete reports per-item errors rather than a top-level one.
+    private static func isAlreadyGone(_ error: CKError) -> Bool {
+        let gone: Set<CKError.Code> = [.unknownItem, .zoneNotFound, .userDeletedZone]
+        if gone.contains(error.code) { return true }
+        guard error.code == .partialFailure,
+              let partials = error.partialErrorsByItemID?.values else { return false }
+        // Every failure has to be a "gone" one; a real error hiding among them
+        // still has to surface.
+        let codes = partials.compactMap { ($0 as? CKError)?.code }
+        return !codes.isEmpty && codes.allSatisfy(gone.contains)
     }
 
     // MARK: - Helpers

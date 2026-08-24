@@ -127,7 +127,7 @@ struct HomeView: View {
             Button {
                 showingComposer = true
             } label: {
-                Label("Photo", systemImage: "camera.viewfinder")
+                Label("Moment", systemImage: "camera.viewfinder")
             }
             .buttonStyle(SecondaryButtonStyle())
 

@@ -38,7 +38,14 @@ protocol SyncBackend: Sendable {
     /// isn't cached locally any more. No-op for backends that never evict.
     func fetchMedia(for moment: Moment) async throws
     func registerSubscription() async throws
-    func unpair() async
+    /// Takes this device's data out of the shared space and, for the owner,
+    /// removes the space itself.
+    ///
+    /// Throws rather than swallowing failures: telling someone their photos
+    /// are out of the other person's iCloud when the delete never landed is
+    /// the one lie this app must not tell. Local state is left alone — the
+    /// caller clears it once this has actually succeeded.
+    func unpair() async throws
 }
 
 /// The backend this build talks to.

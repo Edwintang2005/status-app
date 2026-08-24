@@ -86,9 +86,9 @@ actor LocalSync: SyncBackend {
 
     func registerSubscription() async throws {}
 
-    func unpair() async {
-        await MainActor.run { SharedStore.shared.resetPairing() }
-    }
+    /// Nothing left this device, so there is nothing to take back. Clearing
+    /// local state is the caller's job in both backends.
+    func unpair() async throws {}
 
     // MARK: - Demo controls
 

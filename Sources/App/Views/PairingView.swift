@@ -157,7 +157,9 @@ struct PairingView: View {
                     .background(Theme.accent, in: Capsule())
             }
 
-            Button("Start over") { Task { await model.unpair() } }
+            // Nobody has joined yet, so this only throws away the invite —
+            // the name stays.
+            Button("Start over") { Task { await model.unlink(startingOver: false) } }
                 .font(Theme.rounded(14))
                 .foregroundStyle(.secondary)
         }

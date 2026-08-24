@@ -27,6 +27,22 @@ final class DrawingController {
         let color: Color
         let isDark: Bool
         var id: String { "\(color)" }
+
+        init(color: Color, isDark: Bool) {
+            self.color = color
+            self.isDark = isDark
+        }
+
+        /// For a colour picked by hand, where nobody has decided whether it
+        /// counts as dark. Perceived luminance rather than a plain average:
+        /// green reads far lighter than blue at the same value, and getting
+        /// this wrong is what leaves someone drawing black on near-black.
+        init(color: Color) {
+            var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+            UIColor(color).getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+            let luminance = 0.299 * red + 0.587 * green + 0.114 * blue
+            self.init(color: color, isDark: luminance < 0.5)
+        }
     }
 
     static let backdrops: [Backdrop] = [
@@ -49,7 +65,21 @@ final class DrawingController {
         }
     }
 
-    var color: Color = .black { didSet { applyTool() } }
+    var color: Color = .black {
+        didSet {
+            // Reaching for a colour means you've stopped erasing — otherwise
+            // picking one silently does nothing until you notice the eraser is
+            // still selected.
+            if isErasing { isErasing = false }
+            applyTool()
+        }
+    }
+
+    /// The backdrop as a plain colour, for binding a `ColorPicker` to.
+    var backdropColor: Color {
+        get { backdrop.color }
+        set { backdrop = Backdrop(color: newValue) }
+    }
     var width: CGFloat = 10 { didSet { applyTool() } }
     var isErasing = false { didSet { applyTool() } }
 
@@ -166,6 +196,19 @@ struct DrawingPalette: View {
                     }
                     .buttonStyle(.plain)
                 }
+
+                // Any colour at all, including the eyedropper. The presets stay
+                // because two taps for "pink" beats opening a picker for it.
+                ColorPicker("Any colour", selection: $controller.color, supportsOpacity: false)
+                    .labelsHidden()
+                    .frame(width: 30, height: 30)
+                    .overlay(
+                        Circle()
+                            .strokeBorder(Theme.accent, lineWidth: 3)
+                            .padding(-4)
+                            .opacity(isCustomInk ? 1 : 0)
+                            .allowsHitTesting(false)
+                    )
             }
 
             HStack(spacing: 18) {
@@ -226,6 +269,19 @@ struct DrawingPalette: View {
                             }
                             .buttonStyle(.plain)
                         }
+                        ColorPicker("Any background",
+                                    selection: $controller.backdropColor,
+                                    supportsOpacity: false)
+                            .labelsHidden()
+                            .frame(width: 26, height: 26)
+                            .overlay(
+                                Circle()
+                                    .strokeBorder(Theme.accent, lineWidth: 2.5)
+                                    .padding(-3.5)
+                                    .opacity(isCustomBackdrop ? 1 : 0)
+                                    .allowsHitTesting(false)
+                            )
+
                         Spacer(minLength: 0)
                     }
                 }
@@ -236,6 +292,16 @@ struct DrawingPalette: View {
 
     private func isSelected(_ colour: Color) -> Bool {
         !controller.isErasing && controller.color == colour
+    }
+
+    /// True when the current ink isn't one of the presets — the ring has to
+    /// move to the picker, or nothing looks selected at all.
+    private var isCustomInk: Bool {
+        !controller.isErasing && !DrawingController.palette.contains(controller.color)
+    }
+
+    private var isCustomBackdrop: Bool {
+        !DrawingController.backdrops.contains(controller.backdrop)
     }
 
     private func toolButton(_ symbol: String,

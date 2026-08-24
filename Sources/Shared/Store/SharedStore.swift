@@ -77,14 +77,21 @@ final class SharedStore {
         set { store.setBool(newValue, forKey: Key.demoUnlocked) }
     }
 
-    /// Wipes pairing, cached statuses and the whole moment history.
-    func resetPairing() {
+    /// Forgets the link, both partners' statuses and the sync cursors.
+    ///
+    /// `keepingName` decides which of the two endings this is: unlinking keeps
+    /// the name you chose so pairing again doesn't start with paperwork, while
+    /// starting over forgets it and puts the app back where a fresh install
+    /// leaves it — see `AppModel.unlink(startingOver:)`.
+    func clearPairing(keepingName: Bool) {
+        let name = keepingName
+            ? snapshot.mine?.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            : nil
+
         pairing = nil
-        MomentIndex.shared.clear()
-        MomentStore.shared.prune(keeping: [])
         for key in ["private", "shared"] { setChangeToken(nil, for: key) }
         snapshot = Snapshot(
-            mine: nil,
+            mine: (name?.isEmpty == false) ? .initial(displayName: name!) : nil,
             theirs: nil,
             isPaired: false,
             lastSyncedAt: nil,
@@ -95,6 +102,20 @@ final class SharedStore {
             lastNotifiedMomentID: nil
         )
         Self.reloadWidgets()
+    }
+
+    /// Every photo, drawing and voice memo either of you sent, and the index
+    /// that lists them. Separate from `clearPairing` only because the two are
+    /// worth naming separately at the call site; both endings do both.
+    func eraseLocalMedia() {
+        MomentIndex.shared.clear()
+        MomentStore.shared.prune(keeping: [])
+    }
+
+    /// Wipes pairing, cached statuses and the whole moment history.
+    func resetPairing() {
+        eraseLocalMedia()
+        clearPairing(keepingName: false)
     }
 
     // MARK: - Widgets

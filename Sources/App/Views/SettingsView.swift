@@ -17,7 +17,15 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
-    @State private var confirmingUnpair = false
+    @State private var confirmingUnlink = false
+    @State private var confirmingWipe = false
+    /// Set when the iCloud side of an unlink failed, so the only remaining
+    /// option — leaving their copy alone and cutting this phone loose — can be
+    /// offered explicitly rather than silently taken.
+    @State private var offeringLocalOnly: Ending?
+    /// The outcome of a successful archive, for the alert that says where it
+    /// went. Not the archive itself — by then it's out of the app's hands.
+    @State private var archiveSummary: ArchiveSummary?
     /// Owned here, not by the Section. A `.sheet` attached to a `Section`
     /// inside a `Form` dismisses the enclosing sheet instead of presenting.
     @State private var demoSheet: DemoSheet?
@@ -87,12 +95,45 @@ struct SettingsView: View {
                 }
                 #endif
 
+                if !model.history.isEmpty {
+                    Section {
+                        Button {
+                            Task { await saveMemories(then: nil) }
+                        } label: {
+                            HStack {
+                                Text("Save memories to iCloud…")
+                                Spacer(minLength: 12)
+                                if let progress = model.archiveProgress {
+                                    ProgressView(value: progress)
+                                        .progressViewStyle(.circular)
+                                        .controlSize(.small)
+                                    Text("\(Int(progress * 100))%")
+                                        .font(Theme.rounded(13))
+                                        .foregroundStyle(.secondary)
+                                        .monospacedDigit()
+                                }
+                            }
+                        }
+                        .disabled(!model.canArchiveMemories)
+                    } footer: {
+                        Text(archiveFooter)
+                    }
+                }
+
                 Section {
-                    Button(model.isLocalDemo ? "Reset demo" : "Unpair", role: .destructive) {
-                        confirmingUnpair = true
+                    Button(unlinkLabel, role: .destructive) {
+                        confirmingUnlink = true
                     }
                 } footer: {
-                    Text(unpairFooter)
+                    Text(unlinkFooter)
+                }
+
+                Section {
+                    Button("Delete everything and start over", role: .destructive) {
+                        confirmingWipe = true
+                    }
+                } footer: {
+                    Text(wipeFooter)
                 }
 
                 Section {
@@ -126,21 +167,67 @@ struct SettingsView: View {
                 }
             }
             .task { notificationStatus = await NotificationManager.authorizationStatus() }
-            .confirmationDialog(model.isLocalDemo
-                                ? "Reset the demo?"
-                                : "Unpair from \(model.partnerName)?",
-                                isPresented: $confirmingUnpair,
+            .confirmationDialog(unlinkTitle,
+                                isPresented: $confirmingUnlink,
                                 titleVisibility: .visible) {
-                Button(model.isLocalDemo ? "Reset" : "Unpair", role: .destructive) {
-                    Task {
-                        await model.unpair()
-                        dismiss()
+                if !model.history.isEmpty {
+                    Button("Save memories, then \(model.isLocalDemo ? "reset" : "unlink")") {
+                        Task { await saveMemories(then: .unlink) }
                     }
                 }
+                Button(model.isLocalDemo ? "Reset" : "Unlink", role: .destructive) {
+                    Task { await end(.unlink) }
+                }
                 Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(unlinkFooter)
+            }
+            .confirmationDialog("Delete everything and start over?",
+                                isPresented: $confirmingWipe,
+                                titleVisibility: .visible) {
+                if !model.history.isEmpty {
+                    Button("Save memories, then delete") {
+                        Task { await saveMemories(then: .wipe) }
+                    }
+                }
+                Button("Delete everything", role: .destructive) {
+                    Task { await end(.wipe) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(wipeFooter)
+            }
+            .confirmationDialog("Couldn't reach iCloud",
+                                isPresented: Binding(get: { offeringLocalOnly != nil },
+                                                     set: { if !$0 { offeringLocalOnly = nil } }),
+                                titleVisibility: .visible) {
+                Button("Remove from this iPhone only", role: .destructive) {
+                    let ending = offeringLocalOnly ?? .unlink
+                    offeringLocalOnly = nil
+                    model.forceLocalReset(startingOver: ending == .wipe)
+                    dismiss()
+                }
+                Button("Cancel", role: .cancel) { offeringLocalOnly = nil }
+            } message: {
+                Text("Nothing was deleted from iCloud, so what you've shared is still in \(model.partnerName)'s copy. You can clear this iPhone now and try again from a better connection, or cancel and wait.")
             }
             .sheet(item: $demoSheet) { sheet in
                 demoSheetContent(sheet)
+            }
+            // Only reachable when iCloud Drive wasn't available. Nothing has
+            // been deleted at this point, so the archive can't be lost by
+            // dismissing this.
+            .sheet(isPresented: Binding(get: { model.archiveToShare != nil },
+                                        set: { if !$0 { model.archiveToShare = nil } })) {
+                if let url = model.archiveToShare {
+                    ShareSheet(url: url)
+                }
+            }
+            .alert("Memories saved", isPresented: Binding(get: { archiveSummary != nil },
+                                                          set: { if !$0 { archiveSummary = nil } })) {
+                Button("OK", role: .cancel) { archiveSummary = nil }
+            } message: {
+                Text(archiveSummary?.text ?? "")
             }
         }
     }
@@ -213,13 +300,102 @@ struct SettingsView: View {
         #endif
     }
 
-    private var unpairFooter: String {
-        if model.isLocalDemo {
-            return "Clears the demo partner and everything sent locally."
+    private struct ArchiveSummary: Identifiable {
+        let id = UUID()
+        let text: String
+    }
+
+    private var archiveFooter: String {
+        "Copies every photo, drawing and voice memo — with the date, the caption "
+            + "and who sent it — into iCloud Drive › \(AppConfig.appName), as ordinary "
+            + "files that open in anything. Nothing is deleted, and the archive "
+            + "stays after you unlink."
+    }
+
+    /// Archives first, and only then does the thing that deletes.
+    ///
+    /// The order is the whole point. If the archive reached iCloud Drive it is
+    /// safe and the ending can go ahead; if it only reached this device, the
+    /// share sheet comes up and the ending is deliberately *not* performed —
+    /// deleting the originals while the only copy sits in a temporary folder
+    /// would be the exact failure this feature exists to prevent.
+    private func saveMemories(then ending: Ending?) async {
+        guard let outcome = await model.archiveMemories() else { return }
+
+        switch outcome.destination {
+        case .iCloudDrive:
+            guard let ending else {
+                archiveSummary = ArchiveSummary(text: successText(outcome))
+                return
+            }
+            await end(ending)
+        case .deviceOnly:
+            // `model.archiveToShare` is set, which brings up the share sheet.
+            break
         }
-        return model.role == .owner
-            ? "Deletes the shared zone from your iCloud. Both widgets go blank."
-            : "Leaves the shared zone. Your partner keeps their copy."
+    }
+
+    private func successText(_ outcome: MemoryArchive.Outcome) -> String {
+        var text = "\(outcome.momentCount) moment\(outcome.momentCount == 1 ? "" : "s") "
+            + "saved to iCloud Drive › \(AppConfig.appName) › "
+            + "\(outcome.folder.lastPathComponent)."
+        if outcome.unrecovered > 0 {
+            text += " \(outcome.unrecovered) couldn't be fetched back from iCloud and are "
+                + "listed in Memories.txt without a file."
+        }
+        return text
+    }
+
+    /// Which of the two endings a dialog is confirming.
+    private enum Ending {
+        case unlink
+        case wipe
+    }
+
+    private var unlinkLabel: String {
+        model.isLocalDemo ? "Reset demo" : "Unlink from \(model.partnerName)"
+    }
+
+    private var unlinkTitle: String {
+        model.isLocalDemo ? "Reset the demo?" : "Unlink from \(model.partnerName)?"
+    }
+
+    /// Says exactly what leaves and what stays. The two roles genuinely differ
+    /// — the owner holds the shared space, the other person is a guest in it —
+    /// and glossing over that is the one thing nobody would forgive.
+    private var unlinkFooter: String {
+        if model.isLocalDemo {
+            return "Clears the demo partner and everything sent locally. Your name stays."
+        }
+        if model.role == .owner {
+            return "Deletes the shared space from your iCloud: both your statuses, "
+                + "and every photo, drawing and voice memo either of you sent. "
+                + "\(model.partnerName)'s app unlinks itself the next time it opens. "
+                + "Your name stays on this iPhone, so you can pair again."
+        }
+        return "Deletes everything you sent — your status, your photos, drawings "
+            + "and voice memos — out of the shared space, then leaves it. Anything "
+            + "\(model.partnerName) sent stays in their own iCloud, which is theirs "
+            + "to delete. Your name stays on this iPhone, so you can pair again."
+    }
+
+    private var wipeFooter: String {
+        let first = model.isLocalDemo ? "Clears the demo" : "Does everything unlinking does"
+        return "\(first), and also forgets your name and clears every photo, "
+            + "drawing and voice memo held on this iPhone. \(AppConfig.appName) "
+            + "starts as it did the day you installed it. There is no undo."
+    }
+
+    /// Both endings run the same way: try the cloud, and only claim it's done
+    /// when it is.
+    private func end(_ ending: Ending) async {
+        if await model.unlink(startingOver: ending == .wipe) {
+            dismiss()
+        } else {
+            // `model.errorMessage` already says what went wrong; this offers
+            // the only thing left.
+            offeringLocalOnly = ending
+        }
     }
 
     private var notificationLabel: String {
