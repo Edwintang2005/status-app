@@ -24,9 +24,10 @@ settings:
     SWIFT_VERSION: "5.0"
     TARGETED_DEVICE_FAMILY: "1"
     CODE_SIGN_STYLE: Automatic
-    # Set this to your 10-character Apple Developer Team ID, or just pick your
-    # team once in Xcode's Signing & Capabilities tab.
-    DEVELOPMENT_TEAM: ""
+    # Must live here, not just in Xcode's Signing & Capabilities tab: the
+    # .xcodeproj is generated, so `make project` overwrites whatever the UI
+    # set. Team IDs aren't secret.
+    DEVELOPMENT_TEAM: "3L8Q3U3WY3"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     SWIFT_EMIT_LOC_STRINGS: YES
     GENERATE_INFOPLIST_FILE: NO

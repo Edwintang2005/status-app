@@ -50,10 +50,10 @@ open RedString.xcodeproj
 
 Then, once:
 
-1. **Pick your team.** Select all three targets (`RedString`,
-   `RedStringWidgetExtension`, `RedStringNotificationService`) → Signing &
-   Capabilities → choose your team. Or set `DEVELOPMENT_TEAM` in
-   [project.yml](project.yml) and re-run `make project`.
+1. **Set your team in [project.yml](project.yml)**, not in Xcode's Signing &
+   Capabilities tab. The `.xcodeproj` is generated, so `make project`
+   overwrites anything the UI set — setting it in the spec is the only place it
+   survives. Then re-run `make project`.
 2. **Change the bundle IDs** if `com.edwintang.redstring` isn't yours. Four
    places must agree:
    - `PRODUCT_BUNDLE_IDENTIFIER` in [project.yml](project.yml) (all three targets)
@@ -71,9 +71,16 @@ App Group container, so a build without that entitlement traps at launch on
 with nowhere to store anything. App Groups, CloudKit and push all need the paid
 team. `make build` is a compile check only; `make run` signs first.
 
-`make project` regenerates `RedString.xcodeproj` from `project.yml`; the
-`.xcodeproj` is gitignored on purpose, so add new files to the folder and
-re-run it rather than editing project settings by hand.
+`make project` regenerates `RedString.xcodeproj` from `project.yml`. Add new
+files to the folder and re-run it rather than editing project settings by hand
+— anything changed in Xcode's UI is lost on the next regeneration.
+
+The generated `.xcodeproj` **is committed**, which is unusual for an XcodeGen
+project. Xcode Cloud builds from a plain clone of the repository and fails with
+*"RedString.xcodeproj does not exist at the root of the repository"* if it
+isn't there. So after adding or renaming files: `make project`, then commit the
+regenerated project alongside the source change. Only `xcuserdata` inside the
+bundle is ignored.
 
 ## Pairing
 
@@ -299,9 +306,10 @@ canvas.
 
 Everything below is already wired up; this is the order to do it in.
 
-1. **Set your team** on all three targets (`RedString`,
-   `RedStringWidgetExtension`, `RedStringNotificationService`), or set
-   `DEVELOPMENT_TEAM` in [project.yml](project.yml) and re-run `make project`.
+1. **Set your team** — `DEVELOPMENT_TEAM` in [project.yml](project.yml),
+   then `make project`. All three targets (`RedString`,
+   `RedStringWidgetExtension`, `RedStringNotificationService`) inherit it from
+   the project level.
 2. **Run once on a device** with a Debug build. That creates the CloudKit
    *Development* schema automatically — record types `Status`, `Nudge` and
    `Moment` with their fields — the first time each record is saved. Pair, set

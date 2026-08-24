@@ -1,9 +1,6 @@
 # Xcode
 build/
 DerivedData/
-*.xcodeproj
-*.xcworkspace
-!*.xcodeproj/project.xcworkspace
 xcuserdata/
 *.xcuserstate
 *.moved-aside
@@ -12,7 +9,11 @@ xcuserdata/
 *.dSYM.zip
 *.dSYM
 
-# XcodeGen writes the project; the spec (project.yml) is the source of truth.
+# The .xcodeproj IS committed, even though XcodeGen generates it: Xcode Cloud
+# builds from a plain clone and fails with "does not exist at the root of the
+# repository" if the project isn't there. project.yml stays the source of
+# truth — after adding files, re-run `make project` and commit the result.
+# Only the per-user state inside the bundle (xcuserdata) is ignored.
 
 # macOS
 .DS_Store
