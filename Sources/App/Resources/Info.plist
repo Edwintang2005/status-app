@@ -22,6 +22,14 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Take a photo to send straight to your partner's widget.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Record a voice memo to send to your partner.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Save a photo or doodle they sent you to your own library.</string>
 	<!-- Makes the iCloud Drive container visible in the Files app, which is
 	     the whole point of the memories archive: a folder of plain files the
 	     user still has after the app is gone. -->
@@ -37,14 +45,6 @@
 			<string>Any</string>
 		</dict>
 	</dict>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Save a photo or doodle they sent you to your own library.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>Take a photo to send straight to your partner's widget.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Record a voice memo to send to your partner.</string>
-	<key>LSRequiresIPhoneOS</key>
-	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -61,6 +61,10 @@
 	<array>
 		<string>arm64</string>
 	</array>
+	<!-- Portrait only, and iPhone only (TARGETED_DEVICE_FAMILY = 1 on every
+	     target in project.yml). Declaring iPad support here is what triggers
+	     App Store Connect error 90474, which demands all four orientations for
+	     iPad multitasking — an app locked to portrait can't satisfy it. -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

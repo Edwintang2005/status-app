@@ -621,7 +621,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.edwintang.redstring;
 				PRODUCT_NAME = RedString;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -638,7 +638,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.edwintang.redstring.notifications;
 				PRODUCT_NAME = RedStringNotificationService;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -656,7 +656,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.edwintang.redstring;
 				PRODUCT_NAME = RedString;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -673,7 +673,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.edwintang.redstring.widget;
 				PRODUCT_NAME = RedStringWidgetExtension;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -690,7 +690,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.edwintang.redstring.widget;
 				PRODUCT_NAME = RedStringWidgetExtension;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -774,7 +774,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.edwintang.redstring.notifications;
 				PRODUCT_NAME = RedStringNotificationService;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
