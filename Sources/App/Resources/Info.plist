@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Required for CloudKit share invitations to open the app at all.
+	     Without it iOS routes the icloud.com/share link to Safari and
+	     `userDidAcceptCloudKitShareWith` in AppDelegate.swift never fires,
+	     so the partner can never join the zone. -->
+	<key>CKSharingSupported</key>
+	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

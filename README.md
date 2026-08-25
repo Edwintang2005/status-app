@@ -337,10 +337,21 @@ Everything below is already wired up; this is the order to do it in.
    `Moment` with their fields — the first time each record is saved. Pair, set
    a status, send a nudge and send a photo, so every type and field actually
    gets created.
+
+   **Tapping "Create a link" is part of this step, not an optional extra.**
+   Zone sharing needs a system record type, `cloudkit.share`, and CloudKit only
+   adds it to the Development schema the first time a `CKShare` is actually
+   saved. Deploy before you have ever created an invite and Production is left
+   without it — the *first* thing a new user does then fails with
+   `Cannot create new type cloudkit.share in production schema`. You cannot add
+   the type by hand in the Console; you have to create a share in Development
+   and deploy again.
 3. **Deploy the schema to Production** in the CloudKit Console
    (*Schema → Deploy Schema Changes*). Production does **not** auto-create
    anything, so an App Store build against an undeployed schema fails on every
-   write. Re-deploy whenever you add a field.
+   write. Re-deploy whenever you add a field. Confirm afterwards by switching
+   the Console to *Production* and checking that `Status`, `Nudge`, `Moment`
+   **and `cloudkit.share`** are all listed under Record Types.
 4. **Archive** with `make archive` (or Xcode's *Product → Archive*). The
    Release configuration already points at
    [RedString-Release.entitlements](Sources/App/Resources/RedString-Release.entitlements),
