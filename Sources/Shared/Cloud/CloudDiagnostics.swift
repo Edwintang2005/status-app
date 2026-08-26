@@ -19,6 +19,14 @@ struct CloudDiagnostics: Sendable {
     var sharedZones: [String]
     var subscriptions: [String]
     var pairing: String
+    /// Who is on the paired zone's share, one line each. Readable from both
+    /// sides — the owner fetches the share from their private database, a
+    /// participant from their shared one.
+    var shareParticipants: [String]
+    /// What the share's `publicPermission` currently allows, or `nil` when
+    /// there is no share to ask. This is the invite link's real state: "open"
+    /// means anyone holding the URL can still join.
+    var sharePublicPermission: String?
     /// Anything that failed while gathering the above, rather than a silent gap.
     var problems: [String]
 
@@ -33,6 +41,8 @@ struct CloudDiagnostics: Sendable {
             "Private zones: \(privateZones.isEmpty ? "none" : privateZones.joined(separator: ", "))",
             "Shared zones: \(sharedZones.isEmpty ? "none" : sharedZones.joined(separator: ", "))",
             "Subscriptions: \(subscriptions.isEmpty ? "none" : subscriptions.joined(separator: ", "))",
+            "Invite link: \(sharePublicPermission ?? "no share")",
+            "Participants: \(shareParticipants.isEmpty ? "none" : shareParticipants.joined(separator: " | "))",
         ]
         if !problems.isEmpty {
             lines.append("Problems: " + problems.joined(separator: " | "))
@@ -123,6 +133,21 @@ extension CloudSync {
             problems.append("subscriptions: \(error.localizedDescription)")
         }
 
+        var shareParticipants: [String] = []
+        var sharePublicPermission: String?
+        if let pairing {
+            do {
+                if let share = try await pairedZoneShare(for: pairing) {
+                    sharePublicPermission = Self.describeLink(share.publicPermission)
+                    shareParticipants = share.participants.map {
+                        Self.describe($0, currentUser: share.currentUserParticipant)
+                    }
+                }
+            } catch {
+                problems.append("share: \(error.localizedDescription)")
+            }
+        }
+
         return CloudDiagnostics(
             environment: .current,
             containerID: AppConfig.cloudContainerID,
@@ -131,8 +156,25 @@ extension CloudSync {
             sharedZones: sharedZones,
             subscriptions: subscriptions,
             pairing: Self.describe(pairing),
+            shareParticipants: shareParticipants,
+            sharePublicPermission: sharePublicPermission,
             problems: problems
         )
+    }
+
+    /// The paired zone's share record, fetched from whichever database this
+    /// role reads. `nil` when the zone or its share isn't there — for a
+    /// diagnostic that's an answer, not a failure.
+    private func pairedZoneShare(for pairing: PairingInfo) async throws -> CKShare? {
+        let database = self.database(for: pairing)
+        let zoneID = CKRecordZone.ID(zoneName: pairing.zoneName,
+                                     ownerName: pairing.zoneOwnerName)
+        let zones = try await database.recordZones(for: [zoneID])
+        guard case .success(let zone)? = zones[zoneID],
+              let shareID = zone.share?.recordID else { return nil }
+        let records = try await database.records(for: [shareID])
+        guard case .success(let record)? = records[shareID] else { return nil }
+        return record as? CKShare
     }
 
     private static func describe(_ status: CKAccountStatus) -> String {
@@ -149,5 +191,68 @@ extension CloudSync {
     private static func describe(_ pairing: PairingInfo?) -> String {
         guard let pairing else { return "not paired" }
         return "\(pairing.role) of \(pairing.zoneName) (owner \(pairing.zoneOwnerName))"
+    }
+
+    /// One line per person on the share. The name is whatever iCloud is
+    /// willing to reveal — a link-joiner often has none — so the parts that
+    /// always exist carry the diagnosis: role, permission, acceptance.
+    ///
+    /// Role is the line that matters most here: a partner still listed as
+    /// `public` is one save of `publicPermission = .none` away from being
+    /// removed from the share, which is exactly the failure this screen
+    /// exists to make visible.
+    private static func describe(_ participant: CKShare.Participant,
+                                 currentUser: CKShare.Participant?) -> String {
+        let name = participant.userIdentity.nameComponents.map {
+            PersonNameComponentsFormatter.localizedString(from: $0, style: .default)
+        }
+        let email = participant.userIdentity.lookupInfo?.emailAddress
+        let who = [name, email].compactMap { $0 }.first { !$0.isEmpty } ?? "Unnamed"
+        let you = participant == currentUser ? " (you)" : ""
+        return "\(who)\(you) — \(describe(participant.role)), "
+            + "\(describe(participant.permission)), "
+            + describe(participant.acceptanceStatus)
+    }
+
+    private static func describe(_ role: CKShare.ParticipantRole) -> String {
+        switch role {
+        case .owner: return "owner"
+        case .privateUser: return "private"
+        case .publicUser: return "public"
+        case .administrator: return "administrator"
+        case .unknown: return "unknown role"
+        @unknown default: return "unknown role"
+        }
+    }
+
+    private static func describe(_ permission: CKShare.ParticipantPermission) -> String {
+        switch permission {
+        case .none: return "no access"
+        case .readOnly: return "read-only"
+        case .readWrite: return "read-write"
+        case .unknown: return "unknown permission"
+        @unknown default: return "unknown permission"
+        }
+    }
+
+    private static func describe(_ status: CKShare.ParticipantAcceptanceStatus) -> String {
+        switch status {
+        case .accepted: return "accepted"
+        case .pending: return "pending"
+        case .removed: return "removed"
+        case .unknown: return "unknown status"
+        @unknown default: return "unknown status"
+        }
+    }
+
+    /// The invite link's real state, phrased as what it means rather than as
+    /// the enum's name.
+    private static func describeLink(_ permission: CKShare.ParticipantPermission) -> String {
+        switch permission {
+        case .none: return "closed — nobody can join from the link"
+        case .readOnly, .readWrite: return "open — anyone with the link can join"
+        case .unknown: return "unknown"
+        @unknown default: return "unknown"
+        }
     }
 }

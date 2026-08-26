@@ -38,6 +38,31 @@ struct DiagnosticsView: View {
                 list("Zones shared with you", diagnostics.sharedZones,
                      empty: "None. If you joined someone's link, their zone would be here — an empty list means the join never completed.")
 
+                Section {
+                    if let permission = diagnostics.sharePublicPermission {
+                        LabeledContent("Invite link", value: permission)
+                    }
+                    if diagnostics.shareParticipants.isEmpty {
+                        Text("No share found — either this device isn't paired, or the shared zone is gone.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(diagnostics.shareParticipants, id: \.self) { participant in
+                            Text(participant)
+                                .font(.system(.footnote, design: .monospaced))
+                                .textSelection(.enabled)
+                        }
+                    }
+                } header: {
+                    Text("Share participants")
+                } footer: {
+                    Text("Once paired, both people should be listed as accepted "
+                         + "with the link closed. A partner shown as \u{201C}public\u{201D} "
+                         + "while the link is open hasn't been locked in yet — closing "
+                         + "the link removes public participants, so the app promotes "
+                         + "them to private first.")
+                }
+
                 list("Push subscriptions", diagnostics.subscriptions,
                      empty: "None registered yet.")
 

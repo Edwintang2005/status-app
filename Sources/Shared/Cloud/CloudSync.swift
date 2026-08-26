@@ -299,6 +299,17 @@ actor CloudSync: SyncBackend {
         let zoneID = self.zoneID(for: pairing)
         guard let share = try await existingZoneShare(in: database, zoneID: zoneID) else { return }
         if share.publicPermission != .none {
+            // Whoever joined via the URL is a *public* participant, and
+            // CloudKit removes all public participants when a share is saved
+            // with `publicPermission = .none` — closing the link naively kicks
+            // the partner out and their device sees the zone vanish. Promote
+            // them to a private participant in the same save, so the link
+            // closes and they stay.
+            for participant in share.participants
+            where participant.role == .publicUser && participant.acceptanceStatus == .accepted {
+                participant.role = .privateUser
+                participant.permission = .readWrite
+            }
             share.publicPermission = .none
             _ = try await database.modifyRecords(saving: [share], deleting: [])
         }
