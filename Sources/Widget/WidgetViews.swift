@@ -88,13 +88,13 @@ struct StatusWidgetView: View {
 
     // MARK: Rectangular
 
-    /// The two of you side by side, theirs on the left, and no message text.
+    /// The two of you side by side, theirs on the left: name, emoji, then up
+    /// to two lines of status each.
     ///
-    /// The message used to live here and was the wrong thing to put on a lock
-    /// screen: it needed two lines to be readable, still truncated often, and
-    /// only ever showed one half of the pair. Two emoji answer "how are we?"
-    /// in a glance, which is all this surface is for — the words are one tap
-    /// away in the app.
+    /// The status is allowed to truncate — a short status reads whole and
+    /// keeps the halves symmetrical, a long one loses its tail, and that
+    /// trade-off belongs to whoever typed it. The emoji gives up size
+    /// (26 → 16 pt) to make the room.
     private var rectangular: some View {
         HStack(spacing: 0) {
             if !isPaired {
@@ -116,18 +116,34 @@ struct StatusWidgetView: View {
     /// One half of the pair. `nil` means paired but nothing set yet, which is
     /// its own small statement — hence a placeholder rather than a blank.
     private func person(_ status: StatusPayload?, label: String) -> some View {
-        VStack(spacing: 3) {
-            Text(status?.emoji ?? "💭")
-                .font(.system(size: 26))
-
+        VStack(spacing: 1.5) {
             Text(label.uppercased())
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .font(.system(size: 9, weight: .semibold, design: .rounded))
                 .tracking(0.6)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .widgetAccentable()
+
+            Text(status?.emoji ?? "💭")
+                .font(.system(size: 16))
+                .opacity(status == nil ? 0.55 : 1)
+
+            Text(personMessage(for: status))
+                .font(.system(size: 9.5, weight: .medium, design: .rounded))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .opacity(status == nil ? 0.55 : 1)
         }
         .frame(maxWidth: .infinity)
+        .padding(.horizontal, 6)
+    }
+
+    /// Same conventions as the home-screen widget: absence and emptiness are
+    /// said out loud rather than left as a hole in the layout.
+    private func personMessage(for status: StatusPayload?) -> String {
+        guard let status else { return "nothing yet" }
+        return status.message.isEmpty ? "no message" : status.message
     }
 
     // MARK: Home screen
