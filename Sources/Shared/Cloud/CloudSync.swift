@@ -36,6 +36,19 @@ enum SyncError: LocalizedError {
     }
 }
 
+/// What the server says about the owner's invite link.
+enum InviteState: Sendable, Equatable {
+    /// Still joinable, carrying the link to hand over.
+    case open(URL)
+    /// The share is there but no longer accepts joins from the link — either
+    /// the partner arrived or the owner closed it by hand.
+    case closed
+    /// No share at all: not the owner, or the shared zone is gone. Distinct
+    /// from `closed` on purpose — nothing about this says anyone joined, and
+    /// the UI must not claim they did.
+    case missing
+}
+
 /// All CloudKit access, shared by the app, the widget and the notification
 /// service extension.
 ///
@@ -150,29 +163,7 @@ actor CloudSync: SyncBackend {
         _ = try await database.modifyRecordZones(saving: [CKRecordZone(zoneID: zoneID)],
                                                  deleting: [])
 
-        let share: CKShare
-        if let existing = try await existingZoneShare(in: database, zoneID: zoneID) {
-            // A share left over from a previous pairing, which — now that the
-            // link closes itself once someone joins — is very likely locked.
-            // Reachable when an unlink couldn't reach iCloud and the user took
-            // the "remove from this iPhone only" escape hatch: the zone and its
-            // closed share outlive the local reset. Handing back a URL nobody
-            // can join with would be a silent dead end, so reopen it.
-            if existing.publicPermission != .readWrite {
-                existing.publicPermission = .readWrite
-                let result = try await database.modifyRecords(saving: [existing], deleting: [])
-                share = try Self.firstSavedRecord(from: result) as? CKShare ?? existing
-            } else {
-                share = existing
-            }
-        } else {
-            let newShare = CKShare(recordZoneID: zoneID)
-            newShare[CKShare.SystemFieldKey.title] = "\(AppConfig.appName) — \(displayName)" as CKRecordValue
-            newShare.publicPermission = .readWrite
-            let result = try await database.modifyRecords(saving: [newShare], deleting: [])
-            share = try Self.firstSavedRecord(from: result) as? CKShare ?? newShare
-        }
-
+        let share = try await zoneShare(displayName: displayName, zoneID: zoneID, in: database)
         guard let url = share.url else { throw SyncError.shareURLMissing }
 
         let info = PairingInfo(role: .owner,
@@ -187,6 +178,97 @@ actor CloudSync: SyncBackend {
         }
         try await bootstrapAfterPairing(displayName: displayName)
         return url
+    }
+
+    /// Gets the zone into a shared, joinable state.
+    ///
+    /// Both recovery paths exist for the same reason: a reset deletes the zone,
+    /// and for a short window afterwards the server's view of it disagrees with
+    /// what the client was just told. Rather than making the user discover that
+    /// pressing the button twice works, absorb that window here.
+    private func zoneShare(displayName: String,
+                           zoneID: CKRecordZone.ID,
+                           in database: CKDatabase) async throws -> CKShare {
+        if let existing = try await existingZoneShare(in: database, zoneID: zoneID) {
+            return try await reopened(existing, in: database)
+        }
+
+        do {
+            return try await createZoneShare(displayName: displayName,
+                                             zoneID: zoneID,
+                                             in: database)
+        } catch let error as CKError {
+            log.error("Zone share save failed (CKError \(error.code.rawValue)); recovering.")
+            // A beat for the server to settle: the zone was recreated moments
+            // ago, and asking again in the same breath returns the same answer.
+            try? await Task.sleep(for: .seconds(1))
+
+            // The save may have landed despite reporting failure.
+            if let landed = try? await existingZoneShare(in: database, zoneID: zoneID) {
+                log.notice("Share existed despite the error; using it.")
+                return try await reopened(landed, in: database)
+            }
+
+            // Or the zone itself hadn't settled, in which case one more
+            // creation — of the zone and then the share — is the whole fix.
+            // Anything else is a real failure and has to reach the user: an
+            // undeployed production schema must not be retried into silence.
+            guard Self.isAlreadyGone(error) else { throw error }
+            _ = try await database.modifyRecordZones(saving: [CKRecordZone(zoneID: zoneID)],
+                                                     deleting: [])
+            return try await createZoneShare(displayName: displayName,
+                                             zoneID: zoneID,
+                                             in: database)
+        }
+    }
+
+    private func createZoneShare(displayName: String,
+                                 zoneID: CKRecordZone.ID,
+                                 in database: CKDatabase) async throws -> CKShare {
+        let share = CKShare(recordZoneID: zoneID)
+        share[CKShare.SystemFieldKey.title] = "\(AppConfig.appName) — \(displayName)" as CKRecordValue
+        share.publicPermission = .readWrite
+        let result = try await database.modifyRecords(saving: [share], deleting: [])
+        return try Self.firstSavedRecord(from: result) as? CKShare ?? share
+    }
+
+    /// Reopens a share that has been closed to link-based joining.
+    ///
+    /// A share left over from a previous pairing — now that the link closes
+    /// itself once someone joins — is very likely locked. Reachable when an
+    /// unlink couldn't reach iCloud and the user took the "remove from this
+    /// iPhone only" escape hatch: the zone and its closed share outlive the
+    /// local reset. Handing back a URL nobody can join with would be a silent
+    /// dead end.
+    private func reopened(_ share: CKShare, in database: CKDatabase) async throws -> CKShare {
+        guard share.publicPermission != .readWrite else { return share }
+        share.publicPermission = .readWrite
+        let result = try await database.modifyRecords(saving: [share], deleting: [])
+        return try Self.firstSavedRecord(from: result) as? CKShare ?? share
+    }
+
+    /// Owner side. What the server currently says about the invite link.
+    ///
+    /// `createPairInvite` hands the URL back exactly once, so it used to live
+    /// only as long as the screen that showed it — leave the pairing view, or
+    /// relaunch, and the link was unrecoverable even though the share itself
+    /// was still open and waiting. The share is the durable thing, so ask the
+    /// server for it rather than trusting a cached copy that goes stale the
+    /// moment the invite is closed from another device.
+    func inviteState() async throws -> InviteState {
+        guard let pairing = await MainActor.run(body: { SharedStore.shared.pairing }),
+              pairing.role == .owner else { return .missing }
+        try await requireAvailableAccount()
+
+        let database = container.privateCloudDatabase
+        guard let share = try await existingZoneShare(in: database,
+                                                      zoneID: zoneID(for: pairing)) else {
+            return .missing
+        }
+        // A closed share still carries a `url`, and handing that out would be a
+        // link that silently fails for whoever taps it.
+        guard share.publicPermission == .readWrite, let url = share.url else { return .closed }
+        return .open(url)
     }
 
     /// Owner side. Revokes link-based joining once the partner is in, so a
@@ -269,14 +351,28 @@ actor CloudSync: SyncBackend {
         }
     }
 
+    /// The zone's share, or `nil` when there isn't one.
+    ///
+    /// "Gone" is the answer here, not a failure. Right after a reset — which
+    /// deletes the zone — `recordZones(for:)` can hand back metadata still
+    /// pointing at the share record that belonged to the *deleted* zone, and
+    /// fetching it then fails with "Zone does not exist". Letting that
+    /// propagate is what put that alert in front of the user on the first
+    /// press after a reset, and made a second press look like the fix: by then
+    /// the stale reference was gone, so the share got created normally.
     private func existingZoneShare(in database: CKDatabase,
                                    zoneID: CKRecordZone.ID) async throws -> CKShare? {
-        let zones = try await database.recordZones(for: [zoneID])
-        guard case .success(let zone)? = zones[zoneID],
-              let shareID = zone.share?.recordID else { return nil }
-        let records = try await database.records(for: [shareID])
-        guard case .success(let record)? = records[shareID] else { return nil }
-        return record as? CKShare
+        do {
+            let zones = try await database.recordZones(for: [zoneID])
+            guard case .success(let zone)? = zones[zoneID],
+                  let shareID = zone.share?.recordID else { return nil }
+            let records = try await database.records(for: [shareID])
+            guard case .success(let record)? = records[shareID] else { return nil }
+            return record as? CKShare
+        } catch let error as CKError where Self.isAlreadyGone(error) {
+            log.notice("No existing zone share (CKError \(error.code.rawValue)).")
+            return nil
+        }
     }
 
     // MARK: - Status

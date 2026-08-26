@@ -107,6 +107,8 @@ struct PairingView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
+            InviteLinkText(url: url)
+
             ShareLink(item: url) {
                 Label("Share invite link", systemImage: "square.and.arrow.up")
                     .font(Theme.rounded(17, .semibold))
@@ -115,6 +117,8 @@ struct PairingView: View {
                     .padding(.vertical, 15)
                     .background(Theme.accent, in: Capsule())
             }
+
+            CopyLinkButton(url: url)
 
             // Nobody has joined yet, so this only throws away the invite —
             // the name stays.

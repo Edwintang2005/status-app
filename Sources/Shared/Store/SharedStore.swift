@@ -22,6 +22,7 @@ final class SharedStore {
         static let pairing = "pairing"
         static let notificationsRequested = "notificationsRequested"
         static let inviteClosed = "inviteClosed"
+        static let inviteURL = "inviteURL"
     }
 
     init(store: GroupKeyValueStore = GroupFileStore()) {
@@ -78,6 +79,24 @@ final class SharedStore {
         set { store.setBool(newValue, forKey: Key.inviteClosed) }
     }
 
+    /// Owner side: the invite link handed back by `createPairInvite`, kept so
+    /// it can be shared again later.
+    ///
+    /// A cache of a server fact, like `inviteClosed` — `CloudSync
+    /// .inviteState()` is the truth. Held here so Settings can show the
+    /// link the instant it opens, and offline, rather than only after a
+    /// round trip.
+    var inviteURL: URL? {
+        get {
+            guard let data = store.data(forKey: Key.inviteURL),
+                  let text = String(data: data, encoding: .utf8) else { return nil }
+            return URL(string: text)
+        }
+        set {
+            store.setData(newValue?.absoluteString.data(using: .utf8), forKey: Key.inviteURL)
+        }
+    }
+
     /// Forgets the link, both partners' statuses and the sync cursors.
     ///
     /// `keepingName` decides which of the two endings this is: unlinking keeps
@@ -92,6 +111,7 @@ final class SharedStore {
         pairing = nil
         // The next pairing gets a new share with a new link, which starts open.
         inviteClosed = false
+        inviteURL = nil
         for key in ["private", "shared"] { setChangeToken(nil, for: key) }
         snapshot = Snapshot(
             mine: (name?.isEmpty == false) ? .initial(displayName: name!) : nil,

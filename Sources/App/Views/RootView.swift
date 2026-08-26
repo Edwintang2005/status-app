@@ -37,6 +37,12 @@ struct RootView: View {
         .animation(.smooth(duration: 0.4), value: model.isPaired)
         .animation(.smooth(duration: 0.4), value: model.hasName)
         .animation(.smooth(duration: 0.35), value: model.pendingCelebration)
+        // Presented from the root, not from `PairingView`: creating the invite
+        // is what replaces that view with `HomeView`, so anything it presents
+        // itself goes with it.
+        .sheet(item: $model.presentedInvite) { invite in
+            InviteLinkSheet(url: invite.url, partnerName: model.partnerName)
+        }
         .alert("Something went wrong",
                isPresented: Binding(get: { model.errorMessage != nil },
                                     set: { if !$0 { model.errorMessage = nil } })) {

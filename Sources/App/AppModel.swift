@@ -18,12 +18,30 @@ final class AppModel {
     private(set) var inviteClosed: Bool = SharedStore.shared.inviteClosed
     private(set) var isBusy = false
     private(set) var isRefreshing = false
-    private(set) var inviteURL: URL?
+    /// Owner side: the link to hand to the partner, `nil` once it has been
+    /// closed. Seeded from the store rather than left empty, so it survives a
+    /// relaunch — see `refreshInviteURL()`.
+    private(set) var inviteURL: URL? = SharedStore.shared.inviteURL
+    /// The server has no share for us at all — as opposed to one that has been
+    /// closed. Keeps Settings from spinning forever on a link that is never
+    /// going to arrive.
+    private(set) var inviteLinkUnavailable = false
     /// Non-nil when the backend can't work — no iCloud account, and so on.
     private(set) var readinessMessage: String?
     /// The full moment history, newest first. Read from `MomentIndex` rather
     /// than the snapshot, which only carries the newest in each direction.
     private(set) var history: [Moment] = []
+
+    /// Set when an invite has just been created, so `RootView` can present the
+    /// link. Not a plain `URL`: `sheet(item:)` needs identity, and the same
+    /// link created twice should still present.
+    var presentedInvite: InviteLink?
+
+    /// A link to show, wrapped so SwiftUI can key a sheet on it.
+    struct InviteLink: Identifiable {
+        let id = UUID()
+        let url: URL
+    }
 
     var errorMessage: String?
     /// Set by the `redstring://compose` deep link so the widget can open straight
@@ -216,6 +234,10 @@ final class AppModel {
         isPaired = store.pairing != nil
         role = store.pairing?.role
         inviteClosed = store.inviteClosed
+        // The invite can close itself, from `CloudSync` the moment the partner
+        // joins. Dropping the link here keeps Settings from offering one that
+        // no longer works.
+        if inviteClosed, inviteURL != nil { setInviteURL(nil) }
         history = MomentIndex.shared.load()
     }
 
@@ -398,12 +420,59 @@ final class AppModel {
         isBusy = true
         defer { isBusy = false }
         do {
-            inviteURL = try await CloudSync.shared.createPairInvite(displayName: myDisplayName)
+            let url = try await CloudSync.shared.createPairInvite(displayName: myDisplayName)
+            setInviteURL(url)
             reload()
+            // After `reload()`, which is what flips `isPaired` and takes the
+            // pairing screen away. The sheet outlives that.
+            presentedInvite = InviteLink(url: url)
             await NotificationManager.requestAuthorizationIfNeeded()
         } catch {
             present(error)
         }
+    }
+
+    /// Reconciles the cached invite link against what the server actually
+    /// says, and records which of the three answers came back.
+    ///
+    /// Quiet on purpose: this runs when a screen that can show the link
+    /// appears, and failing to reach iCloud there is not worth an alert — the
+    /// cached link is still shown, and the next attempt tries again.
+    func refreshInviteURL() async {
+        guard role == .owner else { return }
+        do {
+            switch try await CloudSync.shared.inviteState() {
+            case .open(let url):
+                setInviteURL(url)
+                setInviteClosed(false)
+                inviteLinkUnavailable = false
+            case .closed:
+                // How this device finds out the invite was closed from another.
+                setInviteURL(nil)
+                setInviteClosed(true)
+                inviteLinkUnavailable = false
+            case .missing:
+                // There is no link to offer, but nothing here says the partner
+                // joined — so don't let the UI claim the invite was closed.
+                setInviteURL(nil)
+                inviteLinkUnavailable = true
+            }
+        } catch {
+            // Couldn't reach iCloud. Keep the cached link rather than
+            // discarding one that very likely still works, and stay quiet.
+            log.error("Couldn't refresh the invite link: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func setInviteClosed(_ closed: Bool) {
+        guard inviteClosed != closed else { return }
+        inviteClosed = closed
+        store.inviteClosed = closed
+    }
+
+    private func setInviteURL(_ url: URL?) {
+        inviteURL = url
+        store.inviteURL = url
     }
 
     func lockPairing() async {
@@ -411,7 +480,7 @@ final class AppModel {
         defer { isBusy = false }
         do {
             try await CloudSync.shared.lockPairing()
-            inviteURL = nil
+            setInviteURL(nil)
         } catch {
             present(error)
         }
@@ -498,7 +567,7 @@ final class AppModel {
     private func finishUnlink(startingOver: Bool) {
         store.eraseLocalMedia()
         store.clearPairing(keepingName: !startingOver)
-        inviteURL = nil
+        inviteURL = nil  // `clearPairing` already cleared the stored copy.
         pendingInvite = nil
         reload()
         UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -507,7 +576,11 @@ final class AppModel {
     // MARK: - Errors
 
     private func present(_ error: Error) {
-        log.error("\(error.localizedDescription)")
+        // The CKError code alongside the message, because the message alone
+        // doesn't distinguish a transient failure from a real one — which is
+        // the difference between "try again" and "the schema isn't deployed".
+        let code = (error as? CKError).map { "CKError \($0.code.rawValue): " } ?? ""
+        log.error("\(code, privacy: .public)\(error.localizedDescription, privacy: .public)")
         errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 }

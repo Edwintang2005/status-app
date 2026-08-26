@@ -46,19 +46,7 @@ struct SettingsView: View {
                 }
 
                 if model.role == .owner {
-                    Section {
-                        if model.inviteClosed {
-                            LabeledContent("Invite link", value: "Closed")
-                        } else {
-                            Button("Close the invite link") {
-                                Task { await model.lockPairing() }
-                            }
-                        }
-                    } footer: {
-                        Text(model.inviteClosed
-                             ? "Closed automatically when \(model.partnerName) joined. Nobody else can use the link you sent, even if it was forwarded or screenshotted."
-                             : "Anyone holding the link can still join. It closes itself the moment \(model.partnerName) does — close it now if you sent it to the wrong person.")
-                    }
+                    inviteSection
                 }
 
                 if !model.history.isEmpty {
@@ -118,6 +106,10 @@ struct SettingsView: View {
                 }
             }
             .task { notificationStatus = await NotificationManager.authorizationStatus() }
+            // The link survives a relaunch in the App Group, but the share can
+            // be closed from another device — so confirm it against CloudKit
+            // rather than trusting the cached copy.
+            .task { await model.refreshInviteURL() }
             .confirmationDialog(unlinkTitle,
                                 isPresented: $confirmingUnlink,
                                 titleVisibility: .visible) {
@@ -178,6 +170,61 @@ struct SettingsView: View {
                 Text(archiveSummary?.text ?? "")
             }
         }
+    }
+
+    /// Owner side: the link to hand over, kept reachable for as long as it
+    /// works. Created invites used to be visible only on the screen that made
+    /// them, which `RootView` replaces the instant pairing state is written.
+    ///
+    /// Its own property rather than inline in the `Form`: together with
+    /// everything else in there it was enough to time out the type-checker.
+    @ViewBuilder
+    private var inviteSection: some View {
+        Section {
+            if model.inviteClosed {
+                LabeledContent("Status", value: "Closed")
+            } else {
+                // Absent only until `refreshInviteURL()` gets it back from
+                // CloudKit — an open invite always has one, so this is a
+                // loading state, not an empty one.
+                if let url = model.inviteURL {
+                    InviteLinkText(url: url)
+                    ShareLink(item: url) {
+                        Label("Share link", systemImage: "square.and.arrow.up")
+                    }
+                    CopyLinkButton(url: url, prominent: false)
+                } else if model.inviteLinkUnavailable {
+                    // No share on the server. Says so plainly rather than
+                    // spinning forever, and without claiming it was closed —
+                    // nothing here means the partner joined.
+                    LabeledContent("Status", value: "Unavailable")
+                } else {
+                    LabeledContent("Status") {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+                Button("Close the invite link", role: .destructive) {
+                    Task { await model.lockPairing() }
+                }
+            }
+        } header: {
+            Text("Invite link")
+        } footer: {
+            Text(inviteFooter)
+        }
+    }
+
+    /// Pulled out of the section: inline, the ternary plus the surrounding
+    /// `Form` was enough to time out the type-checker.
+    private var inviteFooter: String {
+        if model.inviteClosed {
+            return "Closed automatically when \(model.partnerName) joined. Nobody "
+                + "else can use the link you sent, even if it was forwarded or "
+                + "screenshotted."
+        }
+        return "Anyone holding the link can still join. It closes itself the "
+            + "moment \(model.partnerName) does — close it now if you sent it to "
+            + "the wrong person."
     }
 
     private var versionString: String {
