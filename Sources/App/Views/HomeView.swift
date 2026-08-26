@@ -247,6 +247,11 @@ struct HomeView: View {
             .shadow(color: .black.opacity(0.10), radius: 20, y: 10)
         }
         .buttonStyle(.plain)
+        // On the whole card, not the picture: the photo lives inside the
+        // card's rounded clip, so zooming only the square would be cut off at
+        // the card's edge. Scaling the clipped card lifts it over the UI as
+        // one piece, and springs back on release.
+        .pinchToZoom()
     }
 
     // MARK: - Latest voice memo
@@ -362,7 +367,9 @@ private struct NudgeButton: View {
             Label(ready ? "Thinking of you" : "Sent · \(Int(remaining))s",
                   systemImage: ready ? "heart.fill" : "checkmark")
         }
-        .buttonStyle(PrimaryButtonStyle(tint: ready ? Theme.warm : Color.secondary.opacity(0.4)))
+        // Accent, not warm: the heart is the red-string gesture itself, so it
+        // wears the rope's crimson.
+        .buttonStyle(PrimaryButtonStyle(tint: ready ? Theme.accent : Color.secondary.opacity(0.4)))
         .disabled(!ready)
         .animation(.smooth, value: ready)
         .task(id: lastSentAt) { await countDown() }

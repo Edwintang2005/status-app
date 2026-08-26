@@ -41,6 +41,9 @@ final class NotificationService: UNNotificationServiceExtension {
     /// Out of time — show CloudKit's generic version rather than nothing.
     override func serviceExtensionTimeWillExpire() {
         work?.cancel()
+        // The refresh may have landed its records before the deadline hit;
+        // without this the widget misses exactly the pushes that ran long.
+        SharedStore.reloadWidgets()
         if let fallback {
             contentHandler?(fallback)
         }
@@ -60,6 +63,14 @@ final class NotificationService: UNNotificationServiceExtension {
         // and the partner's status is merely still there".
         let partnerStatusBefore = await MainActor.run { SharedStore.shared.snapshot.theirs }
 
+        // The widget is the whole point of doing this here: on a force-quit
+        // phone nothing else will update it until the user opens the app.
+        // Deferred so it runs on *every* exit — a refresh that throws midway
+        // may still have applied records (apply happens before the token is
+        // persisted), and skipping the reload then is how a status banner
+        // arrives while the lock-screen widget keeps yesterday's status.
+        defer { SharedStore.reloadWidgets() }
+
         let result: RefreshResult
         do {
             result = try await CloudSync.shared.refresh()
@@ -67,10 +78,6 @@ final class NotificationService: UNNotificationServiceExtension {
             log.error("Refresh failed in service extension: \(error.localizedDescription)")
             return content
         }
-
-        // The widget is the whole point of doing this here: on a force-quit
-        // phone nothing else will update it until the user opens the app.
-        SharedStore.reloadWidgets()
 
         let partnerName = await MainActor.run { SharedStore.shared.snapshot.partnerDisplayName }
 

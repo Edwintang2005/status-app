@@ -98,8 +98,20 @@ struct DiagnosticsView: View {
         .background(Theme.Background())
         .navigationTitle("iCloud diagnostics")
         .navigationBarTitleDisplayMode(.inline)
-        .task { diagnostics = await CloudSync.shared.diagnostics() }
-        .refreshable { diagnostics = await CloudSync.shared.diagnostics() }
+        .task { await reload() }
+        .refreshable { await reload() }
+    }
+
+    /// Not read-only: opening or pull-refreshing this screen also *attempts*
+    /// the promote-and-close on the invite link, so a partner stuck as a
+    /// "public" participant can be fixed from right here — and the list below
+    /// then shows whatever the server now says. Any failure lands in the
+    /// Problems section instead of a log nobody reads.
+    private func reload() async {
+        let lockProblem = await CloudSync.shared.secureInviteIfPartnerJoined()
+        var result = await CloudSync.shared.diagnostics()
+        if let lockProblem { result.problems.append(lockProblem) }
+        diagnostics = result
     }
 
     @ViewBuilder

@@ -18,6 +18,7 @@
 		2D1E6EC3CE9E262A3FA51EB0 /* StatusProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B92EA7DEDAAF90C46953F00D /* StatusProvider.swift */; };
 		2EF5363DEE4A3F658794D1C6 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD8D0106D60EC77F6BBD92E8 /* NotificationManager.swift */; };
 		2F34A348353EC94815E9CA32 /* MemoryArchive.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBD41874B210F70D1875AAAE /* MemoryArchive.swift */; };
+		2FBDC5C2E133D9A716BC93D6 /* PinchToZoom.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88CFEE9BF9F2D4F1C4724B57 /* PinchToZoom.swift */; };
 		3152657AB5665312130C371B /* SyncBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BC200FA7147CB9336C7B085 /* SyncBackend.swift */; };
 		333DF0333E02B3FBF5CE442C /* VoiceRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75598DBB992C8EFEF7B1E974 /* VoiceRecorder.swift */; };
 		3387E3E899F13090F3808558 /* CrossProcessLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E0BAB580172AC55C2EEAC42 /* CrossProcessLock.swift */; };
@@ -166,6 +167,7 @@
 		830C54EC0A839C1BB7F6BEB0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		8466C7C9528F65B29D3B5CA8 /* CloudDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDiagnostics.swift; sourceTree = "<group>"; };
 		86D0D329D6A34F59B704FBF5 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
+		88CFEE9BF9F2D4F1C4724B57 /* PinchToZoom.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinchToZoom.swift; sourceTree = "<group>"; };
 		8BC200FA7147CB9336C7B085 /* SyncBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncBackend.swift; sourceTree = "<group>"; };
 		93390A1C86AB274F1E6CF0D0 /* RedString-Release.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "RedString-Release.entitlements"; sourceTree = "<group>"; };
 		958E566ACC1594BB43366434 /* RedStringWidgetExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = RedStringWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -350,6 +352,7 @@
 				D7555940C8F32AD881C18D9E /* MomentLibraryView.swift */,
 				210847458004C670433D6EC5 /* MoodPickerView.swift */,
 				AAF80F7994B39BDEC9BA087D /* PairingView.swift */,
+				88CFEE9BF9F2D4F1C4724B57 /* PinchToZoom.swift */,
 				7979986C14FC84136536B46B /* RootView.swift */,
 				44EDE9EF4B8224158C8BCD5F /* SettingsView.swift */,
 				2BB81BD9590AB73959572A67 /* ShareSheet.swift */,
@@ -597,6 +600,7 @@
 				3B5136FE91AE81C436D6C951 /* MoodPickerView.swift in Sources */,
 				2EF5363DEE4A3F658794D1C6 /* NotificationManager.swift in Sources */,
 				C8BFC36B3366F2DA467E70F7 /* PairingView.swift in Sources */,
+				2FBDC5C2E133D9A716BC93D6 /* PinchToZoom.swift in Sources */,
 				AB8284D702A9CDEFA3A707AF /* RedStringApp.swift in Sources */,
 				545B0DA5DD884199F120B05F /* RootView.swift in Sources */,
 				3ABDDC747C14821E4D588FB4 /* SettingsView.swift in Sources */,
@@ -754,7 +758,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 3L8Q3U3WY3;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -838,7 +842,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 3L8Q3U3WY3;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;

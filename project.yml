@@ -22,7 +22,7 @@ settings:
     # set in Xcode. Build numbers stay monotonic across marketing versions —
     # 1.0 shipped up to build 5, so 1.1 starts at 6.
     MARKETING_VERSION: "1.1"
-    CURRENT_PROJECT_VERSION: "6"
+    CURRENT_PROJECT_VERSION: "7"
     # Language mode 5 under the Swift 6 compiler: strict-concurrency problems
     # surface as warnings rather than hard errors.
     SWIFT_VERSION: "5.0"

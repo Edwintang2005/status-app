@@ -3,10 +3,19 @@ import SwiftUI
 /// One place for colour, type and elevation, so nothing in the app has to
 /// invent its own look. Everything is defined in code and derived from a
 /// single accent hue — there is no palette to keep in sync in the asset catalog.
+/// The palette is the app icon's: the rope's crimson carries the interface
+/// (it *is* the red string), the fox's orange warms it, the fish's steel blue
+/// cools it, and light mode sits on the icon's cream.
 enum Theme {
-    static let accent = Color(red: 0.44, green: 0.38, blue: 0.92)
-    static let warm = Color(red: 0.96, green: 0.44, blue: 0.56)
-    static let mint = Color(red: 0.30, green: 0.80, blue: 0.70)
+    /// Rope crimson.
+    static let accent = Color(red: 0.78, green: 0.27, blue: 0.32)
+    /// The crimson lifted for text on dark backgrounds — the accent itself
+    /// is dim enough there to read as disabled.
+    static let accentBright = Color(red: 0.95, green: 0.45, blue: 0.50)
+    /// Fox orange.
+    static let warm = Color(red: 0.92, green: 0.53, blue: 0.25)
+    /// Fish steel blue.
+    static let mint = Color(red: 0.44, green: 0.66, blue: 0.86)
 
     /// A quiet full-bleed backdrop. Deliberately low contrast: the status card
     /// should be the only thing competing for attention.
@@ -15,7 +24,11 @@ enum Theme {
 
         var body: some View {
             ZStack {
-                (colorScheme == .dark ? Color.black : Color(white: 0.94))
+                // Light mode sits on the icon's cream rather than plain grey;
+                // dark mode keeps black, warmed only by the tinted glows.
+                (colorScheme == .dark
+                    ? Color.black
+                    : Color(red: 0.973, green: 0.945, blue: 0.894))
                     .ignoresSafeArea()
                 RadialGradient(
                     colors: [accent.opacity(colorScheme == .dark ? 0.34 : 0.40), .clear],
@@ -125,10 +138,12 @@ struct PrimaryButtonStyle: ButtonStyle {
 }
 
 struct SecondaryButtonStyle: ButtonStyle {
+    @Environment(\.colorScheme) private var colorScheme
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(Theme.rounded(16, .medium))
-            .foregroundStyle(Theme.accent)
+            .foregroundStyle(colorScheme == .dark ? Theme.accentBright : Theme.accent)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
             .background(Theme.accent.opacity(configuration.isPressed ? 0.20 : 0.12),

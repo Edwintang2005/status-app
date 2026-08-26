@@ -180,7 +180,9 @@ struct StatusWidgetView: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(6)
-                    .background(Theme.warm, in: Circle())
+                    // Matches the in-app nudge button: the heart wears the
+                    // rope's crimson, not the fox's orange.
+                    .background(Theme.accent, in: Circle())
             }
             .buttonStyle(.plain)
         }

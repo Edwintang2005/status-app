@@ -337,6 +337,18 @@ actor CloudSync: SyncBackend {
     ///
     /// Idempotent: an already-closed share is left untouched, and the local
     /// flag is set either way so `closeInviteIfPartnerJoined` stops looking.
+    ///
+    /// A URL-joiner is a *public* participant, and CloudKit's rules for those
+    /// are strict: their role cannot be edited in place (verified on-device —
+    /// the save is accepted and the role stays `publicUser`), `addParticipant`
+    /// on an open share throws, and saving `publicPermission = .none` removes
+    /// every public participant. The one documented path through — from
+    /// CKShare.h itself — is a single atomic save that both closes the link
+    /// and re-adds the same person as a properly fetched *private*
+    /// participant: matching user identities merge, so the person carries
+    /// over instead of being dropped. Atomicity is the safety property: the
+    /// save either lands whole (partner private, link closed) or fails whole
+    /// (partner untouched, link still open). There is no committed middle.
     func lockPairing() async throws {
         guard let pairing = await MainActor.run(body: { SharedStore.shared.pairing }),
               pairing.role == .owner else { throw SyncError.notPaired }
@@ -344,42 +356,80 @@ actor CloudSync: SyncBackend {
         let database = container.privateCloudDatabase
         let zoneID = self.zoneID(for: pairing)
         guard let share = try await existingZoneShare(in: database, zoneID: zoneID) else { return }
+
         if share.publicPermission != .none {
-            // Whoever joined via the URL is a *public* participant, and
-            // CloudKit removes all public participants when a share is saved
-            // with `publicPermission = .none` — closing the link naively kicks
-            // the partner out and their device sees the zone vanish.
-            //
-            // Two separate saves, promotion strictly first. Folding both into
-            // one save would lean on the server applying the role change
-            // before it evaluates the permission change — an ordering nobody
-            // guarantees, with a partner's removal as the cost of being
-            // wrong. Every public participant is promoted, not just the
-            // accepted ones: promotion is the only thing standing between a
-            // person and removal, so nobody is left out of it.
-            var current = share
-            if current.participants.contains(where: { $0.role == .publicUser }) {
-                for participant in current.participants where participant.role == .publicUser {
-                    participant.role = .privateUser
-                    participant.permission = .readWrite
+            let publics = share.participants.filter { $0.role == .publicUser }
+
+            // Every public participant must come back as a private one in the
+            // same save, so fetch their private-participant handles first —
+            // any failure here aborts before anything is written.
+            let refetched = try await privateParticipants(matching: publics)
+            for participant in refetched {
+                participant.permission = .readWrite
+                share.addParticipant(participant)
+            }
+            share.publicPermission = .none
+            _ = try await database.modifyRecords(saving: [share], deleting: [])
+
+            // Trust nothing: ask the server what the share looks like now. If
+            // the merge didn't preserve the partner, reopen the link at once —
+            // their device can rejoin from the same URL — and report failure.
+            if !publics.isEmpty {
+                let confirmed = try await existingZoneShare(in: database, zoneID: zoneID)
+                let partnerIntact = confirmed?.participants.contains {
+                    $0.role != .owner && $0.role != .publicUser
+                        && $0.acceptanceStatus == .accepted
+                } ?? false
+                guard partnerIntact, let confirmed else {
+                    log.error("Partner did not survive the close; reopening the invite link.")
+                    if let confirmed {
+                        confirmed.publicPermission = .readWrite
+                        _ = try? await database.modifyRecords(saving: [confirmed], deleting: [])
+                    }
+                    throw SyncError.couldNotSecureShare
                 }
-                let result = try await database.modifyRecords(saving: [current], deleting: [])
-                current = try Self.firstSavedRecord(from: result) as? CKShare ?? current
+                log.notice("Partner promoted to private participant; invite link closed. Participants now: \(confirmed.participants.count).")
             }
-
-            // The gate: close only once the server itself says nobody on the
-            // share is public any more. If a promotion didn't take, leaving
-            // the link open is the recoverable outcome — the next refresh
-            // tries again — whereas closing would remove them.
-            guard !current.participants.contains(where: { $0.role == .publicUser }) else {
-                log.error("A participant is still public after promotion; refusing to close the invite link.")
-                throw SyncError.couldNotSecureShare
-            }
-
-            current.publicPermission = .none
-            _ = try await database.modifyRecords(saving: [current], deleting: [])
         }
         await MainActor.run { SharedStore.shared.inviteClosed = true }
+    }
+
+    /// The private-participant handles for the given (public) participants,
+    /// fetched by user identity — the only participant objects
+    /// `addParticipant` accepts. Throws unless *every* one resolves: a swap
+    /// that would carry only some people over must not start.
+    private func privateParticipants(
+        matching publics: [CKShare.Participant]
+    ) async throws -> [CKShare.Participant] {
+        guard !publics.isEmpty else { return [] }
+        let lookupInfos = publics.compactMap { $0.userIdentity.lookupInfo }
+        guard lookupInfos.count == publics.count else {
+            log.error("A public participant has no lookup info; cannot promote safely.")
+            throw SyncError.couldNotSecureShare
+        }
+
+        let operation = CKFetchShareParticipantsOperation(userIdentityLookupInfos: lookupInfos)
+        final class Box: @unchecked Sendable { var participants: [CKShare.Participant] = [] }
+        let box = Box()
+        operation.perShareParticipantResultBlock = { _, result in
+            if case .success(let participant) = result { box.participants.append(participant) }
+        }
+
+        let fetched: [CKShare.Participant] = try await withCheckedThrowingContinuation { continuation in
+            operation.fetchShareParticipantsResultBlock = { result in
+                switch result {
+                case .success: continuation.resume(returning: box.participants)
+                case .failure(let error): continuation.resume(throwing: error)
+                }
+            }
+            container.add(operation)
+        }
+
+        guard fetched.count == publics.count else {
+            log.error("Resolved \(fetched.count) of \(publics.count) participants; refusing a partial promotion.")
+            throw SyncError.couldNotSecureShare
+        }
+        return fetched
     }
 
     /// Closes the invite link as soon as there is proof the partner is in.
@@ -407,24 +457,48 @@ actor CloudSync: SyncBackend {
         guard shouldClose else { return }
 
         do {
-            // The status record alone is not proof enough: after a local
-            // reset it can be a *leftover* from the previous pairing, and
-            // closing on its say-so kills a fresh invite before anyone has
-            // used it. Only the share's own participant list can confirm a
-            // person is actually in.
-            let database = container.privateCloudDatabase
-            guard let share = try await existingZoneShare(in: database,
-                                                          zoneID: zoneID(for: pairing)),
-                  share.participants.contains(where: {
-                      $0.role != .owner && $0.acceptanceStatus == .accepted
-                  }) else {
-                log.notice("Partner status present but nobody on the share yet; leaving the invite open.")
-                return
-            }
-            try await lockPairing()
-            log.notice("Partner has joined — invite link closed automatically.")
+            try await lockIfPartnerOnShare(pairing)
         } catch {
             log.error("Couldn't close the invite link: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// The shared core of auto-close and the diagnostics trigger: confirm a
+    /// real person is on the share, then promote-and-close.
+    ///
+    /// The status record alone is not proof enough: after a local reset it
+    /// can be a *leftover* from the previous pairing, and closing on its
+    /// say-so kills a fresh invite before anyone has used it. Only the
+    /// share's own participant list can confirm a person is actually in.
+    private func lockIfPartnerOnShare(_ pairing: PairingInfo) async throws {
+        let database = container.privateCloudDatabase
+        guard let share = try await existingZoneShare(in: database,
+                                                      zoneID: zoneID(for: pairing)),
+              share.participants.contains(where: {
+                  $0.role != .owner && $0.acceptanceStatus == .accepted
+              }) else {
+            log.notice("Nobody on the share yet; leaving the invite open.")
+            return
+        }
+        try await lockPairing()
+        log.notice("Partner is on the share — invite link closed.")
+    }
+
+    /// Diagnostics-panel trigger: the same promote-and-close the background
+    /// refresh attempts, run on demand so someone staring at a participant
+    /// stuck on "public" can fire it by hand and watch the list change.
+    /// Returns a line for the report when it fails; `nil` means it worked or
+    /// there was nothing to do.
+    func secureInviteIfPartnerJoined() async -> String? {
+        guard let pairing = await MainActor.run(body: { SharedStore.shared.pairing }),
+              pairing.role == .owner,
+              await MainActor.run(body: { !SharedStore.shared.inviteClosed }) else { return nil }
+        do {
+            try await lockIfPartnerOnShare(pairing)
+            return nil
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            return "secure invite: \(message)"
         }
     }
 

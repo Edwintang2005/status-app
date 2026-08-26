@@ -25,6 +25,20 @@ enum NotificationManager {
         await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
     }
 
+    /// Sweeps this app's delivered notifications out of Notification Centre.
+    ///
+    /// Called when the app is open (everything a banner announced is on
+    /// screen) and when the scene goes inactive — which is what happens when
+    /// Notification Centre is pulled down *over* the open app, so the sweep
+    /// lands exactly as the user looks. iOS offers no "Notification Centre
+    /// opened" signal; the inactive transition is the closest proxy, and the
+    /// other things that trigger it (App Switcher, Control Centre, a call
+    /// banner) all mean the user just had the app's live state in front of
+    /// them anyway.
+    static func clearDelivered() {
+        UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+    }
+
     /// A photo, drawing or voice memo arrived. The file rides along as an
     /// attachment, which for an image means it's visible from the lock screen
     /// and for a memo means it can be played from the expanded notification —

@@ -157,6 +157,8 @@ struct MomentGalleryView: View {
                     .scaledToFit()
                     .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
                     .shadow(color: .black.opacity(0.12), radius: 24, y: 12)
+                    // Two-finger, so it never fights the one-finger page swipe.
+                    .pinchToZoom()
             } else {
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
                     .fill(Color.primary.opacity(0.06))
