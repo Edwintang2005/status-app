@@ -89,12 +89,14 @@ final class AppModel {
 
     var canNudge: Bool { isPaired && nudgeCooldownRemaining == 0 }
 
-    /// The newest photo or doodle in either direction — what the home card
-    /// shows. Voice memos are deliberately excluded: they get their own short
-    /// row, because a waveform stretched into a square photo frame is mostly
-    /// empty space.
+    /// The newest photo or doodle *the partner sent* — what the home card
+    /// shows. Not either direction: this card is "what did they send me", and
+    /// your own send replacing their picture the moment you reply defeats it
+    /// (your own things live in the library). Voice memos are deliberately
+    /// excluded: they get their own short row, because a waveform stretched
+    /// into a square photo frame is mostly empty space.
     var latestVisualMoment: Moment? {
-        history.first { !$0.isVoice }
+        history.first { !$0.fromMe && !$0.isVoice }
     }
 
     /// Pictures the partner sent that haven't been looked at yet, newest first
@@ -208,11 +210,7 @@ final class AppModel {
         if let invite = InviteInbox.shared.take() {
             receiveInvite(invite)
         }
-        if case .unavailable(let message) = await Backend.current.readiness() {
-            readinessMessage = message
-        } else {
-            readinessMessage = nil
-        }
+        await refreshReadiness()
         guard isPaired else { return }
         // Subscriptions are cheap to re-assert and easy to lose across
         // reinstalls, so confirm on every launch rather than only at pairing.
@@ -258,8 +256,24 @@ final class AppModel {
 
     // MARK: - Sync
 
+    /// PairingView's iCloud warning reads this. Re-checked on every
+    /// foregrounding (via `refresh`), not just at launch — the fix for the
+    /// warning is made in the Settings app, so the user *always* comes back
+    /// to a backgrounded app expecting it to notice.
+    private func refreshReadiness() async {
+        if case .unavailable(let message) = await Backend.current.readiness() {
+            readinessMessage = message
+        } else {
+            readinessMessage = nil
+        }
+    }
+
     func refresh() async {
-        guard isPaired, !isRefreshing else { return }
+        guard isPaired else {
+            await refreshReadiness()
+            return
+        }
+        guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
         do {
@@ -428,6 +442,11 @@ final class AppModel {
             presentedInvite = InviteLink(url: url)
             await NotificationManager.requestAuthorizationIfNeeded()
         } catch {
+            // `createPairInvite` commits the pairing to the store before its
+            // bootstrap publish; if the failure came after that point, the
+            // store says paired while this model still says not. Reload so
+            // the two can't disagree — the UI follows whichever state is real.
+            reload()
             present(error)
         }
     }
@@ -481,6 +500,10 @@ final class AppModel {
         do {
             try await CloudSync.shared.lockPairing()
             setInviteURL(nil)
+            // Without this the model's copy stays false and the invite
+            // section falls into its "loading" branch — a spinner that never
+            // resolves — instead of showing "Closed".
+            setInviteClosed(true)
         } catch {
             present(error)
         }

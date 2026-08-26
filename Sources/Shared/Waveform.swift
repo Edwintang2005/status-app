@@ -54,7 +54,11 @@ struct WaveformBars: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let bars = bars
+            // Bars clamp to a 1pt minimum, so a narrow tile (the library
+            // grid) can't fit all 48 — condense to what fits rather than
+            // letting the row spill past the tile and into its neighbours.
+            let capacity = max(1, Int((geometry.size.width + spacing) / (1 + spacing)))
+            let bars = bars.count > capacity ? Waveform.condense(bars, into: capacity) : bars
             HStack(alignment: .center, spacing: spacing) {
                 ForEach(Array(bars.enumerated()), id: \.offset) { index, level in
                     Capsule(style: .continuous)

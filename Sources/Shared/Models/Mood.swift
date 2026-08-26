@@ -73,6 +73,7 @@ enum MoodGroup: String, CaseIterable, Identifiable {
                 Mood(emoji: "🫶", label: "always here"),
                 // The carrot is the joke, and the joke is the point.
                 Mood(emoji: "🥕", label: "rooting for you"),
+                Mood(emoji: "🏅", label: "proud of you"),
                 Mood(emoji: "👂", label: "I'm listening"),
                 Mood(emoji: "📞", label: "one call away"),
                 Mood(emoji: "🫖", label: "spilling tea"),

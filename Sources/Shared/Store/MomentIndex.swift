@@ -17,8 +17,11 @@ final class MomentIndex {
     private let log = Logger(subsystem: AppConfig.appGroupID, category: "MomentIndex")
     /// The app and the notification service extension can both write. Atomic
     /// file replacement plus this lock keeps a torn read impossible within a
-    /// process and unlikely across them.
+    /// process; `crossLock` extends the guarantee across processes, where a
+    /// concurrent load→modify→save would otherwise drop the other side's
+    /// insert (and with the change token already advanced, drop it for good).
     private let lock = NSLock()
+    private let crossLock = CrossProcessLock(name: "moments-index.lock")
 
     private var fileURL: URL? {
         FileManager.default
@@ -59,14 +62,24 @@ final class MomentIndex {
         lock.lock()
         defer { lock.unlock() }
 
-        var all = loadUnlocked()
-        for moment in moments {
-            all.removeAll { $0.id == moment.id }
-            all.append(moment)
+        return crossLock.withLock {
+            var all = loadUnlocked()
+            for moment in moments {
+                var moment = moment
+                // `seen` is local-only state — a re-fetched CloudKit record knows
+                // nothing about it, and a full resync (expired change token)
+                // re-inserts everything. Without this merge, every heard voice
+                // memo re-badges as new.
+                if let existing = all.first(where: { $0.id == moment.id }) {
+                    moment.seen = moment.seen || existing.seen
+                }
+                all.removeAll { $0.id == moment.id }
+                all.append(moment)
+            }
+            all.sort { $0.sentAt > $1.sentAt }
+            saveUnlocked(all)
+            return all
         }
-        all.sort { $0.sentAt > $1.sentAt }
-        saveUnlocked(all)
-        return all
     }
 
     /// Marks entries as looked-at. Returns the updated list.
@@ -75,23 +88,27 @@ final class MomentIndex {
         lock.lock()
         defer { lock.unlock() }
 
-        let targets = Set(ids)
-        var all = loadUnlocked()
-        var changed = false
-        for index in all.indices where targets.contains(all[index].id) && !all[index].seen {
-            all[index].seen = true
-            changed = true
+        return crossLock.withLock {
+            let targets = Set(ids)
+            var all = loadUnlocked()
+            var changed = false
+            for index in all.indices where targets.contains(all[index].id) && !all[index].seen {
+                all[index].seen = true
+                changed = true
+            }
+            if changed { saveUnlocked(all) }
+            return all
         }
-        if changed { saveUnlocked(all) }
-        return all
     }
 
     func remove(id: String) {
         lock.lock()
         defer { lock.unlock() }
-        var all = loadUnlocked()
-        all.removeAll { $0.id == id }
-        saveUnlocked(all)
+        crossLock.withLock {
+            var all = loadUnlocked()
+            all.removeAll { $0.id == id }
+            saveUnlocked(all)
+        }
     }
 
     func knownIDs() -> Set<String> {

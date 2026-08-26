@@ -144,17 +144,22 @@ enum MemoryArchive {
         }
     }
 
-    private static let folderDateFormat: DateFormatter = {
+    /// Fixed-format strings need `en_US_POSIX` + Gregorian pinned: with the
+    /// device defaults, a Buddhist-calendar phone writes "2569-08-26" into
+    /// folder names, and a 12/24-hour override can inject AM/PM into "HHmm".
+    /// (`readableDate` below deliberately keeps the device locale — it's the
+    /// human-facing text, not a filename.)
+    private static func fixedFormat(_ format: String) -> DateFormatter {
         let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.dateFormat = format
         return formatter
-    }()
+    }
 
-    private static let fileDateFormat: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HHmm"
-        return formatter
-    }()
+    private static let folderDateFormat = fixedFormat("yyyy-MM-dd")
+
+    private static let fileDateFormat = fixedFormat("yyyy-MM-dd HHmm")
 
     private static func folderName(partnerName: String) -> String {
         let partner = sanitised(partnerName)

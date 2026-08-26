@@ -210,17 +210,29 @@ struct MomentStore {
     /// Drops files for moments no longer in the index, so the container can't
     /// grow without bound. Extension-agnostic on purpose: one moment may own a
     /// `.jpg` pair or a single `.m4a`, and both are keyed by the same id.
-    func prune(keeping ids: some Collection<String>) {
+    ///
+    /// Files newer than `graceInterval` are off limits: the app writes a
+    /// moment's media *before* it records the index entry, and a push-driven
+    /// prune in the notification extension can land in that gap — deleting a
+    /// just-captured voice memo whose only copy this is. Pass `0` only when
+    /// the intent is a full wipe.
+    func prune(keeping ids: some Collection<String>, graceInterval: TimeInterval = 300) {
         guard let directory else { return }
         let keep = Set(ids)
-        let contents = (try? FileManager.default.contentsOfDirectory(at: directory,
-                                                                     includingPropertiesForKeys: nil)) ?? []
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
         for url in contents {
             let name = url.deletingPathExtension().lastPathComponent
             let id = name.hasSuffix("-thumb") ? String(name.dropLast("-thumb".count)) : name
-            if !keep.contains(id) {
-                try? FileManager.default.removeItem(at: url)
+            guard !keep.contains(id) else { continue }
+            if graceInterval > 0,
+               let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+                   .contentModificationDate,
+               Date().timeIntervalSince(modified) < graceInterval {
+                continue
             }
+            try? FileManager.default.removeItem(at: url)
         }
     }
 }

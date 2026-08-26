@@ -199,7 +199,16 @@ final class VoiceRecorder {
         recorder?.stop()
         recorder = nil
         deactivateSession()
-        state = fileURL == nil ? .idle : .finished
+        // Not only the 60-second ceiling lands here: a phone call, Siri or an
+        // alarm stops `AVAudioRecorder` underneath us and the next tick
+        // arrives with `isRecording == false`. The same too-short rule as
+        // `stop()` applies — without it, an interruption moments into a take
+        // left a sendable, near-empty file.
+        if fileURL == nil || elapsed < 0.6 {
+            discardTake()
+        } else {
+            state = .finished
+        }
     }
 
     private func deactivateSession() {

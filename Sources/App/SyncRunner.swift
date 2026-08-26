@@ -36,13 +36,29 @@ enum SyncRunner {
             if announce { await NotificationManager.postMoment(moment, from: name) }
         }
 
-        return previousStatus != result.partnerStatus || !result.newPartnerMoments.isEmpty
+        let changed = previousStatus != result.partnerStatus || !result.newPartnerMoments.isEmpty
+        if changed {
+            // A silent push updates the store and widget, but the open app's
+            // model has its own copy of the snapshot — without this, a
+            // foregrounded HomeView shows the old status until the user pulls
+            // to refresh or re-foregrounds.
+            NotificationCenter.default.post(name: .pairingDidChange, object: nil)
+        }
+        return changed
     }
 
     /// Best-effort variant for background wake-ups, where throwing is pointless.
     static func refreshQuietly() async -> Bool {
         do {
             return try await refresh()
+        } catch SyncError.linkEnded {
+            // The refresh already erased local state; tell the open app so it
+            // both re-reads the store (snapping to the pairing screen) and
+            // says why, instead of silently ejecting the user.
+            NotificationCenter.default.post(name: .pairingDidChange, object: nil)
+            NotificationCenter.default.post(name: .pairingDidFail,
+                                            object: SyncError.linkEnded.errorDescription)
+            return true
         } catch {
             log.error("Background refresh failed: \(error.localizedDescription)")
             return false

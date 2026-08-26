@@ -4,8 +4,15 @@ import UserNotifications
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
+    /// Edited locally and committed once, on submit or when leaving. Binding
+    /// the field straight to the model published to CloudKit per keystroke —
+    /// concurrent writes racing each other into a stale name on the partner's
+    /// phone, and clearing the field mid-edit flipped the app back to the
+    /// welcome screen underneath this sheet.
+    @State private var draftName = ""
     @State private var confirmingUnlink = false
     @State private var confirmingWipe = false
     /// Set when the iCloud side of an unlink failed, so the only remaining
@@ -23,9 +30,11 @@ struct SettingsView: View {
             Form {
                 Section {
                     LabeledContent("Your name") {
-                        TextField("Your name", text: $model.myDisplayName)
+                        TextField("Your name", text: $draftName)
                             .multilineTextAlignment(.trailing)
                             .textInputAutocapitalization(.words)
+                            .submitLabel(.done)
+                            .onSubmit { commitName() }
                     }
                 } footer: {
                     Text("This is the name \(model.partnerName) sees on your status, your nudges and anything you send. Their name is theirs to set.")
@@ -109,6 +118,27 @@ struct SettingsView: View {
                 }
             }
             .task { notificationStatus = await NotificationManager.authorizationStatus() }
+            // Re-check when the user comes back from the Settings app —
+            // "Open Settings", flip the toggle, return — instead of showing
+            // the pre-toggle answer for the rest of the session.
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                Task { notificationStatus = await NotificationManager.authorizationStatus() }
+            }
+            .onAppear { draftName = model.myDisplayName }
+            // Leaving the sheet commits whatever edit was in progress.
+            .onDisappear { commitName() }
+            // The name field's commit and the unlink flow surface their
+            // failures through `model.errorMessage`, whose alert lives on
+            // RootView — underneath this sheet, where it cannot present.
+            // Hosting the same alert here lets it appear when it happens.
+            .alert("Something went wrong",
+                   isPresented: Binding(get: { model.errorMessage != nil },
+                                        set: { if !$0 { model.errorMessage = nil } })) {
+                Button("OK", role: .cancel) { model.errorMessage = nil }
+            } message: {
+                Text(model.errorMessage ?? "")
+            }
             // The link survives a relaunch in the App Group, but the share can
             // be closed from another device — so confirm it against CloudKit
             // rather than trusting the cached copy.
@@ -255,6 +285,15 @@ struct SettingsView: View {
     /// share sheet comes up and the ending is deliberately *not* performed —
     /// deleting the originals while the only copy sits in a temporary folder
     /// would be the exact failure this feature exists to prevent.
+    /// One write and one CloudKit publish, only when the edit is real: a
+    /// blank name never commits (the model treats "" as "no name" and swaps
+    /// the screen under this sheet for onboarding).
+    private func commitName() {
+        let trimmed = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != model.myDisplayName else { return }
+        model.myDisplayName = trimmed
+    }
+
     private func saveMemories(then ending: Ending?) async {
         guard let outcome = await model.archiveMemories() else { return }
 

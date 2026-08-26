@@ -41,15 +41,24 @@ final class SharedStore {
         set { encode(newValue, forKey: Key.snapshot) }
     }
 
+    /// The snapshot has three writers in three *processes* — the app, the
+    /// widget (nudge cooldown) and the notification service (dedup markers) —
+    /// and they run on the same triggers. Without this, whoever writes last
+    /// silently reverts the other's read-modify-write.
+    private static let snapshotLock = CrossProcessLock(name: "snapshot.lock")
+
     /// Read–modify–write plus a widget reload, which is what almost every
     /// caller actually wants.
     @discardableResult
     func mutate(reloadWidgets: Bool = true, _ body: (inout Snapshot) -> Void) -> Snapshot {
-        var current = snapshot
-        body(&current)
-        snapshot = current
+        let result = Self.snapshotLock.withLock {
+            var current = snapshot
+            body(&current)
+            snapshot = current
+            return current
+        }
         if reloadWidgets { Self.reloadWidgets() }
-        return current
+        return result
     }
 
     // MARK: - Pairing
@@ -132,7 +141,9 @@ final class SharedStore {
     /// worth naming separately at the call site; both endings do both.
     func eraseLocalMedia() {
         MomentIndex.shared.clear()
-        MomentStore.shared.prune(keeping: [])
+        // No grace window: an unlink means *everything* goes, including a
+        // recording made seconds ago.
+        MomentStore.shared.prune(keeping: [], graceInterval: 0)
     }
 
     /// Wipes pairing, cached statuses and the whole moment history.
@@ -218,6 +229,7 @@ final class SharedStore {
         guard !isRunningInWidgetExtension else { return }
         WidgetCenter.shared.reloadTimelines(ofKind: AppConfig.widgetKind)
         WidgetCenter.shared.reloadTimelines(ofKind: AppConfig.momentWidgetKind)
+        WidgetCenter.shared.reloadTimelines(ofKind: AppConfig.nudgeWidgetKind)
         #endif
     }
 

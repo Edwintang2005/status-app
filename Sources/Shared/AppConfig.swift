@@ -27,6 +27,12 @@ enum AppConfig {
     /// Identifier for the photo/drawing widget.
     static let momentWidgetKind = "RedStringMomentWidget"
 
+    /// Identifier for the lock-screen nudge widget. In this file so
+    /// `SharedStore.reloadWidgets` and the widget's declaration can't drift
+    /// apart — a kind that never gets reloaded shows stale pairing state for
+    /// up to an hour.
+    static let nudgeWidgetKind = "RedStringNudgeWidget"
+
     /// Entries kept in the on-device history index. Metadata only, so this can
     /// be generous — CloudKit keeps everything regardless, and a fresh install
     /// pulls the whole zone back.

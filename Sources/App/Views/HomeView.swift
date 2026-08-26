@@ -115,6 +115,16 @@ struct HomeView: View {
                 model.pendingComposer = false
             }
         }
+        // `onChange` only fires on *changes*: a widget tap that landed while
+        // this view wasn't mounted (unpaired, mid-onboarding) latched the flag
+        // true, and every later tap was true→true — the deep link stayed dead
+        // until relaunch. Consume whatever is pending on mount too.
+        .onAppear {
+            if model.pendingComposer {
+                showingComposer = true
+                model.pendingComposer = false
+            }
+        }
     }
 
     // MARK: - Actions
@@ -258,7 +268,12 @@ struct HomeView: View {
                 // Recent memos are already cached; one that isn't comes back
                 // from CloudKit first.
                 guard await model.ensureMedia(for: memo),
-                      let url = MomentStore.shared.mediaURL(for: memo) else { return }
+                      let url = MomentStore.shared.mediaURL(for: memo) else {
+                    // A tap that produces neither sound nor explanation reads
+                    // as the app being broken, not the network.
+                    model.errorMessage = "Couldn't fetch that voice memo from iCloud. Try again in a moment."
+                    return
+                }
                 voicePlayer.play(url)
                 model.markSeen(memo)
             }

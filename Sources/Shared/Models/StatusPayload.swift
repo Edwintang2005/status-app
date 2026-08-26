@@ -213,14 +213,44 @@ struct Snapshot: Codable, Hashable {
         latestPartnerMoment = try container.decodeIfPresent(Moment.self, forKey: .latestPartnerMoment)
         latestOwnMoment = try container.decodeIfPresent(Moment.self, forKey: .latestOwnMoment)
         lastNotifiedMomentID = try container.decodeIfPresent(String.self, forKey: .lastNotifiedMomentID)
-        latestPartnerVisualMoment = try container
-            .decodeIfPresent(Moment.self, forKey: .latestPartnerVisualMoment)
+        // The key being *absent* is what marks a legacy snapshot; an explicit
+        // `null` is this build saying the only picture was deleted. Folding
+        // the two together resurrected deleted photos in the widget — as a
+        // tile whose media files were already gone.
+        if container.contains(.latestPartnerVisualMoment) {
+            latestPartnerVisualMoment = try container
+                .decodeIfPresent(Moment.self, forKey: .latestPartnerVisualMoment)
+        } else {
             // Pre-voice-memo snapshots had only the one field, and back then
             // every moment was a picture.
-            ?? latestPartnerMoment.flatMap { $0.isVoice ? nil : $0 }
+            latestPartnerVisualMoment = latestPartnerMoment.flatMap { $0.isVoice ? nil : $0 }
+        }
         unheardVoiceMemoCount = try container
             .decodeIfPresent(Int.self, forKey: .unheardVoiceMemoCount) ?? 0
         lastCelebratedAt = try container.decodeIfPresent(Date.self, forKey: .lastCelebratedAt)
+    }
+
+    /// Hand-written because the synthesised encoder omits nil optionals, and
+    /// `latestPartnerVisualMoment` needs its nil written as an explicit null —
+    /// see the decoder above.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(mine, forKey: .mine)
+        try container.encodeIfPresent(theirs, forKey: .theirs)
+        try container.encode(isPaired, forKey: .isPaired)
+        try container.encodeIfPresent(lastSyncedAt, forKey: .lastSyncedAt)
+        try container.encode(lastSeenPartnerNudgeCount, forKey: .lastSeenPartnerNudgeCount)
+        try container.encodeIfPresent(lastNudgeSentAt, forKey: .lastNudgeSentAt)
+        try container.encodeIfPresent(latestPartnerMoment, forKey: .latestPartnerMoment)
+        try container.encodeIfPresent(latestOwnMoment, forKey: .latestOwnMoment)
+        try container.encodeIfPresent(lastNotifiedMomentID, forKey: .lastNotifiedMomentID)
+        if let latestPartnerVisualMoment {
+            try container.encode(latestPartnerVisualMoment, forKey: .latestPartnerVisualMoment)
+        } else {
+            try container.encodeNil(forKey: .latestPartnerVisualMoment)
+        }
+        try container.encode(unheardVoiceMemoCount, forKey: .unheardVoiceMemoCount)
+        try container.encodeIfPresent(lastCelebratedAt, forKey: .lastCelebratedAt)
     }
 
     init(mine: StatusPayload?,

@@ -75,6 +75,9 @@ struct MomentComposerView: View {
                    let image = UIImage(data: data) {
                     photo = image
                 }
+                // Reset so re-picking the same photo after Clear still fires
+                // this handler — `onChange` is silent on equal values.
+                pickerItem = nil
             }
         }
     }

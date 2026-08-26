@@ -96,6 +96,12 @@ final class DrawingController {
         canvas.drawingPolicy = .anyInput
         canvas.alwaysBounceVertical = false
         canvas.alwaysBounceHorizontal = false
+        // PencilKit inks are dynamic: it assumes a colour describes its
+        // light-mode look and inverts near-black/near-white when the canvas
+        // is in dark mode. Our backdrop is an explicit swatch, not the system
+        // background, and `Backdrop.isDark` already flips the ink by hand —
+        // so the canvas must take colours literally, whatever the system is.
+        canvas.overrideUserInterfaceStyle = .light
         applyTool()
     }
 
@@ -130,10 +136,16 @@ final class DrawingController {
 
             guard bounds.width > 0 else { return }
             // Rasterise the strokes at the export resolution rather than the
-            // on-screen one, so the result isn't a blurry upscale.
-            canvas.drawing
-                .image(from: bounds, scale: size / bounds.width)
-                .draw(in: rect)
+            // on-screen one, so the result isn't a blurry upscale. Under a
+            // light trait collection for the same reason the canvas is pinned
+            // light: `PKDrawing.image` reads the *current* traits, and in dark
+            // mode it hands back inverted ink that matches neither the palette
+            // nor what was on screen.
+            UITraitCollection(userInterfaceStyle: .light).performAsCurrent {
+                canvas.drawing
+                    .image(from: bounds, scale: size / bounds.width)
+                    .draw(in: rect)
+            }
         }
     }
 }

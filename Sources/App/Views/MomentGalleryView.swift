@@ -77,7 +77,21 @@ struct MomentGalleryView: View {
                 await loadIfNeeded()
             }
             .onDisappear { player.stop() }
+            // `.failed` used to be set and never rendered — a denied photo
+            // permission looked exactly like a successful save.
+            .alert("Couldn't save", isPresented: saveFailedBinding) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                if case .failed(let message) = saveState { Text(message) }
+            }
         }
+    }
+
+    private var saveFailedBinding: Binding<Bool> {
+        Binding(
+            get: { if case .failed = saveState { return true } else { return false } },
+            set: { if !$0 { saveState = .idle } }
+        )
     }
 
     private var counterLabel: String {
@@ -100,14 +114,14 @@ struct MomentGalleryView: View {
                 if !MomentStore.shared.hasAudio(for: moment.id) {
                     fetchStatus(for: moment)
                 }
-            } else if let image = MomentStore.shared.image(for: moment.id) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-                    .shadow(color: .black.opacity(0.12), radius: 24, y: 12)
             } else {
-                placeholder(for: moment)
+                // Its own view with its own load, because a page-style TabView
+                // builds every page eagerly: reading the full-size JPEG here in
+                // `page(_:)` meant ~all cached photos decoded on the main
+                // thread the moment the gallery opened.
+                GalleryImageView(momentID: moment.id,
+                                 isLoading: loading.contains(moment.id),
+                                 isUnavailable: unavailable.contains(moment.id))
             }
 
             VStack(spacing: 5) {
@@ -128,28 +142,54 @@ struct MomentGalleryView: View {
         .padding(.horizontal, 20)
     }
 
-    private func placeholder(for moment: Moment) -> some View {
-        RoundedRectangle(cornerRadius: 28, style: .continuous)
-            .fill(Color.primary.opacity(0.06))
-            .aspectRatio(1, contentMode: .fit)
-            .overlay {
-                if loading.contains(moment.id) {
-                    VStack(spacing: 10) {
-                        ProgressView()
-                        Text("Fetching from iCloud…")
-                            .font(Theme.rounded(13))
-                            .foregroundStyle(.secondary)
+    /// One gallery page's photo. Loads (and re-checks after a CloudKit fetch
+    /// finishes) on appearance, decoding off the main thread.
+    private struct GalleryImageView: View {
+        let momentID: String
+        let isLoading: Bool
+        let isUnavailable: Bool
+        @State private var image: UIImage?
+
+        var body: some View {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                    .shadow(color: .black.opacity(0.12), radius: 24, y: 12)
+            } else {
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(Color.primary.opacity(0.06))
+                    .aspectRatio(1, contentMode: .fit)
+                    .overlay {
+                        if isLoading {
+                            VStack(spacing: 10) {
+                                ProgressView()
+                                Text("Fetching from iCloud…")
+                                    .font(Theme.rounded(13))
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else if isUnavailable {
+                            Label("Couldn't load this one", systemImage: "icloud.slash")
+                                .font(Theme.rounded(14))
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Image(systemName: "photo")
+                                .font(.system(size: 30))
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                } else if unavailable.contains(moment.id) {
-                    Label("Couldn't load this one", systemImage: "icloud.slash")
-                        .font(Theme.rounded(14))
-                        .foregroundStyle(.secondary)
-                } else {
-                    Image(systemName: "photo")
-                        .font(.system(size: 30))
-                        .foregroundStyle(.secondary)
-                }
+                    // Keyed on `isLoading` as well as the id: when the
+                    // CloudKit fetch flips it back to false, this re-runs and
+                    // picks up the file that just landed.
+                    .task(id: "\(momentID)-\(isLoading)") {
+                        let id = momentID
+                        image = await Task.detached(priority: .userInitiated) {
+                            MomentStore.shared.image(for: id)
+                        }.value
+                    }
             }
+        }
     }
 
     /// A memo's card is drawn from metadata and is useful on its own, so a
@@ -197,7 +237,10 @@ struct MomentGalleryView: View {
         unavailable.remove(moment.id)
         let ok = await model.ensureMedia(for: moment)
         loading.remove(moment.id)
-        if !ok { unavailable.insert(moment.id) }
+        // Swiping away cancels this task mid-fetch; the fetch then reports
+        // failure, but "user left the page" isn't "couldn't load". The page
+        // retries via `loadIfNeeded` when they come back.
+        if !ok, !Task.isCancelled { unavailable.insert(moment.id) }
     }
 
     // MARK: - Keeping a copy
