@@ -8,6 +8,8 @@ enum SyncError: LocalizedError {
     case notPaired
     case iCloudUnavailable(CKAccountStatus)
     case shareURLMissing
+    /// Accepted an invite, but the shared zone never appeared.
+    case shareUnavailable
     /// The shared zone is gone: the other person unlinked, and this device has
     /// just found out.
     case linkEnded
@@ -29,9 +31,20 @@ enum SyncError: LocalizedError {
             }
         case .shareURLMissing:
             return "CloudKit didn't return an invite link. Try again."
+        case .shareUnavailable:
+            // Names the two causes the user can actually act on. The third —
+            // the two devices running builds that talk to different CloudKit
+            // environments, e.g. TestFlight against Xcode — looks identical
+            // from here and is covered by "the same build".
+            return "Couldn't open the shared space. Ask them to send a fresh "
+                + "invite link, and check you're both on the same build of "
+                + "\(AppConfig.appName)."
         case .linkEnded:
-            return "The shared space no longer exists — the other person ended "
-                + "the link. Everything shared has been removed from this device."
+            // Deliberately doesn't assert why: from this device, the other
+            // person unlinking and a zone that was never reachable look the
+            // same, and blaming them for the second would be a guess.
+            return "The shared space is no longer available. Everything shared "
+                + "has been removed from this device — pair again to start over."
         }
     }
 }
@@ -60,7 +73,9 @@ enum InviteState: Sendable, Equatable {
 actor CloudSync: SyncBackend {
     static let shared = CloudSync()
 
-    private let container: CKContainer
+    /// Not `private`: `CloudDiagnostics.swift` extends this actor from
+    /// another file and needs the container and its database picker.
+    let container: CKContainer
     private let log = Logger(subsystem: AppConfig.appGroupID, category: "CloudSync")
 
     private enum RecordType {
@@ -329,6 +344,14 @@ actor CloudSync: SyncBackend {
         _ = try await container.accept(metadata)
 
         let zoneID = metadata.share.recordID.zoneID
+        // Accepting is not the same as having the zone. It appears in the shared
+        // database asynchronously, and when it never appears at all this device
+        // would otherwise sit there claiming to be paired while every read and
+        // write failed with "Zone does not exist" — which is exactly what a
+        // build talking to a different CloudKit environment than the owner's
+        // looks like. Confirm before committing any local pairing state.
+        try await waitForSharedZone(zoneID)
+
         let info = PairingInfo(role: .participant,
                                zoneName: zoneID.zoneName,
                                zoneOwnerName: zoneID.ownerName,
@@ -360,6 +383,49 @@ actor CloudSync: SyncBackend {
     /// propagate is what put that alert in front of the user on the first
     /// press after a reset, and made a second press look like the fix: by then
     /// the stale reference was gone, so the share got created normally.
+    /// Blocks until the accepted zone is actually visible in the shared
+    /// database, or gives up with something the user can act on.
+    private func waitForSharedZone(_ zoneID: CKRecordZone.ID) async throws {
+        let database = container.sharedCloudDatabase
+        for attempt in 1...5 {
+            if let zones = try? await database.recordZones(for: [zoneID]),
+               case .success? = zones[zoneID] {
+                return
+            }
+            log.notice("Shared zone not visible yet (attempt \(attempt) of 5).")
+            try? await Task.sleep(for: .seconds(1))
+        }
+        log.error("Accepted a share but the zone never appeared: \(zoneID.zoneName, privacy: .public) owned by \(zoneID.ownerName, privacy: .public).")
+        throw SyncError.shareUnavailable
+    }
+
+    /// Runs a shared-zone operation, turning "the zone isn't there" into the
+    /// same self-unlink that a refresh performs.
+    ///
+    /// `refresh()` has handled this since it was written; the write paths did
+    /// not, so a status update against a missing zone surfaced the raw
+    /// CloudKit text — "Error fetching record <CKRecordID: 0x…> from server:
+    /// Zone does not exist" — and left the device still claiming to be paired,
+    /// with no way forward but reinstalling.
+    private func withZoneRecovery<T>(_ body: () async throws -> T) async throws -> T {
+        do {
+            return try await body()
+        } catch let error as CKError where Self.isAlreadyGone(error) {
+            await abandonMissingZone()
+            throw SyncError.linkEnded
+        }
+    }
+
+    /// Cuts this device loose from a zone that isn't there any more. Keeps the
+    /// name, so pairing again is one step rather than two.
+    private func abandonMissingZone() async {
+        log.notice("Shared zone is gone; unlinking this device.")
+        await MainActor.run {
+            SharedStore.shared.eraseLocalMedia()
+            SharedStore.shared.clearPairing(keepingName: true)
+        }
+    }
+
     private func existingZoneShare(in database: CKDatabase,
                                    zoneID: CKRecordZone.ID) async throws -> CKShare? {
         do {
@@ -385,13 +451,15 @@ actor CloudSync: SyncBackend {
         let recordID = CKRecord.ID(recordName: pairing.role.statusRecordName,
                                    zoneID: zoneID(for: pairing))
 
-        do {
-            try await saveStatus(payload, to: recordID, in: database)
-        } catch let error as CKError where error.code == .serverRecordChanged {
-            // Another device of ours wrote first; take the server copy and
-            // reapply on top of it.
-            log.notice("Status conflict, retrying against server record.")
-            try await saveStatus(payload, to: recordID, in: database)
+        try await withZoneRecovery {
+            do {
+                try await saveStatus(payload, to: recordID, in: database)
+            } catch let error as CKError where error.code == .serverRecordChanged {
+                // Another device of ours wrote first; take the server copy and
+                // reapply on top of it.
+                log.notice("Status conflict, retrying against server record.")
+                try await saveStatus(payload, to: recordID, in: database)
+            }
         }
 
         await MainActor.run {
@@ -444,14 +512,10 @@ actor CloudSync: SyncBackend {
             await MainActor.run { SharedStore.shared.setChangeToken(nil, for: tokenKey) }
             changes = try await fetchZoneChanges(zone: zone, in: database, since: nil)
         } catch let error as CKError where Self.isAlreadyGone(error) {
-            // The other side unlinked. Without this the app would keep showing
-            // their last status forever and quietly retry a zone that no longer
-            // exists — so this device unlinks itself and says so.
-            log.notice("Shared zone is gone; unlinking this device.")
-            await MainActor.run {
-                SharedStore.shared.eraseLocalMedia()
-                SharedStore.shared.clearPairing(keepingName: true)
-            }
+            // The other side unlinked, or the zone was never reachable. Without
+            // this the app would keep showing their last status forever and
+            // quietly retry a zone that isn't there.
+            await abandonMissingZone()
             throw SyncError.linkEnded
         }
 
@@ -636,23 +700,25 @@ actor CloudSync: SyncBackend {
             let recordID = CKRecord.ID(recordName: pairing.role.nudgeRecordName,
                                        zoneID: zoneID(for: pairing))
 
-            let record = try await fetchRecord(recordID, in: database)
-                ?? CKRecord(recordType: RecordType.nudge, recordID: recordID)
-            let next = (record[Field.count] as? Int ?? 0) + 1
-            record[Field.count] = next as CKRecordValue
-            record[Field.sentAt] = now as CKRecordValue
+            return try await withZoneRecovery {
+                let record = try await fetchRecord(recordID, in: database)
+                    ?? CKRecord(recordType: RecordType.nudge, recordID: recordID)
+                let next = (record[Field.count] as? Int ?? 0) + 1
+                record[Field.count] = next as CKRecordValue
+                record[Field.sentAt] = now as CKRecordValue
 
-            _ = try await database.modifyRecords(saving: [record],
-                                                 deleting: [],
-                                                 savePolicy: .changedKeys)
+                _ = try await database.modifyRecords(saving: [record],
+                                                     deleting: [],
+                                                     savePolicy: .changedKeys)
 
-            await MainActor.run {
-                _ = store.mutate { snapshot in
-                    snapshot.mine?.nudgeCount = next
-                    snapshot.mine?.lastNudgeAt = now
+                await MainActor.run {
+                    _ = store.mutate { snapshot in
+                        snapshot.mine?.nudgeCount = next
+                        snapshot.mine?.lastNudgeAt = now
+                    }
                 }
+                return true
             }
-            return true
         } catch {
             // Release the cooldown so a failed nudge can be retried immediately.
             await MainActor.run {
@@ -698,9 +764,11 @@ actor CloudSync: SyncBackend {
             record[Field.thumb] = CKAsset(fileURL: thumbURL)
         }
 
-        _ = try await database.modifyRecords(saving: [record],
-                                             deleting: [],
-                                             savePolicy: .allKeys)
+        try await withZoneRecovery {
+            _ = try await database.modifyRecords(saving: [record],
+                                                 deleting: [],
+                                                 savePolicy: .allKeys)
+        }
     }
 
     /// Pulls the media file(s) for one history entry that isn't cached locally.
@@ -943,7 +1011,7 @@ actor CloudSync: SyncBackend {
         return pairing
     }
 
-    private func database(for pairing: PairingInfo) -> CKDatabase {
+    func database(for pairing: PairingInfo) -> CKDatabase {
         pairing.role == .owner ? container.privateCloudDatabase : container.sharedCloudDatabase
     }
 

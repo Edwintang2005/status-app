@@ -92,6 +92,9 @@ struct SettingsView: View {
 
                 Section {
                     LabeledContent("Version", value: versionString)
+                    NavigationLink("iCloud diagnostics") {
+                        DiagnosticsView()
+                    }
                 } footer: {
                     Text("Statuses are stored in your own iCloud with the text end-to-end encrypted. Photos, drawings and voice memos are CloudKit assets, which are encrypted by default.")
                 }
