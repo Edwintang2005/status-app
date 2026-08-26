@@ -274,6 +274,30 @@ struct Snapshot: Codable, Hashable {
         return (synced?.isEmpty == false ? synced! : "Partner")
     }
 
+    /// Paired, with nothing from the other side yet — the state a new pair
+    /// sits in until the first status arrives, and the one the widgets used to
+    /// render as "not paired".
+    static let previewWaiting = Snapshot(
+        mine: StatusPayload(
+            emoji: "💼",
+            message: "working",
+            displayName: "Me",
+            updatedAt: Date(),
+            nudgeCount: 0,
+            lastNudgeAt: nil
+        ),
+        theirs: nil,
+        isPaired: true,
+        lastSyncedAt: Date(),
+        lastSeenPartnerNudgeCount: 0,
+        lastNudgeSentAt: nil,
+        latestPartnerMoment: nil,
+        latestOwnMoment: nil,
+        lastNotifiedMomentID: nil,
+        latestPartnerVisualMoment: nil,
+        unheardVoiceMemoCount: 0
+    )
+
     /// A snapshot with plausible content, for widget galleries and previews.
     static let preview = Snapshot(
         mine: StatusPayload(

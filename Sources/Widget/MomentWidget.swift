@@ -109,10 +109,24 @@ struct MomentWidgetView: View {
             Text(emptyLabel)
                 .font(.system(size: 12, weight: .medium, design: .rounded))
                 .foregroundStyle(.secondary)
+            // The roomier families are mostly air in this state, and an
+            // unexplained empty tile reads as a fault rather than as a tile
+            // waiting for something.
+            if let hint = emptyHint, family != .systemSmall {
+                Text(hint)
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+            }
         }
         // A memo waiting with no picture behind it is worth opening the app
         // for; otherwise the empty tile is an invitation to send something.
         .widgetURL(URL(string: unheardMemos > 0 ? "redstring://open" : "redstring://compose"))
+    }
+
+    private var emptyHint: String? {
+        guard entry.snapshot.isPaired, unheardMemos == 0 else { return nil }
+        return "Tap to send the first one."
     }
 
     private var emptyLabel: String {
@@ -171,5 +185,11 @@ struct MomentWidgetView: View {
     MomentWidget()
 } timeline: {
     StatusEntry(date: .now, snapshot: .preview)
+}
+
+#Preview("Moment large waiting", as: .systemLarge) {
+    MomentWidget()
+} timeline: {
+    StatusEntry(date: .now, snapshot: .previewWaiting)
 }
 #endif
