@@ -70,9 +70,7 @@ struct HomeView: View {
             .toolbarBackground(.hidden, for: .navigationBar)
         }
         .sheet(isPresented: $showingPicker) {
-            MoodPickerView(initialEmoji: model.snapshot.mine?.emoji ?? "",
-                           initialMessage: model.snapshot.mine?.message ?? "",
-                           initialIsCelebration: model.snapshot.mine?.isCelebration ?? false) { emoji, message, isCelebration in
+            MoodPickerView(initialEmoji: model.snapshot.mine?.emoji ?? "") { emoji, message, isCelebration in
                 Task {
                     await model.setStatus(emoji: emoji,
                                           message: message,

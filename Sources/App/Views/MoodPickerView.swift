@@ -4,8 +4,6 @@ import SwiftUI
 /// required — the custom field is seeded from whichever preset you tapped.
 struct MoodPickerView: View {
     var initialEmoji: String = ""
-    var initialMessage: String = ""
-    var initialIsCelebration: Bool = false
     let onSelect: (String, String, Bool) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -17,6 +15,12 @@ struct MoodPickerView: View {
     /// wording — "happy 3 months" is the whole point, and it would be lost if
     /// the flag were inferred from the text.
     @State private var isCelebration = false
+    /// The tile that supplied the current emoji, for the selection highlight.
+    /// Tracked by id rather than re-derived from `emoji` + `message`: a preset
+    /// tap keeps a hand-typed message, so the pair no longer identifies the
+    /// tile — and some presets share an emoji (😌 is both "content" and
+    /// "relaxing"), so the emoji alone would light two tiles.
+    @State private var selectedPresetID: String?
     @FocusState private var messageFocused: Bool
 
     /// Groups with their matching presets, empty groups dropped. With ~150
@@ -69,10 +73,14 @@ struct MoodPickerView: View {
             }
         }
         .presentationDetents([.large])
+        // The drawer opens ready for a *new* status: the current emoji is
+        // carried over (it still shows beside the field, and Set stays
+        // enabled), but the field starts empty rather than pre-filled with
+        // the old message — setting a new status shouldn't begin by deleting
+        // the last one. No tile starts highlighted and the celebration flag
+        // starts off, for the same reason.
         .onAppear {
             emoji = initialEmoji
-            message = initialMessage
-            isCelebration = initialIsCelebration
         }
     }
 
@@ -172,10 +180,11 @@ struct MoodPickerView: View {
     }
 
     private func moodTile(_ mood: Mood) -> some View {
-        let selected = mood.emoji == emoji && mood.label == message
+        let selected = mood.id == selectedPresetID
 
         return Button {
             emoji = mood.emoji
+            selectedPresetID = mood.id
             // Seed the field only when that wouldn't erase something typed by
             // hand: someone who wrote their own words and then taps a preset
             // is picking its *emoji* (the only way to get one), not asking to
@@ -242,7 +251,7 @@ struct MoodPickerView: View {
 
 #if DEBUG
 #Preview("Mood picker") {
-    MoodPickerView(initialEmoji: "💼", initialMessage: "working") { _, _, _ in }
+    MoodPickerView(initialEmoji: "💼") { _, _, _ in }
         .tint(Theme.accent)
 }
 #endif
