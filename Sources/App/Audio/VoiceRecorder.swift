@@ -109,6 +109,11 @@ final class VoiceRecorder {
             errorMessage = (error as? LocalizedError)?.errorDescription
                 ?? "Couldn't start recording."
             state = .idle
+            // The session was activated (interrupting the user's music) before
+            // the failure, and the recorder may have created the file: undo
+            // both, or their podcast stays silenced over a failed take.
+            try? FileManager.default.removeItem(at: url)
+            deactivateSession()
         }
     }
 

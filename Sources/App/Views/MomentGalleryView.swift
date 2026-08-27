@@ -159,6 +159,12 @@ struct MomentGalleryView: View {
                     .shadow(color: .black.opacity(0.12), radius: 24, y: 12)
                     // Two-finger, so it never fights the one-finger page swipe.
                     .pinchToZoom()
+                    // Released when the page scrolls away: the paged TabView
+                    // keeps every page alive, and holding each visited page's
+                    // decoded full-size image (~6 MB apiece) climbed toward a
+                    // jetsam on a long swipe through the history. Coming back
+                    // re-runs the placeholder's `.task` and reloads from disk.
+                    .onDisappear { self.image = nil }
             } else {
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
                     .fill(Color.primary.opacity(0.06))
@@ -290,11 +296,15 @@ struct MomentGalleryView: View {
     private func save() async {
         guard let moment = current,
               let image = MomentStore.shared.image(for: moment.id) else { return }
+        // Everything after an `await` checks this: the permission prompt and
+        // the Photos write take long enough to swipe away from the page, and
+        // a late "Saved" (or failure alert) then claims the *wrong* photo.
+        let saving = moment.id
         saveState = .saving
 
         let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
         guard status == .authorized || status == .limited else {
-            saveState = .failed("Allow photo access in Settings to save.")
+            if selection == saving { saveState = .failed("Allow photo access in Settings to save.") }
             return
         }
 
@@ -302,9 +312,9 @@ struct MomentGalleryView: View {
             try await PHPhotoLibrary.shared().performChanges {
                 PHAssetChangeRequest.creationRequestForAsset(from: image)
             }
-            saveState = .saved
+            if selection == saving { saveState = .saved }
         } catch {
-            saveState = .failed(error.localizedDescription)
+            if selection == saving { saveState = .failed(error.localizedDescription) }
         }
     }
 }

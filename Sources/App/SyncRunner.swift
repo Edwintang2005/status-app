@@ -3,12 +3,12 @@ import os
 
 /// The one place that turns "something changed" into updated local state, a
 /// refreshed widget, and — where warranted — a notification. Called from the
-/// UI, from foregrounding, and from silent pushes, so behaviour is identical
-/// however the refresh was triggered.
+/// UI, from foregrounding, and from background pushes, so behaviour is
+/// identical however the refresh was triggered.
 ///
-/// Note that visible pushes for nudges and moments are delivered by CloudKit
-/// itself and are *already on screen* before this runs. `announce` is how the
-/// caller says "the user has not been told yet".
+/// Note that visible pushes are delivered by CloudKit itself and are *already
+/// on screen* before this runs. `announce` is how the caller says "the user
+/// has not been told yet".
 @MainActor
 enum SyncRunner {
     private static let log = Logger(subsystem: AppConfig.appGroupID, category: "SyncRunner")
@@ -21,27 +21,48 @@ enum SyncRunner {
 
         let result = try await Backend.current.refresh()
 
-        if let theirs = result.partnerStatus,
-           theirs.nudgeCount > store.snapshot.lastSeenPartnerNudgeCount {
-            let name = store.snapshot.partnerDisplayName
-            store.mutate(reloadWidgets: false) { $0.lastSeenPartnerNudgeCount = theirs.nudgeCount }
-            if announce { await NotificationManager.postNudge(from: name) }
+        // The check and the write happen inside one `mutate`, under the
+        // cross-process lock: the notification service extension advances the
+        // same watermarks, and a check-then-act outside the lock let both
+        // processes decide to announce the same nudge.
+        if let theirs = result.partnerStatus {
+            var shouldAnnounceNudge = false
+            store.mutate(reloadWidgets: false) { snapshot in
+                guard theirs.nudgeCount > snapshot.lastSeenPartnerNudgeCount else { return }
+                snapshot.lastSeenPartnerNudgeCount = theirs.nudgeCount
+                // The first time this device ever sees the partner's status —
+                // pairing into an existing zone, or a bootstrap refresh that
+                // failed and seeded the watermark to 0 — any standing count is
+                // history, not a fresh tap. Adopt it silently.
+                shouldAnnounceNudge = previousStatus != nil
+            }
+            if announce, shouldAnnounceNudge {
+                let name = store.snapshot.partnerDisplayName
+                await NotificationManager.postNudge(from: name)
+            }
         }
 
         // Announce only the newest, even if several arrived at once — a stack
         // of banners for one sync is worse than one.
-        if let moment = result.newestPartnerMoment, store.snapshot.lastNotifiedMomentID != moment.id {
-            let name = store.snapshot.partnerDisplayName
-            store.mutate(reloadWidgets: false) { $0.lastNotifiedMomentID = moment.id }
-            if announce { await NotificationManager.postMoment(moment, from: name) }
+        if let moment = result.newestPartnerMoment {
+            var shouldAnnounceMoment = false
+            store.mutate(reloadWidgets: false) { snapshot in
+                guard !snapshot.hasAnnounced(moment.id) else { return }
+                snapshot.recordAnnounced(moment.id)
+                shouldAnnounceMoment = true
+            }
+            if announce, shouldAnnounceMoment {
+                let name = store.snapshot.partnerDisplayName
+                await NotificationManager.postMoment(moment, from: name)
+            }
         }
 
         let changed = previousStatus != result.partnerStatus || !result.newPartnerMoments.isEmpty
         if changed {
-            // A silent push updates the store and widget, but the open app's
-            // model has its own copy of the snapshot — without this, a
-            // foregrounded HomeView shows the old status until the user pulls
-            // to refresh or re-foregrounds.
+            // A push-driven refresh updates the store and widget, but the
+            // open app's model has its own copy of the snapshot — without
+            // this, a foregrounded HomeView shows the old status until the
+            // user pulls to refresh or re-foregrounds.
             NotificationCenter.default.post(name: .pairingDidChange, object: nil)
         }
         return changed

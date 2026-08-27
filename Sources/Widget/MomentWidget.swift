@@ -120,8 +120,12 @@ struct MomentWidgetView: View {
             }
         }
         // A memo waiting with no picture behind it is worth opening the app
-        // for; otherwise the empty tile is an invitation to send something.
-        .widgetURL(URL(string: unheardMemos > 0 ? "redstring://open" : "redstring://compose"))
+        // for; otherwise the empty tile is an invitation to send something —
+        // unless nobody is paired yet, where the tile says "Open to pair" and
+        // must not deep-link into a composer with no one to send to.
+        .widgetURL(URL(string: entry.snapshot.isPaired && unheardMemos == 0
+                       ? "redstring://compose"
+                       : "redstring://open"))
     }
 
     private var emptyHint: String? {

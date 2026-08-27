@@ -224,6 +224,12 @@ struct DrawingPalette: View {
             }
 
             HStack(spacing: 18) {
+                // Clear is destructive and irreversible, so it leads the row —
+                // the width dots between it and undo keep the two apart.
+                toolButton("trash", active: false) { controller.clear() }
+
+                Divider().frame(height: 24)
+
                 ForEach(DrawingController.widths, id: \.self) { width in
                     Button {
                         controller.width = width
@@ -249,7 +255,6 @@ struct DrawingPalette: View {
                     controller.isErasing.toggle()
                 }
                 toolButton("arrow.uturn.backward", active: false) { controller.undo() }
-                toolButton("trash", active: false) { controller.clear() }
             }
 
             if showsBackdrop {

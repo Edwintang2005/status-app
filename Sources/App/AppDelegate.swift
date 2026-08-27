@@ -38,7 +38,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         log.error("Remote notification registration failed: \(error.localizedDescription)")
     }
 
-    /// Silent push from the CloudKit database subscription.
+    /// Background CloudKit push. Every current subscription sends a *visible*
+    /// alert (handled by the service extension and, foregrounded, by
+    /// `willPresent` below), so in practice this only fires for the pre-1.1
+    /// silent status subscription until `registerSubscription` has deleted it
+    /// — kept so those devices keep refreshing in the meantime.
     ///
     /// The completion-handler form rather than the `async` one on purpose:
     /// `userInfo` isn't `Sendable`, so it is consumed here, synchronously,
@@ -65,7 +69,16 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner, .sound]
+        // A banner about to show over the *open* app is also the only signal
+        // the open app gets that something arrived: every subscription sends
+        // a visible push now, so `didReceiveRemoteNotification` never fires.
+        // The service extension has already refreshed the shared store — tell
+        // the model to re-read it, or the home screen keeps the old status
+        // while the banner on top of it shows the new one.
+        await MainActor.run {
+            NotificationCenter.default.post(name: .pairingDidChange, object: nil)
+        }
+        return [.banner, .sound]
     }
 }
 

@@ -24,10 +24,61 @@ final class VoicePlayer {
     @ObservationIgnored private let log = Logger(subsystem: AppConfig.appGroupID,
                                                  category: "VoicePlayer")
 
+    /// Whichever player instance most recently started. Screens each own a
+    /// player, and nothing else stops the home screen's memo when the gallery
+    /// starts one over it — two recordings talking over each other.
+    private static weak var active: VoicePlayer?
+
+    /// Held so `deinit` can unregister them — a player is created per screen
+    /// presentation, and unremoved block observers accumulate for the life of
+    /// the process.
+    @ObservationIgnored private var observers: [NSObjectProtocol] = []
+
+    init() {
+        // A phone call or unplugged AirPods stops `AVAudioPlayer` underneath
+        // us; without these observers the ticker mistook that for the end of
+        // the file and threw away the listener's place.
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: nil, queue: .main
+        ) { [weak self] note in
+            let began = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt)
+                .flatMap(AVAudioSession.InterruptionType.init) == .began
+            MainActor.assumeIsolated {
+                guard let self, self.isPlaying, began else { return }
+                self.pause()
+            }
+        })
+        observers.append(center.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: nil, queue: .main
+        ) { [weak self] note in
+            let reason = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt)
+                .flatMap(AVAudioSession.RouteChangeReason.init)
+            MainActor.assumeIsolated {
+                // Headphones unplugged mid-memo: hold the place rather than
+                // blasting the rest out of the speaker.
+                guard let self, self.isPlaying, reason == .oldDeviceUnavailable else { return }
+                self.pause()
+            }
+        })
+    }
+
+    deinit {
+        for token in observers {
+            NotificationCenter.default.removeObserver(token)
+        }
+    }
+
     func isPlaying(_ url: URL) -> Bool { isPlaying && currentURL == url }
 
     /// Starts `url`, or resumes it if it's already the loaded file.
     func play(_ url: URL) {
+        // One memo at a time, across the whole app.
+        if let other = Self.active, other !== self { other.stop() }
+        Self.active = self
+
         if currentURL == url, let player {
             resume(player)
             return
@@ -102,6 +153,16 @@ final class VoicePlayer {
                     // be mistaken for the end of the file and lose the
                     // listener's place.
                     guard self.isPlaying else { return }
+                    // Stopped mid-file means something stopped it underneath
+                    // us — an interruption whose notification hasn't landed
+                    // yet. Hold the place; the observer settles the state.
+                    // (At a genuine end AVAudioPlayer rewinds to 0.)
+                    let midFile = player.currentTime > 0.05
+                        && player.currentTime < player.duration - 0.1
+                    if midFile {
+                        self.pause()
+                        return
+                    }
                     // Reached the end. Let go of the file entirely rather than
                     // just rewinding: a loaded-but-idle player would keep every
                     // waveform on screen drawn as nought-percent-played, when

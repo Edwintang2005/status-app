@@ -101,9 +101,11 @@ struct SettingsView: View {
 
                 Section {
                     LabeledContent("Version", value: versionString)
+                    #if DEBUG
                     NavigationLink("iCloud diagnostics") {
                         DiagnosticsView()
                     }
+                    #endif
                 } footer: {
                     Text("Statuses are stored in your own iCloud with the text end-to-end encrypted. Photos, drawings and voice memos are CloudKit assets, which are encrypted by default.")
                 }
@@ -288,9 +290,14 @@ struct SettingsView: View {
     /// One write and one CloudKit publish, only when the edit is real: a
     /// blank name never commits (the model treats "" as "no name" and swaps
     /// the screen under this sheet for onboarding).
+    ///
+    /// `model.hasName` gates it because "Delete everything and start over"
+    /// dismisses this sheet — and `onDisappear`'s commit would otherwise take
+    /// the stale draft and write the name straight back onto a model that
+    /// just deliberately forgot it, breaking the wipe's promise.
     private func commitName() {
         let trimmed = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed != model.myDisplayName else { return }
+        guard model.hasName, !trimmed.isEmpty, trimmed != model.myDisplayName else { return }
         model.myDisplayName = trimmed
     }
 

@@ -32,9 +32,19 @@ struct StatusProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<StatusEntry>) -> Void) {
         Task {
             await Self.refreshIfPossible()
-            let entry = StatusEntry(date: Date(), snapshot: SharedStore.shared.snapshot)
+            let snapshot = SharedStore.shared.snapshot
+            var entries = [StatusEntry(date: Date(), snapshot: snapshot)]
+            // A nudge was just sent: the lock-screen heart renders as a
+            // checkmark until the cooldown ends, but nothing else re-renders
+            // it for up to an hour — schedule the flip back ourselves.
+            if let sent = snapshot.lastNudgeSentAt {
+                let expiry = sent.addingTimeInterval(AppConfig.nudgeCooldown)
+                if expiry > Date() {
+                    entries.append(StatusEntry(date: expiry, snapshot: snapshot))
+                }
+            }
             let next = Date().addingTimeInterval(Self.refreshInterval)
-            completion(Timeline(entries: [entry], policy: .after(next)))
+            completion(Timeline(entries: entries, policy: .after(next)))
         }
     }
 

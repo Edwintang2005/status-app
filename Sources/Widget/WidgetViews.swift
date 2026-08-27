@@ -95,8 +95,13 @@ struct StatusWidgetView: View {
     /// keeps the halves symmetrical, a long one loses its tail, and that
     /// trade-off belongs to whoever typed it. The emoji gives up size
     /// (26 → 16 pt) to make the room.
+    ///
+    /// Top-aligned, deliberately: the name and emoji rows are the same height
+    /// on both sides, so anchoring the columns at the top keeps the two emoji
+    /// on one line however long either message runs. Centre alignment let a
+    /// wrapped message shove its own emoji upward, out of line with the other.
     private var rectangular: some View {
-        HStack(spacing: 0) {
+        HStack(alignment: .top, spacing: 0) {
             if !isPaired {
                 notPaired
                 Spacer(minLength: 0)
@@ -111,6 +116,7 @@ struct StatusWidgetView: View {
                 person(mine, label: "You")
             }
         }
+        .frame(maxHeight: .infinity, alignment: .center)
     }
 
     /// One half of the pair. `nil` means paired but nothing set yet, which is
@@ -228,10 +234,15 @@ struct NudgeWidgetView: View {
     let entry: StatusEntry
 
     /// Mirrors the app's cooldown so the widget shows a check instead of a
-    /// heart for a minute after sending.
+    /// heart right after sending.
+    ///
+    /// Measured from `entry.date`, not `Date()`: WidgetKit renders every
+    /// timeline entry's view when the timeline is *delivered*, so a wall-clock
+    /// read made both the "now" entry and the scheduled cooldown-expiry entry
+    /// draw a checkmark — the expiry entry exists precisely to flip back.
     private var recentlySent: Bool {
         guard let last = entry.snapshot.lastNudgeSentAt else { return false }
-        return Date().timeIntervalSince(last) < AppConfig.nudgeCooldown
+        return entry.date.timeIntervalSince(last) < AppConfig.nudgeCooldown
     }
 
     var body: some View {

@@ -2,9 +2,11 @@ import Foundation
 import UserNotifications
 import os
 
-/// CloudKit database subscriptions can only deliver *silent* pushes, so the
-/// user-visible alert for a nudge is a local notification raised by this app
-/// once the silent push has woken it and the fetch has come back.
+/// Local notifications for events the app itself notices — a refresh that
+/// turns up a nudge or moment nobody has been told about. The *usual*
+/// announcement path is the visible CloudKit push enriched by the service
+/// extension; these fire when that path was missed (a dropped push, an
+/// extension refresh that failed) and the app finds the event first.
 @MainActor
 enum NotificationManager {
     private static let log = Logger(subsystem: AppConfig.appGroupID, category: "Notifications")
@@ -45,7 +47,29 @@ enum NotificationManager {
     /// either way without opening the app.
     /// `name` is only a fallback: the moment carries the name its sender had
     /// when they sent it, and that's what should appear.
+    /// Removes delivered banners still wearing CloudKit's generic wording —
+    /// the ones a failed service-extension refresh couldn't enrich. The local
+    /// notification about to be posted says the same thing properly, and
+    /// leaving both is a duplicate.
+    ///
+    /// Matched on the *body*, not just the app-name title: only the wording
+    /// this local notification supersedes may go. Sweeping every generic
+    /// banner deleted unenriched status notes that nothing was ever going to
+    /// re-state.
+    private static func removeGenericBanners(body: String) async {
+        let center = UNUserNotificationCenter.current()
+        let generic = await center.deliveredNotifications()
+            .filter {
+                $0.request.content.title == AppConfig.appName
+                    && $0.request.content.body == body
+            }
+            .map(\.request.identifier)
+        guard !generic.isEmpty else { return }
+        center.removeDeliveredNotifications(withIdentifiers: generic)
+    }
+
     static func postMoment(_ moment: Moment, from name: String) async {
+        await removeGenericBanners(body: CloudSync.GenericAlert.moment)
         let content = UNMutableNotificationContent()
         content.title = moment.senderName.isEmpty ? name : moment.senderName
         content.body = moment.caption.isEmpty ? moment.arrivalSummary : moment.caption
@@ -66,6 +90,7 @@ enum NotificationManager {
     }
 
     static func postNudge(from name: String) async {
+        await removeGenericBanners(body: CloudSync.GenericAlert.nudge)
         let content = UNMutableNotificationContent()
         content.title = name
         content.body = "is thinking of you 💭"

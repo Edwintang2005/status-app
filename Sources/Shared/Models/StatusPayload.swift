@@ -135,6 +135,23 @@ struct PairingInfo: Codable, Hashable {
     /// user record name taken from the accepted share metadata.
     var zoneOwnerName: String
     var pairedAt: Date
+    /// The user record name of the iCloud account this pairing was made under,
+    /// so a later "zone not found" can tell "the partner unlinked" apart from
+    /// "the phone is signed into a different account". `nil` on pairings made
+    /// before this field existed (optional, so those still decode).
+    var userRecordName: String?
+
+    init(role: PairRole,
+         zoneName: String,
+         zoneOwnerName: String,
+         pairedAt: Date,
+         userRecordName: String? = nil) {
+        self.role = role
+        self.zoneName = zoneName
+        self.zoneOwnerName = zoneOwnerName
+        self.pairedAt = pairedAt
+        self.userRecordName = userRecordName
+    }
 }
 
 /// Everything the widget needs, cached in the App Group so it can render
@@ -155,9 +172,16 @@ struct Snapshot: Codable, Hashable {
     /// `MomentIndex`.
     var latestPartnerMoment: Moment?
     var latestOwnMoment: Moment?
-    /// The partner moment id already announced by a notification here. Not the
-    /// same as `Moment.seen`, which is about the user actually looking at it.
+    /// The partner moment id most recently announced by a notification here.
+    /// Not the same as `Moment.seen`, which is about the user actually
+    /// looking at it. Kept alongside `notifiedMomentIDs` for older builds
+    /// that only read this field.
     var lastNotifiedMomentID: String?
+    /// The last few announced moment ids, newest first. A single watermark
+    /// couldn't cope with three moments arriving in quick succession: each
+    /// push's extension run could only exclude the *one* last id, so the
+    /// newest caption appeared on two banners and the oldest never did.
+    var notifiedMomentIDs: [String] = []
 
     /// The newest photo or doodle from the partner, ignoring voice memos.
     ///
@@ -194,7 +218,7 @@ struct Snapshot: Codable, Hashable {
         case mine, theirs, isPaired, lastSyncedAt, lastSeenPartnerNudgeCount
         case lastNudgeSentAt, latestPartnerMoment, latestOwnMoment
         case lastNotifiedMomentID, latestPartnerVisualMoment, unheardVoiceMemoCount
-        case lastCelebratedAt
+        case lastCelebratedAt, notifiedMomentIDs
     }
 
     /// Hand-written for the same reason `Moment`'s is: synthesised `Codable`
@@ -228,6 +252,8 @@ struct Snapshot: Codable, Hashable {
         unheardVoiceMemoCount = try container
             .decodeIfPresent(Int.self, forKey: .unheardVoiceMemoCount) ?? 0
         lastCelebratedAt = try container.decodeIfPresent(Date.self, forKey: .lastCelebratedAt)
+        notifiedMomentIDs = try container
+            .decodeIfPresent([String].self, forKey: .notifiedMomentIDs) ?? []
     }
 
     /// Hand-written because the synthesised encoder omits nil optionals, and
@@ -251,6 +277,7 @@ struct Snapshot: Codable, Hashable {
         }
         try container.encode(unheardVoiceMemoCount, forKey: .unheardVoiceMemoCount)
         try container.encodeIfPresent(lastCelebratedAt, forKey: .lastCelebratedAt)
+        try container.encode(notifiedMomentIDs, forKey: .notifiedMomentIDs)
     }
 
     init(mine: StatusPayload?,
@@ -277,6 +304,24 @@ struct Snapshot: Codable, Hashable {
         self.latestPartnerVisualMoment = latestPartnerVisualMoment
         self.unheardVoiceMemoCount = unheardVoiceMemoCount
         self.lastCelebratedAt = lastCelebratedAt
+    }
+
+    /// Whether a notification for this moment has already been shown on this
+    /// device, by either the app or the service extension.
+    func hasAnnounced(_ momentID: String) -> Bool {
+        lastNotifiedMomentID == momentID || notifiedMomentIDs.contains(momentID)
+    }
+
+    /// Records that a notification for this moment is being shown. Bounded:
+    /// the set only needs to cover pushes arriving faster than they can be
+    /// announced, not the whole history.
+    mutating func recordAnnounced(_ momentID: String) {
+        lastNotifiedMomentID = momentID
+        guard !notifiedMomentIDs.contains(momentID) else { return }
+        notifiedMomentIDs.insert(momentID, at: 0)
+        if notifiedMomentIDs.count > 8 {
+            notifiedMomentIDs.removeLast(notifiedMomentIDs.count - 8)
+        }
     }
 
     /// The partner's celebration status, if one has arrived that this device

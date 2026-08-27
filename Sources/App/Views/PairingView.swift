@@ -27,11 +27,25 @@ struct PairingView: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .onAppear { if name.isEmpty { name = model.myDisplayName } }
-        .onChange(of: name) { _, newValue in model.myDisplayName = newValue }
+        // Committed when editing ends, not per keystroke: committing every
+        // character wrote to disk and reloaded all three widget timelines on
+        // each key — and select-all-delete flipped `hasName` false, which
+        // yanked this screen away mid-edit for the first-run Welcome one.
+        .onChange(of: nameFocused) { _, focused in
+            if !focused { commitName() }
+        }
+        .onDisappear { commitName() }
     }
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Pushes the edited name into the model. An empty field commits nothing —
+    /// there is no sensible nameless state to put the app in.
+    private func commitName() {
+        guard !trimmedName.isEmpty, trimmedName != model.myDisplayName else { return }
+        model.myDisplayName = trimmedName
     }
 
     private var header: some View {
@@ -63,6 +77,7 @@ struct PairingView: View {
                 .textInputAutocapitalization(.words)
                 .submitLabel(.done)
                 .focused($nameFocused)
+                .onSubmit { commitName() }
         }
         .card(padding: 16)
     }
@@ -77,6 +92,7 @@ struct PairingView: View {
             } else {
                 Button {
                     nameFocused = false
+                    commitName()  // The invite carries the name; don't race the focus change.
                     Task { await model.createInvite() }
                 } label: {
                     if model.isBusy {

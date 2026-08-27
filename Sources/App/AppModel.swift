@@ -169,7 +169,18 @@ final class AppModel {
 
     /// Called when a share link opens the app. Held rather than accepted, so
     /// the welcome screen can ask for a name first.
+    ///
+    /// Refused outright while paired: joining a second zone on top of an
+    /// existing pairing would leave the old change tokens pointed at the new
+    /// zone (killing sync) and the previous relationship's photos and memos
+    /// sitting inside the new pairing's gallery. Unlinking first is the only
+    /// clean path, and it's one switch away in Settings.
     func receiveInvite(_ metadata: CKShare.Metadata) {
+        guard !isPaired else {
+            errorMessage = "You're already linked with \(partnerName). "
+                + "To join a new invite, unlink first in Settings."
+            return
+        }
         pendingInvite = metadata
     }
 
@@ -192,6 +203,12 @@ final class AppModel {
         } catch {
             // Kept, not cleared: the link is still the way in, and clearing it
             // would drop the person on the pairing screen with no explanation.
+            //
+            // Reload first: `acceptShare` commits the pairing before its
+            // bootstrap publish, so a failure after that point leaves the
+            // store paired while this model still says not — the same window
+            // `createInvite` closes the same way.
+            reload()
             present(error)
         }
     }
@@ -269,10 +286,11 @@ final class AppModel {
     }
 
     func refresh() async {
-        guard isPaired else {
-            await refreshReadiness()
-            return
-        }
+        // Re-checked when paired too: this is what notices an iCloud account
+        // switch (readiness compares the signed-in account against the one
+        // the pairing was made under) and surfaces it in the sync footer.
+        await refreshReadiness()
+        guard isPaired else { return }
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
@@ -381,10 +399,25 @@ final class AppModel {
 
         guard isPaired else { return }
         do {
-            try await Backend.current.send(moment)
+            try await withUploadProtection("moment-upload") {
+                try await Backend.current.send(moment)
+            }
         } catch {
             present(error)
         }
+    }
+
+    /// Runs an upload inside a background-task assertion, so sending and
+    /// immediately locking the phone doesn't suspend the process mid-upload —
+    /// which silently lost the send with no error and no retry.
+    private func withUploadProtection<T>(_ name: String,
+                                         _ body: () async throws -> T) async rethrows -> T {
+        let assertion = BackgroundAssertion()
+        assertion.id = UIApplication.shared.beginBackgroundTask(withName: name) {
+            assertion.end()
+        }
+        defer { assertion.end() }
+        return try await body()
     }
 
     /// Same shape as `sendMoment(image:kind:caption:)`: the recording is filed
@@ -422,7 +455,9 @@ final class AppModel {
 
         guard isPaired else { return }
         do {
-            try await Backend.current.send(moment)
+            try await withUploadProtection("voice-memo-upload") {
+                try await Backend.current.send(moment)
+            }
         } catch {
             present(error)
         }
@@ -605,6 +640,21 @@ final class AppModel {
         let code = (error as? CKError).map { "CKError \($0.code.rawValue): " } ?? ""
         log.error("\(code, privacy: .public)\(error.localizedDescription, privacy: .public)")
         errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+    }
+}
+
+/// Holds a `UIBackgroundTaskIdentifier` so the expiration handler and the
+/// normal completion path can both end it exactly once. A class because the
+/// handler needs to reach the same identifier the caller stored after
+/// `beginBackgroundTask` returned.
+@MainActor
+private final class BackgroundAssertion {
+    var id: UIBackgroundTaskIdentifier = .invalid
+
+    func end() {
+        guard id != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(id)
+        id = .invalid
     }
 }
 

@@ -89,9 +89,17 @@ final class NotificationService: UNNotificationServiceExtension {
         switch notification.subscriptionID {
         case CloudSync.SubscriptionID.moment?:
             // The delta's moment when this refresh got it; otherwise the
-            // index — whoever consumed the delta recorded it there.
+            // index — whoever consumed the delta recorded it there. Prefer
+            // the newest *un-announced* one (`Snapshot.notifiedMomentIDs`):
+            // several moments sent seconds apart are several pushes, and
+            // whichever process consumed the delta has already claimed the
+            // newest — labelling every banner with its caption left the
+            // older moments' captions never shown.
+            let snapshot = await MainActor.run { SharedStore.shared.snapshot }
+            let fromIndex = MomentIndex.shared.load().filter { !$0.fromMe }
             let moment = result.newestPartnerMoment
-                ?? MomentIndex.shared.load().first { !$0.fromMe }
+                ?? fromIndex.first { !snapshot.hasAnnounced($0.id) }
+                ?? fromIndex.first
             if let moment {
                 await apply(moment, to: content, partnerName: partnerName)
             }
@@ -147,10 +155,11 @@ final class NotificationService: UNNotificationServiceExtension {
         }
 
         // Record that the user has now been told, so the app doesn't raise a
-        // duplicate local notification the next time it refreshes.
+        // duplicate local notification the next time it refreshes — and so the
+        // next rapid-fire push's fallback picks a different moment.
         await MainActor.run {
             _ = SharedStore.shared.mutate(reloadWidgets: false) {
-                $0.lastNotifiedMomentID = moment.id
+                $0.recordAnnounced(moment.id)
             }
         }
     }

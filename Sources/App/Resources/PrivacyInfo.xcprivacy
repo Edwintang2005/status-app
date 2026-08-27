@@ -24,6 +24,18 @@
 				<string>CA92.1</string>
 			</array>
 		</dict>
+		<dict>
+			<!-- MomentStore.prune reads contentModificationDate on files inside
+			     the App Group container, to spare just-written media from the
+			     cache sweep. C617.1: timestamps of files inside the app's own
+			     container, not disclosed. -->
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>C617.1</string>
+			</array>
+		</dict>
 	</array>
 </dict>
 </plist>

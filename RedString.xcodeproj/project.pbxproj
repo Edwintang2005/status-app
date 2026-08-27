@@ -56,6 +56,7 @@
 		8CAAADECAA4216974AE366E6 /* Mood.swift in Sources */ = {isa = PBXBuildFile; fileRef = A03BCF2BEA397F562EA752CA /* Mood.swift */; };
 		8CDEF7739AD4356EF83F025C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B010D0666534AA91EF320B6F /* Assets.xcassets */; };
 		8E9811465A6A333B8AAA39D2 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = E92E3390E59B9B7286EA2FCC /* PrivacyInfo.xcprivacy */; };
+		8F783EC1E83C1326B071E9CE /* DemoSeeder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16859BAE270D92FCB0C6D0FF /* DemoSeeder.swift */; };
 		9614CAB0108EA5241C301DF4 /* SharedStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FA4F7953C3F1ED24AAB950F /* SharedStore.swift */; };
 		9A3965DC39454EAEA0DCC5D6 /* StatusPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CC659D2468D19E1EC8CC267 /* StatusPayload.swift */; };
 		9BA1659D44B8CAF3427374D4 /* SharedStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FA4F7953C3F1ED24AAB950F /* SharedStore.swift */; };
@@ -132,6 +133,7 @@
 		0442A90D1A5DB4ABCFB5FB16 /* Moment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Moment.swift; sourceTree = "<group>"; };
 		0A96037375298A02649C25DC /* RedStringWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RedStringWidget.entitlements; sourceTree = "<group>"; };
 		1160195FC514EAC35567462F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		16859BAE270D92FCB0C6D0FF /* DemoSeeder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoSeeder.swift; sourceTree = "<group>"; };
 		1B03E98F17074A937C65922F /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		1E0BAB580172AC55C2EEAC42 /* CrossProcessLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossProcessLock.swift; sourceTree = "<group>"; };
 		1F3C7FB747BC50EC6F865061 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -203,6 +205,7 @@
 				B722839F69477ACD2E828BF0 /* Views */,
 				2A69E5DF62A9FA0AE8844D97 /* AppDelegate.swift */,
 				1B03E98F17074A937C65922F /* AppModel.swift */,
+				16859BAE270D92FCB0C6D0FF /* DemoSeeder.swift */,
 				CBD41874B210F70D1875AAAE /* MemoryArchive.swift */,
 				AD8D0106D60EC77F6BBD92E8 /* NotificationManager.swift */,
 				B55B1156B55002BD0180D1C0 /* RedStringApp.swift */,
@@ -583,6 +586,7 @@
 				DBE7E141DA7F7DDB81EB6788 /* CloudDiagnostics.swift in Sources */,
 				76F3516782432F0BC7D01DA4 /* CloudSync.swift in Sources */,
 				FDDE86B25AF16A3A254F2A58 /* CrossProcessLock.swift in Sources */,
+				8F783EC1E83C1326B071E9CE /* DemoSeeder.swift in Sources */,
 				EB42609B49AAAB10B43F93ED /* DiagnosticsView.swift in Sources */,
 				839CDFA5D1A274670F68093A /* DrawingCanvas.swift in Sources */,
 				76A4C07902D2BFAD119D0BFD /* GroupState.swift in Sources */,

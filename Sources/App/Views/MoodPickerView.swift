@@ -176,7 +176,14 @@ struct MoodPickerView: View {
 
         return Button {
             emoji = mood.emoji
-            message = mood.label
+            // Seed the field only when that wouldn't erase something typed by
+            // hand: someone who wrote their own words and then taps a preset
+            // is picking its *emoji* (the only way to get one), not asking to
+            // have their message replaced.
+            if message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || isPresetLabel(message) {
+                message = mood.label
+            }
             isCelebration = mood.isCelebration
             messageFocused = false
             if mood.isCelebration {
@@ -218,6 +225,12 @@ struct MoodPickerView: View {
         }
         .buttonStyle(.plain)
         .animation(.smooth(duration: 0.2), value: selected)
+    }
+
+    /// Whether the text is (still) one of the ~90 preset labels — in which
+    /// case tapping another preset should swap it as it always has.
+    private func isPresetLabel(_ text: String) -> Bool {
+        MoodGroup.allCases.contains { $0.moods.contains { $0.label == text } }
     }
 
     private func commit() {

@@ -49,5 +49,40 @@ protocol SyncBackend: Sendable {
 
 /// The backend the app talks to.
 enum Backend {
-    static var current: any SyncBackend { CloudSync.shared }
+    static var current: any SyncBackend {
+        #if DEBUG
+        if DemoMode.isActive { return DemoBackend() }
+        #endif
+        return CloudSync.shared
+    }
 }
+
+#if DEBUG
+/// Screenshot/App-Preview mode: `REDSTRING_DEMO=1` in the launch environment
+/// swaps CloudKit for a backend where everything instantly succeeds, so the
+/// whole app can be driven on a Simulator with no iCloud account. Debug-only
+/// and environment-gated — a normal launch never comes near it.
+enum DemoMode {
+    static let isActive = ProcessInfo.processInfo.environment["REDSTRING_DEMO"] == "1"
+}
+
+struct DemoBackend: SyncBackend {
+    func readiness() async -> BackendReadiness { .ready }
+    func publish(_ payload: StatusPayload) async throws {}
+    @discardableResult func refresh() async throws -> RefreshResult { .empty }
+    @discardableResult func sendNudge() async throws -> Bool {
+        SharedStore.shared.mutate { snapshot in
+            snapshot.lastNudgeSentAt = Date()
+            var mine = snapshot.mine ?? .initial(displayName: "")
+            mine.nudgeCount += 1
+            mine.lastNudgeAt = Date()
+            snapshot.mine = mine
+        }
+        return true
+    }
+    func send(_ moment: Moment) async throws {}
+    func fetchMedia(for moment: Moment) async throws {}
+    func registerSubscription() async throws {}
+    func unpair() async throws {}
+}
+#endif

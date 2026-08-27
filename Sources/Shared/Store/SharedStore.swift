@@ -113,26 +113,32 @@ final class SharedStore {
     /// starting over forgets it and puts the app back where a fresh install
     /// leaves it — see `AppModel.unlink(startingOver:)`.
     func clearPairing(keepingName: Bool) {
-        let name = keepingName
-            ? snapshot.mine?.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-            : nil
+        // Under the cross-process lock, or a notification-service refresh
+        // mid-flight can write its pre-unlink read-modify-write copy back
+        // *after* this wipe — resurrecting a paired snapshot whose pairing
+        // key is gone.
+        Self.snapshotLock.withLock {
+            let name = keepingName
+                ? snapshot.mine?.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+                : nil
 
-        pairing = nil
-        // The next pairing gets a new share with a new link, which starts open.
-        inviteClosed = false
-        inviteURL = nil
-        for key in ["private", "shared"] { setChangeToken(nil, for: key) }
-        snapshot = Snapshot(
-            mine: (name?.isEmpty == false) ? .initial(displayName: name!) : nil,
-            theirs: nil,
-            isPaired: false,
-            lastSyncedAt: nil,
-            lastSeenPartnerNudgeCount: 0,
-            lastNudgeSentAt: nil,
-            latestPartnerMoment: nil,
-            latestOwnMoment: nil,
-            lastNotifiedMomentID: nil
-        )
+            pairing = nil
+            // The next pairing gets a new share with a new link, which starts open.
+            inviteClosed = false
+            inviteURL = nil
+            for key in ["private", "shared"] { setChangeToken(nil, for: key) }
+            snapshot = Snapshot(
+                mine: (name?.isEmpty == false) ? .initial(displayName: name!) : nil,
+                theirs: nil,
+                isPaired: false,
+                lastSyncedAt: nil,
+                lastSeenPartnerNudgeCount: 0,
+                lastNudgeSentAt: nil,
+                latestPartnerMoment: nil,
+                latestOwnMoment: nil,
+                lastNotifiedMomentID: nil
+            )
+        }
         Self.reloadWidgets()
     }
 
@@ -192,15 +198,12 @@ final class SharedStore {
     /// `MomentIndex`.
     func applyDerived(from all: [Moment], reloadWidgets: Bool = true) {
         mutate(reloadWidgets: reloadWidgets) { snapshot in
-            if let newestTheirs = all.first(where: { !$0.fromMe }) {
-                snapshot.latestPartnerMoment = newestTheirs
-            }
-            if let newestMine = all.first(where: { $0.fromMe }) {
-                snapshot.latestOwnMoment = newestMine
-            }
-            // Not conditional, unlike the two above: the widget shows this
-            // one, and it has to be able to go back to `nil` when the only
-            // picture is deleted.
+            // All unconditional: `all` is always the whole index, and every
+            // one of these must be able to go back to `nil` when the last
+            // moment in its direction is deleted — a partner unlinking
+            // deletes all of theirs at once.
+            snapshot.latestPartnerMoment = all.first { !$0.fromMe }
+            snapshot.latestOwnMoment = all.first { $0.fromMe }
             snapshot.latestPartnerVisualMoment = all.first { !$0.fromMe && !$0.isVoice }
             snapshot.unheardVoiceMemoCount = all
                 .filter { !$0.fromMe && $0.isVoice && !$0.seen }

@@ -15,7 +15,8 @@ with the text fields end-to-end encrypted.
 | **Status** | An emoji plus a short message — `🥰 missing you`, `😴 sleeping`. Two taps from a preset, or type your own. |
 | **Nudge** | A heart on your lock screen. Tapping it makes their phone show *"Sam is thinking of you 💭"*. |
 | **Photos & doodles** | Snap a photo, draw a doodle, or scribble over a photo, and it lands on their home screen widget. Pick the paper colour for a doodle. |
-| **History** | Every photo and doodle is kept. Browse the lot in the library, save any to Photos, and get it all back on a new phone. |
+| **Voice memos** | Up to 60 seconds (`AppConfig.voiceMemoMaxDuration`), with a live waveform while recording. Playable from the expanded notification without opening the app; a badge on the photo widget says one is waiting. |
+| **History** | Every photo, doodle and memo is kept. Browse the lot in the library, save any to Photos, and get it all back on a new phone. |
 | **Names** | You set your own name; they set theirs. Whatever they call themselves is what you see — there's no renaming other people. |
 
 Widgets:
@@ -24,7 +25,8 @@ Widgets:
   `accessoryInline` for the lock screen, plus `systemSmall` for the home screen.
 - **Nudge** — a circular lock screen widget that is just a heart button.
 - **Their photo** — `systemSmall` / `systemMedium` / `systemLarge` on the home
-  screen, showing the last photo or doodle they sent.
+  screen, showing the last photo or doodle they sent, with a badge when a
+  voice memo is waiting.
 
 The photo widget is home screen only, and drawing happens in the app rather
 than on the widget. Both are platform limits, not omissions: lock screen
@@ -135,8 +137,11 @@ launches. The only thing that actually spends battery is the timeline policy
 below, which is why it's an hour rather than a minute.
 
 In the app, the nudge cooldown owns a one-second countdown that runs **only
-during the sixty seconds after a nudge**, scoped to the button so it doesn't
-invalidate the screen.
+while the cooldown is live** (`AppConfig.nudgeCooldown`), scoped to the button
+so it doesn't invalidate the screen. The one exception to "nothing scheduled":
+right after a nudge, the timeline carries a second entry at cooldown expiry so
+the lock-screen heart flips back from a checkmark — a pre-rendered entry, not
+an extra process launch.
 
 ### Three subscriptions, deliberately different
 
@@ -146,7 +151,7 @@ their own record types rather than fields on `Status`:
 
 | Record type | Payload | What happens |
 |---|---|---|
-| `Status` | `shouldSendContentAvailable` | **Silent.** Wakes the app to refresh the widget. Nobody wants a banner because their partner started cooking. |
+| `Status` | `alertBody` (no sound) + `shouldSendMutableContent` | **Visible but quiet** — a note in Notification Centre, not an interruption. The extension rewrites the generic text with the decrypted emoji and message. The pre-1.1 silent subscription (`status-changes`) is deleted on sight. |
 | `Nudge` | `alertBody` + sound + `shouldSendMutableContent` | **Visible.** APNs displays it whether or not the app is running. |
 | `Moment` | `alertBody` + sound + `shouldSendMutableContent` | **Visible**, and the image is attached by the service extension. |
 
@@ -177,10 +182,12 @@ raise a duplicate local notification the next time it refreshes.
 
 ### The remaining paths
 
-Status changes stay silent by design, so the widget still relies on:
+Every subscription sends a visible push now, so the extension is the main
+delivery path. The widget and the open app still rely on:
 
-1. **The silent push**, when iOS grants the app a background wake. Throttled,
-   and skipped entirely while the app is force-quit.
+1. **The `willPresent` hook**: a banner about to show over the *open* app
+   posts `.pairingDidChange`, so the home screen re-reads the store the
+   extension just updated instead of going stale under the banner.
 2. **Foreground refresh**, whenever the app becomes active.
 3. **The widget's own fetch**, on its hourly timeline refresh, with an 8s
    timeout and the cached snapshot as fallback. This is the only battery cost
@@ -311,10 +318,9 @@ canvas.
 - **Lock screen widgets are monochrome.** iOS renders accessory widgets in a
   vibrant, desaturated style; emoji become white silhouettes. Every layout
   therefore pairs the emoji with words rather than relying on colour.
-- **Status updates are silent, so they can lag.** Nudges and photos arrive as
-  real alerts and survive a force-quit; a plain status change relies on a
-  throttled background wake, and won't reach a force-quit phone until something
-  else wakes the app. The widget's hourly fetch is the backstop.
+- **A dropped push can lag the widget.** Statuses, nudges and photos all
+  arrive as real alerts now and survive a force-quit, but if APNs drops one
+  the widget waits for its hourly fetch — that's the backstop.
 - **The first sync after a reinstall pulls the whole zone.** Metadata only, so
   it's quick, but the images arrive gradually — the ten newest immediately and
   the rest as you scroll back. Expect placeholders in the gallery for a while
@@ -322,7 +328,12 @@ canvas.
 - **The service extension has ~30 seconds and a small memory ceiling.** If the
   CloudKit fetch is slow it falls back to CloudKit's generic wording rather
   than showing nothing — you'd see *"Sent you something 📷"* instead of the
-  caption, and the app fills in the detail on next launch.
+  caption. The app sweeps that generic banner away when it next announces the
+  same event properly.
+- **Switching iCloud accounts pauses sync rather than breaking it.** The
+  pairing remembers which account made it (`PairingInfo.userRecordName`);
+  under a different account the home screen's sync footer says so, and
+  nothing local is wiped. Sign back in and it resumes.
 
 ## Shipping it
 
@@ -378,24 +389,43 @@ Two things to know about the CloudKit schema:
 
 ```
 Sources/
-  Shared/      compiled into BOTH targets
-    AppConfig.swift          the IDs that must match the entitlements
-    Theme.swift              colours, cards, buttons
-    Models/                  Mood, StatusPayload, PairingInfo, Snapshot, Moment
-    Store/SharedStore.swift  App Group cache — the app↔widget channel
-    Store/MomentStore.swift  image files in the App Group, full + thumb
-    Store/MomentIndex.swift  the durable history list, kept out of the snapshot
-    Cloud/SyncBackend.swift  the sync surface the UI depends on
-    Cloud/CloudSync.swift    CloudKit: sharing, records, assets, subscriptions
+  Shared/      compiled into ALL THREE targets
+    AppConfig.swift              the IDs that must match the entitlements
+    Theme.swift                  colours, cards, buttons
+    Waveform.swift               condenses recorder levels into memo waveforms
+    Models/                      Mood, StatusPayload, PairingInfo, Snapshot,
+                                 Moment, MomentAttachment
+    Store/SharedStore.swift      App Group cache — the app↔widget channel
+    Store/GroupState.swift       file-backed key-value store (see its header
+                                 for why UserDefaults couldn't be trusted)
+    Store/CrossProcessLock.swift flock-based lock shared with the extensions
+    Store/MomentStore.swift      media files in the App Group: full + thumb
+                                 JPEGs, memo .m4a
+    Store/MomentIndex.swift      the durable history list, kept out of the
+                                 snapshot
+    Cloud/SyncBackend.swift      the sync surface the UI depends on, plus the
+                                 DEBUG-only demo backend
+    Cloud/CloudSync.swift        CloudKit: sharing, records, assets,
+                                 subscriptions
+    Cloud/CloudDiagnostics.swift the report behind the Debug-only Settings row
   App/
-    RedStringApp.swift, AppDelegate.swift   push registration, share acceptance
-    AppModel.swift, SyncRunner.swift     state and the refresh→notify path
+    RedStringApp.swift, AppDelegate.swift  push registration, share acceptance
+    AppModel.swift, SyncRunner.swift       state and the refresh→notify path
+    NotificationManager.swift              local notifications + authorization
+    MemoryArchive.swift                    the "archive memories" export
+    DemoSeeder.swift                       DEBUG-only screenshot content
+    Audio/VoiceRecorder.swift, VoicePlayer.swift
     Views/
-      HomeView, PairingView, SettingsView, MoodPickerView
-      MomentComposerView                 photo + doodle composer
-      DrawingCanvas.swift                PencilKit canvas and palette
-      CameraPicker.swift                 UIImagePickerController wrapper
+      HomeView, RootView, WelcomeView, PairingView, SettingsView
+      MoodPickerView, CelebrationOverlay   statuses and celebrations
+      MomentComposerView                   photo + doodle composer
+      VoiceMemoComposerView, VoiceMomentViews
+      MomentLibraryView, MomentGalleryView the history grid and pager
+      DrawingCanvas.swift                  PencilKit canvas and palette
+      CameraPicker.swift                   UIImagePickerController wrapper
+      InviteLinkView, ShareSheet, PinchToZoom, DiagnosticsView
   Widget/
+    RedStringWidgetBundle.swift
     StatusWidget.swift, WidgetViews.swift, StatusProvider.swift
     MomentWidget.swift                   the photo/doodle widget
     SendNudgeIntent.swift                the lock screen heart
@@ -404,7 +434,9 @@ Sources/
 
 Each target's Resources/ also carries a PrivacyInfo.xcprivacy — required for
 App Store submission. Red String declares no tracking and no collected data;
-the one required-reason API is the App Group defaults suite (CA92.1).
+the required-reason APIs are the App Group defaults suite (CA92.1) and the
+file timestamps MomentStore.prune reads inside the app's own container
+(C617.1).
 ```
 
 ## Commands
@@ -416,3 +448,19 @@ the one required-reason API is the App Group defaults suite (CA92.1).
 | `make run` | build signed, install and launch on the Simulator |
 | `make archive` | archive the Release config for TestFlight / the App Store |
 | `make clean` | |
+
+## Demo mode (screenshots and previews)
+
+Debug builds accept `REDSTRING_DEMO=1` in the launch environment:
+
+```bash
+SIMCTL_CHILD_REDSTRING_DEMO=1 xcrun simctl launch booted com.edwintang.redstring
+```
+
+`DemoMode` swaps CloudKit for a stub backend where everything instantly
+succeeds, and `DemoSeeder` reseeds the real App Group store on every launch
+with a fixed Alex/Sam pairing — statuses, doodles, photos and a playable
+voice memo — so the whole app (widgets included) can be driven on a Simulator
+with no iCloud account. It is `#if DEBUG` and environment-gated; a Release
+build contains none of it. The App Store screenshots and previews were made
+this way.

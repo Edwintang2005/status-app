@@ -16,6 +16,10 @@ enum SyncError: LocalizedError {
     /// The shared zone is gone: the other person unlinked, and this device has
     /// just found out.
     case linkEnded
+    /// The device is signed into a different iCloud account than the one the
+    /// pairing was made under. The zone looks missing from here, but wiping
+    /// local state over it would destroy a pairing that is actually intact.
+    case differentAccount
 
     var errorDescription: String? {
         switch self {
@@ -51,6 +55,10 @@ enum SyncError: LocalizedError {
             // same, and blaming them for the second would be a guess.
             return "The shared space is no longer available. Everything shared "
                 + "has been removed from this device — pair again to start over."
+        case .differentAccount:
+            return "This device is signed into a different iCloud account than "
+                + "the one you paired with. Sign back into that account to see "
+                + "your shared space, or unlink from Settings."
         }
     }
 }
@@ -143,6 +151,16 @@ actor CloudSync: SyncBackend {
         static let all = [status, legacySilentStatus, nudge, moment]
     }
 
+    /// The server-composed wording each subscription shows when the service
+    /// extension couldn't enrich it. Not `private`: `NotificationManager`
+    /// matches on these to sweep a generic banner it is about to supersede
+    /// with the real thing — and must match only its own event's wording.
+    enum GenericAlert {
+        static let status = "Updated their status"
+        static let nudge = "Thinking of you 💭"
+        static let moment = "Sent you something 📷"
+    }
+
     /// `CKContainer(identifier:)` traps at launch when the identifier isn't in
     /// the running binary's entitlements, so an unsigned build — or one signed
     /// by a team without the iCloud capability — fails here rather than limping
@@ -163,6 +181,13 @@ actor CloudSync: SyncBackend {
             guard status == .available else {
                 return .unavailable(SyncError.iCloudUnavailable(status).errorDescription ?? "")
             }
+            // Available isn't enough once paired: a *different* account also
+            // reports available, and every zone operation then fails in ways
+            // that look like the partner unlinking.
+            if let pairing = await MainActor.run(body: { SharedStore.shared.pairing }),
+               await !isPairingAccount(pairing) {
+                return .unavailable(SyncError.differentAccount.errorDescription ?? "")
+            }
             return .ready
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -173,6 +198,22 @@ actor CloudSync: SyncBackend {
     private func requireAvailableAccount() async throws {
         let status = try await container.accountStatus()
         guard status == .available else { throw SyncError.iCloudUnavailable(status) }
+    }
+
+    /// The signed-in account's user record name, or `nil` when it can't be
+    /// fetched (offline, no account).
+    private func currentUserRecordName() async -> String? {
+        try? await container.userRecordID().recordName
+    }
+
+    /// `false` only when this device can positively prove it is signed into a
+    /// different iCloud account than the one the pairing was made under.
+    /// Errors and legacy pairings (no stored record name) count as a match —
+    /// destroying local state needs proof, not a network hiccup.
+    private func isPairingAccount(_ pairing: PairingInfo) async -> Bool {
+        guard let expected = pairing.userRecordName,
+              let current = await currentUserRecordName() else { return true }
+        return current == expected
     }
 
     // MARK: - Pairing
@@ -200,7 +241,8 @@ actor CloudSync: SyncBackend {
         let info = PairingInfo(role: .owner,
                                zoneName: zoneID.zoneName,
                                zoneOwnerName: zoneID.ownerName,
-                               pairedAt: Date())
+                               pairedAt: Date(),
+                               userRecordName: await currentUserRecordName())
         await MainActor.run {
             SharedStore.shared.pairing = info
             // A fresh invite is an open invite: re-arm the auto-close so it
@@ -520,8 +562,17 @@ actor CloudSync: SyncBackend {
         let info = PairingInfo(role: .participant,
                                zoneName: zoneID.zoneName,
                                zoneOwnerName: zoneID.ownerName,
-                               pairedAt: Date())
-        await MainActor.run { SharedStore.shared.pairing = info }
+                               pairedAt: Date(),
+                               userRecordName: await currentUserRecordName())
+        await MainActor.run {
+            // Any change tokens still around belong to a previous pairing's
+            // zone; handing one to a fetch against this zone fails every
+            // refresh from the first.
+            for key in ["private", "shared"] {
+                SharedStore.shared.setChangeToken(nil, for: key)
+            }
+            SharedStore.shared.pairing = info
+        }
         try await bootstrapAfterPairing(displayName: displayName)
     }
 
@@ -572,18 +623,29 @@ actor CloudSync: SyncBackend {
     /// CloudKit text — "Error fetching record <CKRecordID: 0x…> from server:
     /// Zone does not exist" — and left the device still claiming to be paired,
     /// with no way forward but reinstalling.
-    private func withZoneRecovery<T>(_ body: () async throws -> T) async throws -> T {
+    private func withZoneRecovery<T>(_ pairing: PairingInfo,
+                                     _ body: () async throws -> T) async throws -> T {
         do {
             return try await body()
         } catch let error as CKError where Self.isAlreadyGone(error) {
-            await abandonMissingZone()
+            try await abandonMissingZone(pairing)
             throw SyncError.linkEnded
         }
     }
 
     /// Cuts this device loose from a zone that isn't there any more. Keeps the
     /// name, so pairing again is one step rather than two.
-    private func abandonMissingZone() async {
+    ///
+    /// Refuses when the device is signed into a *different* iCloud account:
+    /// from there the pairing's zone is invisible even though it's intact, and
+    /// wiping over that — then re-inviting from the original account, which
+    /// sweeps the still-live partner off the share — is how one temporary
+    /// account switch used to destroy the pairing and history on both phones.
+    private func abandonMissingZone(_ pairing: PairingInfo) async throws {
+        guard await isPairingAccount(pairing) else {
+            log.notice("Zone unreachable, but this is a different iCloud account; keeping local state.")
+            throw SyncError.differentAccount
+        }
         log.notice("Shared zone is gone; unlinking this device.")
         await MainActor.run {
             SharedStore.shared.eraseLocalMedia()
@@ -616,7 +678,7 @@ actor CloudSync: SyncBackend {
         let recordID = CKRecord.ID(recordName: pairing.role.statusRecordName,
                                    zoneID: zoneID(for: pairing))
 
-        try await withZoneRecovery {
+        try await withZoneRecovery(pairing) {
             do {
                 try await saveStatus(payload, to: recordID, in: database)
             } catch let error as CKError where error.code == .serverRecordChanged {
@@ -670,8 +732,11 @@ actor CloudSync: SyncBackend {
         let changes: ZoneChanges
         do {
             changes = try await fetchZoneChanges(zone: zone, in: database, since: previous)
-        } catch let error as CKError where error.code == .changeTokenExpired {
+        } catch let error as CKError where Self.isTokenExpired(error) {
             // The server aged our token out. Start clean and take the lot.
+            // Token expiry is a *zone*-scoped error, so the operation reports
+            // it rolled up inside `.partialFailure` — matching only the bare
+            // code left the token in place and every refresh failing forever.
             log.notice("Change token expired, resyncing the whole zone.")
             previous = nil
             await MainActor.run { SharedStore.shared.setChangeToken(nil, for: tokenKey) }
@@ -680,7 +745,7 @@ actor CloudSync: SyncBackend {
             // The other side unlinked, or the zone was never reachable. Without
             // this the app would keep showing their last status forever and
             // quietly retry a zone that isn't there.
-            await abandonMissingZone()
+            try await abandonMissingZone(pairing)
             throw SyncError.linkEnded
         }
 
@@ -802,13 +867,16 @@ actor CloudSync: SyncBackend {
         // unlinks (they can't delete the owner's zone). Ignoring it left the
         // owner's app showing the ex's last status forever.
         var partnerErased = false
+        var removedMoments = false
         for recordID in changes.deletedIDs {
             let name = recordID.recordName
             if name == theirsRole.statusRecordName { partnerErased = true }
             if let id = mineRole.momentID(fromRecordName: name)
-                ?? theirsRole.momentID(fromRecordName: name) {
+                ?? theirsRole.momentID(fromRecordName: name),
+               Self.isSafeMomentID(id) {
                 MomentIndex.shared.remove(id: id)
                 MomentStore.shared.delete(id: id)
+                removedMoments = true
             }
         }
         // A delete and a recreation can share one delta (someone re-paired
@@ -831,6 +899,14 @@ actor CloudSync: SyncBackend {
 
         await MainActor.run {
             _ = store.mutate(reloadWidgets: false) {
+                // Checked *inside* the locked mutate: an unlink can land
+                // between this refresh's fetch and its write-back, and
+                // `clearPairing` clears the pairing key and the snapshot
+                // under the same lock — so a nil pairing here means this
+                // delta describes a relationship that just ended, and
+                // writing it would resurrect the ex's status onto a wiped
+                // snapshot.
+                guard store.pairing != nil else { return }
                 if let mine { $0.mine = mine }
                 if erased {
                     $0.theirs = nil
@@ -846,7 +922,15 @@ actor CloudSync: SyncBackend {
         // mutable array is a data race under strict concurrency.
         let arrived = moments.sorted { $0.sentAt < $1.sentAt }
         if arrived.isEmpty {
-            SharedStore.reloadWidgets()
+            if removedMoments {
+                // A deletions-only delta (the partner unlinking is the big
+                // one) still invalidates every snapshot field derived from
+                // the index — without this the photo widget keeps pointing at
+                // a moment whose files were just deleted.
+                await MainActor.run { store.applyDerived(from: MomentIndex.shared.load()) }
+            } else {
+                SharedStore.reloadWidgets()
+            }
         } else {
             await MainActor.run { store.record(arrived) }
             await downloadRecentMedia(for: arrived, pairing: pairing, in: database)
@@ -879,15 +963,24 @@ actor CloudSync: SyncBackend {
         let store = SharedStore.shared
         let now = Date()
 
+        // Check and claim inside one `mutate`, under the cross-process lock:
+        // the app's heart button and the lock-screen widget intent run in
+        // different processes, and a check outside the lock let a simultaneous
+        // tap on both send two nudges through one cooldown.
         let allowed = await MainActor.run { () -> Bool in
-            if let last = store.snapshot.lastNudgeSentAt,
-               now.timeIntervalSince(last) < AppConfig.nudgeCooldown {
-                return false
+            var claimed = false
+            _ = store.mutate(reloadWidgets: false) { snapshot in
+                if let last = snapshot.lastNudgeSentAt,
+                   now.timeIntervalSince(last) < AppConfig.nudgeCooldown {
+                    return
+                }
+                // Claim the cooldown before the network call so a double-tap
+                // can't slip a second nudge through while the first is in
+                // flight.
+                snapshot.lastNudgeSentAt = now
+                claimed = true
             }
-            // Claim the cooldown before the network call so a double-tap can't
-            // slip a second nudge through while the first is in flight.
-            _ = store.mutate(reloadWidgets: false) { $0.lastNudgeSentAt = now }
-            return true
+            return claimed
         }
         guard allowed else { return false }
 
@@ -897,16 +990,16 @@ actor CloudSync: SyncBackend {
             let recordID = CKRecord.ID(recordName: pairing.role.nudgeRecordName,
                                        zoneID: zoneID(for: pairing))
 
-            return try await withZoneRecovery {
-                let record = try await fetchRecord(recordID, in: database)
-                    ?? CKRecord(recordType: RecordType.nudge, recordID: recordID)
-                let next = (record[Field.count] as? Int ?? 0) + 1
-                record[Field.count] = next as CKRecordValue
-                record[Field.sentAt] = now as CKRecordValue
-
-                _ = try await database.modifyRecords(saving: [record],
-                                                     deleting: [],
-                                                     savePolicy: .changedKeys)
+            return try await withZoneRecovery(pairing) {
+                let next: Int
+                do {
+                    next = try await saveNudge(to: recordID, in: database, at: now)
+                } catch let error as CKError where error.code == .serverRecordChanged {
+                    // Another device of ours (the widget intent, most likely)
+                    // wrote first; refetch and increment on top of its count.
+                    log.notice("Nudge conflict, retrying against server record.")
+                    next = try await saveNudge(to: recordID, in: database, at: now)
+                }
 
                 await MainActor.run {
                     _ = store.mutate { snapshot in
@@ -923,6 +1016,21 @@ actor CloudSync: SyncBackend {
             }
             throw error
         }
+    }
+
+    /// One fetch-increment-save of the nudge record. Returns the new count.
+    private func saveNudge(to recordID: CKRecord.ID,
+                           in database: CKDatabase,
+                           at now: Date) async throws -> Int {
+        let record = try await fetchRecord(recordID, in: database)
+            ?? CKRecord(recordType: RecordType.nudge, recordID: recordID)
+        let next = (record[Field.count] as? Int ?? 0) + 1
+        record[Field.count] = next as CKRecordValue
+        record[Field.sentAt] = now as CKRecordValue
+        _ = try await database.modifyRecords(saving: [record],
+                                             deleting: [],
+                                             savePolicy: .changedKeys)
+        return next
     }
 
     // MARK: - Moments
@@ -961,7 +1069,7 @@ actor CloudSync: SyncBackend {
             record[Field.thumb] = CKAsset(fileURL: thumbURL)
         }
 
-        try await withZoneRecovery {
+        try await withZoneRecovery(pairing) {
             _ = try await database.modifyRecords(saving: [record],
                                                  deleting: [],
                                                  savePolicy: .allKeys)
@@ -1007,6 +1115,7 @@ actor CloudSync: SyncBackend {
         }
 
         guard let id = record[Field.momentID] as? String,
+              isSafeMomentID(id),
               let kindRaw = record[Field.kind] as? String,
               let kind = Moment.Kind(rawValue: kindRaw) else { return nil }
 
@@ -1020,6 +1129,18 @@ actor CloudSync: SyncBackend {
             duration: record[Field.duration] as? Double ?? 0,
             waveform: record.encryptedValues[Field.waveform] as? [Double] ?? []
         )
+    }
+
+    /// Moment ids come from the partner's device and end up interpolated into
+    /// file paths inside the App Group. A modified client sending `../…` must
+    /// not be able to write or delete outside `Moments/`.
+    private static func isSafeMomentID(_ id: String) -> Bool {
+        !id.isEmpty
+            && id.count <= 64
+            && !id.contains("/")
+            && !id.contains("\\")
+            && !id.contains("..")
+            && id != "."
     }
 
     private static func copyAsset(_ asset: CKAsset?, to destination: URL?) throws {
@@ -1065,7 +1186,7 @@ actor CloudSync: SyncBackend {
             subscription.recordType = RecordType.status
             let info = CKSubscription.NotificationInfo()
             info.title = AppConfig.appName
-            info.alertBody = "Updated their status"
+            info.alertBody = GenericAlert.status
             // Visible, so a status that scrolled past isn't gone: Notification
             // Centre keeps the history even when the app was never opened.
             // Deliberately no sound and no time-sensitivity — statuses change
@@ -1087,7 +1208,7 @@ actor CloudSync: SyncBackend {
             subscription.recordType = RecordType.nudge
             let info = CKSubscription.NotificationInfo()
             info.title = AppConfig.appName
-            info.alertBody = "Thinking of you 💭"
+            info.alertBody = GenericAlert.nudge
             info.soundName = "default"
             info.shouldSendMutableContent = true
             subscription.notificationInfo = info
@@ -1099,7 +1220,7 @@ actor CloudSync: SyncBackend {
             subscription.recordType = RecordType.moment
             let info = CKSubscription.NotificationInfo()
             info.title = AppConfig.appName
-            info.alertBody = "Sent you something 📷"
+            info.alertBody = GenericAlert.moment
             info.soundName = "default"
             info.shouldSendMutableContent = true
             subscription.notificationInfo = info
@@ -1152,6 +1273,14 @@ actor CloudSync: SyncBackend {
                 try await leaveShare(zone: zone, database: database)
             }
         } catch let error as CKError where Self.isAlreadyGone(error) {
+            // "Gone" is only good news under the account that made the
+            // pairing. Under a different one the zone merely *looks* gone,
+            // and calling the unlink done would erase local state while
+            // every photo and the open share sit intact in the other
+            // account's iCloud — the exact lie this method must not tell.
+            guard await isPairingAccount(pairing) else {
+                throw SyncError.differentAccount
+            }
             // They got there first. Nothing to delete is the outcome we wanted.
             log.notice("Shared zone already gone; unlink is a no-op.")
         }
@@ -1208,6 +1337,16 @@ actor CloudSync: SyncBackend {
         // still has to surface.
         let codes = partials.compactMap { ($0 as? CKError)?.code }
         return !codes.isEmpty && codes.allSatisfy(gone.contains)
+    }
+
+    /// Whether an error means the change token has expired — either bare, or
+    /// wrapped in `.partialFailure` the way `CKFetchRecordZoneChangesOperation`
+    /// reports zone-scoped errors.
+    private static func isTokenExpired(_ error: CKError) -> Bool {
+        if error.code == .changeTokenExpired { return true }
+        guard error.code == .partialFailure,
+              let partials = error.partialErrorsByItemID?.values else { return false }
+        return partials.contains { ($0 as? CKError)?.code == .changeTokenExpired }
     }
 
     // MARK: - Helpers

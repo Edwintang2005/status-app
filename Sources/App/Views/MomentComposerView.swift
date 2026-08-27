@@ -17,6 +17,7 @@ struct MomentComposerView: View {
     @State private var isDrawing = false
     @State private var pickerItem: PhotosPickerItem?
     @State private var showingCamera = false
+    @State private var importFailed = false
     @FocusState private var captionFocused: Bool
 
     /// Reads `strokeCount`, not `controller.isEmpty`: the canvas itself is
@@ -63,7 +64,7 @@ struct MomentComposerView: View {
         }
         .fullScreenCover(isPresented: $showingCamera) {
             CameraPicker { image in
-                photo = image
+                photo = image.composerSized()
                 isDrawing = false
             }
             .ignoresSafeArea()
@@ -73,12 +74,27 @@ struct MomentComposerView: View {
             Task {
                 if let data = try? await item.loadTransferable(type: Data.self),
                    let image = UIImage(data: data) {
-                    photo = image
+                    // Downscaled on import, off the main thread: a 48 MP
+                    // original decodes to ~190 MB the moment `scaledToFill`
+                    // renders it, and everything downstream caps at 1280 px
+                    // anyway (`MomentStore.write`).
+                    photo = await Task.detached(priority: .userInitiated) {
+                        image.composerSized()
+                    }.value
+                } else {
+                    // An iCloud-only original with no network lands here; a
+                    // silent no-op looked like the tap didn't register.
+                    importFailed = true
                 }
                 // Reset so re-picking the same photo after Clear still fires
                 // this handler — `onChange` is silent on equal values.
                 pickerItem = nil
             }
+        }
+        .alert("Couldn't load that photo", isPresented: $importFailed) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("It may not be downloaded from iCloud yet. Check your connection and try again.")
         }
     }
 
@@ -93,7 +109,10 @@ struct MomentComposerView: View {
                     Image(uiImage: photo)
                         .resizable()
                         .scaledToFill()
-                } else if !isDrawing {
+                } else if !isDrawing && controller.strokeCount == 0 {
+                    // Only on a genuinely blank square: with strokes down,
+                    // collapsing the palette used to draw this placeholder on
+                    // top of the finished doodle.
                     VStack(spacing: 10) {
                         Image(systemName: "photo.on.rectangle.angled")
                             .font(.system(size: 34))
@@ -185,6 +204,23 @@ struct MomentComposerView: View {
         guard canSend else { return }
         onSend(controller.render(over: photo), kind, caption)
         dismiss()
+    }
+}
+
+private extension UIImage {
+    /// Big enough that the 1024 px export never upscales, small enough that
+    /// holding and rendering it in the composer costs megabytes, not hundreds.
+    func composerSized(maxDimension: CGFloat = 2048) -> UIImage {
+        let longest = max(size.width, size.height)
+        guard longest > maxDimension, size.width > 0, size.height > 0 else { return self }
+        let scale = maxDimension / longest
+        let target = CGSize(width: (size.width * scale).rounded(),
+                            height: (size.height * scale).rounded())
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: target, format: format).image { _ in
+            draw(in: CGRect(origin: .zero, size: target))
+        }
     }
 }
 

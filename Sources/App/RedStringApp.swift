@@ -4,8 +4,16 @@ import SwiftUI
 @main
 struct RedStringApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @State private var model = AppModel()
+    @State private var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
+
+    init() {
+        #if DEBUG
+        // Before the model reads the store — see `DemoSeeder`.
+        DemoSeeder.seedIfRequested()
+        #endif
+        _model = State(initialValue: AppModel())
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -41,9 +49,20 @@ struct RedStringApp: App {
                     _ = InviteInbox.shared.take()
                     model.receiveInvite(metadata)
                 }
+                // An iCloud account switch while the app is running: re-check
+                // readiness so the different-account warning appears (and
+                // clears) without a relaunch.
+                .onReceive(NotificationCenter.default
+                    .publisher(for: .CKAccountChanged)
+                    .receive(on: DispatchQueue.main)) { _ in
+                    Task { await model.refresh() }
+                }
                 .onOpenURL { url in
-                    // Tapping the photo widget jumps straight to the composer.
-                    if url.host == "compose" { model.pendingComposer = true }
+                    // Tapping the photo widget jumps straight to the composer —
+                    // but only when paired: mid-onboarding the latched flag
+                    // used to pop the composer over a first-run home screen
+                    // the moment pairing finished.
+                    if url.host == "compose", model.isPaired { model.pendingComposer = true }
                 }
         }
     }

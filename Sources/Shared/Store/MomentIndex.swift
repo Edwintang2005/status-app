@@ -119,6 +119,11 @@ final class MomentIndex {
         lock.lock()
         defer { lock.unlock() }
         guard let fileURL else { return }
-        try? FileManager.default.removeItem(at: fileURL)
+        // Under the cross-process lock like every other write: an extension's
+        // in-flight `insert` would otherwise rewrite the file right after
+        // this deletes it, undoing the wipe.
+        crossLock.withLock {
+            try? FileManager.default.removeItem(at: fileURL)
+        }
     }
 }

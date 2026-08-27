@@ -172,9 +172,14 @@ struct HomeView: View {
                         .font(Theme.rounded(20, .semibold))
                         .lineLimit(2)
                         .foregroundStyle(theirs.message.isEmpty ? .secondary : .primary)
-                    Text(theirs.updatedAt, format: .relative(presentation: .named))
-                        .font(Theme.rounded(11))
-                        .foregroundStyle(.tertiary)
+                    // Inside a TimelineView because `.relative(presentation:)`
+                    // renders once and never ticks — "2 minutes ago" stayed
+                    // frozen for as long as the screen sat open.
+                    TimelineView(.periodic(from: .now, by: 60)) { _ in
+                        Text(theirs.updatedAt, format: .relative(presentation: .named))
+                            .font(Theme.rounded(11))
+                            .foregroundStyle(.tertiary)
+                    }
                 }
             } else {
                 Text("💭").font(.system(size: 46)).opacity(0.4)
@@ -331,21 +336,31 @@ struct HomeView: View {
     }
 
     private var syncFooter: some View {
-        HStack(spacing: 6) {
-            if model.isRefreshing {
-                ProgressView().controlSize(.mini)
-                Text("Syncing…")
-            } else if let synced = model.snapshot.lastSyncedAt {
-                Image(systemName: "checkmark.icloud")
-                Text("Synced \(synced, format: .relative(presentation: .named))")
-            } else {
-                Image(systemName: "icloud.slash")
-                Text("Not synced yet")
+        // TimelineView so "Synced 2 minutes ago" keeps ticking — the relative
+        // format renders once and never updates on its own.
+        TimelineView(.periodic(from: .now, by: 60)) { _ in
+            HStack(spacing: 6) {
+                if model.isRefreshing {
+                    ProgressView().controlSize(.mini)
+                    Text("Syncing…")
+                } else if let problem = model.readinessMessage {
+                    // The one place a paired user hears about a wrong iCloud
+                    // account or a signed-out one — the pairing screen that
+                    // usually carries this warning isn't mounted any more.
+                    Image(systemName: "exclamationmark.icloud")
+                    Text(problem)
+                } else if let synced = model.snapshot.lastSyncedAt {
+                    Image(systemName: "checkmark.icloud")
+                    Text("Synced \(synced, format: .relative(presentation: .named))")
+                } else {
+                    Image(systemName: "icloud.slash")
+                    Text("Not synced yet")
+                }
             }
+            .font(Theme.rounded(12))
+            .foregroundStyle(.tertiary)
+            .padding(.top, 4)
         }
-        .font(Theme.rounded(12))
-        .foregroundStyle(.tertiary)
-        .padding(.top, 4)
     }
 }
 
