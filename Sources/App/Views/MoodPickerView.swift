@@ -19,7 +19,7 @@ struct MoodPickerView: View {
     @State private var isCelebration = false
     @FocusState private var messageFocused: Bool
 
-    /// Groups with their matching presets, empty groups dropped. With ~90
+    /// Groups with their matching presets, empty groups dropped. With ~150
     /// presets, scrolling alone isn't a reasonable way to find one.
     private var filteredGroups: [(group: MoodGroup, moods: [Mood])] {
         MoodGroup.allCases.compactMap { group in

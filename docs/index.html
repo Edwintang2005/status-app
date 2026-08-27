@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Red String Privacy &amp; Support</title>
+<meta name="description" content="Privacy policy and support for Red String, the private status app for two people.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap">
+<style>
+  :root {
+    --ground: #FBF6F4;
+    --card: #FFFFFF;
+    --ink: #2B2226;
+    --muted: #77686D;
+    --hairline: #EADCDB;
+    --accent: #C0344E;
+    --accent-soft: #F7E3E6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #1F191B;
+      --card: #2A2225;
+      --ink: #F1E8E9;
+      --muted: #A79AA0;
+      --hairline: #382E32;
+      --accent: #E76A80;
+      --accent-soft: #3B2A2E;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #1F191B;
+    --card: #2A2225;
+    --ink: #F1E8E9;
+    --muted: #A79AA0;
+    --hairline: #382E32;
+    --accent: #E76A80;
+    --accent-soft: #3B2A2E;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+  }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Atkinson Hyperlegible", "Helvetica Neue", Arial, sans-serif;
+    font-size: 17px;
+    line-height: 1.65;
+  }
+  .page {
+    max-width: 42rem;
+    margin: 0 auto;
+    padding: 3.5rem 1.25rem 4rem;
+  }
+
+  header h1 {
+    font-family: "Nunito", "Avenir Next", "Helvetica Neue", sans-serif;
+    font-weight: 800;
+    font-size: clamp(2rem, 6vw, 2.75rem);
+    letter-spacing: -0.01em;
+    margin: 0 0 0.35rem;
+    text-wrap: balance;
+  }
+  .tagline {
+    color: var(--muted);
+    margin: 0;
+    font-size: 1.05rem;
+  }
+  .thread {
+    display: block;
+    width: 100%;
+    max-width: 22rem;
+    height: 26px;
+    margin: 1.6rem 0 0;
+    color: var(--accent);
+  }
+
+  nav {
+    display: flex;
+    gap: 0.6rem;
+    margin: 2rem 0 0;
+    flex-wrap: wrap;
+  }
+  nav a {
+    font-family: "Nunito", sans-serif;
+    font-weight: 700;
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-decoration: none;
+    color: var(--accent);
+    background: var(--accent-soft);
+    padding: 0.5rem 1rem;
+    border-radius: 999px;
+  }
+  nav a:hover { text-decoration: underline; }
+
+  main section {
+    margin-top: 3.25rem;
+    scroll-margin-top: 1.5rem;
+  }
+  h2 {
+    font-family: "Nunito", sans-serif;
+    font-weight: 800;
+    font-size: 1.7rem;
+    letter-spacing: -0.01em;
+    margin: 0 0 0.3rem;
+    text-wrap: balance;
+  }
+  .effective {
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin: 0 0 1.4rem;
+  }
+  h3 {
+    font-family: "Nunito", sans-serif;
+    font-weight: 800;
+    font-size: 1.12rem;
+    margin: 2rem 0 0.5rem;
+  }
+  p { margin: 0.7rem 0; }
+  ul { margin: 0.7rem 0; padding-left: 1.3rem; }
+  li { margin: 0.35rem 0; }
+  a { color: var(--accent); }
+  strong { font-weight: 700; }
+
+  .summary {
+    background: var(--card);
+    border: 1px solid var(--hairline);
+    border-radius: 18px;
+    padding: 1.1rem 1.3rem;
+    margin: 1.4rem 0 0;
+  }
+  .summary p { margin: 0; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    font-size: 0.95rem;
+  }
+  .table-scroll { overflow-x: auto; }
+  th, td {
+    text-align: left;
+    padding: 0.55rem 0.75rem 0.55rem 0;
+    border-bottom: 1px solid var(--hairline);
+    vertical-align: top;
+  }
+  th {
+    font-family: "Nunito", sans-serif;
+    font-weight: 700;
+    font-size: 0.78rem;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .mail-button {
+    display: inline-block;
+    font-family: "Nunito", sans-serif;
+    font-weight: 800;
+    font-size: 1.05rem;
+    color: #FFFFFF;
+    background: var(--accent);
+    text-decoration: none;
+    padding: 0.85rem 1.8rem;
+    border-radius: 999px;
+    margin: 0.9rem 0 0.2rem;
+  }
+  .mail-button:hover { filter: brightness(1.08); }
+  .mail-button:focus-visible,
+  nav a:focus-visible,
+  a:focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .mail-note {
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin-top: 0.6rem;
+  }
+  .coffee-link {
+    display: inline-block;
+    font-family: "Nunito", sans-serif;
+    font-weight: 700;
+    color: var(--accent);
+    background: var(--accent-soft);
+    text-decoration: none;
+    padding: 0.15rem 0.7rem;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .coffee-link:hover { text-decoration: underline; }
+
+  footer {
+    margin-top: 4rem;
+    padding-top: 1.4rem;
+    border-top: 1px solid var(--hairline);
+    color: var(--muted);
+    font-size: 0.88rem;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <h1>Red String</h1>
+    <p class="tagline">A private status app for two people — no accounts, no servers, no ads.</p>
+    <svg class="thread" viewBox="0 0 340 26" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+      <path d="M2 14 C 50 4, 90 24, 140 13 S 250 4, 305 12"/>
+      <path d="M316 7.5 c -2.6 -4.4 -9.5 -2.6 -9.5 2.6 c 0 4.4 5.2 7 9.5 10.4 c 4.3 -3.4 9.5 -6 9.5 -10.4 c 0 -5.2 -6.9 -7 -9.5 -2.6 z" fill="currentColor" stroke="none"/>
+    </svg>
+    <nav aria-label="Sections">
+      <a href="#privacy">Privacy policy</a>
+      <a href="#support">Support</a>
+    </nav>
+  </header>
+
+  <main>
+    <section id="privacy" aria-labelledby="privacy-heading">
+      <h2 id="privacy-heading">Privacy policy</h2>
+      <p class="effective">Effective 27 August 2026 · Applies to the Red String iOS app</p>
+
+      <div class="summary">
+        <p><strong>The short version:</strong> we collect nothing. Everything you share in
+        Red String travels through your own iCloud account to exactly one other person —
+        your partner. It never touches a server we run, because we don't run any.</p>
+      </div>
+
+      <h3>What the app handles, and where it lives</h3>
+      <p>Red String lets two paired people share statuses (an emoji, a short message and
+      the name you choose for yourself), "thinking of you" nudges, photos, doodles and
+      voice memos. That content is stored in two places only:</p>
+      <ul>
+        <li><strong>On your device</strong>, in the app's private container, so the app and
+        its widgets work instantly and offline.</li>
+        <li><strong>In your own iCloud</strong> (Apple's CloudKit service), in a private
+        space shared with exactly one person: the partner you paired with.</li>
+      </ul>
+      <p>Status text, captions, the names you set and voice-memo waveforms are stored using
+      CloudKit's end-to-end encrypted fields, which Apple's servers cannot read. Photos,
+      doodles and voice recordings are stored as CloudKit assets, which Apple encrypts on
+      its servers by default.</p>
+
+      <h3>What we collect: nothing</h3>
+      <p>The app contains no analytics, no advertising, no tracking and no third-party
+      software of any kind. We have no accounts, no sign-in and no database. We never
+      receive, and cannot access, anything you write, draw, photograph or record. The
+      app's App Store privacy label is "Data Not Collected", and this policy is the long
+      form of the same fact.</p>
+      <p>One caveat for completeness: if you have turned on <em>Share With App Developers</em>
+      in iOS Settings, Apple may send us anonymised crash reports. These are produced and
+      controlled by Apple, contain no content from the app, and we use them only to fix
+      crashes.</p>
+
+      <h3>Who can see what you share</h3>
+      <ul>
+        <li><strong>Your partner</strong> — the one person who accepted your invite link.
+        Pairing uses an Apple CloudKit share; the link stops working automatically the
+        moment your partner joins, so a forwarded link can't add a third person.</li>
+        <li><strong>Apple</strong> — as the operator of iCloud, Apple processes and stores
+        this data on your behalf under its own
+        <a href="https://www.apple.com/legal/privacy/" rel="noopener">privacy policy</a> and
+        the iCloud terms you agreed to with Apple. Apple gives this data the same
+        protections described above; no other third party is involved.</li>
+      </ul>
+
+      <h3>Permissions the app asks for</h3>
+      <div class="table-scroll">
+        <table>
+          <tr><th>Permission</th><th>Used for</th></tr>
+          <tr><td>Camera</td><td>Taking a photo to send, only when you open the camera from the composer.</td></tr>
+          <tr><td>Microphone</td><td>Recording a voice memo, only while you hold a recording session open.</td></tr>
+          <tr><td>Photo library (add&nbsp;only)</td><td>Saving a received photo or doodle to your Photos app. The app cannot browse your library; picking a photo to send uses Apple's picker, which shares only the photo you choose.</td></tr>
+          <tr><td>Notifications</td><td>Showing statuses, nudges and moments from your partner. The push itself carries only generic wording; the real content is decrypted on your device.</td></tr>
+        </table>
+      </div>
+      <p>Every permission is optional, asked for the first time the feature is used, and
+      changeable any time in iOS Settings.</p>
+
+      <h3>How long data is kept, and how to delete it</h3>
+      <p>What you share stays in the two places above until one of you deletes it. You are
+      in full control, directly from the app:</p>
+      <ul>
+        <li><strong>Unlink</strong> (Settings → unlink) ends the pairing. If you created
+        the shared space, unlinking deletes it — including everything both of you sent.
+        If you joined it, unlinking deletes everything <em>you</em> sent from your
+        partner's iCloud before leaving.</li>
+        <li><strong>Delete everything and start over</strong> (Settings) does the above
+        and also erases all local content and your name, returning the app to the state
+        it was in when first installed.</li>
+        <li><strong>Deleting the app</strong> removes everything stored on the device.</li>
+      </ul>
+      <p>Because pairing is the only thing your content is used for, unlinking is also how
+      you withdraw consent — there is no copy anywhere else and no further request you
+      need to make. If anything ever seems left behind, email us (address below) and we
+      will help you resolve it within 30 days.</p>
+
+      <h3>Children</h3>
+      <p>Red String is not directed at children, and we do not knowingly handle personal
+      information from anyone under 13 (or the equivalent minimum age in your country).</p>
+
+      <h3>Changes to this policy</h3>
+      <p>If the app ever changes in a way that affects your privacy, we will update this
+      page and the effective date above before the change ships. Given the app's design —
+      no servers, no collection — we expect changes to be rare and boring.</p>
+
+      <h3>Contact</h3>
+      <p>Red String is made by Edwin Tang. For any privacy question or request, email
+      <a href="mailto:edwintang2005@gmail.com">edwintang2005@gmail.com</a>.</p>
+    </section>
+
+    <section id="support" aria-labelledby="support-heading">
+      <h2 id="support-heading">Support</h2>
+
+      <h3>Common questions</h3>
+      <p><strong>How do I pair with my partner?</strong> One of you taps
+      <em>Create invite link</em> and sends the link over any messaging app. The other
+      taps it, enters their name, and you're linked. The link stops working once it has
+      been used.</p>
+      <p><strong>Notifications aren't arriving.</strong> Check that notifications are
+      allowed for Red String in iOS Settings, that both phones are signed into iCloud,
+      and that neither phone is in a Focus that silences the app. Opening the app always
+      pulls the latest from iCloud regardless.</p>
+      <p><strong>The widget says "Open to pair" but I'm paired.</strong> Open the app once
+      so it can refresh, then check the widget again. If it persists, remove and re-add
+      the widget.</p>
+      <p><strong>I got a new phone — where's our history?</strong> Sign into the same
+      iCloud account and install Red String; the full history syncs back on its own.
+      Older photos load as you scroll back through them.</p>
+
+      <h3>Still stuck, found a bug, or have an idea?</h3>
+      <p>Email is the fastest way to reach us — a person reads every message.</p>
+      <a class="mail-button" href="mailto:edwintang2005@gmail.com?subject=Red%20String%20support">Email support</a>
+      <p class="mail-note">edwintang2005@gmail.com · Include your iOS version and what you
+      tapped just before the problem, and we can usually sort it in one reply.</p>
+
+      <h3>Support your dev</h3>
+      <p>Red String is free, with no ads and no subscriptions. If it makes your days a
+      little closer, you can
+      <a class="coffee-link" href="https://beemit.com.au/pay?handle=EdwinTang&amp;amount=500&amp;description=%20%20%20%20%20%20%20%20coffee&amp;source=payment-link" rel="noopener">buy me a coffee ☕️</a>
+      — it keeps the app exactly the way it is.</p>
+    </section>
+  </main>
+
+  <footer>
+    <p>© 2026 Edwin Tang · Red String for iOS ·
+    <a href="#privacy">Privacy policy</a> · <a href="#support">Support</a></p>
+  </footer>
+
+</div>
+</body>
+</html>

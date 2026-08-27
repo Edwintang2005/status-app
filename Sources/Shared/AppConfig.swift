@@ -50,4 +50,10 @@ enum AppConfig {
     /// Loudness samples kept per voice memo. Enough to read as a waveform at
     /// full width, few enough that the metadata stays a few hundred bytes.
     static let voiceWaveformSampleCount = 48
+
+    /// The "buy me a coffee" tip link in Settings — a Beem payment link, so
+    /// the tip goes person-to-person with no middleman fee.
+    static let tipJarURL = URL(string:
+        "https://beemit.com.au/pay?handle=EdwinTang&amount=500"
+        + "&description=%20%20%20%20%20%20%20%20coffee&source=payment-link")!
 }

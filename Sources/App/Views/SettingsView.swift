@@ -100,6 +100,14 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Link(destination: AppConfig.tipJarURL) {
+                        Label("Support your dev — buy me a coffee", systemImage: "cup.and.saucer.fill")
+                    }
+                } footer: {
+                    Text("Red String is free, with no ads and no subscriptions. If it makes your days a little closer, a coffee keeps it that way.")
+                }
+
+                Section {
                     LabeledContent("Version", value: versionString)
                     #if DEBUG
                     NavigationLink("iCloud diagnostics") {
