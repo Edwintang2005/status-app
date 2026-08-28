@@ -70,11 +70,16 @@ struct MomentLibraryView: View {
             }
             .overlay(alignment: .bottomLeading) {
                 if moment.fromMe {
-                    Image(systemName: "arrow.up.right")
+                    // A send that hasn't reached the other person yet wears a
+                    // clock instead of the sent-arrow; `retryPendingUploads`
+                    // clears it on the next successful foreground.
+                    Image(systemName: moment.uploaded ? "arrow.up.right" : "clock.fill")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(.white)
                         .padding(4)
-                        .background(.black.opacity(0.35), in: Circle())
+                        .background(moment.uploaded ? AnyShapeStyle(.black.opacity(0.35))
+                                                    : AnyShapeStyle(Theme.warm),
+                                    in: Circle())
                         .padding(6)
                 }
             }

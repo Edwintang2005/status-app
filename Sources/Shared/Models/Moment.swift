@@ -24,6 +24,12 @@ struct Moment: Codable, Hashable, Identifiable {
     /// Whether the recipient has actually looked at it. Local only — never
     /// written to CloudKit, since "seen" means seen *on this device*.
     var seen: Bool
+    /// Whether this device's copy has made it to CloudKit. Local only, and
+    /// only meaningful on `fromMe` moments: a send that failed mid-upload
+    /// leaves this `false`, and `AppModel.retryPendingUploads()` picks it up
+    /// on the next foreground. Received moments are `true` by construction —
+    /// they came *from* the server.
+    var uploaded: Bool
 
     /// Length of the recording, in seconds. Voice memos only — `0` for
     /// anything visual. Carried in the metadata so the grid and the widget can
@@ -43,6 +49,7 @@ struct Moment: Codable, Hashable, Identifiable {
          sentAt: Date = Date(),
          fromMe: Bool,
          seen: Bool? = nil,
+         uploaded: Bool = true,
          duration: TimeInterval = 0,
          waveform: [Double] = []) {
         self.id = id
@@ -53,12 +60,13 @@ struct Moment: Codable, Hashable, Identifiable {
         self.fromMe = fromMe
         // Your own sends are seen by definition.
         self.seen = seen ?? fromMe
+        self.uploaded = uploaded
         self.duration = duration
         self.waveform = waveform
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, kind, caption, senderName, sentAt, fromMe, seen, duration, waveform
+        case id, kind, caption, senderName, sentAt, fromMe, seen, uploaded, duration, waveform
     }
 
     /// Hand-written so an index file from a build without `seen` still decodes
@@ -75,6 +83,10 @@ struct Moment: Codable, Hashable, Identifiable {
         sentAt = try container.decode(Date.self, forKey: .sentAt)
         fromMe = try container.decode(Bool.self, forKey: .fromMe)
         seen = try container.decodeIfPresent(Bool.self, forKey: .seen) ?? fromMe
+        // Entries written before this flag existed predate the retry queue;
+        // assuming they made it avoids re-uploading (or eternally flagging)
+        // the whole history on first launch after the update.
+        uploaded = try container.decodeIfPresent(Bool.self, forKey: .uploaded) ?? true
         duration = try container.decodeIfPresent(TimeInterval.self, forKey: .duration) ?? 0
         waveform = try container.decodeIfPresent([Double].self, forKey: .waveform) ?? []
     }

@@ -204,7 +204,7 @@ final class VoiceRecorder {
         recorder?.stop()
         recorder = nil
         deactivateSession()
-        // Not only the 60-second ceiling lands here: a phone call, Siri or an
+        // Not only the duration ceiling lands here: a phone call, Siri or an
         // alarm stops `AVAudioRecorder` underneath us and the next tick
         // arrives with `isRecording == false`. The same too-short rule as
         // `stop()` applies — without it, an interruption moments into a take

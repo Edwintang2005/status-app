@@ -36,7 +36,7 @@ enum MoodGroup: String, CaseIterable, Identifiable {
     var moods: [Mood] {
         switch self {
         case .mood:
-            return [
+            var moods = [
                 Mood(emoji: "🥰", label: "loving"),
                 Mood(emoji: "🥹", label: "miss you"),
                 Mood(emoji: "🥺", label: "need you now"),
@@ -75,6 +75,14 @@ enum MoodGroup: String, CaseIterable, Identifiable {
                 Mood(emoji: "😪", label: "sleepy"),
                 Mood(emoji: "🥱", label: "tired"),
             ]
+            // 🫪 is Unicode 16.0, which iOS renders only from 18.4 — offering
+            // it below that shows a placeholder box in the picker. A partner
+            // on an older build still sees the box if this arrives on their
+            // status; that's the emoji's floor, not something we can gate.
+            if #available(iOS 18.4, *) {
+                moods.append(Mood(emoji: "🫪", label: "exhausted"))
+            }
+            return moods
         case .us:
             return [
                 Mood(emoji: "💌", label: "thinking of you"),

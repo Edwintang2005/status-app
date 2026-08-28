@@ -42,10 +42,13 @@ enum AppConfig {
     /// ones are fetched from CloudKit on demand when you scroll to them.
     static let momentImageCacheLimit = 60
 
-    /// Hard ceiling on a voice memo. This is a "thinking of you" channel, not
-    /// voicemail — a long recording is also a slow upload on a bad connection,
-    /// and recording stops itself here rather than failing later.
-    static let voiceMemoMaxDuration: TimeInterval = 60
+    /// Hard ceiling on a voice memo. Three minutes is long enough for a real
+    /// message but keeps the file near a megabyte — small enough to nearly
+    /// always finish uploading inside the background grace period after the
+    /// app is switched away, which is what makes interrupted sends rare
+    /// rather than routine. Recording stops itself here rather than failing
+    /// later on the upload.
+    static let voiceMemoMaxDuration: TimeInterval = 180
 
     /// Loudness samples kept per voice memo. Enough to read as a waveform at
     /// full width, few enough that the metadata stays a few hundred bytes.

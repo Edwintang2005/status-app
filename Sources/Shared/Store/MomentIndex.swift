@@ -72,6 +72,11 @@ final class MomentIndex {
                 // memo re-badges as new.
                 if let existing = all.first(where: { $0.id == moment.id }) {
                     moment.seen = moment.seen || existing.seen
+                    // Sticky in the same direction as `seen`: a copy fetched
+                    // back from CloudKit proves the upload happened — even one
+                    // the sender's app died before acknowledging — and nothing
+                    // ever makes an uploaded moment pending again.
+                    moment.uploaded = moment.uploaded || existing.uploaded
                 }
                 all.removeAll { $0.id == moment.id }
                 all.append(moment)
@@ -94,6 +99,25 @@ final class MomentIndex {
             var changed = false
             for index in all.indices where targets.contains(all[index].id) && !all[index].seen {
                 all[index].seen = true
+                changed = true
+            }
+            if changed { saveUnlocked(all) }
+            return all
+        }
+    }
+
+    /// Marks entries as safely on the server. Returns the updated list.
+    @discardableResult
+    func markUploaded(ids: some Collection<String>) -> [Moment] {
+        lock.lock()
+        defer { lock.unlock() }
+
+        return crossLock.withLock {
+            let targets = Set(ids)
+            var all = loadUnlocked()
+            var changed = false
+            for index in all.indices where targets.contains(all[index].id) && !all[index].uploaded {
+                all[index].uploaded = true
                 changed = true
             }
             if changed { saveUnlocked(all) }

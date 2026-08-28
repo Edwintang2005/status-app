@@ -18,6 +18,9 @@ final class AppModel {
     private(set) var inviteClosed: Bool = SharedStore.shared.inviteClosed
     private(set) var isBusy = false
     private(set) var isRefreshing = false
+    /// Re-entrancy guard for `retryPendingUploads` — a slow retry must not be
+    /// joined by a second one from the next foreground.
+    @ObservationIgnored private var isRetryingUploads = false
     /// Owner side: the link to hand to the partner, `nil` once it has been
     /// closed. Seeded from the store rather than left empty, so it survives a
     /// relaunch — see `refreshInviteURL()`.
@@ -111,6 +114,12 @@ final class AppModel {
     /// moment it's been listened to once. Everything older is in the history.
     var latestReceivedVoiceMemo: Moment? {
         history.first { !$0.fromMe && $0.isVoice }
+    }
+
+    /// Own moments that haven't reached CloudKit yet — what the sync footer
+    /// counts, and what `retryPendingUploads()` will re-send.
+    var pendingUploadCount: Int {
+        history.count { $0.fromMe && !$0.uploaded }
     }
 
     /// What tapping the home card opens: whatever is waiting, or — when you're
@@ -297,6 +306,9 @@ final class AppModel {
         do {
             try await SyncRunner.refresh()
             reload()
+            // Foregrounding is the retry moment for sends that died in the
+            // background — see `retryPendingUploads`.
+            await retryPendingUploads()
         } catch {
             // The backend may have unlinked us on its own — a zone that no
             // longer exists is the other person having ended things — so the
@@ -379,11 +391,14 @@ final class AppModel {
         // `senderName` is what the recipient will see, so it has to be the
         // name you set for yourself — captured at send time, which is why an
         // older moment keeps the name you had when you sent it.
+        // Pending only when there is a partner to deliver to — an unpaired
+        // send is a local keepsake with nothing to retry.
         let moment = Moment(
             kind: kind,
             caption: caption.trimmingCharacters(in: .whitespacesAndNewlines),
             senderName: snapshot.mine?.displayName ?? "",
-            fromMe: true
+            fromMe: true,
+            uploaded: !isPaired
         )
 
         do {
@@ -402,8 +417,9 @@ final class AppModel {
             try await withUploadProtection("moment-upload") {
                 try await Backend.current.send(moment)
             }
+            markUploaded(moment)
         } catch {
-            present(error)
+            presentSendFailure(error, noun: moment.noun)
         }
     }
 
@@ -438,6 +454,7 @@ final class AppModel {
             caption: caption.trimmingCharacters(in: .whitespacesAndNewlines),
             senderName: snapshot.mine?.displayName ?? "",
             fromMe: true,
+            uploaded: !isPaired,
             duration: duration,
             waveform: waveform
         )
@@ -458,8 +475,50 @@ final class AppModel {
             try await withUploadProtection("voice-memo-upload") {
                 try await Backend.current.send(moment)
             }
+            markUploaded(moment)
         } catch {
-            present(error)
+            presentSendFailure(error, noun: moment.noun)
+        }
+    }
+
+    /// Flips the pending flag once the record is confirmed on the server, and
+    /// refreshes the history so the grid's badge disappears.
+    private func markUploaded(_ moment: Moment) {
+        history = MomentIndex.shared.markUploaded(ids: [moment.id])
+    }
+
+    /// Re-sends every own moment whose upload never completed — a send
+    /// interrupted by backgrounding, a dead spot, an iCloud hiccup. Called on
+    /// every foreground refresh, so a failed send from this morning goes out
+    /// the next time the app opens.
+    ///
+    /// Quiet on failure: this is a background courtesy, and the pending badge
+    /// in the history grid already says the moment hasn't gone out. Safe to
+    /// re-run — `CloudSync.send` writes a deterministic record name with
+    /// `.allKeys`, so a duplicate send just overwrites the same record.
+    func retryPendingUploads() async {
+        guard isPaired, !isRetryingUploads else { return }
+        let pending = history.filter { $0.fromMe && !$0.uploaded }
+        guard !pending.isEmpty else { return }
+        isRetryingUploads = true
+        defer { isRetryingUploads = false }
+
+        for moment in pending {
+            // A pending moment whose media has been pruned or wiped can never
+            // succeed; stop flagging it rather than retrying forever.
+            guard MomentStore.shared.hasMedia(for: moment) else {
+                markUploaded(moment)
+                continue
+            }
+            do {
+                try await withUploadProtection("moment-retry") {
+                    try await Backend.current.send(moment)
+                }
+                markUploaded(moment)
+                log.info("Retried upload of \(moment.id, privacy: .public) successfully")
+            } catch {
+                log.error("Retry upload of \(moment.id, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 
@@ -632,6 +691,15 @@ final class AppModel {
     }
 
     // MARK: - Errors
+
+    /// A failed moment upload isn't a lost moment — it's filed locally and
+    /// `retryPendingUploads()` will re-send it — so the alert says that
+    /// instead of reading like the send is gone.
+    private func presentSendFailure(_ error: Error, noun: String) {
+        let code = (error as? CKError).map { "CKError \($0.code.rawValue): " } ?? ""
+        log.error("Send failed (\(code, privacy: .public))\(error.localizedDescription, privacy: .public)")
+        errorMessage = "Couldn't send that \(noun) right now — it's saved, and will be sent automatically next time you open the app."
+    }
 
     private func present(_ error: Error) {
         // The CKError code alongside the message, because the message alone

@@ -347,6 +347,14 @@ struct HomeView: View {
                     // usually carries this warning isn't mounted any more.
                     Image(systemName: "exclamationmark.icloud")
                     Text(problem)
+                } else if model.pendingUploadCount > 0 {
+                    // Something of ours hasn't gone out. Ahead of "Synced …",
+                    // which would be quietly misleading while a moment is
+                    // still sitting on this device.
+                    Image(systemName: "icloud.and.arrow.up")
+                    Text(model.pendingUploadCount == 1
+                         ? "1 waiting to send"
+                         : "\(model.pendingUploadCount) waiting to send")
                 } else if let synced = model.snapshot.lastSyncedAt {
                     Image(systemName: "checkmark.icloud")
                     Text("Synced \(synced, format: .relative(presentation: .named))")
