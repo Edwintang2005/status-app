@@ -58,11 +58,6 @@ final class NotificationService: UNNotificationServiceExtension {
             return content
         }
 
-        // Captured before the refresh, so a status push can tell "the partner
-        // said something new" apart from "this user's own other device wrote,
-        // and the partner's status is merely still there".
-        let partnerStatusBefore = await MainActor.run { SharedStore.shared.snapshot.theirs }
-
         // The widget is the whole point of doing this here: on a force-quit
         // phone nothing else will update it until the user opens the app.
         // Deferred so it runs on *every* exit — a refresh that throws midway
@@ -95,11 +90,25 @@ final class NotificationService: UNNotificationServiceExtension {
             // whichever process consumed the delta has already claimed the
             // newest — labelling every banner with its caption left the
             // older moments' captions never shown.
-            let snapshot = await MainActor.run { SharedStore.shared.snapshot }
+            //
+            // Picked and claimed inside one `mutate`, under the cross-process
+            // lock: those rapid-fire pushes run as *concurrent* extension
+            // instances, and a pick outside the lock let two of them choose
+            // the same un-announced moment — the newest caption on both
+            // banners, the older one never shown. Claiming before the media
+            // work is safe because the banner is guaranteed to display this
+            // content object even on expiry, title and body already set.
             let fromIndex = MomentIndex.shared.load().filter { !$0.fromMe }
-            let moment = result.newestPartnerMoment
-                ?? fromIndex.first { !snapshot.hasAnnounced($0.id) }
-                ?? fromIndex.first
+            let moment = await MainActor.run { () -> Moment? in
+                var chosen: Moment?
+                _ = SharedStore.shared.mutate(reloadWidgets: false) { snapshot in
+                    chosen = result.newestPartnerMoment
+                        ?? fromIndex.first { !snapshot.hasAnnounced($0.id) }
+                        ?? fromIndex.first
+                    if let chosen { snapshot.recordAnnounced(chosen.id) }
+                }
+                return chosen
+            }
             if let moment {
                 await apply(moment, to: content, partnerName: partnerName)
             }
@@ -112,13 +121,30 @@ final class NotificationService: UNNotificationServiceExtension {
                 await applyNudge(to: content, partnerName: partnerName, nudgeCount: count)
             }
         case CloudSync.SubscriptionID.status?:
-            // Rewrite only when the partner's status actually changed in this
-            // delta. A change made by *this user's own other device* also
-            // lands here, and `partnerStatus` falls back to the existing
-            // value — rewriting with that would mislabel the banner. The
-            // generic text stands for that edge.
-            if let status = result.partnerStatus, status != partnerStatusBefore {
-                applyStatus(status, to: content, partnerName: partnerName)
+            // Rewrite whenever the partner has a status this device hasn't
+            // announced yet, judged by watermark rather than by "did *my*
+            // refresh see the change": the widget shares the change token and
+            // its own refresh often consumes the delta first, which made this
+            // push's delta empty and left the generic wording standing —
+            // exactly when the app was closed. A push fired by *this user's
+            // own other device* still shows the generic text: it doesn't move
+            // the partner's `updatedAt`, so the watermark check fails.
+            // Check-and-claim inside one `mutate`, under the cross-process
+            // lock, so two near-simultaneous pushes don't both rewrite.
+            if let status = result.partnerStatus {
+                let claimed = await MainActor.run { () -> Bool in
+                    var claimed = false
+                    _ = SharedStore.shared.mutate(reloadWidgets: false) {
+                        let announced = $0.lastAnnouncedPartnerStatusAt ?? .distantPast
+                        guard status.updatedAt > announced else { return }
+                        $0.lastAnnouncedPartnerStatusAt = status.updatedAt
+                        claimed = true
+                    }
+                    return claimed
+                }
+                if claimed {
+                    applyStatus(status, to: content, partnerName: partnerName)
+                }
             }
         default:
             // The legacy silent status push or an unknown future
@@ -150,17 +176,19 @@ final class NotificationService: UNNotificationServiceExtension {
         content.title = moment.senderName.isEmpty ? partnerName : moment.senderName
         content.body = moment.caption.isEmpty ? moment.arrivalSummary : moment.caption
 
-        if let attachment = MomentAttachment.make(for: moment, suffix: "push") {
-            content.attachments = [attachment]
+        // The media may not be on disk yet: this moment can come from the
+        // index fallback — another process consumed the delta, and its media
+        // download may have failed or still be in flight — and even this
+        // refresh's own `downloadRecentMedia` is best-effort. A banner without
+        // the picture defeats the point of the attachment, so fetch it here
+        // rather than settling for text.
+        var attachment = MomentAttachment.make(for: moment, suffix: "push")
+        if attachment == nil {
+            try? await CloudSync.shared.fetchMedia(for: moment)
+            attachment = MomentAttachment.make(for: moment, suffix: "push")
         }
-
-        // Record that the user has now been told, so the app doesn't raise a
-        // duplicate local notification the next time it refreshes — and so the
-        // next rapid-fire push's fallback picks a different moment.
-        await MainActor.run {
-            _ = SharedStore.shared.mutate(reloadWidgets: false) {
-                $0.recordAnnounced(moment.id)
-            }
+        if let attachment {
+            content.attachments = [attachment]
         }
     }
 
@@ -174,9 +202,13 @@ final class NotificationService: UNNotificationServiceExtension {
         // Awaited: the system may suspend this process the instant the
         // content handler runs, and a fire-and-forget write that never lands
         // means the app re-announces the same nudge on its next refresh.
+        // `max`, not assignment: two taps in quick succession run as
+        // concurrent extension instances, and the one carrying the older
+        // count can land its write second — a watermark moved backwards is a
+        // duplicate "thinking of you" on the app's next refresh.
         await MainActor.run {
             _ = SharedStore.shared.mutate(reloadWidgets: false) {
-                $0.lastSeenPartnerNudgeCount = nudgeCount
+                $0.lastSeenPartnerNudgeCount = max($0.lastSeenPartnerNudgeCount, nudgeCount)
             }
         }
     }

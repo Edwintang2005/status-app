@@ -75,7 +75,15 @@ enum NotificationManager {
         content.body = moment.caption.isEmpty ? moment.arrivalSummary : moment.caption
         content.sound = .default
 
-        if let attachment = MomentAttachment.make(for: moment, suffix: "notify") {
+        // The refresh that found this moment downloads media best-effort; if
+        // that failed, fetch here rather than announcing a photo with no
+        // photo. Same recovery as the service extension's.
+        var attachment = MomentAttachment.make(for: moment, suffix: "notify")
+        if attachment == nil {
+            try? await Backend.current.fetchMedia(for: moment)
+            attachment = MomentAttachment.make(for: moment, suffix: "notify")
+        }
+        if let attachment {
             content.attachments = [attachment]
         }
 

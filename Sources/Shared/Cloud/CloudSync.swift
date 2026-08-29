@@ -582,11 +582,16 @@ actor CloudSync: SyncBackend {
         try? await registerSubscription()
         try await publish(.initial(displayName: displayName))
         let theirs = (try? await refresh())?.partnerStatus
-        // Seed the nudge watermark from whatever is already on the server, so
+        // Seed the watermarks from whatever is already on the server, so
         // pairing against an existing history doesn't fire a burst of stale
-        // "thinking of you" notifications.
+        // "thinking of you" notifications — and so the first push caused by
+        // this user's own other device doesn't get relabelled with the
+        // partner's pre-pairing status.
         await MainActor.run {
-            _ = SharedStore.shared.mutate { $0.lastSeenPartnerNudgeCount = theirs?.nudgeCount ?? 0 }
+            _ = SharedStore.shared.mutate {
+                $0.lastSeenPartnerNudgeCount = theirs?.nudgeCount ?? 0
+                $0.lastAnnouncedPartnerStatusAt = theirs?.updatedAt
+            }
         }
     }
 

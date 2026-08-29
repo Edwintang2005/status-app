@@ -211,6 +211,14 @@ struct Snapshot: Codable, Hashable {
     /// idempotent when the same record is fetched twice.
     var lastCelebratedAt: Date?
 
+    /// `updatedAt` of the partner status most recently written onto a push
+    /// banner by the notification service extension — the status twin of
+    /// `lastSeenPartnerNudgeCount`. The extension can't gate the rewrite on
+    /// "my refresh saw the change": the widget shares the change token and
+    /// often consumes the delta first, which left the banner wearing
+    /// CloudKit's generic wording exactly when the app was closed.
+    var lastAnnouncedPartnerStatusAt: Date?
+
     static let empty = Snapshot(
         mine: nil,
         theirs: nil,
@@ -229,6 +237,7 @@ struct Snapshot: Codable, Hashable {
         case lastNotifiedMomentID, latestPartnerVisualMoment, unheardVoiceMemoCount
         case lastCelebratedAt, notifiedMomentIDs
         case lastNudgeFailedAt, myStatusPublished
+        case lastAnnouncedPartnerStatusAt
     }
 
     /// Hand-written for the same reason `Moment`'s is: synthesised `Codable`
@@ -269,6 +278,8 @@ struct Snapshot: Codable, Hashable {
         // assuming published avoids re-pushing an old status on first launch.
         myStatusPublished = try container
             .decodeIfPresent(Bool.self, forKey: .myStatusPublished) ?? true
+        lastAnnouncedPartnerStatusAt = try container
+            .decodeIfPresent(Date.self, forKey: .lastAnnouncedPartnerStatusAt)
     }
 
     /// Hand-written because the synthesised encoder omits nil optionals, and
@@ -295,6 +306,8 @@ struct Snapshot: Codable, Hashable {
         try container.encode(notifiedMomentIDs, forKey: .notifiedMomentIDs)
         try container.encodeIfPresent(lastNudgeFailedAt, forKey: .lastNudgeFailedAt)
         try container.encode(myStatusPublished, forKey: .myStatusPublished)
+        try container.encodeIfPresent(lastAnnouncedPartnerStatusAt,
+                                      forKey: .lastAnnouncedPartnerStatusAt)
     }
 
     init(mine: StatusPayload?,
