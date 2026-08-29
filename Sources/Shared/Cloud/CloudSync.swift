@@ -718,6 +718,12 @@ actor CloudSync: SyncBackend {
     /// name, so there's nothing fixed to ask for; and a device with no stored
     /// token gets the **entire zone** back, which is how a reinstall recovers
     /// the full history. No `CKQuery`, so no Console indexes to configure.
+    ///
+    /// The schema does carry one index anyway: `recordName` is marked
+    /// QUERYABLE on each record type, purely so the CloudKit Console's Records
+    /// browser can list them. Nothing in the app queries, so that index is
+    /// inert here — removing it breaks only Console browsing, never sync,
+    /// pushes or notifications.
     @discardableResult
     func refresh() async throws -> RefreshResult {
         let pairing = try await requirePairing()
@@ -907,7 +913,19 @@ actor CloudSync: SyncBackend {
                 // writing it would resurrect the ex's status onto a wiped
                 // snapshot.
                 guard store.pairing != nil else { return }
-                if let mine { $0.mine = mine }
+                if let mine {
+                    // A status set offline is newer than anything the server
+                    // can hand back; adopting the server copy here — a full
+                    // resync does exactly that — silently reverted it. Keep
+                    // the newer local text and take only the nudge counter,
+                    // which is server-owned.
+                    if mine.updatedAt >= ($0.mine?.updatedAt ?? .distantPast) {
+                        $0.mine = mine
+                    } else {
+                        $0.mine?.nudgeCount = mine.nudgeCount
+                        $0.mine?.lastNudgeAt = mine.lastNudgeAt
+                    }
+                }
                 if erased {
                     $0.theirs = nil
                 } else if let theirs {
@@ -978,6 +996,8 @@ actor CloudSync: SyncBackend {
                 // can't slip a second nudge through while the first is in
                 // flight.
                 snapshot.lastNudgeSentAt = now
+                // A retry is underway; the failure notice has done its job.
+                snapshot.lastNudgeFailedAt = nil
                 claimed = true
             }
             return claimed
@@ -1005,14 +1025,23 @@ actor CloudSync: SyncBackend {
                     _ = store.mutate { snapshot in
                         snapshot.mine?.nudgeCount = next
                         snapshot.mine?.lastNudgeAt = now
+                        snapshot.lastNudgeFailedAt = nil
                     }
                 }
                 return true
             }
         } catch {
-            // Release the cooldown so a failed nudge can be retried immediately.
+            // Release the cooldown so a failed nudge can be retried
+            // immediately — and record the failure, because the lock-screen
+            // widget has no other way to say so: without the marker the heart
+            // just returned to ready and an offline tap looked sent. Widgets
+            // reload here (unlike the old release) so the lock screen shows
+            // the slash rather than finding out at the next timeline tick.
             await MainActor.run {
-                _ = store.mutate(reloadWidgets: false) { $0.lastNudgeSentAt = nil }
+                _ = store.mutate { snapshot in
+                    snapshot.lastNudgeSentAt = nil
+                    snapshot.lastNudgeFailedAt = Date()
+                }
             }
             throw error
         }

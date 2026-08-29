@@ -166,6 +166,15 @@ struct Snapshot: Codable, Hashable {
     var lastSeenPartnerNudgeCount: Int
     /// When this device last *sent* a nudge, for cooldown enforcement.
     var lastNudgeSentAt: Date?
+    /// When a nudge last failed to send, so the lock-screen heart can admit it
+    /// instead of silently returning to ready — the widget intent can't show
+    /// an alert. Cleared on the next claim or success.
+    var lastNudgeFailedAt: Date?
+
+    /// Whether `mine` has reached CloudKit. A status set offline stays
+    /// `false` and is republished by `AppModel.republishStatusIfNeeded()` on
+    /// the next refresh — the status twin of `Moment.uploaded`.
+    var myStatusPublished: Bool = true
 
     /// Only the newest in each direction. The widget decodes this snapshot on
     /// every render, so the full history deliberately lives elsewhere — see
@@ -219,6 +228,7 @@ struct Snapshot: Codable, Hashable {
         case lastNudgeSentAt, latestPartnerMoment, latestOwnMoment
         case lastNotifiedMomentID, latestPartnerVisualMoment, unheardVoiceMemoCount
         case lastCelebratedAt, notifiedMomentIDs
+        case lastNudgeFailedAt, myStatusPublished
     }
 
     /// Hand-written for the same reason `Moment`'s is: synthesised `Codable`
@@ -254,6 +264,11 @@ struct Snapshot: Codable, Hashable {
         lastCelebratedAt = try container.decodeIfPresent(Date.self, forKey: .lastCelebratedAt)
         notifiedMomentIDs = try container
             .decodeIfPresent([String].self, forKey: .notifiedMomentIDs) ?? []
+        lastNudgeFailedAt = try container.decodeIfPresent(Date.self, forKey: .lastNudgeFailedAt)
+        // A snapshot from before this field predates the republish queue;
+        // assuming published avoids re-pushing an old status on first launch.
+        myStatusPublished = try container
+            .decodeIfPresent(Bool.self, forKey: .myStatusPublished) ?? true
     }
 
     /// Hand-written because the synthesised encoder omits nil optionals, and
@@ -278,6 +293,8 @@ struct Snapshot: Codable, Hashable {
         try container.encode(unheardVoiceMemoCount, forKey: .unheardVoiceMemoCount)
         try container.encodeIfPresent(lastCelebratedAt, forKey: .lastCelebratedAt)
         try container.encode(notifiedMomentIDs, forKey: .notifiedMomentIDs)
+        try container.encodeIfPresent(lastNudgeFailedAt, forKey: .lastNudgeFailedAt)
+        try container.encode(myStatusPublished, forKey: .myStatusPublished)
     }
 
     init(mine: StatusPayload?,

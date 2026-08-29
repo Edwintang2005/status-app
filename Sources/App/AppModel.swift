@@ -1,5 +1,6 @@
 import CloudKit
 import Foundation
+import Network
 import Observation
 import SwiftUI
 import os
@@ -21,6 +22,16 @@ final class AppModel {
     /// Re-entrancy guard for `retryPendingUploads` — a slow retry must not be
     /// joined by a second one from the next foreground.
     @ObservationIgnored private var isRetryingUploads = false
+    @ObservationIgnored private var isRepublishingStatus = false
+
+    /// Fires a refresh on the offline→online edge, so recovery — the partner's
+    /// missed changes in, this device's pending sends out — doesn't have to
+    /// wait for the user to re-open the app. Every other trigger is an app
+    /// lifecycle event; this is the only one that watches the network itself.
+    @ObservationIgnored private let pathMonitor = NWPathMonitor()
+    /// Starts `true` so the monitor's immediate first callback (current state,
+    /// not a change) doesn't double up with `onLaunch`'s own refresh.
+    @ObservationIgnored private var networkWasSatisfied = true
     /// Owner side: the link to hand to the partner, `nil` once it has been
     /// closed. Seeded from the store rather than left empty, so it survives a
     /// relaunch — see `refreshInviteURL()`.
@@ -231,6 +242,7 @@ final class AppModel {
     // MARK: - Lifecycle
 
     func onLaunch() async {
+        startNetworkMonitoring()
         // A link tapped from a cold start lands here: the scene delegate ran
         // before any view could hear the notification.
         if let invite = InviteInbox.shared.take() {
@@ -294,6 +306,26 @@ final class AppModel {
         }
     }
 
+    /// Watches for connectivity coming back and refreshes on that edge alone —
+    /// `refresh()` already handles being called while offline (quiet failure)
+    /// or while another refresh runs (`isRefreshing` guard), so the only job
+    /// here is not reacting to every path churn while the network stays up.
+    private func startNetworkMonitoring() {
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            let satisfied = path.status == .satisfied
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let cameBackOnline = satisfied && !self.networkWasSatisfied
+                self.networkWasSatisfied = satisfied
+                if cameBackOnline {
+                    self.log.notice("Network is back; refreshing.")
+                    await self.refresh()
+                }
+            }
+        }
+        pathMonitor.start(queue: DispatchQueue(label: "redstring.network-path"))
+    }
+
     func refresh() async {
         // Re-checked when paired too: this is what notices an iCloud account
         // switch (readiness compares the signed-in account against the one
@@ -306,8 +338,9 @@ final class AppModel {
         do {
             try await SyncRunner.refresh()
             reload()
-            // Foregrounding is the retry moment for sends that died in the
-            // background — see `retryPendingUploads`.
+            // A working refresh is the recovery moment for sends that died
+            // offline — see `retryPendingUploads` and `republishStatusIfNeeded`.
+            await republishStatusIfNeeded()
             await retryPendingUploads()
         } catch {
             // The backend may have unlinked us on its own — a zone that no
@@ -339,16 +372,24 @@ final class AppModel {
             isCelebration: isCelebration
         )
 
-        // Show it immediately; the backend catches up underneath.
-        store.mutate { $0.mine = payload }
+        // Show it immediately; the backend catches up underneath. Marked
+        // unpublished in the same mutate (when there's a partner to reach) so
+        // a crash between the two writes can't strand a status that looks
+        // delivered.
+        let paired = isPaired
+        store.mutate {
+            $0.mine = payload
+            $0.myStatusPublished = !paired
+        }
         reload()
 
-        guard isPaired else { return }
+        guard paired else { return }
         do {
             try await Backend.current.publish(payload)
+            store.mutate(reloadWidgets: false) { $0.myStatusPublished = true }
             reload()
         } catch {
-            present(error)
+            presentSendFailure(error, noun: "status update")
         }
     }
 
@@ -356,12 +397,27 @@ final class AppModel {
         let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
         var payload = snapshot.mine ?? .initial(displayName: trimmed)
         payload.displayName = trimmed
-        store.mutate { $0.mine = payload }
+        // Stamped like any other edit: the resync revert-guard orders local
+        // against server by `updatedAt`, and a rename that keeps the old stamp
+        // would lose to the copy it's trying to replace.
+        payload.updatedAt = Date()
+        let paired = isPaired
+        store.mutate {
+            $0.mine = payload
+            $0.myStatusPublished = !paired
+        }
         reload()
 
-        guard isPaired else { return }
+        guard paired else { return }
         Task { [payload] in
-            do { try await Backend.current.publish(payload) } catch { present(error) }
+            do {
+                try await Backend.current.publish(payload)
+                store.mutate(reloadWidgets: false) { $0.myStatusPublished = true }
+            } catch {
+                // Quieter than a status: the name is still right locally, and
+                // `republishStatusIfNeeded` will carry it over.
+                log.error("Name publish failed: \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 
@@ -485,6 +541,34 @@ final class AppModel {
     /// refreshes the history so the grid's badge disappears.
     private func markUploaded(_ moment: Moment) {
         history = MomentIndex.shared.markUploaded(ids: [moment.id])
+    }
+
+    /// Publishes the local status again if its last publish never landed — a
+    /// status set in a dead spot, or a publish killed by backgrounding.
+    /// Runs beside `retryPendingUploads` on every successful refresh. Quiet on
+    /// failure for the same reason: the send path already alerted once, and
+    /// this is the recovery, not the announcement.
+    ///
+    /// Safe to re-run: `publish` saves a fixed record name with `.changedKeys`
+    /// after a fetch, so a repeat is an overwrite of the same record — and the
+    /// server copy can't be newer, because only this device writes this record
+    /// (a same-account second device writing later would have been adopted by
+    /// `apply`'s timestamp guard first, flipping the flag back to published).
+    func republishStatusIfNeeded() async {
+        guard isPaired, !isRepublishingStatus else { return }
+        let snapshot = store.snapshot
+        guard !snapshot.myStatusPublished, let mine = snapshot.mine else { return }
+        isRepublishingStatus = true
+        defer { isRepublishingStatus = false }
+
+        do {
+            try await Backend.current.publish(mine)
+            store.mutate(reloadWidgets: false) { $0.myStatusPublished = true }
+            reload()
+            log.info("Republished the offline status update")
+        } catch {
+            log.error("Status republish failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Re-sends every own moment whose upload never completed — a send

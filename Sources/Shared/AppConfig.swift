@@ -24,6 +24,11 @@ enum AppConfig {
     /// to ration affection. Sending a few hearts in a row is the point.
     static let nudgeCooldown: TimeInterval = 3
 
+    /// How long the lock-screen heart admits a failed nudge (a slashed heart)
+    /// before quietly offering itself again. Long enough to still be there at
+    /// the next glance; short enough not to read as a permanent breakage.
+    static let nudgeFailureNotice: TimeInterval = 10 * 60
+
     /// Identifier for the photo/drawing widget.
     static let momentWidgetKind = "RedStringMomentWidget"
 

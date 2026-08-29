@@ -43,6 +43,14 @@ struct StatusProvider: TimelineProvider {
                     entries.append(StatusEntry(date: expiry, snapshot: snapshot))
                 }
             }
+            // Same shape for a failed nudge: the slashed heart shows for
+            // `nudgeFailureNotice`, and this entry is what flips it back.
+            if let failed = snapshot.lastNudgeFailedAt {
+                let expiry = failed.addingTimeInterval(AppConfig.nudgeFailureNotice)
+                if expiry > Date() {
+                    entries.append(StatusEntry(date: expiry, snapshot: snapshot))
+                }
+            }
             let next = Date().addingTimeInterval(Self.refreshInterval)
             completion(Timeline(entries: entries, policy: .after(next)))
         }

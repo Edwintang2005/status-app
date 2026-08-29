@@ -89,13 +89,22 @@ enum NotificationManager {
         }
     }
 
-    static func postNudge(from name: String) async {
+    /// `sentAt` is when the nudge actually happened (`StatusPayload.lastNudgeAt`).
+    /// This path only runs when the real-time push was missed, which can be
+    /// seconds ago (dropped push) or hours ago (extension failed, app closed
+    /// since) — and the wording must not claim a stale nudge is happening
+    /// now: announced during whatever refresh finally noticed it, "is thinking
+    /// of you" reads as mislabelling the event that triggered the refresh.
+    static func postNudge(from name: String, sentAt: Date?) async {
         await removeGenericBanners(body: CloudSync.GenericAlert.nudge)
+        let stale = sentAt.map { Date().timeIntervalSince($0) > 5 * 60 } ?? false
+
         let content = UNMutableNotificationContent()
         content.title = name
-        content.body = "is thinking of you 💭"
+        content.body = stale ? "was thinking of you earlier 💭" : "is thinking of you 💭"
         content.sound = .default
-        content.interruptionLevel = .timeSensitive
+        // Old news doesn't get to break through Focus the way a live tap does.
+        if !stale { content.interruptionLevel = .timeSensitive }
 
         let request = UNNotificationRequest(identifier: "nudge-\(UUID().uuidString)",
                                             content: content,

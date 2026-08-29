@@ -15,7 +15,7 @@ with the text fields end-to-end encrypted.
 | **Status** | An emoji plus a short message — `🥰 missing you`, `😴 sleeping`. Two taps from a preset, or type your own. |
 | **Nudge** | A heart on your lock screen. Tapping it makes their phone show *"Sam is thinking of you 💭"*. |
 | **Photos & doodles** | Snap a photo, draw a doodle, or scribble over a photo, and it lands on their home screen widget. Pick the paper colour for a doodle. |
-| **Voice memos** | Up to 60 seconds (`AppConfig.voiceMemoMaxDuration`), with a live waveform while recording. Playable from the expanded notification without opening the app; a badge on the photo widget says one is waiting. |
+| **Voice memos** | Up to 3 minutes (`AppConfig.voiceMemoMaxDuration`), with a live waveform while recording. Playable from the expanded notification without opening the app; a badge on the photo widget says one is waiting. |
 | **History** | Every photo, doodle and memo is kept. Browse the lot in the library, save any to Photos, and get it all back on a new phone. |
 | **Names** | You set your own name; they set theirs. Whatever they call themselves is what you see — there's no renaming other people. |
 
@@ -180,6 +180,13 @@ notification still says *"Sam — morning ☕️"* with the photo attached.
 It also marks the event as seen in the shared snapshot, so the app doesn't
 raise a duplicate local notification the next time it refreshes.
 
+When that marking *didn't* happen — the push was dropped, or the extension
+failed mid-refresh — the app catches up on its next refresh, whatever triggered
+it. A nudge found that way can be hours old, and announcing it as *"is thinking
+of you"* during, say, a status update reads as a mislabelled notification. So
+the catch-up checks `lastNudgeAt`: a nudge more than five minutes old is worded
+*"was thinking of you earlier 💭"* and loses its time-sensitive priority.
+
 ### The remaining paths
 
 Every subscription sends a visible push now, so the extension is the main
@@ -193,6 +200,29 @@ delivery path. The widget and the open app still rely on:
    timeout and the cached snapshot as fallback. This is the only battery cost
    in the widget: one process launch and one CloudKit round trip per tick.
    `StatusProvider.refreshInterval` if you want it keener.
+4. **An `NWPathMonitor` in `AppModel`**, which fires one refresh on the
+   offline→online edge — so a phone that regains signal recovers without
+   waiting to be re-opened. It reacts only to that edge, never to path churn
+   while the network stays up.
+
+### Sends that fail offline
+
+Everything is written locally first, so nothing is ever lost — the question is
+only when the partner gets it. Each send type recovers its own way:
+
+- **Statuses** are marked unpublished (`Snapshot.myStatusPublished`) until the
+  publish lands, and republished by `republishStatusIfNeeded()` on the next
+  successful refresh. A resync can hand back the *older* server copy of your
+  own status; `apply` keeps whichever has the newer `updatedAt`, so an offline
+  status can't be silently reverted.
+- **Moments** carry a local-only `uploaded` flag and are re-sent by
+  `retryPendingUploads()` — the grid badges them with a clock, and the sync
+  footer counts them ("1 waiting to send") until they're out.
+- **Nudges** are not queued — a heart is a moment-in-time gesture, so a failed
+  one releases the cooldown for an immediate re-tap instead. In the app that
+  comes with an alert; on the lock screen, where the intent can't alert, the
+  heart renders slashed (`Snapshot.lastNudgeFailedAt`) for ten minutes so an
+  offline tap doesn't silently pass for a sent one.
 
 A nudge or a moment arriving also runs a full refresh in the extension, so in
 practice status tends to ride along with them.
@@ -249,8 +279,14 @@ overwritten and nothing expires, so the history is **complete and recoverable**
 Syncing uses `CKFetchRecordZoneChangesOperation` with a stored server change
 token rather than fetching known record names. Three things fall out of that:
 
-- **No `CKQuery`, so no indexes** to configure in the CloudKit Console. Change
-  tracking is index-free by design.
+- **No `CKQuery`, so no indexes are required.** Change tracking is index-free
+  by design. The schema does carry one optional index: `recordName` marked
+  **queryable** on each record type, added by hand in the CloudKit Console so
+  its Records browser can list records (the Console's browser runs real
+  queries, and errors with *"Field 'recordName' is not marked queryable"*
+  without it). The app never queries, so this index has no effect on sync,
+  pushes or notifications — and it must be re-added (Schema → Indexes, in
+  Development, then deployed) if the schema is ever rebuilt from scratch.
 - **A device with no token gets the entire zone**, which is exactly what a
   fresh install needs. Recovery isn't a special path; it's the ordinary one
   with an empty starting point.

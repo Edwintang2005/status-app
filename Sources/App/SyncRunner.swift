@@ -38,7 +38,7 @@ enum SyncRunner {
             }
             if announce, shouldAnnounceNudge {
                 let name = store.snapshot.partnerDisplayName
-                await NotificationManager.postNudge(from: name)
+                await NotificationManager.postNudge(from: name, sentAt: theirs.lastNudgeAt)
             }
         }
 

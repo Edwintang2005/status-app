@@ -245,12 +245,26 @@ struct NudgeWidgetView: View {
         return entry.date.timeIntervalSince(last) < AppConfig.nudgeCooldown
     }
 
+    /// The last tap never made it out (no signal, iCloud down). The intent
+    /// can't put up an alert, so the heart itself wears the news; tapping it
+    /// retries, and the marker is cleared the moment a send is claimed.
+    private var recentlyFailed: Bool {
+        guard let failed = entry.snapshot.lastNudgeFailedAt else { return false }
+        return entry.date.timeIntervalSince(failed) < AppConfig.nudgeFailureNotice
+    }
+
+    private var symbolName: String {
+        if recentlySent { return "checkmark" }
+        if recentlyFailed { return "heart.slash.fill" }
+        return "heart.fill"
+    }
+
     var body: some View {
         ZStack {
             AccessoryWidgetBackground()
             if entry.snapshot.isPaired {
                 Button(intent: SendNudgeIntent()) {
-                    Image(systemName: recentlySent ? "checkmark" : "heart.fill")
+                    Image(systemName: symbolName)
                         .font(.system(size: 22, weight: .semibold))
                         .widgetAccentable()
                 }
