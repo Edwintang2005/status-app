@@ -1298,9 +1298,13 @@ actor CloudSync: SyncBackend {
             payload.emoji = record.encryptedValues[Field.emoji] as? String ?? payload.emoji
             payload.message = record.encryptedValues[Field.message] as? String ?? payload.message
             payload.displayName = record.encryptedValues[Field.displayName] as? String ?? payload.displayName
-            payload.updatedAt = record[Field.updatedAt] as? Date
+            // Whole seconds: local persistence is ISO-8601 (no fractional
+            // seconds), and equality against stored copies — the announce
+            // watermark, celebration replay guard, history dedup — must hold.
+            let updated = record[Field.updatedAt] as? Date
                 ?? record.modificationDate
                 ?? payload.updatedAt
+            payload.updatedAt = Date(timeIntervalSince1970: updated.timeIntervalSince1970.rounded(.down))
             // Fallback must be `false`, not the previous value — otherwise a
             // celebration would stick to the next status.
             payload.isCelebration =

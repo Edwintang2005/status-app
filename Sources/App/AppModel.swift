@@ -297,12 +297,20 @@ final class AppModel {
 
     // MARK: - Status
 
+    /// Whole-second stamp for `StatusPayload.updatedAt`: persisted dates
+    /// round-trip through ISO-8601 JSON, which drops fractional seconds, so a
+    /// fractional stamp never equals its own stored copy — breaking the
+    /// publish-flag check and the status-history dedup.
+    private func statusTimestamp() -> Date {
+        Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+    }
+
     func setStatus(emoji: String, message: String, isCelebration: Bool = false) async {
         let payload = StatusPayload(
             emoji: emoji,
             message: message.trimmingCharacters(in: .whitespacesAndNewlines),
             displayName: snapshot.mine?.displayName ?? "",
-            updatedAt: Date(),
+            updatedAt: statusTimestamp(),
             nudgeCount: snapshot.mine?.nudgeCount ?? 0,
             lastNudgeAt: snapshot.mine?.lastNudgeAt,
             isCelebration: isCelebration
@@ -342,7 +350,7 @@ final class AppModel {
         var payload = snapshot.mine ?? .initial(displayName: trimmed)
         payload.displayName = trimmed
         // Fresh stamp: the resync revert-guard orders by `updatedAt`, and a stale one would lose.
-        payload.updatedAt = Date()
+        payload.updatedAt = statusTimestamp()
         let paired = isPaired
         store.mutate {
             $0.mine = payload
