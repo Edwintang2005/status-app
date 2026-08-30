@@ -55,6 +55,7 @@ Key types: `StatusPayload` (one per partner, fixed record names `status-owner`/`
 15. **Corrupt store files are preserved, not overwritten.** `SharedStore.decode`, `MomentIndex`, and `StatusHistoryLog` move unreadable bytes to a `.corrupt` sidecar before falling back to empty; the moment index also clears change tokens so CloudKit rebuilds it. Keep that pattern for any new persisted file.
 16. **Publish-success flags must verify currency.** `markStatusPublished(payload)` only flips `myStatusPublished` if the payload is still the current status — a late-finishing publish must not mark a newer offline edit delivered.
 17. **Scrub gestures need `.highPriorityGesture`** (`ScrubbableWaveform`): a plain `.gesture` loses to the gallery's paging TabView, and waveforms must not be wrapped in a `Button` (see `VoiceMemoRow`).
+18. **Pin vertical-ScrollView content with `.containerRelativeFrame(.horizontal)`** (see `HomeView`). A child with a wide *ideal* size — a long single-line `Text` — can inflate the scrollable content's horizontal extent on some OS builds, letting the whole screen pan sideways; prefer `.fixedSize(horizontal: false, vertical: true)` on wrapping text too. (`WaveformBars` is safe: it condenses to what fits and never reports more than its measured width.)
 
 ## File map (one line each)
 

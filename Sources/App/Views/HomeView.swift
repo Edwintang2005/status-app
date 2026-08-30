@@ -40,6 +40,11 @@ struct HomeView: View {
                     }
                     .padding(.horizontal, 20)
                     .padding(.vertical, 14)
+                    // Pin the scrollable content to the viewport: a child with a
+                    // wide *ideal* size (a long single-line Text) can otherwise
+                    // inflate the content's horizontal extent on some OS builds,
+                    // letting the whole screen pan sideways.
+                    .containerRelativeFrame(.horizontal)
                 }
                 .scrollIndicators(.hidden)
                 .refreshable { await model.refresh() }
@@ -181,6 +186,9 @@ struct HomeView: View {
                     Text(theirs.message.isEmpty ? "no message" : theirs.message)
                         .font(Theme.rounded(20, .semibold))
                         .lineLimit(2)
+                        // Wrap within the proposed width rather than reporting a
+                        // single-line ideal — see the containerRelativeFrame note.
+                        .fixedSize(horizontal: false, vertical: true)
                         .foregroundStyle(theirs.message.isEmpty ? .secondary : .primary)
                     // TimelineView because `.relative(presentation:)` renders
                     // once and never ticks on its own.
