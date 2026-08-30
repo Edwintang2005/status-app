@@ -2,13 +2,9 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-/// What this device's iCloud actually looks like, in plain rows.
-///
-/// Exists because the two failures that cost the most time to find were both
-/// invisible from the UI: a build talking to the Development database while
-/// the other phone was on Production, and a device that believed it was paired
-/// to a zone it had never actually joined. Both are obvious the moment you can
-/// see the environment and the shared-zone list side by side.
+/// Plain rows of what this device's iCloud actually looks like. The costly
+/// failures (Dev-vs-Prod database mismatch, a pairing to a zone never actually
+/// joined) are invisible from the normal UI.
 struct DiagnosticsView: View {
     @State private var diagnostics: CloudDiagnostics?
     @State private var copied = false
@@ -102,11 +98,8 @@ struct DiagnosticsView: View {
         .refreshable { await reload() }
     }
 
-    /// Not read-only: opening or pull-refreshing this screen also *attempts*
-    /// the promote-and-close on the invite link, so a partner stuck as a
-    /// "public" participant can be fixed from right here — and the list below
-    /// then shows whatever the server now says. Any failure lands in the
-    /// Problems section instead of a log nobody reads.
+    /// Not read-only: opening or refreshing also *attempts* the promote-and-close
+    /// on the invite link; any failure lands in the Problems section.
     private func reload() async {
         let lockProblem = await CloudSync.shared.secureInviteIfPartnerJoined()
         var result = await CloudSync.shared.diagnostics()
@@ -133,7 +126,6 @@ struct DiagnosticsView: View {
         }
     }
 
-    /// The line that would have ended this whole hunt on day one.
     private func environmentFooter(_ environment: CloudEnvironment) -> String {
         switch environment {
         case .development:

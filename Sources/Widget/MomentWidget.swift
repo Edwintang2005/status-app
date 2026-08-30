@@ -1,17 +1,9 @@
 import SwiftUI
 import WidgetKit
 
-/// The Locket-style widget: the last picture your partner sent, filling the
-/// tile.
-///
-/// Voice memos deliberately do *not* take the tile over. A widget can't play
-/// audio, so a waveform here would be a picture-sized thing you can't use, in
-/// place of the photo you could. A waiting memo is a small badge instead —
-/// enough to say "there's something to hear", and tapping through plays it.
-///
-/// Home screen only. Lock screen accessory widgets are rendered monochrome and
-/// are a couple of hundred points across — a photo there would be an
-/// unrecognisable grey smudge, so this doesn't offer those families.
+/// The last picture your partner sent, filling the tile. Voice memos show as a
+/// badge, never the tile (widgets can't play audio). Home screen only —
+/// accessory families render monochrome and too small for a photo.
 struct MomentWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: AppConfig.momentWidgetKind, provider: StatusProvider()) { entry in
@@ -46,8 +38,7 @@ struct MomentWidgetView: View {
         .containerBackground(for: .widget) { background }
     }
 
-    /// Small on purpose. It says a memo is waiting and how many; hearing one
-    /// happens in the app, which is where tapping the tile goes anyway.
+    /// Says a memo is waiting; hearing it happens in the app.
     private var memoBadge: some View {
         HStack(spacing: 3) {
             Image(systemName: "mic.fill")
@@ -83,8 +74,7 @@ struct MomentWidgetView: View {
 
                 Spacer(minLength: 0)
 
-                // Small widgets only get a single tap target (widgetURL), so
-                // the compose shortcut is limited to the roomier families.
+                // systemSmall allows only one tap target (widgetURL), so no Link there.
                 if family != .systemSmall {
                     Link(destination: URL(string: "redstring://compose")!) {
                         Image(systemName: "square.and.pencil")
@@ -109,9 +99,6 @@ struct MomentWidgetView: View {
             Text(emptyLabel)
                 .font(.system(size: 12, weight: .medium, design: .rounded))
                 .foregroundStyle(.secondary)
-            // The roomier families are mostly air in this state, and an
-            // unexplained empty tile reads as a fault rather than as a tile
-            // waiting for something.
             if let hint = emptyHint, family != .systemSmall {
                 Text(hint)
                     .font(.system(size: 12, design: .rounded))
@@ -119,10 +106,8 @@ struct MomentWidgetView: View {
                     .multilineTextAlignment(.center)
             }
         }
-        // A memo waiting with no picture behind it is worth opening the app
-        // for; otherwise the empty tile is an invitation to send something —
-        // unless nobody is paired yet, where the tile says "Open to pair" and
-        // must not deep-link into a composer with no one to send to.
+        // Unpaired or memo-waiting opens the app; never deep-link an unpaired
+        // user into the composer.
         .widgetURL(URL(string: entry.snapshot.isPaired && unheardMemos == 0
                        ? "redstring://compose"
                        : "redstring://open"))
@@ -148,9 +133,7 @@ struct MomentWidgetView: View {
         if let moment, let image = MomentStore.shared.thumbnail(for: moment.id) {
             imageView(image)
                 .overlay(alignment: .bottom) {
-                    // Only drawn when there's text to keep legible — an
-                    // uncaptioned doodle on white shouldn't be greyed for
-                    // nothing.
+                    // Gradient only when there's a caption to keep legible.
                     if moment.caption.isEmpty == false {
                         LinearGradient(colors: [.clear, .black.opacity(0.5)],
                                        startPoint: UnitPoint(x: 0.5, y: 0.68),
@@ -165,12 +148,11 @@ struct MomentWidgetView: View {
 
     @ViewBuilder
     private func imageView(_ image: UIImage) -> some View {
-        // `widgetAccentedRenderingMode` is declared on `Image`, so it has to be
-        // applied before `scaledToFill()` erases the concrete type.
+        // `widgetAccentedRenderingMode` exists on `Image` only, so apply it
+        // before `scaledToFill()` erases the concrete type.
         let base: Image = Image(uiImage: image).resizable()
         if #available(iOS 18.0, *) {
-            // Without this the photo is flattened to the tint colour when the
-            // user has a tinted home screen.
+            // Keeps the photo full-colour on tinted home screens.
             base.widgetAccentedRenderingMode(.fullColor).scaledToFill()
         } else {
             base.scaledToFill()

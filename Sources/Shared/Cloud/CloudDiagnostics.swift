@@ -1,14 +1,9 @@
 import CloudKit
 import Foundation
 
-/// A readable dump of what this device's CloudKit actually looks like right
-/// now, for the questions the CloudKit Console cannot answer.
-///
-/// The Console only ever shows the signed-in developer's own private database.
-/// It cannot show the other person's, and it cannot tell you which environment
-/// the copy of the app *on this phone* is talking to — which is the single
-/// thing most likely to be wrong when two devices claim to be paired and
-/// nothing syncs between them.
+/// A readable dump of this device's CloudKit state, for what the Console can't
+/// answer — chiefly which environment *this phone's* build talks to, the likeliest
+/// fault when two paired devices don't sync.
 struct CloudDiagnostics: Sendable {
     var environment: CloudEnvironment
     var containerID: String
@@ -19,13 +14,10 @@ struct CloudDiagnostics: Sendable {
     var sharedZones: [String]
     var subscriptions: [String]
     var pairing: String
-    /// Who is on the paired zone's share, one line each. Readable from both
-    /// sides — the owner fetches the share from their private database, a
-    /// participant from their shared one.
+    /// Who is on the paired zone's share, one line each. Readable from both sides.
     var shareParticipants: [String]
-    /// What the share's `publicPermission` currently allows, or `nil` when
-    /// there is no share to ask. This is the invite link's real state: "open"
-    /// means anyone holding the URL can still join.
+    /// The invite link's real state ("open" = anyone with the URL can join),
+    /// or `nil` when there is no share to ask.
     var sharePublicPermission: String?
     /// Anything that failed while gathering the above, rather than a silent gap.
     var problems: [String]
@@ -51,12 +43,8 @@ struct CloudDiagnostics: Sendable {
     }
 }
 
-/// Which CloudKit database this build talks to.
-///
-/// There is no API that reports this, and the difference is invisible in the
-/// UI while being total in effect: a Development build and a Production build
-/// of the same app share nothing at all. Inferred from how the binary was
-/// signed, which is what actually decides it.
+/// Which CloudKit environment this build talks to. No API reports it; inferred
+/// from code signing, which is what decides it. Development and Production share nothing.
 enum CloudEnvironment: Sendable {
     case development
     case production
@@ -72,24 +60,18 @@ enum CloudEnvironment: Sendable {
 
     static var current: CloudEnvironment {
         #if DEBUG
-        // Every Xcode run of this project uses the Debug configuration, which
-        // is signed for development.
+        // Xcode runs use the Debug configuration, signed for development.
         return .development
         #else
-        // A Release build reaches the device through TestFlight or the App
-        // Store, both of which are Production. A sandbox receipt means
-        // TestFlight; either way the database is the same one.
+        // Release reaches devices via TestFlight or the App Store — both Production.
         return .production
         #endif
     }
 }
 
 extension CloudSync {
-    /// Reads the account, both databases and the subscription list.
-    ///
-    /// Every step is individually tolerant: a diagnostic that refuses to
-    /// report anything because one call failed is worse than useless, since a
-    /// failing call is usually the thing being investigated.
+    /// Reads the account, both databases and the subscription list. Every step is
+    /// individually tolerant — a failing call is usually the thing being investigated.
     func diagnostics() async -> CloudDiagnostics {
         var problems: [String] = []
 
@@ -112,9 +94,8 @@ extension CloudSync {
 
         var sharedZones: [String] = []
         do {
-            // The owner name matters here, not just the zone name: it is what
-            // identifies whose zone this is, and a participant with an empty
-            // list is a participant who has not actually joined anything.
+            // The owner name identifies whose zone this is; an empty list means
+            // the participant never actually joined anything.
             sharedZones = try await container.sharedCloudDatabase.allRecordZones()
                 .map { "\($0.zoneID.zoneName) (owner \($0.zoneID.ownerName))" }
                 .sorted()
@@ -162,9 +143,8 @@ extension CloudSync {
         )
     }
 
-    /// The paired zone's share record, fetched from whichever database this
-    /// role reads. `nil` when the zone or its share isn't there — for a
-    /// diagnostic that's an answer, not a failure.
+    /// The paired zone's share record. `nil` when the zone or share isn't
+    /// there — for a diagnostic that's an answer, not a failure.
     private func pairedZoneShare(for pairing: PairingInfo) async throws -> CKShare? {
         let database = self.database(for: pairing)
         let zoneID = CKRecordZone.ID(zoneName: pairing.zoneName,
@@ -193,14 +173,9 @@ extension CloudSync {
         return "\(pairing.role) of \(pairing.zoneName) (owner \(pairing.zoneOwnerName))"
     }
 
-    /// One line per person on the share. The name is whatever iCloud is
-    /// willing to reveal — a link-joiner often has none — so the parts that
-    /// always exist carry the diagnosis: role, permission, acceptance.
-    ///
-    /// Role is the line that matters most here: a partner still listed as
-    /// `public` is one save of `publicPermission = .none` away from being
-    /// removed from the share, which is exactly the failure this screen
-    /// exists to make visible.
+    /// One line per person. Role matters most: a partner still `public` is one
+    /// `publicPermission = .none` save away from being removed from the share —
+    /// exactly the failure this screen exists to make visible.
     private static func describe(_ participant: CKShare.Participant,
                                  currentUser: CKShare.Participant?) -> String {
         let name = participant.userIdentity.nameComponents.map {
@@ -245,8 +220,7 @@ extension CloudSync {
         }
     }
 
-    /// The invite link's real state, phrased as what it means rather than as
-    /// the enum's name.
+    /// Phrased as what the link state means, not the enum's name.
     private static func describeLink(_ permission: CKShare.ParticipantPermission) -> String {
         switch permission {
         case .none: return "closed — nobody can join from the link"

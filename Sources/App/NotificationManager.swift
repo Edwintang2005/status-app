@@ -2,11 +2,8 @@ import Foundation
 import UserNotifications
 import os
 
-/// Local notifications for events the app itself notices — a refresh that
-/// turns up a nudge or moment nobody has been told about. The *usual*
-/// announcement path is the visible CloudKit push enriched by the service
-/// extension; these fire when that path was missed (a dropped push, an
-/// extension refresh that failed) and the app finds the event first.
+/// Local notifications for events the app itself notices. The usual path is the
+/// visible CloudKit push; these fire only when that was missed and a refresh finds the event first.
 @MainActor
 enum NotificationManager {
     private static let log = Logger(subsystem: AppConfig.appGroupID, category: "Notifications")
@@ -27,35 +24,17 @@ enum NotificationManager {
         await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
     }
 
-    /// Sweeps this app's delivered notifications out of Notification Centre.
-    ///
-    /// Called when the app is open (everything a banner announced is on
-    /// screen) and when the scene goes inactive — which is what happens when
-    /// Notification Centre is pulled down *over* the open app, so the sweep
-    /// lands exactly as the user looks. iOS offers no "Notification Centre
-    /// opened" signal; the inactive transition is the closest proxy, and the
-    /// other things that trigger it (App Switcher, Control Centre, a call
-    /// banner) all mean the user just had the app's live state in front of
-    /// them anyway.
+    /// Sweeps this app's delivered notifications. Called on active and on inactive —
+    /// iOS has no "Notification Centre opened" signal, and the inactive transition
+    /// (the shade pulled over the open app) is the closest proxy.
     static func clearDelivered() {
         UNUserNotificationCenter.current().removeAllDeliveredNotifications()
     }
 
-    /// A photo, drawing or voice memo arrived. The file rides along as an
-    /// attachment, which for an image means it's visible from the lock screen
-    /// and for a memo means it can be played from the expanded notification —
-    /// either way without opening the app.
-    /// `name` is only a fallback: the moment carries the name its sender had
-    /// when they sent it, and that's what should appear.
-    /// Removes delivered banners still wearing CloudKit's generic wording —
-    /// the ones a failed service-extension refresh couldn't enrich. The local
-    /// notification about to be posted says the same thing properly, and
-    /// leaving both is a duplicate.
-    ///
-    /// Matched on the *body*, not just the app-name title: only the wording
-    /// this local notification supersedes may go. Sweeping every generic
-    /// banner deleted unenriched status notes that nothing was ever going to
-    /// re-state.
+    /// Removes delivered banners still wearing CloudKit's generic wording — the local
+    /// notification about to be posted supersedes them, and leaving both is a duplicate.
+    /// Matched on the *body*, not just the app-name title: sweeping every generic
+    /// banner deleted unenriched status notes nothing was ever going to re-state.
     private static func removeGenericBanners(body: String) async {
         let center = UNUserNotificationCenter.current()
         let generic = await center.deliveredNotifications()
@@ -75,9 +54,8 @@ enum NotificationManager {
         content.body = moment.caption.isEmpty ? moment.arrivalSummary : moment.caption
         content.sound = .default
 
-        // The refresh that found this moment downloads media best-effort; if
-        // that failed, fetch here rather than announcing a photo with no
-        // photo. Same recovery as the service extension's.
+        // If the refresh's best-effort media download failed, fetch here rather
+        // than announcing a photo with no photo.
         var attachment = MomentAttachment.make(for: moment, suffix: "notify")
         if attachment == nil {
             try? await Backend.current.fetchMedia(for: moment)
@@ -97,12 +75,8 @@ enum NotificationManager {
         }
     }
 
-    /// `sentAt` is when the nudge actually happened (`StatusPayload.lastNudgeAt`).
-    /// This path only runs when the real-time push was missed, which can be
-    /// seconds ago (dropped push) or hours ago (extension failed, app closed
-    /// since) — and the wording must not claim a stale nudge is happening
-    /// now: announced during whatever refresh finally noticed it, "is thinking
-    /// of you" reads as mislabelling the event that triggered the refresh.
+    /// `sentAt` is when the nudge actually happened. This path can run hours late,
+    /// and the wording must not claim a stale nudge is happening now.
     static func postNudge(from name: String, sentAt: Date?) async {
         await removeGenericBanners(body: CloudSync.GenericAlert.nudge)
         let stale = sentAt.map { Date().timeIntervalSince($0) > 5 * 60 } ?? false

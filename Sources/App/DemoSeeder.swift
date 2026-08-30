@@ -2,10 +2,8 @@
 import AVFoundation
 import UIKit
 
-/// Fills the real App Group store with plausible content for App Store
-/// screenshots and previews. Runs only when `REDSTRING_DEMO=1` is in the
-/// launch environment — see `DemoMode` — and reseeds on every launch with
-/// fixed ids, so a demo session always starts from the same state.
+/// Fills the real App Group store with plausible content for App Store screenshots.
+/// Runs only when `REDSTRING_DEMO=1` (see `DemoMode`); reseeds every launch with fixed ids.
 enum DemoSeeder {
     static func seedIfRequested() {
         guard DemoMode.isActive else { return }

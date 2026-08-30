@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// Two ways in: create an invite link, or tap the one your partner sent. There
-/// are no accounts, no sign-up and no email addresses to type — the CloudKit
-/// share link carries the whole handshake.
+/// Two ways in: create an invite link, or tap the one your partner sent — the
+/// CloudKit share link carries the whole handshake.
 struct PairingView: View {
     @Environment(AppModel.self) private var model
     @State private var name: String = ""
@@ -27,10 +26,9 @@ struct PairingView: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .onAppear { if name.isEmpty { name = model.myDisplayName } }
-        // Committed when editing ends, not per keystroke: committing every
-        // character wrote to disk and reloaded all three widget timelines on
-        // each key — and select-all-delete flipped `hasName` false, which
-        // yanked this screen away mid-edit for the first-run Welcome one.
+        // Committed when editing ends, not per keystroke: each key reloaded the
+        // widget timelines, and clearing the field flipped `hasName` false and
+        // yanked this screen away mid-edit.
         .onChange(of: nameFocused) { _, focused in
             if !focused { commitName() }
         }
@@ -41,8 +39,7 @@ struct PairingView: View {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Pushes the edited name into the model. An empty field commits nothing —
-    /// there is no sensible nameless state to put the app in.
+    /// An empty field commits nothing — there is no sensible nameless state.
     private func commitName() {
         guard !trimmedName.isEmpty, trimmedName != model.myDisplayName else { return }
         model.myDisplayName = trimmedName
@@ -62,9 +59,8 @@ struct PairingView: View {
         }
     }
 
-    /// A confirmation, not a question — `WelcomeView` already asked. It stays
-    /// editable because this is the last screen before a name is sent to
-    /// someone else, and a typo is easiest to fix while it's still yours.
+    /// A confirmation, not a question — `WelcomeView` already asked. Editable
+    /// so a typo can be fixed before the name is sent to someone else.
     private var nameRow: some View {
         HStack(spacing: 12) {
             Text("You'll appear as")
@@ -136,8 +132,7 @@ struct PairingView: View {
 
             CopyLinkButton(url: url)
 
-            // Nobody has joined yet, so this only throws away the invite —
-            // the name stays.
+            // Nobody has joined yet — this only discards the invite; the name stays.
             Button("Start over") { Task { await model.unlink(startingOver: false) } }
                 .font(Theme.rounded(14))
                 .foregroundStyle(.secondary)

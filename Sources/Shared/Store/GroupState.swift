@@ -1,18 +1,9 @@
 import Foundation
 import os
 
-/// Cross-process key/value storage for everything the app, the widget and the
-/// notification service extension have to agree on.
-///
-/// This exists because `UserDefaults(suiteName:)` is **not** a reliable App
-/// Group channel. Observed on the Simulator with correct
-/// `com.apple.security.application-groups` entitlements on both binaries: the
-/// suite's plist was written to the *app's private* container, leaving the
-/// widget process reading an empty suite and rendering as if unpaired, while
-/// file access to the same group container worked perfectly from both sides.
-/// The group's file container is the channel that actually holds, so shared
-/// state goes in files — the same way `MomentIndex` and `MomentStore` already
-/// do it.
+/// Cross-process key/value storage shared by the app, widget and notification
+/// extension. Files, not `UserDefaults(suiteName:)` — the suite's plist can land
+/// in the app's private container, leaving extensions reading an empty suite.
 protocol GroupKeyValueStore: AnyObject {
     func data(forKey key: String) -> Data?
     func bool(forKey key: String) -> Bool
@@ -20,23 +11,16 @@ protocol GroupKeyValueStore: AnyObject {
     func setBool(_ value: Bool, forKey key: String)
 }
 
-/// One small file per key under `<group container>/State/`.
-///
-/// A file per key rather than one dictionary file, because the writers are
-/// separate processes: a whole-file rewrite would make every save a
-/// read-modify-write over everyone else's keys, and losing a nudge counter to
-/// a lost update is worse than the handful of extra inodes.
+/// One file per key under `<group container>/State/` — a single dictionary file
+/// would make every save a cross-process read-modify-write over all keys.
 final class GroupFileStore: GroupKeyValueStore {
     private let log = Logger(subsystem: AppConfig.appGroupID, category: "GroupFileStore")
     private let containerURL: URL?
-    /// Where state used to live. Read once, at init, so an app that was already
-    /// paired before this change keeps its pairing and history.
+    /// Old `UserDefaults` home; read at init so pre-existing pairings survive.
     private let legacy: UserDefaults?
     private let lock = NSLock()
 
-    /// Keys carried over from the old `UserDefaults` home. Change-token keys are
-    /// matched by prefix; losing one only costs a full resync, but keeping it
-    /// saves a device re-downloading its whole zone.
+    /// Keys migrated from `UserDefaults`; change tokens matched by prefix.
     private static let migratedKeys = ["snapshot", "pairing", "notificationsRequested"]
     private static let migratedPrefixes = ["changeToken-"]
     private static let migrationMarker = ".migrated-from-defaults"
@@ -50,9 +34,8 @@ final class GroupFileStore: GroupKeyValueStore {
             try? FileManager.default.createDirectory(at: container,
                                                      withIntermediateDirectories: true)
         } else {
-            // Only happens when the App Group entitlement is missing or the ID
-            // is misspelled. The app stays usable as a single device; the log
-            // says why the widget is empty.
+            // App Group entitlement missing or ID misspelled; app stays usable
+            // single-device.
             assertionFailure("App Group \(groupID) unavailable — check entitlements.")
         }
         self.containerURL = container
@@ -99,12 +82,9 @@ final class GroupFileStore: GroupKeyValueStore {
         containerURL?.appendingPathComponent(key)
     }
 
-    /// Copies anything the old `UserDefaults` home still holds, once.
-    ///
-    /// The marker is written **only** when something was actually copied. The
-    /// widget process has its own (empty) view of that suite, so a marker
-    /// written from there could otherwise convince the app there was nothing to
-    /// migrate and lose the pairing.
+    /// One-time copy out of `UserDefaults`. The marker is written only when
+    /// something was copied — the widget's empty view of the suite must not
+    /// mark migration done and lose the pairing.
     private func migrateIfNeeded() {
         guard let containerURL, let legacy else { return }
         let marker = containerURL.appendingPathComponent(Self.migrationMarker)
@@ -138,9 +118,7 @@ final class GroupFileStore: GroupKeyValueStore {
     }
 }
 
-/// Previews and tests inject a throwaway suite instead of touching the real
-/// group container. Correctness in a single process is all that's needed there,
-/// which is exactly what `UserDefaults` is still good for.
+/// Previews/tests inject a throwaway suite instead of the real group container.
 extension UserDefaults: GroupKeyValueStore {
     func setData(_ data: Data?, forKey key: String) {
         if let data {

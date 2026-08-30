@@ -11,20 +11,15 @@ struct MoodPickerView: View {
     @State private var emoji = ""
     @State private var message = ""
     @State private var query = ""
-    /// Armed by tapping the celebration preset, and kept while you retype the
-    /// wording — "happy 3 months" is the whole point, and it would be lost if
-    /// the flag were inferred from the text.
+    /// Armed by the celebration preset and kept while the wording is retyped —
+    /// inferring it from the text would lose it.
     @State private var isCelebration = false
-    /// The tile that supplied the current emoji, for the selection highlight.
-    /// Tracked by id rather than re-derived from `emoji` + `message`: a preset
-    /// tap keeps a hand-typed message, so the pair no longer identifies the
-    /// tile — and some presets share an emoji (😌 is both "content" and
-    /// "relaxing"), so the emoji alone would light two tiles.
+    /// Tile for the selection highlight, tracked by id: a preset tap keeps a
+    /// hand-typed message, and some presets share an emoji, so neither identifies the tile.
     @State private var selectedPresetID: String?
     @FocusState private var messageFocused: Bool
 
-    /// Groups with their matching presets, empty groups dropped. With ~150
-    /// presets, scrolling alone isn't a reasonable way to find one.
+    /// Groups with their matching presets, empty groups dropped.
     private var filteredGroups: [(group: MoodGroup, moods: [Mood])] {
         MoodGroup.allCases.compactMap { group in
             let matches = group.moods.filter { $0.matches(query) }
@@ -73,12 +68,8 @@ struct MoodPickerView: View {
             }
         }
         .presentationDetents([.large])
-        // The drawer opens ready for a *new* status: the current emoji is
-        // carried over (it still shows beside the field, and Set stays
-        // enabled), but the field starts empty rather than pre-filled with
-        // the old message — setting a new status shouldn't begin by deleting
-        // the last one. No tile starts highlighted and the celebration flag
-        // starts off, for the same reason.
+        // Opens ready for a *new* status: the emoji carries over (Set stays
+        // enabled) but the message, tile highlight and celebration flag start fresh.
         .onAppear {
             emoji = initialEmoji
         }
@@ -113,9 +104,8 @@ struct MoodPickerView: View {
         .animation(.smooth(duration: 0.25), value: isCelebration)
     }
 
-    /// The only sign that this status is more than its text. Without it the
-    /// flag would be invisible after you edited the wording, and turning it
-    /// back off would mean picking another preset and starting again.
+    /// The only visible sign of the flag once the wording is edited — and the
+    /// only way to turn it off without picking another preset.
     private var celebrationChip: some View {
         HStack(spacing: 8) {
             Image(systemName: "sparkles")
@@ -185,10 +175,8 @@ struct MoodPickerView: View {
         return Button {
             emoji = mood.emoji
             selectedPresetID = mood.id
-            // Seed the field only when that wouldn't erase something typed by
-            // hand: someone who wrote their own words and then taps a preset
-            // is picking its *emoji* (the only way to get one), not asking to
-            // have their message replaced.
+            // Seed the field only when that wouldn't erase hand-typed words —
+            // tapping a preset then is picking its emoji, not a replacement message.
             if message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 || isPresetLabel(message) {
                 message = mood.label
@@ -204,8 +192,6 @@ struct MoodPickerView: View {
             VStack(spacing: 6) {
                 Text(mood.emoji)
                     .font(.system(size: 30))
-                    // Enough of a hint to be findable once you know it's there,
-                    // quiet enough that the Us list still reads as one list.
                     .overlay(alignment: .topTrailing) {
                         if mood.isCelebration {
                             Image(systemName: "sparkles")

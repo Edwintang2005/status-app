@@ -7,20 +7,16 @@ struct SettingsView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
-    /// Edited locally and committed once, on submit or when leaving. Binding
-    /// the field straight to the model published to CloudKit per keystroke —
-    /// concurrent writes racing each other into a stale name on the partner's
-    /// phone, and clearing the field mid-edit flipped the app back to the
-    /// welcome screen underneath this sheet.
+    /// Edited locally, committed once on submit or dismiss. Binding straight to
+    /// the model published per keystroke (racing writes, and clearing the field
+    /// mid-edit flipped the app back to the welcome screen under this sheet).
     @State private var draftName = ""
     @State private var confirmingUnlink = false
     @State private var confirmingWipe = false
-    /// Set when the iCloud side of an unlink failed, so the only remaining
-    /// option — leaving their copy alone and cutting this phone loose — can be
-    /// offered explicitly rather than silently taken.
+    /// Set when the iCloud side of an unlink failed, so a local-only reset can
+    /// be offered explicitly rather than silently taken.
     @State private var offeringLocalOnly: Ending?
-    /// The outcome of a successful archive, for the alert that says where it
-    /// went. Not the archive itself — by then it's out of the app's hands.
+    /// Outcome of a successful archive, for the alert saying where it went.
     @State private var archiveSummary: ArchiveSummary?
 
     var body: some View {
@@ -128,9 +124,7 @@ struct SettingsView: View {
                 }
             }
             .task { notificationStatus = await NotificationManager.authorizationStatus() }
-            // Re-check when the user comes back from the Settings app —
-            // "Open Settings", flip the toggle, return — instead of showing
-            // the pre-toggle answer for the rest of the session.
+            // Re-check when the user returns from the Settings app.
             .onChange(of: scenePhase) { _, phase in
                 guard phase == .active else { return }
                 Task { notificationStatus = await NotificationManager.authorizationStatus() }
@@ -138,10 +132,8 @@ struct SettingsView: View {
             .onAppear { draftName = model.myDisplayName }
             // Leaving the sheet commits whatever edit was in progress.
             .onDisappear { commitName() }
-            // The name field's commit and the unlink flow surface their
-            // failures through `model.errorMessage`, whose alert lives on
-            // RootView — underneath this sheet, where it cannot present.
-            // Hosting the same alert here lets it appear when it happens.
+            // RootView's copy of this alert sits underneath this sheet, where
+            // it cannot present — host it here too.
             .alert("Something went wrong",
                    isPresented: Binding(get: { model.errorMessage != nil },
                                         set: { if !$0 { model.errorMessage = nil } })) {
@@ -149,9 +141,8 @@ struct SettingsView: View {
             } message: {
                 Text(model.errorMessage ?? "")
             }
-            // The link survives a relaunch in the App Group, but the share can
-            // be closed from another device — so confirm it against CloudKit
-            // rather than trusting the cached copy.
+            // The cached link can be closed from another device — confirm it
+            // against CloudKit rather than trusting the cached copy.
             .task { await model.refreshInviteURL() }
             .confirmationDialog(unlinkTitle,
                                 isPresented: $confirmingUnlink,
@@ -197,9 +188,8 @@ struct SettingsView: View {
             } message: {
                 Text("Nothing was deleted from iCloud, so what you've shared is still in \(model.partnerName)'s copy. You can clear this iPhone now and try again from a better connection, or cancel and wait.")
             }
-            // Only reachable when iCloud Drive wasn't available. Nothing has
-            // been deleted at this point, so the archive can't be lost by
-            // dismissing this.
+            // Only reachable when iCloud Drive wasn't available; nothing has
+            // been deleted yet, so dismissing this can't lose the archive.
             .sheet(isPresented: Binding(get: { model.archiveToShare != nil },
                                         set: { if !$0 { model.archiveToShare = nil } })) {
                 if let url = model.archiveToShare {
@@ -215,21 +205,16 @@ struct SettingsView: View {
         }
     }
 
-    /// Owner side: the link to hand over, kept reachable for as long as it
-    /// works. Created invites used to be visible only on the screen that made
-    /// them, which `RootView` replaces the instant pairing state is written.
-    ///
-    /// Its own property rather than inline in the `Form`: together with
-    /// everything else in there it was enough to time out the type-checker.
+    /// Owner's invite link, kept reachable here because RootView replaces the
+    /// screen that created it. Its own property: inline it timed out the type-checker.
     @ViewBuilder
     private var inviteSection: some View {
         Section {
             if model.inviteClosed {
                 LabeledContent("Status", value: "Closed")
             } else {
-                // Absent only until `refreshInviteURL()` gets it back from
-                // CloudKit — an open invite always has one, so this is a
-                // loading state, not an empty one.
+                // Absent only until `refreshInviteURL()` returns — a loading
+                // state, not an empty one.
                 if let url = model.inviteURL {
                     InviteLinkText(url: url)
                     ShareLink(item: url) {
@@ -237,9 +222,8 @@ struct SettingsView: View {
                     }
                     CopyLinkButton(url: url, prominent: false)
                 } else if model.inviteLinkUnavailable {
-                    // No share on the server. Says so plainly rather than
-                    // spinning forever, and without claiming it was closed —
-                    // nothing here means the partner joined.
+                    // No share on the server — say so rather than spin, without
+                    // claiming it was closed (nothing here means the partner joined).
                     LabeledContent("Status", value: "Unavailable")
                 } else {
                     LabeledContent("Status") {
@@ -257,8 +241,7 @@ struct SettingsView: View {
         }
     }
 
-    /// Pulled out of the section: inline, the ternary plus the surrounding
-    /// `Form` was enough to time out the type-checker.
+    /// Pulled out of the section: inline it timed out the type-checker.
     private var inviteFooter: String {
         if model.inviteClosed {
             return "Closed automatically when \(model.partnerName) joined. Nobody "
@@ -288,27 +271,18 @@ struct SettingsView: View {
             + "stays after you unlink."
     }
 
-    /// Archives first, and only then does the thing that deletes.
-    ///
-    /// The order is the whole point. If the archive reached iCloud Drive it is
-    /// safe and the ending can go ahead; if it only reached this device, the
-    /// share sheet comes up and the ending is deliberately *not* performed —
-    /// deleting the originals while the only copy sits in a temporary folder
-    /// would be the exact failure this feature exists to prevent.
-    /// One write and one CloudKit publish, only when the edit is real: a
-    /// blank name never commits (the model treats "" as "no name" and swaps
-    /// the screen under this sheet for onboarding).
-    ///
-    /// `model.hasName` gates it because "Delete everything and start over"
-    /// dismisses this sheet — and `onDisappear`'s commit would otherwise take
-    /// the stale draft and write the name straight back onto a model that
-    /// just deliberately forgot it, breaking the wipe's promise.
+    /// A blank name never commits ("" means "no name" and would swap the screen
+    /// under this sheet for onboarding). `model.hasName` gates it because a wipe
+    /// dismisses this sheet — `onDisappear` would write the stale draft back
+    /// onto a model that just deliberately forgot it.
     private func commitName() {
         let trimmed = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard model.hasName, !trimmed.isEmpty, trimmed != model.myDisplayName else { return }
         model.myDisplayName = trimmed
     }
 
+    /// Archives first, and deletes only if the archive reached iCloud Drive —
+    /// a device-only archive shows the share sheet and skips the ending.
     private func saveMemories(then ending: Ending?) async {
         guard let outcome = await model.archiveMemories() else { return }
 
@@ -350,9 +324,8 @@ struct SettingsView: View {
         "Unlink from \(model.partnerName)?"
     }
 
-    /// Says exactly what leaves and what stays. The two roles genuinely differ
-    /// — the owner holds the shared space, the other person is a guest in it —
-    /// and glossing over that is the one thing nobody would forgive.
+    /// The two roles genuinely differ — the owner holds the shared space, the
+    /// other person is a guest in it — so each hears exactly what leaves and stays.
     private var unlinkFooter: String {
         if model.role == .owner {
             return "Deletes the shared space from your iCloud: both your statuses, "
@@ -372,14 +345,12 @@ struct SettingsView: View {
             + "starts as it did the day you installed it. There is no undo."
     }
 
-    /// Both endings run the same way: try the cloud, and only claim it's done
-    /// when it is.
+    /// Try the cloud; only claim it's done when it is.
     private func end(_ ending: Ending) async {
         if await model.unlink(startingOver: ending == .wipe) {
             dismiss()
         } else {
-            // `model.errorMessage` already says what went wrong; this offers
-            // the only thing left.
+            // `model.errorMessage` already says what went wrong.
             offeringLocalOnly = ending
         }
     }

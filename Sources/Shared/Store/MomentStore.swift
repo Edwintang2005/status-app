@@ -5,15 +5,9 @@ import os
 import UIKit
 #endif
 
-/// Media files for moments, kept in the App Group container so the widget can
-/// read them without going near the network.
-///
-/// Two sizes are written per visual moment: a full-size copy for the app and a
-/// small one for the widget. Widget extensions have a hard memory ceiling, and
-/// decoding a full-resolution photo there is the fastest way to get jetsammed.
-///
-/// A voice memo is a single `.m4a` instead — nothing resizes, and the widget
-/// never decodes it. Its `Moment.waveform` is what gets drawn.
+/// Moment media files in the App Group container. Visual moments get a full-size
+/// copy plus a widget thumbnail (widgets have a hard memory ceiling and must not
+/// decode full-resolution photos); a voice memo is a single `.m4a`.
 struct MomentStore {
     static let shared = MomentStore()
 
@@ -45,8 +39,7 @@ struct MomentStore {
         directory?.appendingPathComponent("\(id)-thumb.jpg")
     }
 
-    /// AAC in an MPEG-4 container: small, and the one format every Apple
-    /// playback and notification-attachment API accepts without conversion.
+    /// AAC/MPEG-4: the format every Apple playback and notification API accepts.
     func audioURL(for id: String) -> URL? {
         directory?.appendingPathComponent("\(id).m4a")
     }
@@ -54,8 +47,8 @@ struct MomentStore {
     // MARK: - Writing
 
     #if canImport(UIKit)
-    /// Writes both sizes. Returns the JPEG data so a caller can hand it
-    /// straight to CloudKit without re-reading from disk.
+    /// Writes both sizes; returns the JPEG data so callers can upload to
+    /// CloudKit without re-reading from disk.
     @discardableResult
     func write(_ image: UIImage, id: String) throws -> (full: Data, thumb: Data) {
         guard let full = Self.jpeg(image,
@@ -75,9 +68,8 @@ struct MomentStore {
         return UIImage(contentsOfFile: url.path)
     }
 
-    /// Decoded thumbnails, so scrolling the library grid isn't re-reading and
-    /// re-decoding the same JPEGs. `NSCache` evicts itself under pressure,
-    /// which matters in the widget's tight memory budget.
+    /// Decoded-thumbnail cache; `NSCache` self-evicts under pressure, which
+    /// matters in the widget's tight memory budget.
     private static let thumbnailCache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
         cache.countLimit = 120
@@ -127,10 +119,8 @@ struct MomentStore {
         try thumb.write(to: thumbURL, options: .atomic)
     }
 
-    /// Moves a finished recording out of wherever it was captured and into the
-    /// App Group under the moment's id. A move rather than a copy: the
-    /// recorder's temporary file has no other reader, and leaving a duplicate
-    /// behind is how a temp directory quietly fills up.
+    /// Moves a finished recording into the App Group under the moment's id
+    /// (move, not copy, so the recorder's temp directory doesn't fill up).
     func adoptAudio(from source: URL, id: String) throws {
         guard let destination = audioURL(for: id) else {
             throw MomentStoreError.containerUnavailable
@@ -153,8 +143,8 @@ struct MomentStore {
 
     // MARK: - Housekeeping
 
-    /// Whether the full-size image is on this device. History entries older
-    /// than the cache limit will answer `false` until re-fetched.
+    /// Whether the full-size image is on this device; entries older than the
+    /// cache limit answer `false` until re-fetched.
     func hasImage(for id: String) -> Bool {
         guard let url = imageURL(for: id) else { return false }
         return FileManager.default.fileExists(atPath: url.path)
@@ -165,9 +155,8 @@ struct MomentStore {
         return FileManager.default.fileExists(atPath: url.path)
     }
 
-    /// The file this moment actually needs, whichever kind it is. Prefer this
-    /// over `hasImage(for:)` anywhere a voice memo can turn up — a memo has no
-    /// image and would otherwise look permanently unavailable.
+    /// Prefer this over `hasImage(for:)` anywhere a voice memo can turn up —
+    /// a memo has no image and would look permanently unavailable.
     func hasMedia(for moment: Moment) -> Bool {
         moment.isVoice ? hasAudio(for: moment.id) : hasImage(for: moment.id)
     }
@@ -185,10 +174,8 @@ struct MomentStore {
             .forEach { try? FileManager.default.removeItem(at: $0) }
     }
 
-    /// A throwaway copy for `UNNotificationAttachment`, which takes ownership
-    /// of whatever file it's handed and must never be given the App Group
-    /// original. Audio attaches too — it's what puts a play button on the
-    /// expanded notification for a voice memo.
+    /// Throwaway copy for `UNNotificationAttachment`, which takes ownership of
+    /// the file it's handed and must never get the App Group original.
     func temporaryAttachmentCopy(for moment: Moment, suffix: String) -> URL? {
         guard let source = moment.isVoice
                 ? audioURL(for: moment.id)
@@ -207,15 +194,9 @@ struct MomentStore {
         }
     }
 
-    /// Drops files for moments no longer in the index, so the container can't
-    /// grow without bound. Extension-agnostic on purpose: one moment may own a
-    /// `.jpg` pair or a single `.m4a`, and both are keyed by the same id.
-    ///
-    /// Files newer than `graceInterval` are off limits: the app writes a
-    /// moment's media *before* it records the index entry, and a push-driven
-    /// prune in the notification extension can land in that gap — deleting a
-    /// just-captured voice memo whose only copy this is. Pass `0` only when
-    /// the intent is a full wipe.
+    /// Drops files for moments no longer in the index. Files newer than
+    /// `graceInterval` are spared — media is written before its index entry, and
+    /// a prune in that gap would delete the only copy. Pass 0 only for a full wipe.
     func prune(keeping ids: some Collection<String>, graceInterval: TimeInterval = 300) {
         guard let directory else { return }
         let keep = Set(ids)

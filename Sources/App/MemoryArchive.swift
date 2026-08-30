@@ -1,14 +1,9 @@
 import Foundation
 import os
 
-/// Writes the shared history out as ordinary files, so that ending the link
-/// doesn't have to mean losing what was in it.
-///
-/// Everything here is deliberately boring: dated JPEGs, `.m4a` recordings, an
-/// HTML page and a plain text list. No archive format, no database, nothing
-/// that needs this app — or any app of ours — to open in ten years. The folder
-/// goes into iCloud Drive where the Files app can see it; if iCloud Drive isn't
-/// available, the caller is handed the folder to share instead.
+/// Writes the shared history out as ordinary files — deliberately boring formats
+/// that need no app to open in ten years. Goes to iCloud Drive; if that's
+/// unavailable, the caller is handed the folder to share instead.
 enum MemoryArchive {
     private static let log = Logger(subsystem: AppConfig.appGroupID, category: "MemoryArchive")
 
@@ -16,17 +11,14 @@ enum MemoryArchive {
         enum Destination: Sendable, Equatable {
             /// Saved and safe: nothing more for the user to do.
             case iCloudDrive
-            /// Written on this device only, because iCloud Drive wasn't
-            /// available. The caller must offer to share it before anything is
-            /// deleted.
+            /// On this device only — the caller must offer to share it before anything is deleted.
             case deviceOnly
         }
 
         let folder: URL
         let destination: Destination
         let momentCount: Int
-        /// Moments whose photo or recording couldn't be brought back from
-        /// CloudKit — listed in the archive rather than quietly dropped.
+        /// Moments whose media couldn't be recovered — listed in the archive, not quietly dropped.
         let unrecovered: Int
     }
 
@@ -64,9 +56,8 @@ enum MemoryArchive {
         for (index, moment) in ordered.enumerated() {
             progress(Double(index) / Double(ordered.count))
 
-            // Older moments keep their metadata but not their files, so most of
-            // an archive of a long relationship is fetched here rather than
-            // copied. Best effort: one missing photo shouldn't cost the rest.
+            // Most of a long archive is fetched back from CloudKit rather than copied.
+            // Best effort: one missing photo shouldn't cost the rest.
             if store.mediaURL(for: moment) == nil {
                 try? await Backend.current.fetchMedia(for: moment)
             }
@@ -102,8 +93,7 @@ enum MemoryArchive {
 
         progress(1)
 
-        // `url(forUbiquityContainerIdentifier:)` can block on first use, hence
-        // the hop off whatever thread we're on.
+        // `url(forUbiquityContainerIdentifier:)` can block on first use — hop off this thread.
         let container = await Task.detached { () -> URL? in
             FileManager.default.url(forUbiquityContainerIdentifier: nil)
         }.value
@@ -144,11 +134,8 @@ enum MemoryArchive {
         }
     }
 
-    /// Fixed-format strings need `en_US_POSIX` + Gregorian pinned: with the
-    /// device defaults, a Buddhist-calendar phone writes "2569-08-26" into
-    /// folder names, and a 12/24-hour override can inject AM/PM into "HHmm".
-    /// (`readableDate` below deliberately keeps the device locale — it's the
-    /// human-facing text, not a filename.)
+    /// Fixed-format strings need `en_US_POSIX` + Gregorian pinned, or device calendar
+    /// and 12/24-hour overrides leak into filenames. (`readableDate` keeps the device locale on purpose.)
     private static func fixedFormat(_ format: String) -> DateFormatter {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -169,8 +156,7 @@ enum MemoryArchive {
             : "\(AppConfig.appName) memories with \(partner) \(today)"
     }
 
-    /// Dated, attributed and captioned, because the filename is the only
-    /// metadata that survives being copied somewhere else.
+    /// Dated, attributed and captioned — the filename is the only metadata that survives copying.
     private static func fileName(for moment: Moment, extension ext: String) -> String {
         var name = fileDateFormat.string(from: moment.sentAt) + " " + sanitised(moment.senderName)
         let caption = sanitised(moment.caption)
@@ -187,8 +173,7 @@ enum MemoryArchive {
         return stripped.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Two photos sent in the same minute with the same caption are entirely
-    /// possible, and silently overwriting one of them isn't acceptable here.
+    /// Same-minute, same-caption collisions are possible; silently overwriting isn't acceptable.
     private static func unusedURL(in directory: URL, named name: String) -> URL {
         let candidate = directory.appendingPathComponent(name)
         guard FileManager.default.fileExists(atPath: candidate.path) else { return candidate }
@@ -299,9 +284,8 @@ enum MemoryArchive {
         """
     }
 
-    /// A relative path safe to put in an attribute. The filenames carry spaces
-    /// and em dashes on purpose — they're meant to be read — so they have to be
-    /// percent-encoded before a browser sees them.
+    /// A relative path safe for an attribute — the human-readable filenames must
+    /// be percent-encoded before a browser sees them.
     private static func href(_ path: String) -> String {
         let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path
         return escaped(encoded)

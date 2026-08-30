@@ -6,18 +6,9 @@ import os
 import WidgetKit
 #endif
 
-/// Runs when CloudKit delivers a nudge or moment push.
-///
-/// This is what makes those notifications survive a force-quit. CloudKit sends
-/// them as *visible* alerts — APNs displays them whether or not the app is
-/// running — and `shouldSendMutableContent` hands them here first, for about
-/// thirty seconds, before the user sees anything.
-///
-/// That window is used to do the work the app would otherwise have to be alive
-/// for: fetch the change, **decrypt it on-device**, write it into the App Group,
-/// reload the widget, attach the photo or recording, and replace CloudKit's
-/// deliberately generic wording with the real caption and name. None of that is
-/// possible server-side, because CloudKit cannot read the encrypted fields.
+/// Handles CloudKit's visible pushes (which survive force-quit) in the ~30s
+/// mutable-content window: fetch, decrypt on-device, update the App Group and
+/// widget, and replace the generic wording — CloudKit can't read the encrypted fields.
 final class NotificationService: UNNotificationServiceExtension {
     private let log = Logger(subsystem: AppConfig.appGroupID, category: "NotificationService")
 
@@ -41,8 +32,7 @@ final class NotificationService: UNNotificationServiceExtension {
     /// Out of time — show CloudKit's generic version rather than nothing.
     override func serviceExtensionTimeWillExpire() {
         work?.cancel()
-        // The refresh may have landed its records before the deadline hit;
-        // without this the widget misses exactly the pushes that ran long.
+        // The refresh may have landed records before the deadline — reload anyway.
         SharedStore.reloadWidgets()
         if let fallback {
             contentHandler?(fallback)
@@ -58,12 +48,8 @@ final class NotificationService: UNNotificationServiceExtension {
             return content
         }
 
-        // The widget is the whole point of doing this here: on a force-quit
-        // phone nothing else will update it until the user opens the app.
         // Deferred so it runs on *every* exit — a refresh that throws midway
-        // may still have applied records (apply happens before the token is
-        // persisted), and skipping the reload then is how a status banner
-        // arrives while the lock-screen widget keeps yesterday's status.
+        // may still have applied records, and the widget must not miss them.
         defer { SharedStore.reloadWidgets() }
 
         let result: RefreshResult
@@ -76,28 +62,13 @@ final class NotificationService: UNNotificationServiceExtension {
 
         let partnerName = await MainActor.run { SharedStore.shared.snapshot.partnerDisplayName }
 
-        // The push itself says what it is — the sync delta doesn't. Whichever
-        // process refreshes first consumes the delta, so "no new moment in
-        // *my* refresh" proves nothing about the push: classifying by delta
-        // rewrote moment pushes as nudges (and vice versa) whenever a heart
-        // and a photo arrived close together.
+        // Dispatch by subscriptionID, never by the sync delta: whichever
+        // process refreshes first consumes the delta, so it can't classify the push.
         switch notification.subscriptionID {
         case CloudSync.SubscriptionID.moment?:
-            // The delta's moment when this refresh got it; otherwise the
-            // index — whoever consumed the delta recorded it there. Prefer
-            // the newest *un-announced* one (`Snapshot.notifiedMomentIDs`):
-            // several moments sent seconds apart are several pushes, and
-            // whichever process consumed the delta has already claimed the
-            // newest — labelling every banner with its caption left the
-            // older moments' captions never shown.
-            //
-            // Picked and claimed inside one `mutate`, under the cross-process
-            // lock: those rapid-fire pushes run as *concurrent* extension
-            // instances, and a pick outside the lock let two of them choose
-            // the same un-announced moment — the newest caption on both
-            // banners, the older one never shown. Claiming before the media
-            // work is safe because the banner is guaranteed to display this
-            // content object even on expiry, title and body already set.
+            // Prefer the newest *un-announced* moment, picked and claimed inside
+            // one `mutate` under the cross-process lock — rapid-fire pushes run
+            // as concurrent extension instances and must not claim the same moment.
             let fromIndex = MomentIndex.shared.load().filter { !$0.fromMe }
             let moment = await MainActor.run { () -> Moment? in
                 var chosen: Moment?
@@ -121,16 +92,10 @@ final class NotificationService: UNNotificationServiceExtension {
                 await applyNudge(to: content, partnerName: partnerName, nudgeCount: count)
             }
         case CloudSync.SubscriptionID.status?:
-            // Rewrite whenever the partner has a status this device hasn't
-            // announced yet, judged by watermark rather than by "did *my*
-            // refresh see the change": the widget shares the change token and
-            // its own refresh often consumes the delta first, which made this
-            // push's delta empty and left the generic wording standing —
-            // exactly when the app was closed. A push fired by *this user's
-            // own other device* still shows the generic text: it doesn't move
-            // the partner's `updatedAt`, so the watermark check fails.
-            // Check-and-claim inside one `mutate`, under the cross-process
-            // lock, so two near-simultaneous pushes don't both rewrite.
+            // Rewrite judged by watermark, not by "did *my* refresh see the
+            // change" — the widget often consumes the delta first. Check-and-claim
+            // in one `mutate` under the cross-process lock so concurrent pushes
+            // don't both rewrite.
             if let status = result.partnerStatus {
                 let claimed = await MainActor.run { () -> Bool in
                     var claimed = false
@@ -147,8 +112,7 @@ final class NotificationService: UNNotificationServiceExtension {
                 }
             }
         default:
-            // The legacy silent status push or an unknown future
-            // subscription: the refresh above already did the useful work.
+            // Legacy silent push or unknown subscription — the refresh already ran.
             break
         }
 
@@ -162,26 +126,19 @@ final class NotificationService: UNNotificationServiceExtension {
         content.body = status.message.isEmpty
             ? status.emoji
             : "\(status.emoji) \(status.message)"
-        // Every status update stays in Notification Centre individually —
-        // collapsing them into one would defeat the point of having the
-        // history to scroll back through.
+        // Each update stays individually in Notification Centre as history.
         content.threadIdentifier = "status-updates"
     }
 
     private func apply(_ moment: Moment,
                        to content: UNMutableNotificationContent,
                        partnerName: String) async {
-        // The moment carries the sender's own name; `partnerName` is a
-        // fallback for records written before they'd set one.
+        // `partnerName` covers records written before the sender set a name.
         content.title = moment.senderName.isEmpty ? partnerName : moment.senderName
         content.body = moment.caption.isEmpty ? moment.arrivalSummary : moment.caption
 
-        // The media may not be on disk yet: this moment can come from the
-        // index fallback — another process consumed the delta, and its media
-        // download may have failed or still be in flight — and even this
-        // refresh's own `downloadRecentMedia` is best-effort. A banner without
-        // the picture defeats the point of the attachment, so fetch it here
-        // rather than settling for text.
+        // The media may not be on disk yet (another process's download may be
+        // in flight or failed), so fetch it here rather than settling for text.
         var attachment = MomentAttachment.make(for: moment, suffix: "push")
         if attachment == nil {
             try? await CloudSync.shared.fetchMedia(for: moment)
@@ -199,13 +156,9 @@ final class NotificationService: UNNotificationServiceExtension {
         content.body = "is thinking of you 💭"
         content.interruptionLevel = .timeSensitive
 
-        // Awaited: the system may suspend this process the instant the
-        // content handler runs, and a fire-and-forget write that never lands
-        // means the app re-announces the same nudge on its next refresh.
-        // `max`, not assignment: two taps in quick succession run as
-        // concurrent extension instances, and the one carrying the older
-        // count can land its write second — a watermark moved backwards is a
-        // duplicate "thinking of you" on the app's next refresh.
+        // Awaited — the process may suspend once the handler runs. `max`, not
+        // assignment: concurrent instances can land writes out of order, and a
+        // watermark moved backwards means a duplicate announcement later.
         await MainActor.run {
             _ = SharedStore.shared.mutate(reloadWidgets: false) {
                 $0.lastSeenPartnerNudgeCount = max($0.lastSeenPartnerNudgeCount, nudgeCount)

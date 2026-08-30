@@ -5,24 +5,18 @@ import Foundation
 struct StatusPayload: Codable, Hashable {
     var emoji: String
     var message: String
-    /// What this person calls themselves. The other side may override it
-    /// locally with a nickname — see `Snapshot.partnerDisplayName`.
+    /// What this person calls themselves.
     var displayName: String
     var updatedAt: Date
 
-    /// Monotonic counter, bumped on every nudge sent. The receiving side
-    /// compares it against the last count it saw to decide whether to fire a
-    /// local notification, which makes nudge delivery idempotent even if the
-    /// same record is fetched twice.
+    /// Monotonic counter bumped per nudge; the receiver compares it to the last
+    /// count seen, keeping nudge delivery idempotent across duplicate fetches.
     var nudgeCount: Int
     var lastNudgeAt: Date?
 
-    /// Marks this status as an anniversary. The *receiving* device plays a
-    /// full-screen animation built around `message` the first time the app is
-    /// opened after it lands — see `Snapshot.pendingCelebration`. It rides on
-    /// the status rather than being its own record type so that a celebration
-    /// is still just a status: it shows on the home screen and in the widget
-    /// like any other, and it's replaced the moment either of you moves on.
+    /// Anniversary marker: the receiving device plays a full-screen animation on
+    /// first open (see `Snapshot.pendingCelebration`). Rides on the status so a
+    /// celebration still renders like any other status.
     var isCelebration: Bool = false
 
     private enum CodingKeys: String, CodingKey {
@@ -46,11 +40,8 @@ struct StatusPayload: Codable, Hashable {
         self.isCelebration = isCelebration
     }
 
-    /// Hand-written for the same reason `Snapshot`'s is, and because this type
-    /// is *nested inside* that snapshot: a synthesised decoder treats a missing
-    /// key as an error even when the property has a default, so a payload
-    /// written by a build without `isCelebration` would fail to decode and take
-    /// the whole cached snapshot down with it.
+    /// Hand-written: synthesised decoding errors on missing keys, so a payload
+    /// from an older build would fail and take the whole cached snapshot down.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         emoji = try container.decodeIfPresent(String.self, forKey: .emoji) ?? "💭"
@@ -83,9 +74,8 @@ struct StatusPayload: Codable, Hashable {
     }
 }
 
-/// Which side of the pair this device is. The role also decides the record
-/// name each device writes to, so neither phone needs to know the other's
-/// CloudKit user ID.
+/// Which side of the pair this device is; the role decides the record names each
+/// device writes, so neither phone needs the other's CloudKit user ID.
 enum PairRole: String, Codable {
     case owner
     case participant
@@ -97,9 +87,8 @@ enum PairRole: String, Codable {
         }
     }
 
-    /// Nudges are their own record type, not a field on `Status`, so that a
-    /// nudge can carry a *visible* push while a status change stays silent —
-    /// `CKDatabaseSubscription` filters by record type.
+    /// Nudges are their own record type so a nudge can carry a visible push while
+    /// a status change stays silent — `CKDatabaseSubscription` filters by type.
     var nudgeRecordName: String {
         switch self {
         case .owner: return "nudge-owner"
@@ -107,9 +96,8 @@ enum PairRole: String, Codable {
         }
     }
 
-    /// Moments are one record each, named `moment-<role>-<uuid>`. The role in
-    /// the name is how a device tells its own sends from its partner's without
-    /// an extra field or a lookup.
+    /// Moment records are `moment-<role>-<uuid>`; the role in the name tells a
+    /// device's own sends from its partner's without an extra field.
     var momentRecordPrefix: String { "moment-\(rawValue)-" }
 
     func momentRecordName(id: String) -> String { momentRecordPrefix + id }
@@ -135,10 +123,9 @@ struct PairingInfo: Codable, Hashable {
     /// user record name taken from the accepted share metadata.
     var zoneOwnerName: String
     var pairedAt: Date
-    /// The user record name of the iCloud account this pairing was made under,
-    /// so a later "zone not found" can tell "the partner unlinked" apart from
-    /// "the phone is signed into a different account". `nil` on pairings made
-    /// before this field existed (optional, so those still decode).
+    /// iCloud user record name at pairing time, so "zone not found" can tell
+    /// partner-unlinked from switched-account. `nil` on pairings made before
+    /// this field existed (optional, so those still decode).
     var userRecordName: String?
 
     init(role: PairRole,
@@ -166,57 +153,39 @@ struct Snapshot: Codable, Hashable {
     var lastSeenPartnerNudgeCount: Int
     /// When this device last *sent* a nudge, for cooldown enforcement.
     var lastNudgeSentAt: Date?
-    /// When a nudge last failed to send, so the lock-screen heart can admit it
-    /// instead of silently returning to ready — the widget intent can't show
-    /// an alert. Cleared on the next claim or success.
+    /// When a nudge last failed, so the lock-screen heart can show it (the widget
+    /// intent can't show an alert). Cleared on the next claim or success.
     var lastNudgeFailedAt: Date?
 
-    /// Whether `mine` has reached CloudKit. A status set offline stays
-    /// `false` and is republished by `AppModel.republishStatusIfNeeded()` on
-    /// the next refresh — the status twin of `Moment.uploaded`.
+    /// Whether `mine` has reached CloudKit; stays `false` offline and is
+    /// republished on the next refresh — the status twin of `Moment.uploaded`.
     var myStatusPublished: Bool = true
 
-    /// Only the newest in each direction. The widget decodes this snapshot on
-    /// every render, so the full history deliberately lives elsewhere — see
-    /// `MomentIndex`.
+    /// Only the newest in each direction; the full history lives in `MomentIndex`
+    /// so widget renders stay small.
     var latestPartnerMoment: Moment?
     var latestOwnMoment: Moment?
-    /// The partner moment id most recently announced by a notification here.
-    /// Not the same as `Moment.seen`, which is about the user actually
-    /// looking at it. Kept alongside `notifiedMomentIDs` for older builds
-    /// that only read this field.
+    /// Partner moment id most recently announced by a notification (not the same
+    /// as `Moment.seen`). Kept for older builds that only read this field.
     var lastNotifiedMomentID: String?
-    /// The last few announced moment ids, newest first. A single watermark
-    /// couldn't cope with three moments arriving in quick succession: each
-    /// push's extension run could only exclude the *one* last id, so the
-    /// newest caption appeared on two banners and the oldest never did.
+    /// The last few announced moment ids, newest first — a single watermark
+    /// can't dedup several moments arriving in quick succession.
     var notifiedMomentIDs: [String] = []
 
-    /// The newest photo or doodle from the partner, ignoring voice memos.
-    ///
-    /// The widget draws *this* rather than `latestPartnerMoment`: a memo
-    /// shouldn't blank out their last picture, because a waveform tile says far
-    /// less at a glance than the photo it replaced. A waiting memo shows up as
-    /// a badge over the picture instead.
+    /// Newest partner photo/doodle, ignoring voice memos. The widget draws this
+    /// rather than `latestPartnerMoment` so a memo doesn't blank out the picture.
     var latestPartnerVisualMoment: Moment?
-    /// How many of the partner's voice memos haven't been listened to. Derived
-    /// from the index rather than stored per-moment, so it can be recomputed
-    /// when something is marked as heard — see `SharedStore.applyDerived`.
+    /// Partner voice memos not yet listened to. Derived from the index so it can
+    /// be recomputed — see `SharedStore.applyDerived`.
     var unheardVoiceMemoCount: Int = 0
 
-    /// `updatedAt` of the last celebration status from the partner that this
-    /// device has actually played. Stored rather than derived because "have we
-    /// celebrated this one yet" has to survive a relaunch — that's the whole
-    /// point of a greeting on first open — and comparing timestamps makes it
-    /// idempotent when the same record is fetched twice.
+    /// `updatedAt` of the last partner celebration this device has played.
+    /// Stored so it survives relaunch; timestamp compare keeps it idempotent.
     var lastCelebratedAt: Date?
 
-    /// `updatedAt` of the partner status most recently written onto a push
-    /// banner by the notification service extension — the status twin of
-    /// `lastSeenPartnerNudgeCount`. The extension can't gate the rewrite on
-    /// "my refresh saw the change": the widget shares the change token and
-    /// often consumes the delta first, which left the banner wearing
-    /// CloudKit's generic wording exactly when the app was closed.
+    /// `updatedAt` of the partner status last written onto a push banner by the
+    /// notification extension — the status twin of `lastSeenPartnerNudgeCount`.
+    /// Needed because the widget often consumes the change-token delta first.
     var lastAnnouncedPartnerStatusAt: Date?
 
     static let empty = Snapshot(
@@ -240,10 +209,8 @@ struct Snapshot: Codable, Hashable {
         case lastAnnouncedPartnerStatusAt
     }
 
-    /// Hand-written for the same reason `Moment`'s is: synthesised `Codable`
-    /// treats a missing key as an error, so a snapshot written by an earlier
-    /// build would fail to decode outright and reset the widget to blank.
-    /// Every key is optional here, and every field has a sane fallback.
+    /// Hand-written: synthesised `Codable` errors on missing keys, so a snapshot
+    /// from an earlier build would reset the widget to blank. Every field falls back.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         mine = try container.decodeIfPresent(StatusPayload.self, forKey: .mine)
@@ -256,16 +223,13 @@ struct Snapshot: Codable, Hashable {
         latestPartnerMoment = try container.decodeIfPresent(Moment.self, forKey: .latestPartnerMoment)
         latestOwnMoment = try container.decodeIfPresent(Moment.self, forKey: .latestOwnMoment)
         lastNotifiedMomentID = try container.decodeIfPresent(String.self, forKey: .lastNotifiedMomentID)
-        // The key being *absent* is what marks a legacy snapshot; an explicit
-        // `null` is this build saying the only picture was deleted. Folding
-        // the two together resurrected deleted photos in the widget — as a
-        // tile whose media files were already gone.
+        // Absent key = legacy snapshot; explicit null = the only picture was
+        // deleted. Folding the two resurrected deleted photos in the widget.
         if container.contains(.latestPartnerVisualMoment) {
             latestPartnerVisualMoment = try container
                 .decodeIfPresent(Moment.self, forKey: .latestPartnerVisualMoment)
         } else {
-            // Pre-voice-memo snapshots had only the one field, and back then
-            // every moment was a picture.
+            // Legacy fallback: pre-voice-memo, every moment was a picture.
             latestPartnerVisualMoment = latestPartnerMoment.flatMap { $0.isVoice ? nil : $0 }
         }
         unheardVoiceMemoCount = try container
@@ -274,17 +238,15 @@ struct Snapshot: Codable, Hashable {
         notifiedMomentIDs = try container
             .decodeIfPresent([String].self, forKey: .notifiedMomentIDs) ?? []
         lastNudgeFailedAt = try container.decodeIfPresent(Date.self, forKey: .lastNudgeFailedAt)
-        // A snapshot from before this field predates the republish queue;
-        // assuming published avoids re-pushing an old status on first launch.
+        // Assume published for pre-field snapshots to avoid re-pushing an old status.
         myStatusPublished = try container
             .decodeIfPresent(Bool.self, forKey: .myStatusPublished) ?? true
         lastAnnouncedPartnerStatusAt = try container
             .decodeIfPresent(Date.self, forKey: .lastAnnouncedPartnerStatusAt)
     }
 
-    /// Hand-written because the synthesised encoder omits nil optionals, and
-    /// `latestPartnerVisualMoment` needs its nil written as an explicit null —
-    /// see the decoder above.
+    /// Hand-written: `latestPartnerVisualMoment`'s nil must be written as an
+    /// explicit null — see the decoder above.
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(mine, forKey: .mine)
@@ -342,9 +304,8 @@ struct Snapshot: Codable, Hashable {
         lastNotifiedMomentID == momentID || notifiedMomentIDs.contains(momentID)
     }
 
-    /// Records that a notification for this moment is being shown. Bounded:
-    /// the set only needs to cover pushes arriving faster than they can be
-    /// announced, not the whole history.
+    /// Records that a notification for this moment is being shown. Bounded: only
+    /// needs to cover pushes arriving faster than they can be announced.
     mutating func recordAnnounced(_ momentID: String) {
         lastNotifiedMomentID = momentID
         guard !notifiedMomentIDs.contains(momentID) else { return }
@@ -354,10 +315,8 @@ struct Snapshot: Codable, Hashable {
         }
     }
 
-    /// The partner's celebration status, if one has arrived that this device
-    /// hasn't played yet — which is exactly what the greeting on first open is
-    /// waiting for. `nil` once it's been shown, and `nil` for your own
-    /// celebration: the animation is a gift, and you don't unwrap your own.
+    /// The partner's celebration status that hasn't been played yet; `nil` once
+    /// shown, and always `nil` for your own celebration.
     var pendingCelebration: StatusPayload? {
         guard let theirs, theirs.isCelebration else { return nil }
         if let lastCelebratedAt, theirs.updatedAt <= lastCelebratedAt { return nil }
@@ -371,17 +330,13 @@ struct Snapshot: Codable, Hashable {
             .max { $0.sentAt < $1.sentAt }
     }
 
-    /// Whatever the partner calls themselves. There is deliberately no local
-    /// override: a person's name is theirs to set, and the name that arrives
-    /// with a moment is the name that gets shown.
+    /// The partner's self-chosen name; deliberately no local override.
     var partnerDisplayName: String {
         let synced = theirs?.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         return (synced?.isEmpty == false ? synced! : "Partner")
     }
 
-    /// Paired, with nothing from the other side yet — the state a new pair
-    /// sits in until the first status arrives, and the one the widgets used to
-    /// render as "not paired".
+    /// Paired, with nothing from the other side yet.
     static let previewWaiting = Snapshot(
         mine: StatusPayload(
             emoji: "💼",
@@ -433,8 +388,8 @@ struct Snapshot: Codable, Hashable {
     )
 }
 
-/// Deliberately not behind `#if DEBUG`: `Snapshot.preview` above is what the
-/// widget gallery renders, so this ships in Release too.
+/// Deliberately not behind `#if DEBUG`: the widget gallery renders
+/// `Snapshot.preview`, so this ships in Release too.
 extension Moment {
     static let previewPhoto = Moment(id: "preview-moment",
                                      kind: .photo,

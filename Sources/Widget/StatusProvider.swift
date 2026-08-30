@@ -6,17 +6,15 @@ struct StatusEntry: TimelineEntry {
     let snapshot: Snapshot
 }
 
-/// Renders from the App Group cache so there is always something to show
-/// instantly, and opportunistically refreshes from CloudKit so the widget stays
-/// current even if a silent push was dropped or the app hasn't been opened.
+/// Renders from the App Group cache, opportunistically refreshing from
+/// CloudKit as a backstop for dropped silent pushes.
 struct StatusProvider: TimelineProvider {
     private static let log = Logger(subsystem: AppConfig.appGroupID, category: "Widget")
 
     /// WidgetKit gives the provider a limited budget; give up well before it.
     private static let fetchTimeout: Duration = .seconds(8)
-    /// The only part of the widget that costs battery: each tick spends a
-    /// process launch and a CloudKit round trip. It's a backstop for dropped
-    /// silent pushes, not the primary path, so it can afford to be lazy.
+    /// Each tick costs a process launch + CloudKit round trip; it's a backstop,
+    /// so it can afford to be lazy.
     private static let refreshInterval: TimeInterval = 60 * 60
 
     func placeholder(in context: Context) -> StatusEntry {
@@ -34,17 +32,15 @@ struct StatusProvider: TimelineProvider {
             await Self.refreshIfPossible()
             let snapshot = SharedStore.shared.snapshot
             var entries = [StatusEntry(date: Date(), snapshot: snapshot)]
-            // A nudge was just sent: the lock-screen heart renders as a
-            // checkmark until the cooldown ends, but nothing else re-renders
-            // it for up to an hour — schedule the flip back ourselves.
+            // Nothing else re-renders for up to an hour, so schedule the entry
+            // that flips the heart back after the cooldown.
             if let sent = snapshot.lastNudgeSentAt {
                 let expiry = sent.addingTimeInterval(AppConfig.nudgeCooldown)
                 if expiry > Date() {
                     entries.append(StatusEntry(date: expiry, snapshot: snapshot))
                 }
             }
-            // Same shape for a failed nudge: the slashed heart shows for
-            // `nudgeFailureNotice`, and this entry is what flips it back.
+            // Same for the failed-nudge slashed heart.
             if let failed = snapshot.lastNudgeFailedAt {
                 let expiry = failed.addingTimeInterval(AppConfig.nudgeFailureNotice)
                 if expiry > Date() {

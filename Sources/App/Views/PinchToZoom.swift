@@ -1,10 +1,7 @@
 import SwiftUI
 
-/// Instagram-style pinch zoom: the picture magnifies around the pinch while
-/// the fingers are down and springs back the moment they lift. A *peek*, not
-/// a zoom mode — nothing to reset, no state to get stuck in, which is why
-/// `@GestureState` carries it: the framework guarantees the snap-back even if
-/// the gesture is interrupted by a call or an app switch.
+/// Pinch-to-peek: magnifies while fingers are down, springs back on lift.
+/// `@GestureState` guarantees the snap-back even if the gesture is interrupted.
 private struct PinchToZoom: ViewModifier {
     private struct Zoom: Equatable {
         var scale: CGFloat = 1
@@ -17,14 +14,12 @@ private struct PinchToZoom: ViewModifier {
     func body(content: Content) -> some View {
         content
             .scaleEffect(zoom.scale, anchor: zoom.anchor)
-            // Above its siblings while zoomed, so the magnified picture rides
-            // over neighbouring cards instead of slipping beneath them.
+            // Above its siblings while zoomed, so it rides over neighbouring cards.
             .zIndex(zoom.scale > 1 ? 1 : 0)
             .gesture(
                 MagnifyGesture()
                     .updating($zoom) { value, state, _ in
-                        // No shrinking below natural size: pinching in would
-                        // just make the picture look broken.
+                        // No shrinking below natural size.
                         state.scale = max(1, value.magnification)
                         state.anchor = value.startAnchor
                     }

@@ -1,9 +1,6 @@
 import SwiftUI
 
 /// Record a voice memo and send it to the other person.
-///
-/// Its own screen rather than a fourth tab in `MomentComposerView`: a memo has
-/// no image to compose over, and the two share nothing but the caption field.
 struct VoiceMemoComposerView: View {
     /// The recording is handed over as a temporary file the caller must move,
     /// along with the metadata that can't be recovered from it afterwards.
@@ -56,16 +53,13 @@ struct VoiceMemoComposerView: View {
             recorder.cleanUp()
         }
         .onChange(of: scenePhase) { _, phase in
-            // Backgrounding mid-take keeps whatever was captured rather than
-            // leaving a recording running behind the user's back.
+            // Backgrounding stops the take — never record behind the user's back.
             if phase != .active { recorder.stop() }
         }
     }
 
     // MARK: - Stage
 
-    /// The one thing this screen is about, sized like the composer's square so
-    /// the two sheets feel like siblings.
     private var stage: some View {
         VStack(spacing: 20) {
             Text(statusLine)
@@ -90,10 +84,8 @@ struct VoiceMemoComposerView: View {
         .card(padding: 24)
     }
 
-    /// While recording, a fixed-width window onto the tail of the take, padded
-    /// on the left so the bars scroll in from the right at a constant width
-    /// instead of starting as three slabs. Afterwards, the whole thing
-    /// condensed — the same samples that get stored on the moment.
+    /// While recording, a fixed-width window on the tail of the take (left-padded
+    /// so bars scroll in at constant width); afterwards, the condensed whole take.
     private var displayedLevels: [Double] {
         guard recorder.state == .recording else { return recorder.waveform }
         let slots = AppConfig.voiceWaveformSampleCount
@@ -101,15 +93,13 @@ struct VoiceMemoComposerView: View {
         return Array(repeating: 0, count: max(0, slots - tail.count)) + tail
     }
 
-    /// Only once the take is loaded in the player — before that, `nil` keeps
-    /// the whole waveform in full colour instead of showing it as unplayed.
+    /// `nil` until the take is loaded, so the waveform shows full colour, not unplayed.
     private var previewProgress: Double? {
         guard let url = recorder.fileURL, player.currentURL == url else { return nil }
         return player.progress
     }
 
-    /// The empty state's placeholder row is a stand-in, not a recording, so it
-    /// stays quiet enough to read as one.
+    /// Idle placeholder stays faint so it doesn't read as a recording.
     private var waveformTint: Color {
         switch recorder.state {
         case .recording: return Theme.warm
@@ -217,8 +207,7 @@ struct VoiceMemoComposerView: View {
         let waveform = recorder.waveform
 
         player.stop()
-        // Ownership of the file passes to the caller here; the recorder must
-        // stop treating it as its own before `onDisappear` tidies up.
+        // File ownership passes to the caller; relinquish before `onDisappear` tidies up.
         recorder.relinquish()
         onSend(url, duration, waveform, caption)
         dismiss()

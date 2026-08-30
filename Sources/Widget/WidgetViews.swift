@@ -12,10 +12,8 @@ struct StatusWidgetView: View {
     private var mine: StatusPayload? { entry.snapshot.mine }
     private var isPaired: Bool { entry.snapshot.isPaired }
 
-    /// The partner's name only once they have actually published one.
-    ///
-    /// `Snapshot.partnerDisplayName` falls back to "Partner", which reads
-    /// fine mid-sentence and cold as a heading over an empty tile.
+    /// The partner's name only once they've published one — the "Partner"
+    /// fallback reads cold as a heading.
     private var knownName: String? {
         let name = status?.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         return (name?.isEmpty == false) ? name : nil
@@ -24,9 +22,7 @@ struct StatusWidgetView: View {
     /// What to call them before they've said anything.
     private var name: String { knownName ?? "Them" }
 
-    /// Paired, but nothing has arrived from the other side yet. Its own state:
-    /// it used to be lumped in with "not paired", so a widget on a freshly
-    /// paired phone told the user to go and pair.
+    /// Paired, but nothing has arrived yet — distinct from "not paired".
     private var isWaiting: Bool { isPaired && status == nil }
 
     var body: some View {
@@ -50,9 +46,7 @@ struct StatusWidgetView: View {
 
     // MARK: Inline
 
-    /// Both emoji and both names, and deliberately no message: the system
-    /// gives inline a single line and truncates it without mercy, so a status
-    /// sentence would lose its ending rather than shorten.
+    /// Emoji and names only — inline gets a single line and truncates, so no message.
     private var inline: some View {
         guard isPaired else {
             return Text("\(AppConfig.appName): not paired")
@@ -73,9 +67,7 @@ struct StatusWidgetView: View {
                 Text(status.emoji)
                     .font(.system(size: 30))
             } else if isWaiting {
-                // A thought bubble, not a "go and pair" prompt: on this surface
-                // the difference between "they haven't said anything" and
-                // "you're not set up" is the whole message.
+                // Waiting is not "go and pair" — keep the states distinct.
                 Text("💭")
                     .font(.system(size: 26))
                     .opacity(0.6)
@@ -88,18 +80,8 @@ struct StatusWidgetView: View {
 
     // MARK: Rectangular
 
-    /// The two of you side by side, theirs on the left: name, emoji, then up
-    /// to two lines of status each.
-    ///
-    /// The status is allowed to truncate — a short status reads whole and
-    /// keeps the halves symmetrical, a long one loses its tail, and that
-    /// trade-off belongs to whoever typed it. The emoji gives up size
-    /// (26 → 16 pt) to make the room.
-    ///
-    /// Top-aligned, deliberately: the name and emoji rows are the same height
-    /// on both sides, so anchoring the columns at the top keeps the two emoji
-    /// on one line however long either message runs. Centre alignment let a
-    /// wrapped message shove its own emoji upward, out of line with the other.
+    /// The two of you side by side, theirs on the left. Top-aligned so a
+    /// wrapped message can't push its emoji out of line with the other's.
     private var rectangular: some View {
         HStack(alignment: .top, spacing: 0) {
             if !isPaired {
@@ -107,8 +89,7 @@ struct StatusWidgetView: View {
                 Spacer(minLength: 0)
             } else {
                 person(status, label: name)
-                // A hairline rather than a `Divider`: in a vibrant-rendered
-                // accessory widget the system divider all but disappears.
+                // Hairline, not `Divider` — the system divider vanishes in vibrant rendering.
                 Rectangle()
                     .fill(.tertiary)
                     .frame(width: 1)
@@ -119,8 +100,7 @@ struct StatusWidgetView: View {
         .frame(maxHeight: .infinity, alignment: .center)
     }
 
-    /// One half of the pair. `nil` means paired but nothing set yet, which is
-    /// its own small statement — hence a placeholder rather than a blank.
+    /// One half of the pair; `nil` (paired, nothing yet) draws a placeholder, not a blank.
     private func person(_ status: StatusPayload?, label: String) -> some View {
         VStack(spacing: 1.5) {
             Text(label.uppercased())
@@ -145,8 +125,6 @@ struct StatusWidgetView: View {
         .padding(.horizontal, 6)
     }
 
-    /// Same conventions as the home-screen widget: absence and emptiness are
-    /// said out loud rather than left as a hole in the layout.
     private func personMessage(for status: StatusPayload?) -> String {
         guard let status else { return "nothing yet" }
         return status.message.isEmpty ? "no message" : status.message
@@ -165,13 +143,8 @@ struct StatusWidgetView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// The same shape whether or not they've said anything yet.
-    ///
-    /// Keeping the layout and filling it with a waiting state, rather than
-    /// swapping in a different view, is the point: a paired widget that goes
-    /// structurally blank until the first status arrives reads as broken, and
-    /// the nudge button still works the whole time — a heart is worth sending
-    /// before either of you has typed a word.
+    /// Same layout whether or not they've posted — a structurally blank tile
+    /// reads as broken, and the nudge button works the whole time.
     @ViewBuilder
     private var paired: some View {
         if let heading = knownName?.uppercased() {
@@ -202,16 +175,13 @@ struct StatusWidgetView: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(6)
-                    // Matches the in-app nudge button: the heart wears the
-                    // rope's crimson, not the fox's orange.
+                    // Matches the in-app nudge button's crimson.
                     .background(Theme.accent, in: Circle())
             }
             .buttonStyle(.plain)
         }
     }
 
-    /// Says what is true — they haven't posted — and what to do about it,
-    /// rather than leaving the line empty.
     private var smallMessage: String {
         guard let status else { return "Nothing yet. Send yours." }
         return status.message.isEmpty ? "no message" : status.message
@@ -233,21 +203,15 @@ struct StatusWidgetView: View {
 struct NudgeWidgetView: View {
     let entry: StatusEntry
 
-    /// Mirrors the app's cooldown so the widget shows a check instead of a
-    /// heart right after sending.
-    ///
-    /// Measured from `entry.date`, not `Date()`: WidgetKit renders every
-    /// timeline entry's view when the timeline is *delivered*, so a wall-clock
-    /// read made both the "now" entry and the scheduled cooldown-expiry entry
-    /// draw a checkmark — the expiry entry exists precisely to flip back.
+    /// Measured from `entry.date`, not `Date()`: WidgetKit renders every entry
+    /// at delivery, so a wall-clock read would draw the expiry entry as a checkmark too.
     private var recentlySent: Bool {
         guard let last = entry.snapshot.lastNudgeSentAt else { return false }
         return entry.date.timeIntervalSince(last) < AppConfig.nudgeCooldown
     }
 
-    /// The last tap never made it out (no signal, iCloud down). The intent
-    /// can't put up an alert, so the heart itself wears the news; tapping it
-    /// retries, and the marker is cleared the moment a send is claimed.
+    /// The last tap never made it out; the intent can't alert, so the heart
+    /// wears the news and tapping retries.
     private var recentlyFailed: Bool {
         guard let failed = entry.snapshot.lastNudgeFailedAt else { return false }
         return entry.date.timeIntervalSince(failed) < AppConfig.nudgeFailureNotice
@@ -304,8 +268,6 @@ struct NudgeWidgetView: View {
     StatusEntry(date: .now, snapshot: .preview)
 }
 
-// Paired with nothing from the other side — the state this widget used to
-// render as "Open to pair".
 #Preview("Small waiting", as: .systemSmall) {
     StatusWidget()
 } timeline: {

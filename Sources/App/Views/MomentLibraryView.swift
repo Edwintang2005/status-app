@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// The full archive, as a grid. Deliberately behind its own button: the home
-/// card is for what's waiting, not for browsing everything you've ever been
-/// sent.
+/// The full archive, as a grid, behind its own button — the home card is for
+/// what's waiting, not for browsing.
 struct MomentLibraryView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -70,8 +69,7 @@ struct MomentLibraryView: View {
             }
             .overlay(alignment: .bottomLeading) {
                 if moment.fromMe {
-                    // A send that hasn't reached the other person yet wears a
-                    // clock instead of the sent-arrow; `retryPendingUploads`
+                    // Un-uploaded sends wear a clock; `retryPendingUploads`
                     // clears it on the next successful foreground.
                     Image(systemName: moment.uploaded ? "arrow.up.right" : "clock.fill")
                         .font(.system(size: 9, weight: .bold))
@@ -87,12 +85,8 @@ struct MomentLibraryView: View {
         .buttonStyle(.plain)
     }
 
-    /// Entries older than the media cache window have no local file. They're
-    /// fetched on demand when opened, not eagerly for the whole grid — that
-    /// would defeat the point of the cache.
-    ///
-    /// A voice memo is the exception: its tile is drawn from the waveform in
-    /// the index, so it looks right whether or not the audio is still here.
+    /// Entries past the media cache window are fetched on demand when opened,
+    /// never eagerly. Voice tiles draw from the indexed waveform, so they render without audio.
     @ViewBuilder
     private func thumbnail(_ moment: Moment) -> some View {
         if moment.isVoice {

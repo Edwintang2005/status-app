@@ -2,15 +2,12 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-/// Puts the invite link on the clipboard, and says so.
-///
-/// The "Copied" state isn't decoration: copying is silent, and a button that
-/// gives back nothing is one people press twice and still don't trust.
+/// Puts the invite link on the clipboard, and says so — copying is silent, and
+/// a button that gives back nothing gets pressed twice and still not trusted.
 struct CopyLinkButton: View {
     let url: URL
-    /// `true` in the pairing flow, where this sits under a filled Share button
-    /// and needs to read as the second of two real options; `false` in the
-    /// `Form` rows in Settings, which supply their own styling.
+    /// `true` in the pairing flow; `false` in Settings `Form` rows, which
+    /// supply their own styling.
     var prominent: Bool = true
 
     @State private var copied = false
@@ -40,9 +37,8 @@ struct CopyLinkButton: View {
               systemImage: copied ? "checkmark" : "doc.on.doc")
     }
 
-    /// Both representations, deliberately. Messages and Mail want the URL type
-    /// so the link arrives tappable; plenty of other apps only read plain
-    /// text, and a link that pastes as nothing is worse than an ugly one.
+    /// Both representations deliberately: Messages/Mail want the URL type so
+    /// the link arrives tappable; plenty of apps only read plain text.
     private func copy() {
         UIPasteboard.general.items = [[
             UTType.url.identifier: url,
@@ -57,11 +53,8 @@ struct CopyLinkButton: View {
     }
 }
 
-/// The link itself, shown rather than merely acted on.
-///
-/// Worth the space: a share sheet that fails, or a partner who wants it read
-/// out over the phone, both leave the user needing to see the thing. Selectable
-/// for the same reason.
+/// The link itself, shown and selectable — a failed share sheet, or a partner
+/// who wants it read out over the phone, both need it visible.
 struct InviteLinkText: View {
     let url: URL
 
@@ -76,13 +69,9 @@ struct InviteLinkText: View {
     }
 }
 
-/// Shown once, the moment an invite is created.
-///
-/// It has to be a sheet rather than part of `PairingView`: creating the invite
-/// writes the pairing record, which flips `AppModel.isPaired` and sends
-/// `RootView` straight to `HomeView`. The screen that made the link is gone
-/// before it can show it — which is exactly how the link used to become
-/// unreachable. Settings keeps a copy for afterwards.
+/// Shown once when an invite is created. A sheet, not part of `PairingView`:
+/// creating the invite flips `isPaired`, which swaps that screen away before
+/// it could show the link. Settings keeps a copy for afterwards.
 struct InviteLinkSheet: View {
     let url: URL
     let partnerName: String

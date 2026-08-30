@@ -2,9 +2,8 @@ import Observation
 import PencilKit
 import SwiftUI
 
-/// Owns the `PKCanvasView` so the palette can retarget the tool and the
-/// composer can rasterise the result. Held across view updates — recreating
-/// the canvas would throw away the strokes.
+/// Owns the `PKCanvasView` so the palette can retarget the tool and the composer
+/// can rasterise. Held across view updates — recreating the canvas drops strokes.
 @MainActor
 @Observable
 final class DrawingController {
@@ -20,9 +19,8 @@ final class DrawingController {
     ]
     static let widths: [CGFloat] = [4, 10, 22]
 
-    /// Backdrops for a doodle with no photo behind it. `isDark` drives the
-    /// automatic ink flip, so picking charcoal doesn't leave you drawing
-    /// black-on-black.
+    /// Backdrops for photo-less doodles. `isDark` drives the automatic ink
+    /// flip, so charcoal never means black-on-black.
     struct Backdrop: Identifiable, Equatable {
         let color: Color
         let isDark: Bool
@@ -33,10 +31,8 @@ final class DrawingController {
             self.isDark = isDark
         }
 
-        /// For a colour picked by hand, where nobody has decided whether it
-        /// counts as dark. Perceived luminance rather than a plain average:
-        /// green reads far lighter than blue at the same value, and getting
-        /// this wrong is what leaves someone drawing black on near-black.
+        /// For a hand-picked colour: perceived luminance, not a plain average —
+        /// green reads far lighter than blue at the same value.
         init(color: Color) {
             var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
             UIColor(color).getRed(&red, green: &green, blue: &blue, alpha: &alpha)
@@ -58,8 +54,7 @@ final class DrawingController {
     var backdrop: Backdrop = backdrops[0] {
         didSet {
             guard backdrop != oldValue else { return }
-            // Flip the ink only if it would otherwise vanish, and only from
-            // the two extremes — a pink pen stays pink.
+            // Flip ink only between the two extremes — a pink pen stays pink.
             if backdrop.isDark, color == .black { color = .white }
             if !backdrop.isDark, color == .white { color = .black }
         }
@@ -67,9 +62,7 @@ final class DrawingController {
 
     var color: Color = .black {
         didSet {
-            // Reaching for a colour means you've stopped erasing — otherwise
-            // picking one silently does nothing until you notice the eraser is
-            // still selected.
+            // Picking a colour exits eraser mode — otherwise it silently does nothing.
             if isErasing { isErasing = false }
             applyTool()
         }
@@ -83,24 +76,19 @@ final class DrawingController {
     var width: CGFloat = 10 { didSet { applyTool() } }
     var isErasing = false { didSet { applyTool() } }
 
-    /// The observable mirror of `canvas.drawing.strokes.count`. Views must
-    /// read *this* rather than the canvas, which is `@ObservationIgnored` and
-    /// therefore invisible to SwiftUI's dependency tracking.
+    /// Observable mirror of `canvas.drawing.strokes.count` — views must read
+    /// this, not the `@ObservationIgnored` canvas.
     var strokeCount = 0
 
     init() {
         canvas.backgroundColor = .clear
         canvas.isOpaque = false
-        // Without this, finger drawing is ignored on devices that support
-        // Apple Pencil — which is most of them.
+        // Without this, finger drawing is ignored on Pencil-capable devices.
         canvas.drawingPolicy = .anyInput
         canvas.alwaysBounceVertical = false
         canvas.alwaysBounceHorizontal = false
-        // PencilKit inks are dynamic: it assumes a colour describes its
-        // light-mode look and inverts near-black/near-white when the canvas
-        // is in dark mode. Our backdrop is an explicit swatch, not the system
-        // background, and `Backdrop.isDark` already flips the ink by hand —
-        // so the canvas must take colours literally, whatever the system is.
+        // PencilKit inks invert near-black/white in dark mode; the backdrop is an
+        // explicit swatch and `Backdrop.isDark` flips ink by hand, so take colours literally.
         canvas.overrideUserInterfaceStyle = .light
         applyTool()
     }
@@ -135,12 +123,8 @@ final class DrawingController {
             photo?.drawAspectFill(in: rect)
 
             guard bounds.width > 0 else { return }
-            // Rasterise the strokes at the export resolution rather than the
-            // on-screen one, so the result isn't a blurry upscale. Under a
-            // light trait collection for the same reason the canvas is pinned
-            // light: `PKDrawing.image` reads the *current* traits, and in dark
-            // mode it hands back inverted ink that matches neither the palette
-            // nor what was on screen.
+            // Rasterise at export resolution to avoid a blurry upscale; pinned
+            // light because `PKDrawing.image` reads current traits and inverts ink in dark mode.
             UITraitCollection(userInterfaceStyle: .light).performAsCurrent {
                 canvas.drawing
                     .image(from: bounds, scale: size / bounds.width)
@@ -171,8 +155,7 @@ struct DrawingCanvas: UIViewRepresentable {
         }
 
         nonisolated func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
-            // PencilKit always calls this on the main thread; asserting that
-            // lets us read `drawing` without hopping and losing the update.
+            // PencilKit always calls this on the main thread; assume rather than hop.
             MainActor.assumeIsolated {
                 controller.strokeCount = canvasView.drawing.strokes.count
             }
@@ -183,8 +166,7 @@ struct DrawingCanvas: UIViewRepresentable {
 /// The palette: colours, three widths, eraser, undo, clear.
 struct DrawingPalette: View {
     @Bindable var controller: DrawingController
-    /// Hidden when a photo is behind the canvas, where a backdrop would never
-    /// be visible.
+    /// Hidden when a photo is behind the canvas — a backdrop would never show.
     var showsBackdrop: Bool = true
 
     var body: some View {
@@ -209,8 +191,7 @@ struct DrawingPalette: View {
                     .buttonStyle(.plain)
                 }
 
-                // Any colour at all, including the eyedropper. The presets stay
-                // because two taps for "pink" beats opening a picker for it.
+                // Any colour at all, including the eyedropper.
                 ColorPicker("Any colour", selection: $controller.color, supportsOpacity: false)
                     .labelsHidden()
                     .frame(width: 30, height: 30)
@@ -224,8 +205,7 @@ struct DrawingPalette: View {
             }
 
             HStack(spacing: 18) {
-                // Clear is destructive and irreversible, so it leads the row —
-                // the width dots between it and undo keep the two apart.
+                // Clear is irreversible, so it sits far from undo.
                 toolButton("trash", active: false) { controller.clear() }
 
                 Divider().frame(height: 24)
@@ -259,8 +239,7 @@ struct DrawingPalette: View {
 
             if showsBackdrop {
                 Divider()
-                // Label above rather than beside: inline, it wrapped mid-word
-                // once seven swatches were competing for the same row.
+                // Label above, not beside — inline it wrapped once seven swatches filled the row.
                 VStack(alignment: .leading, spacing: 10) {
                     Text("BACKGROUND")
                         .font(Theme.rounded(10, .semibold))
@@ -311,8 +290,8 @@ struct DrawingPalette: View {
         !controller.isErasing && controller.color == colour
     }
 
-    /// True when the current ink isn't one of the presets — the ring has to
-    /// move to the picker, or nothing looks selected at all.
+    /// True when the ink isn't a preset — the ring moves to the picker so
+    /// something looks selected.
     private var isCustomInk: Bool {
         !controller.isErasing && !DrawingController.palette.contains(controller.color)
     }

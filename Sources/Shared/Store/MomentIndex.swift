@@ -1,25 +1,16 @@
 import Foundation
 import os
 
-/// The full moment history, as a JSON file in the App Group.
-///
-/// Deliberately *not* part of `Snapshot`: that lives in `UserDefaults` and is
-/// decoded by the widget on every single render, so it must stay small. The
-/// history can run to hundreds of entries and is only ever read by the app's
-/// gallery, so it gets its own file.
-///
-/// Entries are metadata only — a few hundred bytes each. The image files they
-/// point at are managed separately by `MomentStore` and may or may not be on
-/// this device; see `MomentStore.hasImage(for:)`.
+/// The full moment history, as a JSON file in the App Group. Kept out of
+/// `Snapshot` so widget renders stay small. Entries are metadata only; media
+/// files live in `MomentStore` and may not be on this device.
 final class MomentIndex {
     static let shared = MomentIndex()
 
     private let log = Logger(subsystem: AppConfig.appGroupID, category: "MomentIndex")
-    /// The app and the notification service extension can both write. Atomic
-    /// file replacement plus this lock keeps a torn read impossible within a
-    /// process; `crossLock` extends the guarantee across processes, where a
-    /// concurrent load→modify→save would otherwise drop the other side's
-    /// insert (and with the change token already advanced, drop it for good).
+    /// App and notification extension both write. `lock` guards in-process;
+    /// `crossLock` stops a concurrent cross-process load→modify→save from
+    /// dropping the other side's insert for good.
     private let lock = NSLock()
     private let crossLock = CrossProcessLock(name: "moments-index.lock")
 
@@ -66,16 +57,12 @@ final class MomentIndex {
             var all = loadUnlocked()
             for moment in moments {
                 var moment = moment
-                // `seen` is local-only state — a re-fetched CloudKit record knows
-                // nothing about it, and a full resync (expired change token)
-                // re-inserts everything. Without this merge, every heard voice
-                // memo re-badges as new.
+                // `seen` is local-only; a full resync re-inserts everything, and
+                // without this merge heard voice memos would re-badge as new.
                 if let existing = all.first(where: { $0.id == moment.id }) {
                     moment.seen = moment.seen || existing.seen
-                    // Sticky in the same direction as `seen`: a copy fetched
-                    // back from CloudKit proves the upload happened — even one
-                    // the sender's app died before acknowledging — and nothing
-                    // ever makes an uploaded moment pending again.
+                    // Sticky like `seen`: a copy fetched back from CloudKit
+                    // proves the upload happened; uploaded never reverts to pending.
                     moment.uploaded = moment.uploaded || existing.uploaded
                 }
                 all.removeAll { $0.id == moment.id }
@@ -143,9 +130,8 @@ final class MomentIndex {
         lock.lock()
         defer { lock.unlock() }
         guard let fileURL else { return }
-        // Under the cross-process lock like every other write: an extension's
-        // in-flight `insert` would otherwise rewrite the file right after
-        // this deletes it, undoing the wipe.
+        // Locked: an extension's in-flight `insert` could otherwise rewrite the
+        // file right after the delete, undoing the wipe.
         crossLock.withLock {
             try? FileManager.default.removeItem(at: fileURL)
         }

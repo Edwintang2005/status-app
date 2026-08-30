@@ -24,15 +24,12 @@ struct RedStringApp: App {
                 .onChange(of: scenePhase) { _, phase in
                     switch phase {
                     case .active:
-                        // Opening the app means every banner's content is now
-                        // on screen — clear the backlog so Notification
-                        // Centre doesn't hoard a day of statuses.
+                        // Every banner's content is now on screen — clear the backlog.
                         NotificationManager.clearDelivered()
                         Task { await model.refresh() }
                     case .inactive:
-                        // Fires as Notification Centre is pulled down over
-                        // the open app — see `clearDelivered` for why this is
-                        // the closest thing to "the user opened the shade".
+                        // Fires as Notification Centre is pulled down over the open
+                        // app — see `clearDelivered` for why this proxies "shade opened".
                         NotificationManager.clearDelivered()
                     default:
                         break
@@ -49,19 +46,15 @@ struct RedStringApp: App {
                     _ = InviteInbox.shared.take()
                     model.receiveInvite(metadata)
                 }
-                // An iCloud account switch while the app is running: re-check
-                // readiness so the different-account warning appears (and
-                // clears) without a relaunch.
+                // iCloud account switch while running: re-check readiness without a relaunch.
                 .onReceive(NotificationCenter.default
                     .publisher(for: .CKAccountChanged)
                     .receive(on: DispatchQueue.main)) { _ in
                     Task { await model.refresh() }
                 }
                 .onOpenURL { url in
-                    // Tapping the photo widget jumps straight to the composer —
-                    // but only when paired: mid-onboarding the latched flag
-                    // used to pop the composer over a first-run home screen
-                    // the moment pairing finished.
+                    // Widget tap opens the composer — only when paired, so the latched
+                    // flag can't pop the composer over a first-run home screen.
                     if url.host == "compose", model.isPaired { model.pendingComposer = true }
                 }
         }

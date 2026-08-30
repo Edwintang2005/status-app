@@ -2,12 +2,8 @@ import Foundation
 import UserNotifications
 import os
 
-/// Turns a moment's media file into a notification attachment.
-///
-/// Shared because both the app and the notification service extension attach
-/// the same thing, and the wording and the attachment have to agree between
-/// them — the extension enriches a push the app would otherwise have raised
-/// itself.
+/// Turns a moment's media file into a notification attachment. Shared so the
+/// app and the notification service extension attach the same thing.
 enum MomentAttachment {
     private static let log = Logger(subsystem: AppConfig.appGroupID, category: "MomentAttachment")
 
@@ -18,8 +14,7 @@ enum MomentAttachment {
             return nil
         }
         do {
-            // The image thumbnail becomes the preview; an `.m4a` becomes a
-            // playable clip inside the expanded notification.
+            // Thumbnail becomes the preview; an `.m4a` becomes a playable clip.
             return try UNNotificationAttachment(identifier: moment.id, url: url)
         } catch {
             log.error("Couldn't attach \(moment.id): \(error.localizedDescription)")

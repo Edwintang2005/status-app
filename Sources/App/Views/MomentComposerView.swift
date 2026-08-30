@@ -1,11 +1,8 @@
 import PhotosUI
 import SwiftUI
 
-/// Compose a photo, a doodle, or a doodle drawn over a photo, and send it to
-/// the other person's widget.
-///
-/// The frame is square because that's what the widget is — composing in the
-/// same shape as the destination means nothing gets unexpectedly cropped later.
+/// Compose a photo, a doodle, or a doodle over a photo, and send it to the
+/// other person's widget. Square frame matches the widget, so nothing crops later.
 struct MomentComposerView: View {
     var onSend: (UIImage, Moment.Kind, String) -> Void
 
@@ -20,10 +17,8 @@ struct MomentComposerView: View {
     @State private var importFailed = false
     @FocusState private var captionFocused: Bool
 
-    /// Reads `strokeCount`, not `controller.isEmpty`: the canvas itself is
-    /// `@ObservationIgnored`, so a view that only consulted `isEmpty` would
-    /// never be re-evaluated when a stroke lands and the button would stay
-    /// disabled until some other state happened to change.
+    /// Reads `strokeCount`, not `controller.isEmpty`: the canvas is
+    /// `@ObservationIgnored`, so `isEmpty` alone would never re-evaluate the view.
     private var canSend: Bool { photo != nil || controller.strokeCount > 0 }
 
     /// A doodle on a blank canvas is a drawing; anything built on a photo
@@ -74,20 +69,16 @@ struct MomentComposerView: View {
             Task {
                 if let data = try? await item.loadTransferable(type: Data.self),
                    let image = UIImage(data: data) {
-                    // Downscaled on import, off the main thread: a 48 MP
-                    // original decodes to ~190 MB the moment `scaledToFill`
-                    // renders it, and everything downstream caps at 1280 px
-                    // anyway (`MomentStore.write`).
+                    // Downscale off the main thread: a 48 MP original decodes
+                    // to ~190 MB, and downstream caps at 1280 px anyway.
                     photo = await Task.detached(priority: .userInitiated) {
                         image.composerSized()
                     }.value
                 } else {
-                    // An iCloud-only original with no network lands here; a
-                    // silent no-op looked like the tap didn't register.
+                    // iCloud-only original with no network lands here.
                     importFailed = true
                 }
-                // Reset so re-picking the same photo after Clear still fires
-                // this handler — `onChange` is silent on equal values.
+                // Reset so re-picking the same photo fires `onChange` again.
                 pickerItem = nil
             }
         }
@@ -110,9 +101,8 @@ struct MomentComposerView: View {
                         .resizable()
                         .scaledToFill()
                 } else if !isDrawing && controller.strokeCount == 0 {
-                    // Only on a genuinely blank square: with strokes down,
-                    // collapsing the palette used to draw this placeholder on
-                    // top of the finished doodle.
+                    // Only on a genuinely blank square, so the placeholder
+                    // never draws over a finished doodle.
                     VStack(spacing: 10) {
                         Image(systemName: "photo.on.rectangle.angled")
                             .font(.system(size: 34))

@@ -1,12 +1,7 @@
 import SwiftUI
 
-/// The greeting the recipient gets the first time they open the app after an
-/// anniversary status arrives — see `Snapshot.pendingCelebration` for when that
-/// is, and `AppModel.celebrationPlayed()` for what retires it.
-///
-/// Their words are the whole design. Everything else — the confetti, the bloom,
-/// the emoji — orbits a single centred line of text, because "happy 3 months"
-/// is the message and the animation is only the envelope it arrives in.
+/// Shown on first open after an anniversary status arrives — see
+/// `Snapshot.pendingCelebration` and `AppModel.celebrationPlayed()`.
 struct CelebrationOverlay: View {
     let payload: StatusPayload
     let partnerName: String
@@ -14,8 +9,7 @@ struct CelebrationOverlay: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
-    /// Fixed at init so the confetti doesn't reshuffle on every redraw — the
-    /// timeline animates these pieces, it doesn't regenerate them.
+    /// Fixed at init so the confetti doesn't reshuffle on every redraw.
     @State private var pieces = ConfettiPiece.emitter()
     @State private var start = Date()
 
@@ -35,8 +29,7 @@ struct CelebrationOverlay: View {
             content
         }
         .ignoresSafeArea()
-        // The whole screen dismisses, so nothing underneath can be tapped by
-        // accident while the confetti is still falling.
+        // Whole screen dismisses; nothing underneath is tappable by accident.
         .contentShape(Rectangle())
         .onTapGesture(perform: finish)
         .accessibilityElement(children: .combine)
@@ -52,9 +45,8 @@ struct CelebrationOverlay: View {
 
     // MARK: - Layers
 
-    /// Material rather than an opaque fill: the home screen staying faintly
-    /// visible underneath is what makes this read as something landing *on* the
-    /// app rather than as another screen.
+    /// Material, not opaque: the home screen faintly showing through makes this
+    /// read as landing *on* the app, not another screen.
     private var backdrop: some View {
         ZStack {
             Rectangle().fill(.regularMaterial)
@@ -83,9 +75,7 @@ struct CelebrationOverlay: View {
                 .rotationEffect(.degrees(revealed ? 0 : -25))
                 .padding(.bottom, 26)
 
-            // The centred line the whole feature exists for. Sized to fit
-            // rather than truncated: an anniversary is exactly the moment
-            // someone types more than three words.
+            // Sized to fit rather than truncated — anniversary messages run long.
             Text(headline)
                 .font(.system(size: 44, weight: .bold, design: .rounded))
                 .multilineTextAlignment(.center)
@@ -111,8 +101,7 @@ struct CelebrationOverlay: View {
             .buttonStyle(PrimaryButtonStyle(tint: Theme.warm))
             .padding(.horizontal, 44)
             .opacity(revealed ? 1 : 0)
-            // Last in, and only once the words have landed: dismissing is not
-            // what anyone should be looking at first.
+            // Delayed until the words have landed.
             .animation(.smooth(duration: 0.4).delay(0.7), value: revealed)
 
             Text("Tap anywhere to close")
@@ -133,24 +122,20 @@ struct CelebrationOverlay: View {
 
 // MARK: - Confetti
 
-/// One piece of confetti, launched from the centre of the screen on a ballistic
-/// arc. Everything about it is decided once, up front; its position is a pure
-/// function of elapsed time, which is what lets the whole layer be a single
-/// `Canvas` redrawn by a `TimelineView` instead of hundreds of animating views.
+/// One piece of confetti on a ballistic arc. Position is a pure function of
+/// elapsed time, so the whole layer is one `Canvas` in a `TimelineView`.
 private struct ConfettiPiece: Identifiable {
     let id = UUID()
     /// Launch direction in radians, and speed in points per second.
     let angle: Double
     let speed: Double
-    /// Offset into the emitter cycle, so pieces stream continuously rather
-    /// than firing in visible volleys.
+    /// Offset into the emitter cycle, so pieces stream rather than fire in volleys.
     let phase: Double
     let size: CGFloat
     /// Turns per second.
     let spin: Double
     let color: Color
-    /// Non-nil for the emoji pieces, which carry the warmth the plain
-    /// rectangles can't.
+    /// Non-nil for the emoji pieces.
     let glyph: String?
 
     /// How long one piece takes to fly, fall and fade.
@@ -163,8 +148,7 @@ private struct ConfettiPiece: Identifiable {
         let glyphs = ["💗", "🎉", "✨", "💞"]
 
         return (0..<count).map { index in
-            // A full circle, so the burst reads as coming from behind the text
-            // in every direction; gravity sorts out the rest.
+            // Full-circle burst; gravity sorts out the rest.
             ConfettiPiece(angle: .random(in: 0..<(2 * .pi)),
                           speed: .random(in: 90...430),
                           phase: Double(index) / Double(count)
@@ -189,8 +173,7 @@ private struct ConfettiLayer: View {
                 let origin = CGPoint(x: size.width / 2, y: size.height * 0.42)
 
                 for piece in pieces {
-                    // Each piece runs its own loop through the cycle, offset by
-                    // its phase — one pass of the maths, endlessly.
+                    // Each piece loops through the cycle, offset by its phase.
                     let progress = (elapsed / ConfettiPiece.cycle + piece.phase)
                         .truncatingRemainder(dividingBy: 1)
                     let t = progress * ConfettiPiece.cycle
@@ -200,8 +183,7 @@ private struct ConfettiLayer: View {
                         + 0.5 * ConfettiPiece.gravity * t * t
                     guard y < size.height + 40 else { continue }
 
-                    // In fast, out slow: a piece should be visible from the
-                    // moment it leaves the centre.
+                    // Fade in fast, out slow.
                     let opacity = min(1, progress / 0.06)
                         * min(1, max(0, (1 - progress) / 0.35))
 

@@ -14,41 +14,30 @@ final class AppModel {
     private(set) var snapshot: Snapshot
     private(set) var isPaired: Bool
     private(set) var role: PairRole?
-    /// Owner side: whether the invite link has been revoked, either by the
-    /// button in Settings or automatically once the partner joined.
+    /// Owner side: invite revoked, via Settings or automatically once the partner joined.
     private(set) var inviteClosed: Bool = SharedStore.shared.inviteClosed
     private(set) var isBusy = false
     private(set) var isRefreshing = false
-    /// Re-entrancy guard for `retryPendingUploads` — a slow retry must not be
-    /// joined by a second one from the next foreground.
+    /// Re-entrancy guard: a slow retry must not overlap the next foreground's.
     @ObservationIgnored private var isRetryingUploads = false
     @ObservationIgnored private var isRepublishingStatus = false
 
-    /// Fires a refresh on the offline→online edge, so recovery — the partner's
-    /// missed changes in, this device's pending sends out — doesn't have to
-    /// wait for the user to re-open the app. Every other trigger is an app
-    /// lifecycle event; this is the only one that watches the network itself.
+    /// Fires a refresh on the offline→online edge — the only trigger that watches the network itself.
     @ObservationIgnored private let pathMonitor = NWPathMonitor()
-    /// Starts `true` so the monitor's immediate first callback (current state,
-    /// not a change) doesn't double up with `onLaunch`'s own refresh.
+    /// Starts `true` so the monitor's immediate first callback doesn't double up with `onLaunch`'s refresh.
     @ObservationIgnored private var networkWasSatisfied = true
-    /// Owner side: the link to hand to the partner, `nil` once it has been
-    /// closed. Seeded from the store rather than left empty, so it survives a
-    /// relaunch — see `refreshInviteURL()`.
+    /// Owner side: the link to hand to the partner, `nil` once closed.
+    /// Seeded from the store so it survives a relaunch — see `refreshInviteURL()`.
     private(set) var inviteURL: URL? = SharedStore.shared.inviteURL
-    /// The server has no share for us at all — as opposed to one that has been
-    /// closed. Keeps Settings from spinning forever on a link that is never
-    /// going to arrive.
+    /// The server has no share at all (vs. one that was closed) — keeps Settings from spinning forever.
     private(set) var inviteLinkUnavailable = false
     /// Non-nil when the backend can't work — no iCloud account, and so on.
     private(set) var readinessMessage: String?
-    /// The full moment history, newest first. Read from `MomentIndex` rather
-    /// than the snapshot, which only carries the newest in each direction.
+    /// Full moment history, newest first, from `MomentIndex` (the snapshot only carries the newest each way).
     private(set) var history: [Moment] = []
 
-    /// Set when an invite has just been created, so `RootView` can present the
-    /// link. Not a plain `URL`: `sheet(item:)` needs identity, and the same
-    /// link created twice should still present.
+    /// Set when an invite was just created so `RootView` can present it.
+    /// Wrapped, not a plain `URL`: `sheet(item:)` needs identity.
     var presentedInvite: InviteLink?
 
     /// A link to show, wrapped so SwiftUI can key a sheet on it.
@@ -58,21 +47,13 @@ final class AppModel {
     }
 
     var errorMessage: String?
-    /// Set by the `redstring://compose` deep link so the widget can open straight
-    /// into the composer.
+    /// Set by the `redstring://compose` deep link so the widget opens straight into the composer.
     var pendingComposer = false
 
-    /// An invite link that has been tapped but not yet accepted, because the
-    /// person tapping it hasn't told us what to call them.
-    ///
-    /// Accepting a share used to happen the instant the link opened the app,
-    /// which meant a brand-new install joined under whatever the *device* was
-    /// called. The metadata is held here instead until `WelcomeView` has a
-    /// name — see `acceptInvite(name:)`.
+    /// A tapped invite held until `WelcomeView` has a display name — see `acceptInvite(name:)`.
     private(set) var pendingInvite: CKShare.Metadata?
 
-    /// The store is injectable so SwiftUI previews and tests can run against a
-    /// throwaway defaults suite instead of the real App Group.
+    /// Store is injectable so previews and tests run against a throwaway defaults suite.
     init(store: SharedStore = .shared) {
         self.store = store
         self.snapshot = store.snapshot
@@ -84,9 +65,8 @@ final class AppModel {
 
     var partnerName: String { snapshot.partnerDisplayName }
 
-    /// Whether this person has ever told us their name. The one gate in front
-    /// of the rest of the app: a status, a nudge and every photo carry this
-    /// name to the other phone, so there is no sensible default to invent.
+    /// Whether this person has ever set a name — the one gate before the rest
+    /// of the app, since everything sent carries it and there's no sensible default.
     var hasName: Bool {
         snapshot.mine?.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
@@ -103,38 +83,28 @@ final class AppModel {
 
     var canNudge: Bool { isPaired && nudgeCooldownRemaining == 0 }
 
-    /// The newest photo or doodle *the partner sent* — what the home card
-    /// shows. Not either direction: this card is "what did they send me", and
-    /// your own send replacing their picture the moment you reply defeats it
-    /// (your own things live in the library). Voice memos are deliberately
-    /// excluded: they get their own short row, because a waveform stretched
-    /// into a square photo frame is mostly empty space.
+    /// Newest photo or doodle *the partner sent* — what the home card shows.
+    /// Own sends must not replace it; voice memos get their own row instead.
     var latestVisualMoment: Moment? {
         history.first { !$0.fromMe && !$0.isVoice }
     }
 
-    /// Pictures the partner sent that haven't been looked at yet, newest first
-    /// — the same order the home card previews, so tapping it opens the one you
-    /// were just looking at rather than jumping to the oldest.
+    /// Partner's unviewed pictures, newest first — the same order the home card previews.
     var unseenVisualMoments: [Moment] {
         history.filter { !$0.fromMe && !$0.seen && !$0.isVoice }
     }
 
-    /// The last memo the partner sent, heard or not — the one the home screen
-    /// keeps a row for, so it stays playable rather than disappearing the
-    /// moment it's been listened to once. Everything older is in the history.
+    /// The last memo the partner sent, heard or not — kept playable on the home screen.
     var latestReceivedVoiceMemo: Moment? {
         history.first { !$0.fromMe && $0.isVoice }
     }
 
-    /// Own moments that haven't reached CloudKit yet — what the sync footer
-    /// counts, and what `retryPendingUploads()` will re-send.
+    /// Own moments not yet in CloudKit — the sync footer count and `retryPendingUploads()` set.
     var pendingUploadCount: Int {
         history.count { $0.fromMe && !$0.uploaded }
     }
 
-    /// What tapping the home card opens: whatever is waiting, or — when you're
-    /// caught up — just the most recent thing, rather than the entire archive.
+    /// What tapping the home card opens: whatever is unseen, else just the most recent.
     var carouselMoments: [Moment] {
         let unseen = unseenVisualMoments
         if !unseen.isEmpty { return unseen }
@@ -145,25 +115,19 @@ final class AppModel {
     func markSeen(_ moment: Moment) {
         guard !moment.seen, !moment.fromMe else { return }
         history = MomentIndex.shared.markSeen(ids: [moment.id])
-        // Recomputed rather than left alone: the widget's unheard-memo badge is
-        // a snapshot field, and this is what clears it.
+        // The widget's unheard-memo badge is a snapshot field; this is what clears it.
         store.applyDerived(from: history)
         snapshot = store.snapshot
     }
 
     // MARK: - Celebrations
 
-    /// The celebration waiting to be played, if any. Deliberately derived from
-    /// the snapshot rather than latched into its own state: every path that
-    /// could deliver one — a cold launch reading what the notification
-    /// extension already wrote, a foreground refresh, a push — ends in
-    /// `reload()`, so there is nothing extra to remember to set.
+    /// The celebration waiting to be played, if any. Derived from the snapshot,
+    /// not latched: every delivery path ends in `reload()`, so nothing extra to set.
     var pendingCelebration: StatusPayload? { snapshot.pendingCelebration }
 
-    /// Called once the animation has been watched. Stamping the status's own
-    /// `updatedAt` — rather than "now" — is what makes this idempotent: a
-    /// re-fetch of the same record can't bring the greeting back, while a
-    /// genuinely new celebration always has a later timestamp.
+    /// Called once the animation has been watched. Stamps the status's own
+    /// `updatedAt` (not "now") so a re-fetch of the same record can't bring the greeting back.
     func celebrationPlayed() {
         guard let celebration = snapshot.pendingCelebration else { return }
         store.mutate { $0.lastCelebratedAt = celebration.updatedAt }
@@ -172,29 +136,21 @@ final class AppModel {
 
     // MARK: - Onboarding
 
-    /// Records the name from the welcome screen. Publishing is left to the
-    /// pairing step that follows — there is no zone to write to yet.
+    /// Records the name from the welcome screen; publishing waits for pairing (no zone yet).
     func setName(_ name: String) {
         updateMyDisplayName(name)
     }
 
-    /// Whoever sent the invite, if CloudKit will tell us. It only does when
-    /// they're discoverable by their Apple Account, so the joining screen has
-    /// to read well without it.
+    /// Invite sender's name — only available when they're discoverable by
+    /// Apple Account, so the joining screen has to read well without it.
     var pendingInviteOwnerName: String? {
         guard let components = pendingInvite?.ownerIdentity.nameComponents else { return nil }
         let name = PersonNameComponentsFormatter.localizedString(from: components, style: .short)
         return name.isEmpty ? nil : name
     }
 
-    /// Called when a share link opens the app. Held rather than accepted, so
-    /// the welcome screen can ask for a name first.
-    ///
-    /// Refused outright while paired: joining a second zone on top of an
-    /// existing pairing would leave the old change tokens pointed at the new
-    /// zone (killing sync) and the previous relationship's photos and memos
-    /// sitting inside the new pairing's gallery. Unlinking first is the only
-    /// clean path, and it's one switch away in Settings.
+    /// Called when a share link opens the app; held so the welcome screen can ask for a name first.
+    /// Refused while paired: joining a second zone would break the change tokens and mix galleries.
     func receiveInvite(_ metadata: CKShare.Metadata) {
         guard !isPaired else {
             errorMessage = "You're already linked with \(partnerName). "
@@ -221,20 +177,14 @@ final class AppModel {
             await NotificationManager.requestAuthorizationIfNeeded()
             await refresh()
         } catch {
-            // Kept, not cleared: the link is still the way in, and clearing it
-            // would drop the person on the pairing screen with no explanation.
-            //
-            // Reload first: `acceptShare` commits the pairing before its
-            // bootstrap publish, so a failure after that point leaves the
-            // store paired while this model still says not — the same window
-            // `createInvite` closes the same way.
+            // Invite kept — the link is still the way in. Reload first: `acceptShare`
+            // commits the pairing before its bootstrap publish, so the store may already say paired.
             reload()
             present(error)
         }
     }
 
-    /// Backing out of a join — the invite is dropped and the normal pairing
-    /// screen takes over.
+    /// Backing out of a join — the invite is dropped.
     func declineInvite() {
         pendingInvite = nil
     }
@@ -243,15 +193,13 @@ final class AppModel {
 
     func onLaunch() async {
         startNetworkMonitoring()
-        // A link tapped from a cold start lands here: the scene delegate ran
-        // before any view could hear the notification.
+        // Cold-start link taps land here: the scene delegate ran before any view could listen.
         if let invite = InviteInbox.shared.take() {
             receiveInvite(invite)
         }
         await refreshReadiness()
         guard isPaired else { return }
-        // Subscriptions are cheap to re-assert and easy to lose across
-        // reinstalls, so confirm on every launch rather than only at pairing.
+        // Subscriptions are cheap to re-assert and easy to lose across reinstalls.
         try? await Backend.current.registerSubscription()
         await refresh()
     }
@@ -259,8 +207,7 @@ final class AppModel {
     /// Called when the scene delegate has accepted an invite.
     func reloadFromStore() async {
         reload()
-        // Only now is a nudge something the user can actually receive, so this
-        // is the first moment the notification prompt makes sense to them.
+        // First moment the notification prompt makes sense — a nudge is now receivable.
         await NotificationManager.requestAuthorizationIfNeeded()
         await refresh()
     }
@@ -270,17 +217,12 @@ final class AppModel {
         isPaired = store.pairing != nil
         role = store.pairing?.role
         inviteClosed = store.inviteClosed
-        // The invite can close itself, from `CloudSync` the moment the partner
-        // joins. Dropping the link here keeps Settings from offering one that
-        // no longer works.
+        // The invite can close itself (CloudSync, on partner join); drop the dead link.
         if inviteClosed, inviteURL != nil { setInviteURL(nil) }
         history = MomentIndex.shared.load()
     }
 
-    /// Older history entries keep their metadata but not their media files.
-    /// The gallery calls this when it reaches one, and CloudKit hands the
-    /// photo or recording back — which is the whole point of keeping every
-    /// moment as its own record.
+    /// Older entries keep metadata but not media files; fetches the file back from CloudKit on demand.
     func ensureMedia(for moment: Moment) async -> Bool {
         if MomentStore.shared.hasMedia(for: moment) { return true }
         do {
@@ -294,10 +236,8 @@ final class AppModel {
 
     // MARK: - Sync
 
-    /// PairingView's iCloud warning reads this. Re-checked on every
-    /// foregrounding (via `refresh`), not just at launch — the fix for the
-    /// warning is made in the Settings app, so the user *always* comes back
-    /// to a backgrounded app expecting it to notice.
+    /// PairingView's iCloud warning. Re-checked on every foregrounding, not just
+    /// launch — the fix happens in the Settings app, so the user returns expecting it noticed.
     private func refreshReadiness() async {
         if case .unavailable(let message) = await Backend.current.readiness() {
             readinessMessage = message
@@ -306,10 +246,8 @@ final class AppModel {
         }
     }
 
-    /// Watches for connectivity coming back and refreshes on that edge alone —
-    /// `refresh()` already handles being called while offline (quiet failure)
-    /// or while another refresh runs (`isRefreshing` guard), so the only job
-    /// here is not reacting to every path churn while the network stays up.
+    /// Refreshes only on the offline→online edge — `refresh()` already handles
+    /// offline calls and re-entrancy; the job here is ignoring path churn while up.
     private func startNetworkMonitoring() {
         pathMonitor.pathUpdateHandler = { [weak self] path in
             let satisfied = path.status == .satisfied
@@ -327,9 +265,7 @@ final class AppModel {
     }
 
     func refresh() async {
-        // Re-checked when paired too: this is what notices an iCloud account
-        // switch (readiness compares the signed-in account against the one
-        // the pairing was made under) and surfaces it in the sync footer.
+        // Re-checked when paired too: this is what notices an iCloud account switch.
         await refreshReadiness()
         guard isPaired else { return }
         guard !isRefreshing else { return }
@@ -338,23 +274,18 @@ final class AppModel {
         do {
             try await SyncRunner.refresh()
             reload()
-            // A working refresh is the recovery moment for sends that died
-            // offline — see `retryPendingUploads` and `republishStatusIfNeeded`.
+            // A working refresh is the recovery moment for sends that died offline.
             await republishStatusIfNeeded()
             await retryPendingUploads()
         } catch {
-            // The backend may have unlinked us on its own — a zone that no
-            // longer exists is the other person having ended things — so the
-            // local state is re-read either way.
+            // The backend may have unlinked us (a vanished zone means the other
+            // person ended things), so re-read local state either way.
             reload()
             if let sync = error as? SyncError, case .linkEnded = sync {
-                // Worth interrupting for: this is the one refresh failure that
-                // is really a message from another person.
+                // The one refresh failure that is really a message from another person.
                 errorMessage = sync.errorDescription
             }
-            // Otherwise background refreshes fail routinely (no signal, iCloud
-            // hiccup). The "Synced …" footer already shows staleness, so don't
-            // throw a modal alert over a screen the user didn't ask to refresh.
+            // Other refresh failures are routine; the "Synced …" footer already shows staleness.
             log.error("Refresh failed: \(error.localizedDescription)")
         }
     }
@@ -372,10 +303,8 @@ final class AppModel {
             isCelebration: isCelebration
         )
 
-        // Show it immediately; the backend catches up underneath. Marked
-        // unpublished in the same mutate (when there's a partner to reach) so
-        // a crash between the two writes can't strand a status that looks
-        // delivered.
+        // Show it immediately; marked unpublished in the same mutate so a crash
+        // between the two writes can't strand a status that looks delivered.
         let paired = isPaired
         store.mutate {
             $0.mine = payload
@@ -397,9 +326,7 @@ final class AppModel {
         let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
         var payload = snapshot.mine ?? .initial(displayName: trimmed)
         payload.displayName = trimmed
-        // Stamped like any other edit: the resync revert-guard orders local
-        // against server by `updatedAt`, and a rename that keeps the old stamp
-        // would lose to the copy it's trying to replace.
+        // Fresh stamp: the resync revert-guard orders by `updatedAt`, and a stale one would lose.
         payload.updatedAt = Date()
         let paired = isPaired
         store.mutate {
@@ -414,8 +341,7 @@ final class AppModel {
                 try await Backend.current.publish(payload)
                 store.mutate(reloadWidgets: false) { $0.myStatusPublished = true }
             } catch {
-                // Quieter than a status: the name is still right locally, and
-                // `republishStatusIfNeeded` will carry it over.
+                // Quiet: the name is right locally, and `republishStatusIfNeeded` carries it over.
                 log.error("Name publish failed: \(error.localizedDescription, privacy: .public)")
             }
         }
@@ -444,11 +370,8 @@ final class AppModel {
         isBusy = true
         defer { isBusy = false }
 
-        // `senderName` is what the recipient will see, so it has to be the
-        // name you set for yourself — captured at send time, which is why an
-        // older moment keeps the name you had when you sent it.
-        // Pending only when there is a partner to deliver to — an unpaired
-        // send is a local keepsake with nothing to retry.
+        // `senderName` is captured at send time (older moments keep the name you had then).
+        // Pending only when paired — an unpaired send has nothing to retry.
         let moment = Moment(
             kind: kind,
             caption: caption.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -479,9 +402,8 @@ final class AppModel {
         }
     }
 
-    /// Runs an upload inside a background-task assertion, so sending and
-    /// immediately locking the phone doesn't suspend the process mid-upload —
-    /// which silently lost the send with no error and no retry.
+    /// Runs an upload inside a background-task assertion so locking the phone
+    /// doesn't suspend the process mid-upload and silently lose the send.
     private func withUploadProtection<T>(_ name: String,
                                          _ body: () async throws -> T) async rethrows -> T {
         let assertion = BackgroundAssertion()
@@ -492,12 +414,8 @@ final class AppModel {
         return try await body()
     }
 
-    /// Same shape as `sendMoment(image:kind:caption:)`: the recording is filed
-    /// locally first so the history and widget are right immediately, then
-    /// uploaded. A failed upload leaves the memo playable on this device.
-    ///
-    /// `fileURL` is the recorder's temporary file and is **moved**, not copied,
-    /// so the caller must not use it afterwards.
+    /// Same shape as `sendMoment`: filed locally first, then uploaded.
+    /// `fileURL` is **moved**, not copied — the caller must not use it afterwards.
     func sendVoiceMemo(fileURL: URL,
                        duration: TimeInterval,
                        waveform: [Double],
@@ -537,23 +455,14 @@ final class AppModel {
         }
     }
 
-    /// Flips the pending flag once the record is confirmed on the server, and
-    /// refreshes the history so the grid's badge disappears.
+    /// Flips the pending flag once the record is confirmed on the server.
     private func markUploaded(_ moment: Moment) {
         history = MomentIndex.shared.markUploaded(ids: [moment.id])
     }
 
-    /// Publishes the local status again if its last publish never landed — a
-    /// status set in a dead spot, or a publish killed by backgrounding.
-    /// Runs beside `retryPendingUploads` on every successful refresh. Quiet on
-    /// failure for the same reason: the send path already alerted once, and
-    /// this is the recovery, not the announcement.
-    ///
-    /// Safe to re-run: `publish` saves a fixed record name with `.changedKeys`
-    /// after a fetch, so a repeat is an overwrite of the same record — and the
-    /// server copy can't be newer, because only this device writes this record
-    /// (a same-account second device writing later would have been adopted by
-    /// `apply`'s timestamp guard first, flipping the flag back to published).
+    /// Re-publishes the local status if its last publish never landed; runs on every
+    /// successful refresh, quiet on failure (the send path already alerted once).
+    /// Safe to re-run: `publish` overwrites a fixed record name, and only this device writes it.
     func republishStatusIfNeeded() async {
         guard isPaired, !isRepublishingStatus else { return }
         let snapshot = store.snapshot
@@ -571,15 +480,9 @@ final class AppModel {
         }
     }
 
-    /// Re-sends every own moment whose upload never completed — a send
-    /// interrupted by backgrounding, a dead spot, an iCloud hiccup. Called on
-    /// every foreground refresh, so a failed send from this morning goes out
-    /// the next time the app opens.
-    ///
-    /// Quiet on failure: this is a background courtesy, and the pending badge
-    /// in the history grid already says the moment hasn't gone out. Safe to
-    /// re-run — `CloudSync.send` writes a deterministic record name with
-    /// `.allKeys`, so a duplicate send just overwrites the same record.
+    /// Re-sends own moments whose upload never completed; runs on every foreground
+    /// refresh, quiet on failure (the pending badge already says so).
+    /// Safe to re-run — `CloudSync.send` overwrites a deterministic record name.
     func retryPendingUploads() async {
         guard isPaired, !isRetryingUploads else { return }
         let pending = history.filter { $0.fromMe && !$0.uploaded }
@@ -588,8 +491,7 @@ final class AppModel {
         defer { isRetryingUploads = false }
 
         for moment in pending {
-            // A pending moment whose media has been pruned or wiped can never
-            // succeed; stop flagging it rather than retrying forever.
+            // Pruned/wiped media can never succeed; stop flagging rather than retrying forever.
             guard MomentStore.shared.hasMedia(for: moment) else {
                 markUploaded(moment)
                 continue
@@ -615,26 +517,19 @@ final class AppModel {
             let url = try await CloudSync.shared.createPairInvite(displayName: myDisplayName)
             setInviteURL(url)
             reload()
-            // After `reload()`, which is what flips `isPaired` and takes the
-            // pairing screen away. The sheet outlives that.
+            // After `reload()`, which flips `isPaired` and dismisses the pairing screen.
             presentedInvite = InviteLink(url: url)
             await NotificationManager.requestAuthorizationIfNeeded()
         } catch {
-            // `createPairInvite` commits the pairing to the store before its
-            // bootstrap publish; if the failure came after that point, the
-            // store says paired while this model still says not. Reload so
-            // the two can't disagree — the UI follows whichever state is real.
+            // `createPairInvite` commits the pairing before its bootstrap publish;
+            // reload so the store and this model can't disagree.
             reload()
             present(error)
         }
     }
 
-    /// Reconciles the cached invite link against what the server actually
-    /// says, and records which of the three answers came back.
-    ///
-    /// Quiet on purpose: this runs when a screen that can show the link
-    /// appears, and failing to reach iCloud there is not worth an alert — the
-    /// cached link is still shown, and the next attempt tries again.
+    /// Reconciles the cached invite link against the server. Quiet on failure —
+    /// the cached link still shows, and the next attempt tries again.
     func refreshInviteURL() async {
         guard role == .owner else { return }
         do {
@@ -649,14 +544,12 @@ final class AppModel {
                 setInviteClosed(true)
                 inviteLinkUnavailable = false
             case .missing:
-                // There is no link to offer, but nothing here says the partner
-                // joined — so don't let the UI claim the invite was closed.
+                // No link to offer, but nothing says the partner joined — don't claim closed.
                 setInviteURL(nil)
                 inviteLinkUnavailable = true
             }
         } catch {
-            // Couldn't reach iCloud. Keep the cached link rather than
-            // discarding one that very likely still works, and stay quiet.
+            // Couldn't reach iCloud: keep the cached link and stay quiet.
             log.error("Couldn't refresh the invite link: \(error.localizedDescription, privacy: .public)")
         }
     }
@@ -678,9 +571,7 @@ final class AppModel {
         do {
             try await CloudSync.shared.lockPairing()
             setInviteURL(nil)
-            // Without this the model's copy stays false and the invite
-            // section falls into its "loading" branch — a spinner that never
-            // resolves — instead of showing "Closed".
+            // Without this the invite section shows an unresolving spinner instead of "Closed".
             setInviteClosed(true)
         } catch {
             present(error)
@@ -691,18 +582,13 @@ final class AppModel {
 
     /// `0...1` while an archive is being written, `nil` otherwise.
     private(set) var archiveProgress: Double?
-    /// The last archive that only made it as far as this device — the caller
-    /// has to offer to share it before anything gets deleted.
+    /// The last archive that only reached this device — must be offered for sharing before any delete.
     var archiveToShare: URL?
 
     var canArchiveMemories: Bool { !history.isEmpty && archiveProgress == nil }
 
-    /// Writes the history out as plain files in iCloud Drive.
-    ///
-    /// Long histories keep their metadata but not their media, so most of an
-    /// archive is fetched back from CloudKit here rather than copied — which is
-    /// why this reports progress and why it has to finish *before* anything is
-    /// deleted.
+    /// Writes the history out as plain files in iCloud Drive. Most media is fetched
+    /// back from CloudKit (hence progress), and it must finish *before* anything is deleted.
     @discardableResult
     func archiveMemories() async -> MemoryArchive.Outcome? {
         guard !history.isEmpty else { return nil }
@@ -715,8 +601,7 @@ final class AppModel {
                 Task { @MainActor in self.archiveProgress = fraction }
             }
             if outcome.destination == .deviceOnly {
-                // Nothing is safe yet: iCloud Drive wasn't available, so the
-                // folder only exists here until the user saves it somewhere.
+                // Nothing is safe yet: the folder only exists here until the user saves it somewhere.
                 archiveToShare = outcome.folder
             }
             return outcome
@@ -728,18 +613,10 @@ final class AppModel {
 
     // MARK: - Ending it
 
-    /// Ends the link, cloud first, then locally.
-    ///
-    /// Order matters and is the whole point: if iCloud can't be cleaned up we
-    /// keep the pairing, report why, and change nothing — because a local reset
-    /// that leaves your photos in someone else's iCloud, while telling you it
-    /// didn't, is the worst possible outcome here. `forceLocalReset` is the
-    /// deliberate escape hatch for when someone wants out of this app *now* and
-    /// will accept that.
-    ///
-    /// - Parameter startingOver: also forgets your name, leaving the app as it
-    ///   was on install. Otherwise the name survives, so pairing again is one
-    ///   step rather than two.
+    /// Ends the link, cloud first, then locally. Order matters: if iCloud can't be
+    /// cleaned up we keep the pairing and change nothing — a local reset that leaves
+    /// photos in someone else's iCloud must not look like it didn't.
+    /// - Parameter startingOver: also forgets your name.
     /// - Returns: `false` if nothing was changed.
     @discardableResult
     func unlink(startingOver: Bool) async -> Bool {
@@ -757,10 +634,8 @@ final class AppModel {
         return true
     }
 
-    /// Cuts this device loose without touching iCloud. For when the delete
-    /// can't go through — no signal, an iCloud outage, an account that's been
-    /// signed out — and waiting isn't acceptable. What stays behind in the
-    /// other person's iCloud stays behind; the caller says so plainly.
+    /// Cuts this device loose without touching iCloud — for when the delete can't
+    /// go through and waiting isn't acceptable. The caller must say what stays behind.
     func forceLocalReset(startingOver: Bool) {
         finishUnlink(startingOver: startingOver)
     }
@@ -776,8 +651,7 @@ final class AppModel {
 
     // MARK: - Errors
 
-    /// A failed moment upload isn't a lost moment — it's filed locally and
-    /// `retryPendingUploads()` will re-send it — so the alert says that
+    /// A failed upload is filed locally and retried, so the alert says that
     /// instead of reading like the send is gone.
     private func presentSendFailure(_ error: Error, noun: String) {
         let code = (error as? CKError).map { "CKError \($0.code.rawValue): " } ?? ""
@@ -786,19 +660,15 @@ final class AppModel {
     }
 
     private func present(_ error: Error) {
-        // The CKError code alongside the message, because the message alone
-        // doesn't distinguish a transient failure from a real one — which is
-        // the difference between "try again" and "the schema isn't deployed".
+        // Log the CKError code — the message alone doesn't distinguish transient from real.
         let code = (error as? CKError).map { "CKError \($0.code.rawValue): " } ?? ""
         log.error("\(code, privacy: .public)\(error.localizedDescription, privacy: .public)")
         errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 }
 
-/// Holds a `UIBackgroundTaskIdentifier` so the expiration handler and the
-/// normal completion path can both end it exactly once. A class because the
-/// handler needs to reach the same identifier the caller stored after
-/// `beginBackgroundTask` returned.
+/// Holds a `UIBackgroundTaskIdentifier` so the expiration handler and the normal
+/// completion path can both end it exactly once (a class so both reach the same id).
 @MainActor
 private final class BackgroundAssertion {
     var id: UIBackgroundTaskIdentifier = .invalid

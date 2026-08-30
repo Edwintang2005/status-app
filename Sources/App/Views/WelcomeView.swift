@@ -1,17 +1,8 @@
 import CloudKit
 import SwiftUI
 
-/// The first thing anyone sees, and the one question the app can't answer for
-/// them: what should the other person call you?
-///
-/// It exists because every status, nudge and photo carries this name to the
-/// other phone. The app used to fall back to `UIDevice.current.name`, which
-/// meant people appeared to each other as "Edwin's iPhone" — a device name is
-/// not a name, and it isn't ours to hand over.
-///
-/// The same screen does double duty for the person tapping an invite link: the
-/// question is identical, only the reason for asking is different, so the
-/// answer shouldn't arrive on a second screen.
+/// Asks the one question the app can't answer itself: what should the other
+/// person call you? Doubles as the join screen for invite links.
 struct WelcomeView: View {
     enum Mode: Equatable {
         /// First install: ask, then hand over to pairing.
@@ -55,8 +46,7 @@ struct WelcomeView: View {
             .scrollDismissesKeyboard(.interactively)
         }
         .onAppear {
-            // Pre-filled when the invitee has used the app before — the
-            // question becomes a confirmation rather than a chore.
+            // Pre-filled when the invitee has used the app before.
             if name.isEmpty { name = model.myDisplayName }
             nameFocused = true
         }
@@ -101,7 +91,6 @@ struct WelcomeView: View {
             : "A glance at each other, from anywhere. First — what should they call you?"
     }
 
-    /// Big and centred, because it is the only thing on the screen to do.
     private var field: some View {
         VStack(spacing: 8) {
             TextField("Your name", text: $name)

@@ -4,9 +4,8 @@ import Foundation
 /// notification.
 struct RefreshResult: Sendable {
     var partnerStatus: StatusPayload?
-    /// Anything the partner sent that this device hadn't already stored,
-    /// oldest first. Often several at once — a change fetch returns everything
-    /// since the last token, and a fresh install returns the whole zone.
+    /// New partner moments, oldest first. Often several at once — a fresh
+    /// install's change fetch returns the whole zone.
     var newPartnerMoments: [Moment] = []
 
     var newestPartnerMoment: Moment? { newPartnerMoments.last }
@@ -20,11 +19,8 @@ enum BackendReadiness: Equatable, Sendable {
     case unavailable(String)
 }
 
-/// The whole sync surface the UI depends on, in one place.
-///
-/// Pairing deliberately isn't here: creating an invite link and accepting one
-/// are CloudKit-share flows with their own UI, so `AppModel` calls
-/// `CloudSync` directly for those and goes through this for everything else.
+/// The whole sync surface the UI depends on. Pairing deliberately isn't here —
+/// the share flows have their own UI, so `AppModel` calls `CloudSync` directly for those.
 protocol SyncBackend: Sendable {
     func readiness() async -> BackendReadiness
     func publish(_ payload: StatusPayload) async throws
@@ -37,13 +33,10 @@ protocol SyncBackend: Sendable {
     /// isn't cached locally any more. No-op for backends that never evict.
     func fetchMedia(for moment: Moment) async throws
     func registerSubscription() async throws
-    /// Takes this device's data out of the shared space and, for the owner,
-    /// removes the space itself.
-    ///
-    /// Throws rather than swallowing failures: telling someone their photos
-    /// are out of the other person's iCloud when the delete never landed is
-    /// the one lie this app must not tell. Local state is left alone — the
-    /// caller clears it once this has actually succeeded.
+    /// Takes this device's data out of the shared space (the owner removes the space
+    /// itself). Throws rather than swallowing — claiming the photos are gone when the
+    /// delete never landed is the one lie this app must not tell. The caller clears
+    /// local state only after success.
     func unpair() async throws
 }
 
@@ -58,10 +51,9 @@ enum Backend {
 }
 
 #if DEBUG
-/// Screenshot/App-Preview mode: `REDSTRING_DEMO=1` in the launch environment
-/// swaps CloudKit for a backend where everything instantly succeeds, so the
-/// whole app can be driven on a Simulator with no iCloud account. Debug-only
-/// and environment-gated — a normal launch never comes near it.
+/// Screenshot mode: `REDSTRING_DEMO=1` swaps CloudKit for an always-succeeding
+/// backend so the app runs on a Simulator with no iCloud account. Debug-only and
+/// environment-gated — a normal launch never comes near it.
 enum DemoMode {
     static let isActive = ProcessInfo.processInfo.environment["REDSTRING_DEMO"] == "1"
 }

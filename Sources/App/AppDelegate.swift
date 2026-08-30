@@ -38,15 +38,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         log.error("Remote notification registration failed: \(error.localizedDescription)")
     }
 
-    /// Background CloudKit push. Every current subscription sends a *visible*
-    /// alert (handled by the service extension and, foregrounded, by
-    /// `willPresent` below), so in practice this only fires for the pre-1.1
-    /// silent status subscription until `registerSubscription` has deleted it
-    /// — kept so those devices keep refreshing in the meantime.
-    ///
-    /// The completion-handler form rather than the `async` one on purpose:
-    /// `userInfo` isn't `Sendable`, so it is consumed here, synchronously,
-    /// instead of being carried across a concurrency boundary.
+    /// Background CloudKit push — in practice only the pre-1.1 silent subscription,
+    /// kept so those devices keep refreshing until `registerSubscription` deletes it.
+    /// Completion-handler form on purpose: `userInfo` isn't `Sendable`, so consume it synchronously.
     func application(
         _ application: UIApplication,
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
@@ -69,12 +63,9 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        // A banner about to show over the *open* app is also the only signal
-        // the open app gets that something arrived: every subscription sends
-        // a visible push now, so `didReceiveRemoteNotification` never fires.
-        // The service extension has already refreshed the shared store — tell
-        // the model to re-read it, or the home screen keeps the old status
-        // while the banner on top of it shows the new one.
+        // The only signal the open app gets that something arrived (all pushes are
+        // visible now). The service extension already refreshed the store — tell the
+        // model to re-read it, or the home screen lags the banner on top of it.
         await MainActor.run {
             NotificationCenter.default.post(name: .pairingDidChange, object: nil)
         }
@@ -100,29 +91,21 @@ final class SceneDelegate: NSObject, UIWindowSceneDelegate {
         accept(cloudKitShareMetadata)
     }
 
-    /// Hands the invite to the UI rather than accepting it here.
-    ///
-    /// The join needs a display name, and on a fresh install — by far the
-    /// common case for the person being invited — there isn't one yet. This
-    /// used to fall back to `UIDevice.current.name`, so people joined as
-    /// "Edwin's iPhone". `WelcomeView` asks first, then calls
-    /// `AppModel.acceptInvite(name:)`.
+    /// Hands the invite to the UI rather than accepting here: the join needs a
+    /// display name, and `WelcomeView` asks first, then calls `AppModel.acceptInvite(name:)`.
     private func accept(_ metadata: CKShare.Metadata) {
         log.notice("Invite link opened; waiting on a name before joining.")
         Task { @MainActor in
-            // Both the box and the notification, because the two arrival paths
-            // have opposite timing: a cold launch delivers the share *before*
-            // any SwiftUI view exists to hear a notification, so `onLaunch`
-            // drains the box instead.
+            // Both the box and the notification: a cold launch delivers the share before
+            // any view can hear a notification, so `onLaunch` drains the box instead.
             InviteInbox.shared.metadata = metadata
             NotificationCenter.default.post(name: .inviteDidArrive, object: metadata)
         }
     }
 }
 
-/// Holds an invite between the scene delegate and the first view that can act
-/// on it. Not in `SharedStore`: `CKShare.Metadata` isn't `Codable`, and an
-/// invite that doesn't survive a relaunch is fine — the link still works.
+/// Holds an invite between the scene delegate and the first view that can act on it.
+/// Not in `SharedStore`: `CKShare.Metadata` isn't `Codable`, and the link survives a relaunch anyway.
 @MainActor
 final class InviteInbox {
     static let shared = InviteInbox()

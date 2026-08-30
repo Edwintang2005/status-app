@@ -1,16 +1,11 @@
 import SwiftUI
 
-/// One place for colour, type and elevation, so nothing in the app has to
-/// invent its own look. Everything is defined in code and derived from a
-/// single accent hue — there is no palette to keep in sync in the asset catalog.
-/// The palette is the app icon's: the rope's crimson carries the interface
-/// (it *is* the red string), the fox's orange warms it, the fish's steel blue
-/// cools it, and light mode sits on the icon's cream.
+/// One place for colour, type and elevation, defined in code (no asset-catalog
+/// palette to sync). The palette is the app icon's: rope crimson, fox orange, fish steel blue, icon cream.
 enum Theme {
     /// Rope crimson.
     static let accent = Color(red: 0.78, green: 0.27, blue: 0.32)
-    /// The crimson lifted for text on dark backgrounds — the accent itself
-    /// is dim enough there to read as disabled.
+    /// The crimson lifted for text on dark backgrounds, where the accent reads as disabled.
     static let accentBright = Color(red: 0.95, green: 0.45, blue: 0.50)
     /// Fox orange.
     static let warm = Color(red: 0.92, green: 0.53, blue: 0.25)
@@ -24,8 +19,7 @@ enum Theme {
 
         var body: some View {
             ZStack {
-                // Light mode sits on the icon's cream rather than plain grey;
-                // dark mode keeps black, warmed only by the tinted glows.
+                // Light mode sits on the icon's cream; dark keeps black.
                 (colorScheme == .dark
                     ? Color.black
                     : Color(red: 0.973, green: 0.945, blue: 0.894))
@@ -62,17 +56,9 @@ enum Theme {
 
 // MARK: - Square
 
-/// A square box whose contents cannot change its size.
-///
-/// `Image.resizable().scaledToFill()` reports the size it needs in order to
-/// fill, which for a tall photo is far bigger than the space offered. As a
-/// plain child that drags its parent out with it, and a later
-/// `.aspectRatio(1, contentMode: .fit)` can't pull it back — the frame is
-/// already wrong by the time it applies. Sizing from `Color.clear` (no
-/// intrinsic size) and hanging the content in an `overlay` fixes the direction
-/// of that negotiation: the box decides, the content fits.
-///
-/// Callers still supply their own clip shape.
+/// A square box whose contents cannot change its size: `Color.clear` (no intrinsic
+/// size) decides the frame and the overlaid content fits — a `scaledToFill` child
+/// would otherwise drag the frame out. Callers supply their own clip shape.
 struct SquareFill<Content: View>: View {
     @ViewBuilder var content: Content
 

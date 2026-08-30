@@ -5,12 +5,8 @@ import os
 import WidgetKit
 #endif
 
-/// The App Group is the only channel between the app process and the widget
-/// extension process. Both read the same `Snapshot`; only the app normally
-/// writes it (the exception is `SendNudgeIntent`, which bumps the cooldown).
-///
-/// Backed by files in the group container rather than by `UserDefaults` — see
-/// `GroupFileStore` for the (thoroughly unpleasant) reason why.
+/// App Group state shared between the app, widget and notification processes.
+/// File-backed, not `UserDefaults` — see `GroupFileStore` for why.
 final class SharedStore {
     static let shared = SharedStore()
 
@@ -41,14 +37,11 @@ final class SharedStore {
         set { encode(newValue, forKey: Key.snapshot) }
     }
 
-    /// The snapshot has three writers in three *processes* — the app, the
-    /// widget (nudge cooldown) and the notification service (dedup markers) —
-    /// and they run on the same triggers. Without this, whoever writes last
-    /// silently reverts the other's read-modify-write.
+    /// The snapshot has writers in three processes (app, widget, notification
+    /// service); without this lock, concurrent read-modify-writes lose updates.
     private static let snapshotLock = CrossProcessLock(name: "snapshot.lock")
 
-    /// Read–modify–write plus a widget reload, which is what almost every
-    /// caller actually wants.
+    /// Locked read–modify–write plus a widget reload.
     @discardableResult
     func mutate(reloadWidgets: Bool = true, _ body: (inout Snapshot) -> Void) -> Snapshot {
         let result = Self.snapshotLock.withLock {
@@ -79,22 +72,15 @@ final class SharedStore {
         set { store.setBool(newValue, forKey: Key.notificationsRequested) }
     }
 
-    /// Owner side: whether the invite link has been revoked, so `CloudSync`
-    /// stops asking the server about a share it already closed. Local memory of
-    /// a server fact — the share's `publicPermission` is the truth, this only
-    /// keeps a settled pairing from re-checking it on every refresh.
+    /// Owner side: cached "invite link revoked" flag so `CloudSync` stops
+    /// re-checking a closed share; the share's `publicPermission` is the truth.
     var inviteClosed: Bool {
         get { store.bool(forKey: Key.inviteClosed) }
         set { store.setBool(newValue, forKey: Key.inviteClosed) }
     }
 
-    /// Owner side: the invite link handed back by `createPairInvite`, kept so
-    /// it can be shared again later.
-    ///
-    /// A cache of a server fact, like `inviteClosed` — `CloudSync
-    /// .inviteState()` is the truth. Held here so Settings can show the
-    /// link the instant it opens, and offline, rather than only after a
-    /// round trip.
+    /// Owner side: cached invite link so Settings can show it instantly and
+    /// offline; `CloudSync.inviteState()` is the truth.
     var inviteURL: URL? {
         get {
             guard let data = store.data(forKey: Key.inviteURL),
@@ -106,17 +92,11 @@ final class SharedStore {
         }
     }
 
-    /// Forgets the link, both partners' statuses and the sync cursors.
-    ///
-    /// `keepingName` decides which of the two endings this is: unlinking keeps
-    /// the name you chose so pairing again doesn't start with paperwork, while
-    /// starting over forgets it and puts the app back where a fresh install
-    /// leaves it — see `AppModel.unlink(startingOver:)`.
+    /// Forgets the pairing, both statuses and the sync cursors. `keepingName`
+    /// preserves the display name (unlink) vs. fresh-install reset (start over).
     func clearPairing(keepingName: Bool) {
-        // Under the cross-process lock, or a notification-service refresh
-        // mid-flight can write its pre-unlink read-modify-write copy back
-        // *after* this wipe — resurrecting a paired snapshot whose pairing
-        // key is gone.
+        // Locked: a mid-flight notification-service read-modify-write could
+        // otherwise resurrect the pre-unlink snapshot after this wipe.
         Self.snapshotLock.withLock {
             let name = keepingName
                 ? snapshot.mine?.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -142,13 +122,10 @@ final class SharedStore {
         Self.reloadWidgets()
     }
 
-    /// Every photo, drawing and voice memo either of you sent, and the index
-    /// that lists them. Separate from `clearPairing` only because the two are
-    /// worth naming separately at the call site; both endings do both.
+    /// Erases every cached moment file and the index that lists them.
     func eraseLocalMedia() {
         MomentIndex.shared.clear()
-        // No grace window: an unlink means *everything* goes, including a
-        // recording made seconds ago.
+        // No grace window: an unlink erases everything, even seconds-old recordings.
         MomentStore.shared.prune(keeping: [], graceInterval: 0)
     }
 
@@ -161,9 +138,7 @@ final class SharedStore {
     // MARK: - Widgets
 
     /// `true` only inside the WidgetKit extension — deliberately not "any
-    /// extension", because the notification service extension *does* need to
-    /// reload widgets: it may be the only part of the app that runs when a
-    /// photo arrives on a force-quit phone.
+    /// extension": the notification service still needs to reload widgets.
     static let isRunningInWidgetExtension: Bool = {
         guard let extensionInfo = Bundle.main.infoDictionary?["NSExtension"] as? [String: Any],
               let point = extensionInfo["NSExtensionPointIdentifier"] as? String else {
@@ -172,15 +147,15 @@ final class SharedStore {
         return point == "com.apple.widgetkit-extension"
     }()
 
-    /// Files the moment in the durable history index, promotes it to the
-    /// snapshot if it's the newest in its direction, and trims cached media.
+    /// Files moments in the history index, refreshes derived snapshot fields,
+    /// and trims cached media.
     func record(_ moments: [Moment]) {
         guard !moments.isEmpty else { return }
         let all = MomentIndex.shared.insert(moments)
         applyDerived(from: all, reloadWidgets: false)
 
-        // Keep every entry in the index but only recent files on disk; older
-        // ones are re-fetched from CloudKit when the gallery reaches them.
+        // Index keeps every entry; only recent files stay on disk — older
+        // media is re-fetched from CloudKit on demand.
         let keep = all.prefix(AppConfig.momentImageCacheLimit).map(\.id)
         MomentStore.shared.prune(keeping: keep)
         Self.reloadWidgets()
@@ -190,18 +165,12 @@ final class SharedStore {
         record([moment])
     }
 
-    /// Recomputes every snapshot field that is really a summary of the history
-    /// index, and must therefore be refreshed whenever the index changes —
-    /// on arrival *and* when something is marked as looked-at or heard.
-    ///
-    /// `moments` must be the whole index, newest first, as returned by
-    /// `MomentIndex`.
+    /// Recomputes snapshot fields derived from the history index; call whenever
+    /// the index changes. `all` must be the whole index, newest first.
     func applyDerived(from all: [Moment], reloadWidgets: Bool = true) {
         mutate(reloadWidgets: reloadWidgets) { snapshot in
-            // All unconditional: `all` is always the whole index, and every
-            // one of these must be able to go back to `nil` when the last
-            // moment in its direction is deleted — a partner unlinking
-            // deletes all of theirs at once.
+            // Unconditional: each field must be able to return to nil when the
+            // last moment in its direction is deleted.
             snapshot.latestPartnerMoment = all.first { !$0.fromMe }
             snapshot.latestOwnMoment = all.first { $0.fromMe }
             snapshot.latestPartnerVisualMoment = all.first { !$0.fromMe && !$0.isVoice }
@@ -213,9 +182,8 @@ final class SharedStore {
 
     // MARK: - CloudKit change tokens
 
-    /// Opaque per-zone `CKServerChangeToken`, so a sync only asks for what has
-    /// changed. Clearing it makes the next sync pull the entire zone, which is
-    /// how a reinstalled app recovers its whole history.
+    /// Opaque per-zone `CKServerChangeToken`. Clearing it makes the next sync
+    /// pull the entire zone (how a reinstall recovers history).
     func changeToken(for key: String) -> Data? {
         store.data(forKey: "changeToken-\(key)")
     }
@@ -226,9 +194,8 @@ final class SharedStore {
 
     static func reloadWidgets() {
         #if canImport(WidgetKit)
-        // A reload requested from inside the widget process would re-enter the
-        // timeline provider that just wrote the snapshot. WidgetKit already
-        // refreshes after an interactive intent, so it never needs this.
+        // A reload from inside the widget process would re-enter the timeline
+        // provider; WidgetKit already refreshes after interactive intents.
         guard !isRunningInWidgetExtension else { return }
         WidgetCenter.shared.reloadTimelines(ofKind: AppConfig.widgetKind)
         WidgetCenter.shared.reloadTimelines(ofKind: AppConfig.momentWidgetKind)

@@ -8,10 +8,8 @@ struct RootView: View {
 
         ZStack {
             Theme.Background()
-            // One gate before anything else: we can't show a status, send a
-            // nudge or accept an invite without knowing what to call this
-            // person. An invite outranks first-run, because the link is a
-            // stronger statement of intent than an empty name field.
+            // An invite outranks first-run: the link is a stronger statement
+            // of intent than an empty name field.
             if model.pendingInvite != nil {
                 WelcomeView(mode: .joining(ownerName: model.pendingInviteOwnerName))
             } else if !model.hasName {
@@ -22,9 +20,8 @@ struct RootView: View {
                 PairingView()
             }
 
-            // Layered over the whole app rather than presented from HomeView:
-            // an anniversary greeting shouldn't have to wait behind whatever
-            // screen you happened to leave open.
+            // Layered over the whole app so a celebration doesn't wait behind
+            // whichever screen is open.
             if let celebration = model.pendingCelebration {
                 CelebrationOverlay(payload: celebration,
                                    partnerName: model.partnerName) {
@@ -37,9 +34,8 @@ struct RootView: View {
         .animation(.smooth(duration: 0.4), value: model.isPaired)
         .animation(.smooth(duration: 0.4), value: model.hasName)
         .animation(.smooth(duration: 0.35), value: model.pendingCelebration)
-        // Presented from the root, not from `PairingView`: creating the invite
-        // is what replaces that view with `HomeView`, so anything it presents
-        // itself goes with it.
+        // Presented from the root: creating the invite replaces PairingView,
+        // which would tear down anything it presented itself.
         .sheet(item: $model.presentedInvite) { invite in
             InviteLinkSheet(url: invite.url, partnerName: model.partnerName)
         }

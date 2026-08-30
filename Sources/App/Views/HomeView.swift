@@ -7,12 +7,10 @@ struct HomeView: View {
     @State private var showingComposer = false
     @State private var showingVoiceComposer = false
     @State private var showingLibrary = false
-    /// One player for the memo rows, owned here so leaving the screen — or
-    /// starting a second memo — stops whatever was playing.
+    /// Owned here so leaving the screen or starting a second memo stops playback.
     @State private var voicePlayer = VoicePlayer()
-    /// Captured when the carousel opens. Reading `model.carouselMoments`
-    /// straight from the sheet would shrink the list underneath the user:
-    /// paging marks each one seen, which removes it from the unseen set.
+    /// Snapshot taken when the carousel opens — paging marks moments seen, so
+    /// reading `model.carouselMoments` live would shrink the list under the user.
     @State private var carouselQueue: [Moment] = []
 
     var body: some View {
@@ -20,13 +18,10 @@ struct HomeView: View {
 
         NavigationStack {
             ZStack {
-                // Inside the stack, not behind it: NavigationStack paints an
-                // opaque system background over anything layered underneath.
+                // Inside the stack: NavigationStack paints an opaque background
+                // over anything layered underneath.
                 Theme.Background()
                 ScrollView {
-                    // Ordered by what you came here to do: set your own status,
-                    // send something, see how they are, then whatever is
-                    // waiting for you.
                     VStack(spacing: 12) {
                         myStatusRow
                         NudgeButton(lastSentAt: model.snapshot.lastNudgeSentAt) {
@@ -113,10 +108,8 @@ struct HomeView: View {
                 model.pendingComposer = false
             }
         }
-        // `onChange` only fires on *changes*: a widget tap that landed while
-        // this view wasn't mounted (unpaired, mid-onboarding) latched the flag
-        // true, and every later tap was true→true — the deep link stayed dead
-        // until relaunch. Consume whatever is pending on mount too.
+        // `onChange` misses a flag latched true while this view wasn't mounted
+        // (true→true never fires), so consume any pending flag on mount too.
         .onAppear {
             if model.pendingComposer {
                 showingComposer = true
@@ -127,9 +120,6 @@ struct HomeView: View {
 
     // MARK: - Actions
 
-    /// Two ways to send something, side by side. Equal weight on purpose — a
-    /// memo is as much a moment as a photo is, not a secondary option buried
-    /// inside the photo composer.
     private var sendRow: some View {
         HStack(spacing: 10) {
             Button {
@@ -150,9 +140,6 @@ struct HomeView: View {
 
     // MARK: - Partner status
 
-    /// Laid out sideways rather than as a tall centred block: their status is
-    /// the thing you check most often, and it shouldn't cost most of a screen
-    /// to read.
     private var partnerCard: some View {
         HStack(spacing: 14) {
             if let theirs = model.snapshot.theirs {
@@ -170,9 +157,8 @@ struct HomeView: View {
                         .font(Theme.rounded(20, .semibold))
                         .lineLimit(2)
                         .foregroundStyle(theirs.message.isEmpty ? .secondary : .primary)
-                    // Inside a TimelineView because `.relative(presentation:)`
-                    // renders once and never ticks — "2 minutes ago" stayed
-                    // frozen for as long as the screen sat open.
+                    // TimelineView because `.relative(presentation:)` renders
+                    // once and never ticks on its own.
                     TimelineView(.periodic(from: .now, by: 60)) { _ in
                         Text(theirs.updatedAt, format: .relative(presentation: .named))
                             .font(Theme.rounded(11))
@@ -202,8 +188,6 @@ struct HomeView: View {
     private func momentCard(_ moment: Moment) -> some View {
         let unseen = model.unseenVisualMoments.count
 
-        // Only what's waiting — or, when caught up, just the latest. The whole
-        // archive lives behind the library button instead.
         return Button {
             carouselQueue = model.carouselMoments
         } label: {
@@ -250,19 +234,14 @@ struct HomeView: View {
             .shadow(color: .black.opacity(0.10), radius: 20, y: 10)
         }
         .buttonStyle(.plain)
-        // On the whole card, not the picture: the photo lives inside the
-        // card's rounded clip, so zooming only the square would be cut off at
-        // the card's edge. Scaling the clipped card lifts it over the UI as
-        // one piece, and springs back on release.
+        // On the whole card, not the picture: zooming only the square would be
+        // cut off by the card's rounded clip.
         .pinchToZoom()
     }
 
     // MARK: - Latest voice memo
 
-    /// Plays in place. Nothing opens, because there is nothing to look at.
-    /// The row stays put after it's been played — it's the last thing they
-    /// said, and wanting to hear that twice is normal — while playing it marks
-    /// it heard, which is what clears the widget's badge.
+    /// Plays in place; playing marks it heard, which clears the widget's badge.
     private func voiceMemoRow(_ memo: Moment) -> some View {
         VoiceMemoRow(moment: memo,
                      audioURL: MomentStore.shared.mediaURL(for: memo),
@@ -273,12 +252,9 @@ struct HomeView: View {
                 return
             }
             Task {
-                // Recent memos are already cached; one that isn't comes back
-                // from CloudKit first.
+                // Fetches from CloudKit first when the memo isn't cached.
                 guard await model.ensureMedia(for: memo),
                       let url = MomentStore.shared.mediaURL(for: memo) else {
-                    // A tap that produces neither sound nor explanation reads
-                    // as the app being broken, not the network.
                     model.errorMessage = "Couldn't fetch that voice memo from iCloud. Try again in a moment."
                     return
                 }
@@ -299,10 +275,6 @@ struct HomeView: View {
 
     // MARK: - Mine
 
-    /// A single slim row at the top of the screen. Setting your own status is
-    /// the most frequent thing anyone does here, so it wants to be reachable
-    /// without scrolling — and a whole card's worth of height buys nothing,
-    /// since it's one emoji and one line of text.
     private var myStatusRow: some View {
         Button {
             showingPicker = true
@@ -334,23 +306,20 @@ struct HomeView: View {
     }
 
     private var syncFooter: some View {
-        // TimelineView so "Synced 2 minutes ago" keeps ticking — the relative
-        // format renders once and never updates on its own.
+        // TimelineView so the relative timestamp keeps ticking.
         TimelineView(.periodic(from: .now, by: 60)) { _ in
             HStack(spacing: 6) {
                 if model.isRefreshing {
                     ProgressView().controlSize(.mini)
                     Text("Syncing…")
                 } else if let problem = model.readinessMessage {
-                    // The one place a paired user hears about a wrong iCloud
-                    // account or a signed-out one — the pairing screen that
-                    // usually carries this warning isn't mounted any more.
+                    // Only place a paired user hears about iCloud account
+                    // problems — the pairing screen isn't mounted any more.
                     Image(systemName: "exclamationmark.icloud")
                     Text(problem)
                 } else if model.pendingUploadCount > 0 {
-                    // Something of ours hasn't gone out. Ahead of "Synced …",
-                    // which would be quietly misleading while a moment is
-                    // still sitting on this device.
+                    // Ahead of "Synced …", which would mislead while an upload
+                    // is still sitting on this device.
                     Image(systemName: "icloud.and.arrow.up")
                     Text(model.pendingUploadCount == 1
                          ? "1 waiting to send"
@@ -370,9 +339,8 @@ struct HomeView: View {
     }
 }
 
-/// Owns its own countdown so the ticking is scoped to this button rather than
-/// invalidating the whole screen — and, more importantly, so no timer runs at
-/// all outside the sixty seconds after a nudge.
+/// Owns its countdown so ticking is scoped to this button and no timer runs
+/// outside the sixty seconds after a nudge.
 private struct NudgeButton: View {
     let lastSentAt: Date?
     let action: () async -> Void
@@ -388,8 +356,7 @@ private struct NudgeButton: View {
             Label(ready ? "Thinking of you" : "Sent · \(Int(remaining))s",
                   systemImage: ready ? "heart.fill" : "checkmark")
         }
-        // Accent, not warm: the heart is the red-string gesture itself, so it
-        // wears the rope's crimson.
+        // Accent, not warm: the heart wears the red string's crimson.
         .buttonStyle(PrimaryButtonStyle(tint: ready ? Theme.accent : Color.secondary.opacity(0.4)))
         .disabled(!ready)
         .animation(.smooth, value: ready)

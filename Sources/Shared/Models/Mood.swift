@@ -5,10 +5,8 @@ import Foundation
 struct Mood: Identifiable, Hashable, Codable {
     let emoji: String
     let label: String
-    /// Marks the one preset that means "we made it another month/year". Picking
-    /// it arms an animation on the *other* phone — see `CelebrationOverlay` —
-    /// and the flag survives editing the wording, so "happy 3 months" and
-    /// "one year today" both still land as a celebration.
+    /// The one anniversary preset. Picking it arms an animation on the *other*
+    /// phone, and the flag survives editing the wording.
     var isCelebration: Bool = false
 
     var id: String { "\(emoji)-\(label)" }
@@ -20,9 +18,8 @@ struct Mood: Identifiable, Hashable, Codable {
     }
 }
 
-/// Presets are grouped so the picker reads as a series of short lists rather
-/// than one undifferentiated wall of emoji. The catalogue is large enough that
-/// `MoodPickerView` offers a search field over it.
+/// Preset groups, so the picker reads as short lists; `MoodPickerView` also
+/// offers search over the whole catalogue.
 enum MoodGroup: String, CaseIterable, Identifiable {
     case mood = "Mood"
     case us = "Us"
@@ -75,10 +72,8 @@ enum MoodGroup: String, CaseIterable, Identifiable {
                 Mood(emoji: "😪", label: "sleepy"),
                 Mood(emoji: "🥱", label: "tired"),
             ]
-            // 🫪 is Unicode 16.0, which iOS renders only from 18.4 — offering
-            // it below that shows a placeholder box in the picker. A partner
-            // on an older build still sees the box if this arrives on their
-            // status; that's the emoji's floor, not something we can gate.
+            // 🫪 is Unicode 16.0; iOS renders it only from 18.4 — offering it
+            // below that shows a placeholder box in the picker.
             if #available(iOS 18.4, *) {
                 moods.append(Mood(emoji: "🫪", label: "exhausted"))
             }
@@ -112,9 +107,8 @@ enum MoodGroup: String, CaseIterable, Identifiable {
                 Mood(emoji: "🔮", label: "guess what"),
                 Mood(emoji: "🐻", label: "be my little spoon"),
                 Mood(emoji: "🗓️", label: "counting down"),
-                // Deliberately sitting in the middle of the ordinary presets
-                // rather than in a section of its own: it should read as one
-                // more thing you can say, not as a feature.
+                // Deliberately mixed in with ordinary presets: one more thing
+                // you can say, not a feature.
                 Mood(emoji: "🎉", label: "happy anniversary", isCelebration: true),
                 Mood(emoji: "🛫", label: "see you soon"),
                 Mood(emoji: "💞", label: "love you"),
@@ -223,7 +217,6 @@ enum MoodGroup: String, CaseIterable, Identifiable {
 
     static var allMoods: [Mood] { allCases.flatMap(\.moods) }
 
-    /// The celebration preset, for anything that needs to describe it without
-    /// hard-coding the emoji — currently the hint in `MoodPickerView`.
+    /// The celebration preset, so callers don't hard-code the emoji.
     static var celebration: Mood? { allMoods.first(where: \.isCelebration) }
 }

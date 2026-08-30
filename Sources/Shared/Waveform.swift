@@ -2,9 +2,8 @@ import SwiftUI
 
 /// Helpers for the loudness envelopes carried on voice-memo `Moment`s.
 enum Waveform {
-    /// Buckets samples down to a fixed count, taking the peak of each bucket.
-    /// Peak rather than mean: averaging a whole bucket flattens speech into
-    /// mush, whereas the peaks keep the syllables visible.
+    /// Buckets samples down to a fixed count, taking each bucket's peak —
+    /// means flatten speech into mush; peaks keep syllables visible.
     static func condense(_ samples: [Double], into count: Int) -> [Double] {
         guard count > 0 else { return [] }
         guard samples.count > count else { return samples }
@@ -17,20 +16,15 @@ enum Waveform {
         }
     }
 
-    /// Drawn when a memo carries no samples — one sent from a build before
-    /// waveforms existed. Deliberately flat and even: it reads as "no shape
-    /// recorded" rather than pretending to be somebody's voice.
+    /// Drawn when a memo carries no samples (sent from a pre-waveform build).
+    /// Flat and even reads as "no shape recorded", not somebody's voice.
     static func flat(count: Int) -> [Double] {
         Array(repeating: 0.3, count: max(1, count))
     }
 }
 
-/// A row of rounded bars, one per sample, filling whatever width it's given.
-///
-/// Lives in Shared because the widget draws it too — a voice memo has no
-/// thumbnail, so this *is* the tile. Bars divide the available width between
-/// them rather than measuring it, which keeps this cheap enough for the
-/// widget's memory budget.
+/// A row of rounded bars, one per sample. In Shared because the widget draws it
+/// too; bars divide the width rather than measure it — cheap enough for the widget's memory budget.
 struct WaveformBars: View {
     /// `0...1`, oldest first. Empty falls back to `Waveform.flat`.
     var levels: [Double]
@@ -40,12 +34,10 @@ struct WaveformBars: View {
     var tint: Color = Theme.accent
     var trackTint: Color = Theme.accent.opacity(0.25)
     var spacing: CGFloat = 2
-    /// Fraction of the height the quietest bar still occupies, so silence is a
-    /// visible dot rather than a gap.
+    /// Fraction of height the quietest bar still occupies — silence is a dot, not a gap.
     var floorFraction: CGFloat = 0.12
-    /// Ceiling on bar width. Without it, a short memo — or the first second of
-    /// a live recording — divides the full width between a handful of samples
-    /// and draws slabs instead of a waveform.
+    /// Ceiling on bar width — a handful of samples would otherwise split the
+    /// full width into slabs.
     var maxBarWidth: CGFloat = 7
 
     private var bars: [Double] {
@@ -54,9 +46,8 @@ struct WaveformBars: View {
 
     var body: some View {
         GeometryReader { geometry in
-            // Bars clamp to a 1pt minimum, so a narrow tile (the library
-            // grid) can't fit all 48 — condense to what fits rather than
-            // letting the row spill past the tile and into its neighbours.
+            // Bars clamp to a 1pt minimum, so condense to what fits rather than
+            // spilling past a narrow tile.
             let capacity = max(1, Int((geometry.size.width + spacing) / (1 + spacing)))
             let bars = bars.count > capacity ? Waveform.condense(bars, into: capacity) : bars
             HStack(alignment: .center, spacing: spacing) {
@@ -67,8 +58,7 @@ struct WaveformBars: View {
                                height: height(for: level, in: geometry.size.height))
                 }
             }
-            // Centred, so a row too narrow to fill the width sits in the
-            // middle rather than hugging the leading edge.
+            // Centred, so a too-narrow row doesn't hug the leading edge.
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
     }
@@ -87,8 +77,7 @@ struct WaveformBars: View {
 
     private func color(at index: Int, of count: Int) -> Color {
         guard let progress, count > 0 else { return tint }
-        // `+1` so the bar under the playhead lights up as it's reached rather
-        // than after it has passed.
+        // `+1` so the bar under the playhead lights as it's reached, not after.
         return Double(index + 1) / Double(count) <= progress ? tint : trackTint
     }
 }

@@ -2,12 +2,8 @@ import AVFoundation
 import Observation
 import os
 
-/// Records one voice memo to a temporary `.m4a`, with live metering.
-///
-/// Deliberately single-shot: a recorder instance holds at most one take, and
-/// re-recording discards the previous file rather than accumulating takes the
-/// composer would then have to manage. The file only becomes permanent when
-/// `AppModel` hands it to `MomentStore`.
+/// Records one voice memo to a temporary `.m4a`, with live metering. Single-shot:
+/// re-recording discards the previous take; the file only becomes permanent when `AppModel` hands it to `MomentStore`.
 @MainActor
 @Observable
 final class VoiceRecorder {
@@ -35,8 +31,7 @@ final class VoiceRecorder {
     @ObservationIgnored private let log = Logger(subsystem: AppConfig.appGroupID,
                                                  category: "VoiceRecorder")
 
-    /// Metering interval. Fine enough that the live waveform moves with the
-    /// voice rather than lurching, coarse enough to stay cheap.
+    /// Metering interval: fine enough to move with the voice, coarse enough to stay cheap.
     private static let tick: TimeInterval = 0.05
 
     var hasTake: Bool { state == .finished && fileURL != nil }
@@ -45,8 +40,7 @@ final class VoiceRecorder {
         max(0, AppConfig.voiceMemoMaxDuration - elapsed)
     }
 
-    /// `0:07` — counting up while recording, so it matches what you'd expect
-    /// from a voice memo rather than a countdown.
+    /// `0:07` — counts up while recording, not down.
     var elapsedLabel: String {
         let total = Int(elapsed)
         return String(format: "%d:%02d", total / 60, total % 60)
@@ -76,17 +70,15 @@ final class VoiceRecorder {
 
         do {
             let session = AVAudioSession.sharedInstance()
-            // `.playAndRecord` rather than `.record` so previewing the take
-            // doesn't need a second session change mid-composer, and
-            // `.defaultToSpeaker` so the preview comes out of the speaker
-            // instead of the earpiece.
+            // `.playAndRecord` so previewing needs no second session change;
+            // `.defaultToSpeaker` so the preview isn't in the earpiece.
             try session.setCategory(.playAndRecord,
                                     mode: .spokenAudio,
                                     options: [.defaultToSpeaker, .allowBluetoothHFP])
             try session.setActive(true)
 
-            // Mono AAC at 32 kHz: speech-sized, and the one encoding every
-            // Apple playback and notification-attachment API takes as-is.
+            // Mono AAC at 32 kHz: speech-sized, and taken as-is by every Apple
+            // playback and notification-attachment API.
             let recorder = try AVAudioRecorder(url: url, settings: [
                 AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
                 AVSampleRateKey: 32_000.0,
@@ -109,9 +101,8 @@ final class VoiceRecorder {
             errorMessage = (error as? LocalizedError)?.errorDescription
                 ?? "Couldn't start recording."
             state = .idle
-            // The session was activated (interrupting the user's music) before
-            // the failure, and the recorder may have created the file: undo
-            // both, or their podcast stays silenced over a failed take.
+            // The session was activated before the failure and the file may
+            // exist: undo both, or the user's audio stays silenced.
             try? FileManager.default.removeItem(at: url)
             deactivateSession()
         }
@@ -126,8 +117,7 @@ final class VoiceRecorder {
         recorder = nil
         deactivateSession()
 
-        // A tap so short it caught no audio isn't a memo; treat it as nothing
-        // rather than sending an empty file.
+        // A sub-0.6 s take isn't a memo; don't offer an empty file to send.
         if elapsed < 0.6 {
             discardTake()
             state = .idle
@@ -157,10 +147,8 @@ final class VoiceRecorder {
         discardTake()
     }
 
-    /// Hands the file off to whoever is sending it and forgets about it —
-    /// **without** deleting it. The recorder owns the temporary file right up
-    /// to this point, and `cleanUp()` would otherwise race the upload and pull
-    /// the recording out from under it.
+    /// Hands the file off **without** deleting it — otherwise `cleanUp()`
+    /// would race the upload and pull the recording out from under it.
     func relinquish() {
         ticker?.cancel()
         ticker = nil
@@ -204,11 +192,8 @@ final class VoiceRecorder {
         recorder?.stop()
         recorder = nil
         deactivateSession()
-        // Not only the duration ceiling lands here: a phone call, Siri or an
-        // alarm stops `AVAudioRecorder` underneath us and the next tick
-        // arrives with `isRecording == false`. The same too-short rule as
-        // `stop()` applies — without it, an interruption moments into a take
-        // left a sendable, near-empty file.
+        // Also reached when a call/Siri/alarm stops `AVAudioRecorder` underneath
+        // us; the same too-short rule as `stop()` applies.
         if fileURL == nil || elapsed < 0.6 {
             discardTake()
         } else {
@@ -217,16 +202,13 @@ final class VoiceRecorder {
     }
 
     private func deactivateSession() {
-        // Non-fatal: another sound may still be finishing, and there is
-        // nothing useful to tell the user about it.
+        // Non-fatal: another sound may still be finishing.
         try? AVAudioSession.sharedInstance().setActive(false,
                                                        options: .notifyOthersOnDeactivation)
     }
 
-    /// `averagePower` is dBFS, which is roughly `-160` (silence) to `0`
-    /// (clipping) but sits between `-50` and `-5` for a person talking at arm's
-    /// length. Mapping that range — rather than the full one — is what stops
-    /// every waveform being a flat line near zero.
+    /// dBFS sits between `-50` and `-5` for speech at arm's length; mapping
+    /// that range (not the full one) stops every waveform flatlining near zero.
     private static func normalize(_ decibels: Float) -> Double {
         let floor: Float = -50
         guard decibels.isFinite else { return 0 }

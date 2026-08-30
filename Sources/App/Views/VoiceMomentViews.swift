@@ -1,11 +1,7 @@
 import SwiftUI
 
-/// What a voice memo shows in the library grid, where every cell has to be the
-/// same square as the photos around it.
-///
-/// Drawn entirely from `Moment` metadata, never from the audio file, so a memo
-/// whose recording has been evicted from the cache still looks like itself in
-/// the grid. Only pressing play needs the file back.
+/// A voice memo's square tile in the library grid. Drawn entirely from `Moment`
+/// metadata, never the audio file, so an evicted recording still renders.
 struct VoiceMomentTile: View {
     let moment: Moment
 
@@ -23,8 +19,7 @@ struct VoiceMomentTile: View {
                 .frame(height: 34)
                 .padding(.horizontal, 10)
         }
-        // Trailing, not leading: the library puts its own "you sent this"
-        // arrow in the bottom-leading corner, and the two would collide.
+        // Trailing, not leading — the library's sent-arrow owns bottom-leading.
         .overlay(alignment: .bottomTrailing) {
             HStack(spacing: 4) {
                 Image(systemName: "mic.fill")
@@ -54,10 +49,8 @@ struct VoicePlaybackCard: View {
         return player.isPlaying(audioURL)
     }
 
-    /// The progress fill belongs to whichever memo is actually loaded —
-    /// otherwise paging mid-playback would leave a stale fill on the new page.
-    /// `nil` (not `0`) when this isn't that memo, so an untouched waveform
-    /// draws in full colour rather than looking entirely unplayed.
+    /// Progress belongs to the loaded memo only, else paging mid-playback leaves
+    /// a stale fill. `nil` (not `0`) so an untouched waveform draws full colour.
     private var progress: Double? {
         guard let audioURL, player.currentURL == audioURL else { return nil }
         return player.progress
@@ -111,20 +104,16 @@ struct VoicePlaybackCard: View {
     }
 }
 
-/// A voice memo at the size a voice memo actually needs: one short row with a
-/// play button, rather than a square card built for a picture.
-///
-/// This is what the home screen shows for a memo that hasn't been heard yet.
-/// Playing it here is the whole interaction — there is no bigger version of a
-/// sound to open, which is exactly why it doesn't get a photo-sized frame.
+/// The home screen's row for an unheard memo: one short row with a play
+/// button — playing it here is the whole interaction.
 struct VoiceMemoRow: View {
     let moment: Moment
     /// `nil` until the recording is on this device.
     let audioURL: URL?
     /// Owned by the enclosing screen, so leaving it stops the audio.
     let player: VoicePlayer
-    /// Play, pause, or fetch-then-play — the screen decides, because fetching
-    /// is async and marking the memo heard is its business, not this view's.
+    /// Play, pause, or fetch-then-play — the enclosing screen decides;
+    /// marking the memo heard is its business, not this view's.
     let onTap: () -> Void
 
     private var isPlaying: Bool {

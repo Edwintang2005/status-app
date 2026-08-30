@@ -1,13 +1,9 @@
 import Photos
 import SwiftUI
 
-/// Swipe back through the whole history: look at the photos, play the voice
-/// memos, and save or share any of it.
-///
-/// Entries older than `AppConfig.momentImageCacheLimit` keep their metadata but
-/// not their media files, so a page may have to fetch its photo or recording
-/// from CloudKit when you reach it. That's the trade that lets the history be
-/// unlimited without the device carrying every photo forever.
+/// Swipe back through the whole history: photos, voice memos, save/share.
+/// Entries past `AppConfig.momentImageCacheLimit` keep metadata only, so a
+/// page may fetch its media from CloudKit on arrival.
 struct MomentGalleryView: View {
     let moments: [Moment]
     let startAt: Moment
@@ -17,8 +13,7 @@ struct MomentGalleryView: View {
 
     @State private var selection: String
     @State private var saveState: SaveState = .idle
-    /// One player for the whole gallery, so paging to the next memo takes over
-    /// from the last rather than layering two voices.
+    /// One player for the whole gallery, so paging never layers two voices.
     @State private var player = VoicePlayer()
     /// Ids currently being pulled back from CloudKit.
     @State private var loading: Set<String> = []
@@ -70,15 +65,12 @@ struct MomentGalleryView: View {
             }
             .task(id: selection) {
                 saveState = .idle
-                // Paging away from a memo stops it — hearing the previous page
-                // over the new one is never what you meant.
+                // Paging away from a memo stops it.
                 player.stop()
                 markCurrentSeen()
                 await loadIfNeeded()
             }
             .onDisappear { player.stop() }
-            // `.failed` used to be set and never rendered — a denied photo
-            // permission looked exactly like a successful save.
             .alert("Couldn't save", isPresented: saveFailedBinding) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -115,10 +107,8 @@ struct MomentGalleryView: View {
                     fetchStatus(for: moment)
                 }
             } else {
-                // Its own view with its own load, because a page-style TabView
-                // builds every page eagerly: reading the full-size JPEG here in
-                // `page(_:)` meant ~all cached photos decoded on the main
-                // thread the moment the gallery opened.
+                // Own view with its own load: a page-style TabView builds every
+                // page eagerly, so decoding here would decode all cached photos at open.
                 GalleryImageView(momentID: moment.id,
                                  isLoading: loading.contains(moment.id),
                                  isUnavailable: unavailable.contains(moment.id))
@@ -159,11 +149,8 @@ struct MomentGalleryView: View {
                     .shadow(color: .black.opacity(0.12), radius: 24, y: 12)
                     // Two-finger, so it never fights the one-finger page swipe.
                     .pinchToZoom()
-                    // Released when the page scrolls away: the paged TabView
-                    // keeps every page alive, and holding each visited page's
-                    // decoded full-size image (~6 MB apiece) climbed toward a
-                    // jetsam on a long swipe through the history. Coming back
-                    // re-runs the placeholder's `.task` and reloads from disk.
+                    // Released off-screen: the paged TabView keeps every page alive,
+                    // and holding all decoded images risks a jetsam. `.task` reloads on return.
                     .onDisappear { self.image = nil }
             } else {
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
@@ -187,9 +174,8 @@ struct MomentGalleryView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    // Keyed on `isLoading` as well as the id: when the
-                    // CloudKit fetch flips it back to false, this re-runs and
-                    // picks up the file that just landed.
+                    // Keyed on `isLoading` too, so a finished CloudKit fetch
+                    // re-runs this and picks up the new file.
                     .task(id: "\(momentID)-\(isLoading)") {
                         let id = momentID
                         image = await Task.detached(priority: .userInitiated) {
@@ -200,9 +186,8 @@ struct MomentGalleryView: View {
         }
     }
 
-    /// A memo's card is drawn from metadata and is useful on its own, so a
-    /// missing recording is a line of text under it rather than a placeholder
-    /// in place of it.
+    /// A memo's card is drawn from metadata, so a missing recording is a line
+    /// of text under it rather than a placeholder in its place.
     @ViewBuilder
     private func fetchStatus(for moment: Moment) -> some View {
         if loading.contains(moment.id) {
@@ -216,9 +201,8 @@ struct MomentGalleryView: View {
         }
     }
 
-    /// Shows the name the sender attached when they sent it. Falls back to
-    /// their current name only if the record carries none — which happens for
-    /// anything sent before they'd set one.
+    /// Shows the name attached at send time; falls back to the current partner
+    /// name only when the record carries none.
     private func attribution(_ moment: Moment) -> String {
         let sender = moment.senderName.trimmingCharacters(in: .whitespacesAndNewlines)
         let who = moment.fromMe
@@ -245,17 +229,14 @@ struct MomentGalleryView: View {
         unavailable.remove(moment.id)
         let ok = await model.ensureMedia(for: moment)
         loading.remove(moment.id)
-        // Swiping away cancels this task mid-fetch; the fetch then reports
-        // failure, but "user left the page" isn't "couldn't load". The page
-        // retries via `loadIfNeeded` when they come back.
+        // Swiping away cancels mid-fetch; "user left" isn't "couldn't load".
         if !ok, !Task.isCancelled { unavailable.insert(moment.id) }
     }
 
     // MARK: - Keeping a copy
 
-    /// A photo goes to Photos; a voice memo has nowhere in Photos to go, so it
-    /// gets the share sheet instead — which is what lets someone keep a memo in
-    /// Voice Memos, Files, or a message thread.
+    /// A photo goes to Photos; a voice memo has nowhere there to go, so it
+    /// gets the share sheet instead.
     @ViewBuilder
     private var exportButton: some View {
         if let moment = current, moment.isVoice {
@@ -291,14 +272,12 @@ struct MomentGalleryView: View {
         }
     }
 
-    /// Add-only authorisation: this never needs to *read* the photo library,
-    /// and asking for less means a gentler permission prompt.
+    /// Add-only authorisation: never reads the library, so a gentler prompt.
     private func save() async {
         guard let moment = current,
               let image = MomentStore.shared.image(for: moment.id) else { return }
-        // Everything after an `await` checks this: the permission prompt and
-        // the Photos write take long enough to swipe away from the page, and
-        // a late "Saved" (or failure alert) then claims the *wrong* photo.
+        // Checked after every `await`: the user can page away mid-save, and a
+        // late "Saved"/failure would then claim the wrong photo.
         let saving = moment.id
         saveState = .saving
 
