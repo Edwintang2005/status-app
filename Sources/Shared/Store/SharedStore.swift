@@ -19,6 +19,7 @@ final class SharedStore {
         static let notificationsRequested = "notificationsRequested"
         static let inviteClosed = "inviteClosed"
         static let inviteURL = "inviteURL"
+        static let readReceipts = "readReceiptsEnabled"
     }
 
     init(store: GroupKeyValueStore = GroupFileStore()) {
@@ -70,6 +71,13 @@ final class SharedStore {
     var hasRequestedNotifications: Bool {
         get { store.bool(forKey: Key.notificationsRequested) }
         set { store.setBool(newValue, forKey: Key.notificationsRequested) }
+    }
+
+    /// Whether this device sends (and shows) read receipts. Off by default;
+    /// gates both directions — see `AppModel.readReceiptsEnabled`.
+    var readReceiptsEnabled: Bool {
+        get { store.bool(forKey: Key.readReceipts) }
+        set { store.setBool(newValue, forKey: Key.readReceipts) }
     }
 
     /// Owner side: cached "invite link revoked" flag so `CloudSync` stops
@@ -125,8 +133,10 @@ final class SharedStore {
     /// Erases every cached moment file and the index that lists them.
     func eraseLocalMedia() {
         MomentIndex.shared.clear()
+        StatusHistoryLog.shared.clear()
         // No grace window: an unlink erases everything, even seconds-old recordings.
         MomentStore.shared.prune(keeping: [], graceInterval: 0)
+        MomentStore.clearThumbnailCache()
     }
 
     /// Wipes pairing, cached statuses and the whole moment history.
@@ -211,6 +221,9 @@ final class SharedStore {
             return try JSONDecoder.shared.decode(type, from: data)
         } catch {
             log.error("Failed to decode \(String(describing: type)): \(error.localizedDescription)")
+            // Preserve the bytes: the caller falls back to an empty value, and the
+            // next write would otherwise persist that loss over recoverable data.
+            store.setData(data, forKey: "\(key).corrupt")
             return nil
         }
     }

@@ -90,6 +90,16 @@ struct MomentStore {
         return FileManager.default.fileExists(atPath: url.path)
     }
 
+    /// Evicts one decoded thumbnail; must accompany any file deletion or the
+    /// cache keeps serving an image whose files are gone.
+    private static func evictThumbnail(id: String) {
+        thumbnailCache.removeObject(forKey: id as NSString)
+    }
+
+    static func clearThumbnailCache() {
+        thumbnailCache.removeAllObjects()
+    }
+
     private static func jpeg(_ image: UIImage,
                              maxDimension: CGFloat,
                              quality: CGFloat) -> Data? {
@@ -172,6 +182,9 @@ struct MomentStore {
         [imageURL(for: id), thumbURL(for: id), audioURL(for: id)]
             .compactMap { $0 }
             .forEach { try? FileManager.default.removeItem(at: $0) }
+        #if canImport(UIKit)
+        Self.evictThumbnail(id: id)
+        #endif
     }
 
     /// Throwaway copy for `UNNotificationAttachment`, which takes ownership of
@@ -214,6 +227,9 @@ struct MomentStore {
                 continue
             }
             try? FileManager.default.removeItem(at: url)
+            #if canImport(UIKit)
+            Self.evictThumbnail(id: id)
+            #endif
         }
     }
 }

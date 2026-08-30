@@ -118,6 +118,10 @@ final class AppModel {
         // The widget's unheard-memo badge is a snapshot field; this is what clears it.
         store.applyDerived(from: history)
         snapshot = store.snapshot
+        if readReceiptsEnabled, isPaired {
+            store.mutate(reloadWidgets: false) { $0.receiptsDirty = true }
+            Task { await flushReceiptsIfNeeded() }
+        }
     }
 
     // MARK: - Celebrations
@@ -265,18 +269,19 @@ final class AppModel {
     }
 
     func refresh() async {
-        // Re-checked when paired too: this is what notices an iCloud account switch.
-        await refreshReadiness()
-        guard isPaired else { return }
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
+        // Re-checked when paired too: this is what notices an iCloud account switch.
+        await refreshReadiness()
+        guard isPaired else { return }
         do {
             try await SyncRunner.refresh()
             reload()
             // A working refresh is the recovery moment for sends that died offline.
             await republishStatusIfNeeded()
             await retryPendingUploads()
+            await flushReceiptsIfNeeded()
         } catch {
             // The backend may have unlinked us (a vanished zone means the other
             // person ended things), so re-read local state either way.
@@ -310,15 +315,25 @@ final class AppModel {
             $0.mine = payload
             $0.myStatusPublished = !paired
         }
+        StatusHistoryLog.shared.record(payload, fromMe: true)
         reload()
 
         guard paired else { return }
         do {
             try await Backend.current.publish(payload)
-            store.mutate(reloadWidgets: false) { $0.myStatusPublished = true }
+            markStatusPublished(payload)
             reload()
         } catch {
             presentSendFailure(error, noun: "status update")
+        }
+    }
+
+    /// Flips the published flag only if `payload` is still the current status —
+    /// a late-finishing publish must not mark a newer offline edit as delivered.
+    private func markStatusPublished(_ payload: StatusPayload) {
+        store.mutate(reloadWidgets: false) {
+            guard $0.mine?.updatedAt == payload.updatedAt else { return }
+            $0.myStatusPublished = true
         }
     }
 
@@ -339,7 +354,7 @@ final class AppModel {
         Task { [payload] in
             do {
                 try await Backend.current.publish(payload)
-                store.mutate(reloadWidgets: false) { $0.myStatusPublished = true }
+                markStatusPublished(payload)
             } catch {
                 // Quiet: the name is right locally, and `republishStatusIfNeeded` carries it over.
                 log.error("Name publish failed: \(error.localizedDescription, privacy: .public)")
@@ -472,7 +487,7 @@ final class AppModel {
 
         do {
             try await Backend.current.publish(mine)
-            store.mutate(reloadWidgets: false) { $0.myStatusPublished = true }
+            markStatusPublished(mine)
             reload()
             log.info("Republished the offline status update")
         } catch {
@@ -491,9 +506,13 @@ final class AppModel {
         defer { isRetryingUploads = false }
 
         for moment in pending {
-            // Pruned/wiped media can never succeed; stop flagging rather than retrying forever.
+            // Pruned/wiped media can never be delivered; drop the ghost entry
+            // rather than retrying forever or falsely marking it uploaded.
             guard MomentStore.shared.hasMedia(for: moment) else {
-                markUploaded(moment)
+                log.error("Dropping pending moment \(moment.id, privacy: .public): its media is gone.")
+                MomentIndex.shared.remove(id: moment.id)
+                history = MomentIndex.shared.load()
+                store.applyDerived(from: history)
                 continue
             }
             do {
@@ -506,6 +525,55 @@ final class AppModel {
                 log.error("Retry upload of \(moment.id, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    // MARK: - Read receipts
+
+    /// Whether this device shares (and shows) read receipts. Off by default;
+    /// each side controls its own sending, and display is gated on the same switch.
+    var readReceiptsEnabled: Bool = SharedStore.shared.readReceiptsEnabled {
+        didSet {
+            guard oldValue != readReceiptsEnabled else { return }
+            store.readReceiptsEnabled = readReceiptsEnabled
+            // Publish the backlog when enabling; retract with an empty map when disabling.
+            store.mutate(reloadWidgets: false) { $0.receiptsDirty = true }
+            Task { await flushReceiptsIfNeeded() }
+        }
+    }
+
+    @ObservationIgnored private var isFlushingReceipts = false
+
+    /// Seen-state of the partner's moments, newest first, capped. `.distantPast`
+    /// marks entries seen before per-moment timestamps existed ("seen", no time).
+    private func currentSeenMap() -> [String: Date] {
+        var map: [String: Date] = [:]
+        for moment in history where !moment.fromMe && moment.seen {
+            map[moment.id] = moment.seenAt ?? .distantPast
+            if map.count >= AppConfig.receiptMapLimit { break }
+        }
+        return map
+    }
+
+    /// Publishes this device's seen-map when it has changed. Quiet on failure —
+    /// the dirty flag stays set, so the next refresh retries.
+    func flushReceiptsIfNeeded() async {
+        guard isPaired, !isFlushingReceipts, store.snapshot.receiptsDirty else { return }
+        isFlushingReceipts = true
+        defer { isFlushingReceipts = false }
+        let map = readReceiptsEnabled ? currentSeenMap() : [:]
+        do {
+            try await Backend.current.publishReceipts(map)
+            store.mutate(reloadWidgets: false) { $0.receiptsDirty = false }
+        } catch {
+            log.error("Receipt publish failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    // MARK: - Status history
+
+    /// The rolling status log, newest first — loaded on demand by the history sheet.
+    func loadStatusHistory() -> [StatusHistoryEntry] {
+        StatusHistoryLog.shared.load()
     }
 
     // MARK: - Pairing

@@ -15,8 +15,10 @@ with the text fields end-to-end encrypted.
 | **Status** | An emoji plus a short message — `🥰 missing you`, `😴 sleeping`. Two taps from a preset, or type your own. |
 | **Nudge** | A heart on your lock screen. Tapping it makes their phone show *"Sam is thinking of you 💭"*. |
 | **Photos & doodles** | Snap a photo, draw a doodle, or scribble over a photo, and it lands on their home screen widget. Pick the paper colour for a doodle. |
-| **Voice memos** | Up to 3 minutes (`AppConfig.voiceMemoMaxDuration`), with a live waveform while recording. Playable from the expanded notification without opening the app; a badge on the photo widget says one is waiting. |
-| **History** | Every photo, doodle and memo is kept. Browse the lot in the library, save any to Photos, and get it all back on a new phone. |
+| **Voice memos** | Up to 3 minutes (`AppConfig.voiceMemoMaxDuration`), with a live waveform while recording. Playable from the expanded notification without opening the app; a badge on the photo widget says one is waiting. Swipe across any playback waveform to scrub. |
+| **History** | Every photo, doodle and memo is kept. Browse the lot in the library — filterable by *from them* / *from me* — save any to Photos, and get it all back on a new phone. |
+| **Status history** | A rolling log of both sides' statuses, grouped by day, behind a tap on the partner card. Local-only — see "Status history" below. |
+| **Read receipts** | Opt-in, off by default. With the switch on, each side shares which moments it has seen; your own sends wear an eye badge in the library and a "Seen …" line in the gallery. |
 | **Names** | You set your own name; they set theirs. Whatever they call themselves is what you see — there's no renaming other people. |
 
 Widgets:
@@ -217,7 +219,9 @@ only when the partner gets it. Each send type recovers its own way:
   status can't be silently reverted.
 - **Moments** carry a local-only `uploaded` flag and are re-sent by
   `retryPendingUploads()` — the grid badges them with a clock, and the sync
-  footer counts them ("1 waiting to send") until they're out.
+  footer counts them ("1 waiting to send") until they're out. Pending media is
+  exempt from the cache prune, and a pending entry whose media is genuinely
+  gone is dropped (with a log) rather than falsely marked sent.
 - **Nudges** are not queued — a heart is a moment-in-time gesture, so a failed
   one releases the cooldown for an immediate re-tap instead. In the app that
   comes with an alert; on the lock screen, where the intent can't alert, the
@@ -269,6 +273,36 @@ Two sources, for two different things:
 Changing your own name republishes your `Status` record immediately, so your
 partner sees it on their next sync. It does not rewrite anything you've already
 sent.
+
+### Read receipts
+
+Off by default, one switch per side in Settings, and the switch gates both
+directions: a device only *publishes* receipts while its own toggle is on, and
+only *shows* the partner's while it's on.
+
+Each side owns one `Receipt` record (`receipt-owner` / `receipt-participant`)
+carrying an encrypted JSON map of `{momentID: seenAt}` for the last
+`AppConfig.receiptMapLimit` seen moments. The receiver's `markSeen` sets
+`Snapshot.receiptsDirty` and `AppModel.flushReceiptsIfNeeded()` publishes on the
+next opportunity (and retries on every refresh until it lands). The sender's
+refresh folds the map into `Moment.seenByPartnerAt` via
+`MomentIndex.applyPartnerReceipts` — sticky, so a capped or retracted map never
+un-sees anything already shown. Turning the toggle off publishes an empty map,
+which stops sharing anything new.
+
+There is deliberately no push for receipts: they arrive with whatever refresh
+happens next. A partner on an older build simply ignores the record.
+
+### Status history
+
+The app's CloudKit schema keeps only the *current* status per side, so history
+is a local rolling log: `status-history.json` in the App Group
+(`StatusHistoryLog`, capped at `AppConfig.statusHistoryLimit` (100)), written from
+`AppModel.setStatus` for your own and from `CloudSync.apply` for both sides —
+whichever process noticed the change first; entries dedup by
+`(fromMe, updatedAt)`. Being local means gaps are possible (only statuses this
+device actually saw are logged) and the log doesn't survive a reinstall. The
+sheet opens from the partner card on the home screen.
 
 ### History, and where it lives
 
@@ -341,13 +375,8 @@ canvas.
 
 ## Possible improvements
 
-- **Reactions on a moment** — a heart or a quick emoji back, without composing
-  a whole reply. Would need a small `Reaction` record type and a fourth
-  subscription.
-- **Status history** — the app keeps only the current status. Keeping a rolling
-  log would make "you were asleep when I sent that" legible.
-- **A shared countdown** to the next time you're in the same place, as a
-  dedicated lock screen widget.
+See [ROADMAP.md](ROADMAP.md) — next up is the "super nudge" escalation for
+rapid-fire hearts, plus reactions on a moment and a shared countdown widget.
 
 ## Known limitations
 
@@ -380,10 +409,11 @@ Everything below is already wired up; this is the order to do it in.
    `RedStringWidgetExtension`, `RedStringNotificationService`) inherit it from
    the project level.
 2. **Run once on a device** with a Debug build. That creates the CloudKit
-   *Development* schema automatically — record types `Status`, `Nudge` and
-   `Moment` with their fields — the first time each record is saved. Pair, set
-   a status, send a nudge and send a photo, so every type and field actually
-   gets created.
+   *Development* schema automatically — record types `Status`, `Nudge`,
+   `Moment` and `Receipt` with their fields — the first time each record is
+   saved. Pair, set a status, send a nudge, send a photo, **and turn on read
+   receipts + view a received moment** (which publishes a `Receipt` record), so
+   every type and field actually gets created.
 
    **Tapping "Create a link" is part of this step, not an optional extra.**
    Zone sharing needs a system record type, `cloudkit.share`, and CloudKit only
@@ -397,8 +427,8 @@ Everything below is already wired up; this is the order to do it in.
    (*Schema → Deploy Schema Changes*). Production does **not** auto-create
    anything, so an App Store build against an undeployed schema fails on every
    write. Re-deploy whenever you add a field. Confirm afterwards by switching
-   the Console to *Production* and checking that `Status`, `Nudge`, `Moment`
-   **and `cloudkit.share`** are all listed under Record Types.
+   the Console to *Production* and checking that `Status`, `Nudge`, `Moment`,
+   `Receipt` **and `cloudkit.share`** are all listed under Record Types.
 4. **Archive** with `make archive` (or Xcode's *Product → Archive*). The
    Release configuration already points at
    [RedString-Release.entitlements](Sources/App/Resources/RedString-Release.entitlements),
@@ -439,6 +469,7 @@ Sources/
                                  JPEGs, memo .m4a
     Store/MomentIndex.swift      the durable history list, kept out of the
                                  snapshot
+    Store/StatusHistoryLog.swift local rolling status log (see "Status history")
     Cloud/SyncBackend.swift      the sync surface the UI depends on, plus the
                                  DEBUG-only demo backend
     Cloud/CloudSync.swift        CloudKit: sharing, records, assets,
@@ -456,7 +487,9 @@ Sources/
       MoodPickerView, CelebrationOverlay   statuses and celebrations
       MomentComposerView                   photo + doodle composer
       VoiceMemoComposerView, VoiceMomentViews
+      ScrubbableWaveform                   swipe-to-seek wrapper over WaveformBars
       MomentLibraryView, MomentGalleryView the history grid and pager
+      HistoryFilter, StatusHistoryView     direction filter + the status log sheet
       DrawingCanvas.swift                  PencilKit canvas and palette
       CameraPicker.swift                   UIImagePickerController wrapper
       InviteLinkView, ShareSheet, PinchToZoom, DiagnosticsView

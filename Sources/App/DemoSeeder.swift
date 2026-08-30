@@ -25,7 +25,7 @@ enum DemoSeeder {
                  age: TimeInterval, seen: Bool, image: UIImage? = nil,
                  duration: TimeInterval = 0, waveform: [Double] = []) {
             if let image {
-                try? MomentStore.shared.write(image, id: id)
+                _ = try? MomentStore.shared.write(image, id: id)
             }
             moments.append(Moment(id: id,
                                   kind: kind,
@@ -77,6 +77,36 @@ enum DemoSeeder {
             snapshot.lastSeenPartnerNudgeCount = 14
             snapshot.lastNudgeSentAt = nil
             snapshot.lastNotifiedMomentID = "demo-heart"
+        }
+
+        seedStatusHistory(now: now)
+        // Read receipts on, with a couple of own moments already seen by Sam.
+        store.readReceiptsEnabled = true
+        MomentIndex.shared.applyPartnerReceipts([
+            "demo-us": now.addingTimeInterval(-86_400),
+            "demo-dinner": now.addingTimeInterval(-7 * 86_400),
+        ])
+    }
+
+    private static func seedStatusHistory(now: Date) {
+        StatusHistoryLog.shared.clear()
+        let statuses: [(emoji: String, message: String, age: TimeInterval, fromMe: Bool)] = [
+            ("🥰", "missing you", 18 * 60, false),
+            ("🎨", "making something for you", 45 * 60, true),
+            ("💤", "sleeping in", 9 * 3_600, false),
+            ("💼", "back-to-back meetings", 26 * 3_600, true),
+            ("🍜", "ramen night", 2 * 86_400, false),
+            ("🚶", "long walk home", 3 * 86_400, true),
+        ]
+        for status in statuses {
+            StatusHistoryLog.shared.record(
+                StatusPayload(emoji: status.emoji,
+                              message: status.message,
+                              displayName: status.fromMe ? "Alex" : "Sam",
+                              updatedAt: now.addingTimeInterval(-status.age),
+                              nudgeCount: 0,
+                              lastNudgeAt: nil),
+                fromMe: status.fromMe)
         }
     }
 

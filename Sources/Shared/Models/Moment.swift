@@ -21,6 +21,12 @@ struct Moment: Codable, Hashable, Identifiable {
     /// Whether the recipient has actually looked at it. Local only — never
     /// written to CloudKit, since "seen" means seen *on this device*.
     var seen: Bool
+    /// When this device marked it seen. Feeds read receipts; `nil` on entries
+    /// seen before this field existed (receipt then carries no time).
+    var seenAt: Date?
+    /// When the partner's receipt said they saw this (own moments only, and
+    /// only while read receipts are on). `.distantPast` means "seen, time unknown".
+    var seenByPartnerAt: Date?
     /// Whether this copy reached CloudKit. Local only, meaningful on `fromMe`
     /// moments; a failed send stays `false` and is retried on next foreground.
     var uploaded: Bool
@@ -50,6 +56,8 @@ struct Moment: Codable, Hashable, Identifiable {
         self.fromMe = fromMe
         // Your own sends are seen by definition.
         self.seen = seen ?? fromMe
+        self.seenAt = nil
+        self.seenByPartnerAt = nil
         self.uploaded = uploaded
         self.duration = duration
         self.waveform = waveform
@@ -57,6 +65,7 @@ struct Moment: Codable, Hashable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case id, kind, caption, senderName, sentAt, fromMe, seen, uploaded, duration, waveform
+        case seenAt, seenByPartnerAt
     }
 
     /// Hand-written: synthesised `Codable` errors on keys missing from entries
@@ -70,6 +79,8 @@ struct Moment: Codable, Hashable, Identifiable {
         sentAt = try container.decode(Date.self, forKey: .sentAt)
         fromMe = try container.decode(Bool.self, forKey: .fromMe)
         seen = try container.decodeIfPresent(Bool.self, forKey: .seen) ?? fromMe
+        seenAt = try container.decodeIfPresent(Date.self, forKey: .seenAt)
+        seenByPartnerAt = try container.decodeIfPresent(Date.self, forKey: .seenByPartnerAt)
         // Pre-flag entries predate the retry queue; assume uploaded to avoid
         // re-uploading the whole history.
         uploaded = try container.decodeIfPresent(Bool.self, forKey: .uploaded) ?? true

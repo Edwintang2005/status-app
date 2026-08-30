@@ -26,12 +26,14 @@ SharedStore (App Group, file-backed KV via GroupFileStore)  ← app / widget / N
   └─ change tokens   per-database CKServerChangeToken
 
 MomentIndex   moments-index.json in App Group — full history metadata (cap 500)
-MomentStore   media files in App Group /Moments — JPEG full+thumb, .m4a (cache cap 60 newest)
+MomentStore   media files in App Group /Moments — JPEG full+thumb, .m4a (cache cap 60 newest;
+              pending-upload media is never pruned)
+StatusHistoryLog  status-history.json — local rolling log of both sides' statuses (cap 100)
 SyncRunner    refresh → decide what to announce → NotificationManager (local notifications)
 NotificationService  enriches CloudKit pushes: refreshes, decrypts, rewrites banner, reloads widgets
 ```
 
-Key types: `StatusPayload` (one per partner, fixed record names `status-owner`/`status-participant`), `Nudge` (own record type so its push can be visible+sound), `Moment` (one record per item, name `moment-<role>-<uuid>`, kept forever — that's what makes history recoverable). `PairRole` derives all record names; neither device ever needs the other's CloudKit user ID.
+Key types: `StatusPayload` (one per partner, fixed record names `status-owner`/`status-participant`), `Nudge` (own record type so its push can be visible+sound), `Moment` (one record per item, name `moment-<role>-<uuid>`, kept forever — that's what makes history recoverable), `Receipt` (one per side, `receipt-<role>`: encrypted seen-map for read receipts, no subscription — arrives with any refresh). `PairRole` derives all record names; neither device ever needs the other's CloudKit user ID.
 
 ## Invariants — do not break
 
@@ -47,6 +49,11 @@ Key types: `StatusPayload` (one per partner, fixed record names `status-owner`/`
 10. **Announcement dedup watermarks** live in `Snapshot`: `lastSeenPartnerNudgeCount`, `notifiedMomentIDs`/`lastNotifiedMomentID`, `lastAnnouncedPartnerStatusAt`, `lastCelebratedAt`. The NSE and app both advance them; nudge watermark moves with `max()`, never assignment.
 11. **Offline sends recover, never silently drop.** Statuses: `Snapshot.myStatusPublished` + `republishStatusIfNeeded()`. Moments: `Moment.uploaded` + `retryPendingUploads()`. Both re-run safely (fixed record names / overwrite semantics). Media is written locally before any network call.
 12. **`AppConfig` IDs must stay in lockstep** with the three entitlements files, `project.yml`, and `Info.plist` `NSUbiquitousContainers`.
+13. **Read receipts are double-gated and sticky.** `readReceiptsEnabled` gates both publishing and display; `Snapshot.receiptsDirty` + `flushReceiptsIfNeeded()` is the retry loop (same shape as `myStatusPublished`); `MomentIndex.applyPartnerReceipts` never un-sees (a capped/retracted map must not clear shown receipts). Disabling publishes an empty map.
+14. **Status history is local-only and dedups by `(fromMe, updatedAt)`.** Written from `AppModel.setStatus` (own) and `CloudSync.apply` (both, any process); gaps are by design — never assume it's complete, and never sync it without a schema plan.
+15. **Corrupt store files are preserved, not overwritten.** `SharedStore.decode`, `MomentIndex`, and `StatusHistoryLog` move unreadable bytes to a `.corrupt` sidecar before falling back to empty; the moment index also clears change tokens so CloudKit rebuilds it. Keep that pattern for any new persisted file.
+16. **Publish-success flags must verify currency.** `markStatusPublished(payload)` only flips `myStatusPublished` if the payload is still the current status — a late-finishing publish must not mark a newer offline edit delivered.
+17. **Scrub gestures need `.highPriorityGesture`** (`ScrubbableWaveform`): a plain `.gesture` loses to the gallery's paging TabView, and waveforms must not be wrapped in a `Button` (see `VoiceMemoRow`).
 
 ## File map (one line each)
 
@@ -55,7 +62,7 @@ Shared/
 - `Theme.swift` — colors, card/button styles. `Waveform.swift` — level condensing for memo waveforms.
 - `Models/StatusPayload.swift` — `StatusPayload`, `PairRole`, `PairingInfo`, `Snapshot` (the widget cache; read its doc comments before adding fields).
 - `Models/Moment.swift` — moment metadata + presentation helpers. `Models/Mood.swift` — status presets. `Models/MomentAttachment.swift` — notification attachment factory.
-- `Store/SharedStore.swift` — App Group KV + `mutate` + derived-field recompute (`applyDerived`). `Store/GroupState.swift` — file-backed store + one-time UserDefaults migration. `Store/CrossProcessLock.swift` — flock wrapper. `Store/MomentIndex.swift` — history JSON. `Store/MomentStore.swift` — media files, thumbnails, prune (5-min grace protects freshly captured media).
+- `Store/SharedStore.swift` — App Group KV + `mutate` + derived-field recompute (`applyDerived`) + `readReceiptsEnabled`. `Store/GroupState.swift` — file-backed store + one-time UserDefaults migration. `Store/CrossProcessLock.swift` — flock wrapper. `Store/MomentIndex.swift` — history JSON, seen/uploaded/receipt merging. `Store/MomentStore.swift` — media files, thumbnail cache (evicted on delete), prune (5-min grace; spares pending uploads via caller's keep-set). `Store/StatusHistoryLog.swift` — local status log.
 - `Cloud/CloudSync.swift` — the CloudKit actor: pairing/share lifecycle, publish/refresh/nudge/moment, subscriptions, unpair. Largest and most safety-critical file.
 - `Cloud/SyncBackend.swift` — backend protocol + `RefreshResult` + DEBUG `DemoBackend`. `Cloud/CloudDiagnostics.swift` — Settings→Diagnostics report.
 
@@ -65,7 +72,7 @@ App/
 - `SyncRunner.swift` — refresh + announce decisions. `NotificationManager.swift` — local notifications (moment/nudge, stale-nudge wording, generic-banner sweep).
 - `MemoryArchive.swift` — exports history to iCloud Drive as plain files + HTML/text index. `DemoSeeder.swift` — DEBUG demo content.
 - `Audio/VoiceRecorder.swift`, `Audio/VoicePlayer.swift` — AVFoundation record/playback.
-- `Views/` — SwiftUI screens: `RootView` (routing: welcome→pairing→home), `HomeView` (status card, nudge, moment card, memo row), `SettingsView` (name, invite, archive, unlink, diagnostics), `WelcomeView`/`PairingView`/`InviteLinkView` (onboarding + invite), `MoodPickerView` (status presets + celebration), `MomentComposerView`+`DrawingCanvas`+`CameraPicker` (photo/doodle), `VoiceMemoComposerView`+`VoiceMomentViews` (memos), `MomentLibraryView`/`MomentGalleryView` (history grid/pager), `CelebrationOverlay`, `PinchToZoom`, `ShareSheet`, `DiagnosticsView`.
+- `Views/` — SwiftUI screens: `RootView` (routing: welcome→pairing→home), `HomeView` (status card → status history, nudge, moment card, memo row; composer deep-link queueing), `SettingsView` (name, notifications, read-receipts toggle, invite, archive, unlink, diagnostics), `WelcomeView`/`PairingView`/`InviteLinkView` (onboarding + invite), `MoodPickerView` (status presets + celebration), `MomentComposerView`+`DrawingCanvas`+`CameraPicker` (photo/doodle), `VoiceMemoComposerView`+`VoiceMomentViews`+`ScrubbableWaveform` (memos + swipe-to-seek), `MomentLibraryView`/`MomentGalleryView` (history grid/pager, direction filter, seen badges), `HistoryFilter` (shared filter enum+picker), `StatusHistoryView` (status log sheet), `CelebrationOverlay`, `PinchToZoom`, `ShareSheet`, `DiagnosticsView`.
 
 Widget/
 - `RedStringWidgetBundle.swift` — bundle. `StatusWidget.swift`+`WidgetViews.swift` — status widget (accessory families + systemSmall). `MomentWidget.swift` — photo widget (systemSmall/Medium/Large, memo badge, compose deep link). `StatusProvider.swift` — shared timeline provider (hourly refresh, 8s CloudKit timeout, cooldown flip-back entries). `SendNudgeIntent.swift` — lock-screen heart AppIntent.
@@ -77,6 +84,6 @@ docs/ — GitHub Pages marketing site (`index.html`), deployed by `.github/workf
 
 ## CloudKit schema gotchas (summary — full detail in README "Shipping it")
 
-- Production auto-creates nothing: deploy schema after Development use, and `cloudkit.share` only enters the schema when a share is actually saved in a Debug device build.
+- Production auto-creates nothing: deploy schema after Development use, and `cloudkit.share` only enters the schema when a share is actually saved in a Debug device build. The `Receipt` type likewise only appears after a Debug device has published one (toggle read receipts on and view a received moment) — deploy it before shipping the read-receipts build.
 - Field encryption is fixed at creation; the CloudKit environment (Dev vs Prod) is decided by code signing, and mixed-environment devices can't see each other (looks like a broken pairing — see `CloudDiagnostics`).
 - Subscriptions: `status-alerts` (visible, silent-sound), `nudge-alerts`, `moment-alerts` (both visible + sound + mutable content); legacy `status-changes` is deleted on sight.

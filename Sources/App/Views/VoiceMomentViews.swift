@@ -49,20 +49,15 @@ struct VoicePlaybackCard: View {
         return player.isPlaying(audioURL)
     }
 
-    /// Progress belongs to the loaded memo only, else paging mid-playback leaves
-    /// a stale fill. `nil` (not `0`) so an untouched waveform draws full colour.
-    private var progress: Double? {
-        guard let audioURL, player.currentURL == audioURL else { return nil }
-        return player.progress
-    }
-
     var body: some View {
         VStack(spacing: 26) {
-            WaveformBars(levels: moment.waveform,
-                         progress: progress,
-                         tint: Theme.accent,
-                         trackTint: Color.primary.opacity(0.18),
-                         spacing: 3)
+            // Tap or swipe anywhere on the waveform to scrub.
+            ScrubbableWaveform(moment: moment,
+                               audioURL: audioURL,
+                               player: player,
+                               tint: Theme.accent,
+                               trackTint: Color.primary.opacity(0.18),
+                               spacing: 3)
                 .frame(height: 110)
 
             HStack(spacing: 14) {
@@ -115,19 +110,23 @@ struct VoiceMemoRow: View {
     /// Play, pause, or fetch-then-play — the enclosing screen decides;
     /// marking the memo heard is its business, not this view's.
     let onTap: () -> Void
+    /// Fires when a scrub starts, so the enclosing screen can mark it heard.
+    var onScrub: (() -> Void)? = nil
 
     private var isPlaying: Bool {
         guard let audioURL else { return false }
         return player.isPlaying(audioURL)
     }
 
-    private var progress: Double? {
-        guard let audioURL, player.currentURL == audioURL else { return nil }
-        return player.progress
+    // Not a Button: a wrapping Button claims touches before the waveform's
+    // scrub gesture can, so the card takes a tap gesture instead.
+    var body: some View {
+        content
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onTap)
     }
 
-    var body: some View {
-        Button(action: onTap) {
+    private var content: some View {
             HStack(spacing: 14) {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 15, weight: .bold))
@@ -147,12 +146,17 @@ struct VoiceMemoRow: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    WaveformBars(levels: moment.waveform,
-                                 progress: progress,
-                                 tint: Theme.accent,
-                                 trackTint: Theme.accent.opacity(0.22),
-                                 spacing: 2,
-                                 maxBarWidth: 3)
+                    // Swipe to scrub; a plain tap still reaches the row's button
+                    // (10pt threshold keeps the two from fighting).
+                    ScrubbableWaveform(moment: moment,
+                                       audioURL: audioURL,
+                                       player: player,
+                                       tint: Theme.accent,
+                                       trackTint: Theme.accent.opacity(0.22),
+                                       spacing: 2,
+                                       maxBarWidth: 3,
+                                       minimumDragDistance: 10,
+                                       onScrubStart: onScrub)
                         .frame(height: 22)
                 }
             }
@@ -165,8 +169,6 @@ struct VoiceMemoRow: View {
                         .offset(x: -6, y: 6)
                 }
             }
-        }
-        .buttonStyle(.plain)
     }
 
     private var title: String {

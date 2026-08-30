@@ -112,10 +112,18 @@ final class GroupFileStore: GroupKeyValueStore {
             }
         }
 
-        guard copied > 0 else { return }
-        log.notice("Migrated \(copied) key(s) out of UserDefaults into the group container.")
-        try? Data().write(to: marker, options: .atomic)
+        if copied > 0 {
+            log.notice("Migrated \(copied) key(s) out of UserDefaults into the group container.")
+            try? Data().write(to: marker, options: .atomic)
+        } else if !Self.isAppExtension {
+            // The main app's view of the suite is authoritative (an extension's
+            // can be empty), so it alone may declare a no-op migration done —
+            // otherwise fresh installs re-scan the legacy suite on every init.
+            try? Data().write(to: marker, options: .atomic)
+        }
     }
+
+    private static let isAppExtension = Bundle.main.bundleURL.pathExtension == "appex"
 }
 
 /// Previews/tests inject a throwaway suite instead of the real group container.

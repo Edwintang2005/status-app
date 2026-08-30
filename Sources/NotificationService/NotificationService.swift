@@ -25,6 +25,8 @@ final class NotificationService: UNNotificationServiceExtension {
         work = Task { [weak self] in
             guard let self else { return }
             let enriched = await self.enrich(mutable, userInfo: request.content.userInfo)
+            // Expiry may already have delivered the fallback; don't call twice.
+            guard !Task.isCancelled else { return }
             contentHandler(enriched ?? request.content)
         }
     }
@@ -66,15 +68,18 @@ final class NotificationService: UNNotificationServiceExtension {
         // process refreshes first consumes the delta, so it can't classify the push.
         switch notification.subscriptionID {
         case CloudSync.SubscriptionID.moment?:
-            // Prefer the newest *un-announced* moment, picked and claimed inside
-            // one `mutate` under the cross-process lock — rapid-fire pushes run
-            // as concurrent extension instances and must not claim the same moment.
+            // Prefer the newest *un-announced* moment — from this refresh's delta
+            // first, then the index — picked and claimed inside one `mutate` under
+            // the cross-process lock: rapid-fire pushes run as concurrent extension
+            // instances and must not claim (or re-caption) the same moment.
+            let fromDelta = result.newPartnerMoments.sorted { $0.sentAt > $1.sentAt }
             let fromIndex = MomentIndex.shared.load().filter { !$0.fromMe }
             let moment = await MainActor.run { () -> Moment? in
                 var chosen: Moment?
                 _ = SharedStore.shared.mutate(reloadWidgets: false) { snapshot in
-                    chosen = result.newestPartnerMoment
+                    chosen = fromDelta.first { !snapshot.hasAnnounced($0.id) }
                         ?? fromIndex.first { !snapshot.hasAnnounced($0.id) }
+                        ?? fromDelta.first
                         ?? fromIndex.first
                     if let chosen { snapshot.recordAnnounced(chosen.id) }
                 }

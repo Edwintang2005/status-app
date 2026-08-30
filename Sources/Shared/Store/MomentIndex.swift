@@ -32,7 +32,14 @@ final class MomentIndex {
         do {
             return try JSONDecoder.shared.decode([Moment].self, from: data)
         } catch {
-            log.error("Corrupt moment index, starting over: \(error.localizedDescription)")
+            log.error("Corrupt moment index: \(error.localizedDescription)")
+            // Preserve the bytes rather than letting the next save overwrite them,
+            // then clear the sync cursors so the next refresh pulls the whole zone
+            // and rebuilds the index from CloudKit.
+            let sidecar = fileURL.appendingPathExtension("corrupt")
+            try? FileManager.default.removeItem(at: sidecar)
+            try? FileManager.default.moveItem(at: fileURL, to: sidecar)
+            for key in ["private", "shared"] { SharedStore.shared.setChangeToken(nil, for: key) }
             return []
         }
     }
@@ -86,6 +93,28 @@ final class MomentIndex {
             var changed = false
             for index in all.indices where targets.contains(all[index].id) && !all[index].seen {
                 all[index].seen = true
+                all[index].seenAt = Date()
+                changed = true
+            }
+            if changed { saveUnlocked(all) }
+            return all
+        }
+    }
+
+    /// Folds the partner's read receipts into own moments. Sticky: a receipt
+    /// map shrinking (capped, or receipts turned off) never un-sees anything.
+    @discardableResult
+    func applyPartnerReceipts(_ map: [String: Date]) -> [Moment] {
+        lock.lock()
+        defer { lock.unlock() }
+
+        return crossLock.withLock {
+            var all = loadUnlocked()
+            var changed = false
+            for index in all.indices where all[index].fromMe {
+                guard let seenAt = map[all[index].id],
+                      all[index].seenByPartnerAt != seenAt else { continue }
+                all[index].seenByPartnerAt = seenAt
                 changed = true
             }
             if changed { saveUnlocked(all) }

@@ -122,9 +122,37 @@ final class VoicePlayer {
     }
 
     private func resume(_ player: AVAudioPlayer) {
-        guard player.play() else { return }
+        // The session may have been deactivated underneath us (a call, another
+        // player's stop); without re-activating, `play()` silently returns false.
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            log.error("Couldn't reactivate audio session: \(error.localizedDescription)")
+        }
+        guard player.play() else {
+            // Reset so the next tap goes through the full load path.
+            log.error("Resume failed; resetting player.")
+            stop()
+            return
+        }
         isPlaying = true
         startTicking()
+    }
+
+    /// Jumps to `fraction` (0...1) of the file — the scrub gesture on a
+    /// waveform. Loads and starts `url` if it isn't the current file, so
+    /// scrubbing an idle memo begins playback from that point.
+    func seek(_ url: URL, to fraction: Double) {
+        if currentURL != url || player == nil {
+            play(url)
+        }
+        guard currentURL == url, let player else { return }
+        let clamped = max(0, min(fraction, 1))
+        // Never place the head exactly at the end — AVAudioPlayer reads that as done.
+        let target = min(clamped * player.duration, max(0, player.duration - 0.05))
+        player.currentTime = target
+        elapsed = target
+        progress = player.duration > 0 ? target / player.duration : 0
     }
 
     /// Polled rather than delegate-driven: the same tick has to advance the

@@ -7,6 +7,7 @@ struct HomeView: View {
     @State private var showingComposer = false
     @State private var showingVoiceComposer = false
     @State private var showingLibrary = false
+    @State private var showingStatusHistory = false
     /// Owned here so leaving the screen or starting a second memo stops playback.
     @State private var voicePlayer = VoicePlayer()
     /// Snapshot taken when the carousel opens — paging marks moments seen, so
@@ -102,20 +103,34 @@ struct HomeView: View {
             MomentLibraryView()
                 .environment(model)
         }
+        .sheet(isPresented: $showingStatusHistory) {
+            StatusHistoryView()
+                .environment(model)
+        }
         .onChange(of: model.pendingComposer) { _, pending in
-            if pending {
-                showingComposer = true
-                model.pendingComposer = false
-            }
+            if pending { consumePendingComposer() }
         }
         // `onChange` misses a flag latched true while this view wasn't mounted
         // (true→true never fires), so consume any pending flag on mount too.
-        .onAppear {
-            if model.pendingComposer {
-                showingComposer = true
-                model.pendingComposer = false
-            }
+        .onAppear { consumePendingComposer() }
+        // A deep link that arrived while another sheet was up stays latched;
+        // present it once that sheet closes instead of silently dropping it.
+        .onChange(of: anySheetShowing) { _, showing in
+            if !showing { consumePendingComposer() }
         }
+    }
+
+    /// SwiftUI drops a second concurrent presentation, so the composer deep link
+    /// is only consumed when it can actually be shown.
+    private var anySheetShowing: Bool {
+        showingPicker || showingSettings || showingComposer || showingVoiceComposer
+            || showingLibrary || showingStatusHistory || !carouselQueue.isEmpty
+    }
+
+    private func consumePendingComposer() {
+        guard model.pendingComposer, !anySheetShowing else { return }
+        showingComposer = true
+        model.pendingComposer = false
     }
 
     // MARK: - Actions
@@ -140,7 +155,17 @@ struct HomeView: View {
 
     // MARK: - Partner status
 
+    /// Tapping the card opens the status history.
     private var partnerCard: some View {
+        Button {
+            showingStatusHistory = true
+        } label: {
+            partnerCardContent
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var partnerCardContent: some View {
         HStack(spacing: 14) {
             if let theirs = model.snapshot.theirs {
                 Text(theirs.emoji)
@@ -179,6 +204,10 @@ struct HomeView: View {
             }
 
             Spacer(minLength: 0)
+
+            Image(systemName: "clock.arrow.circlepath")
+                .font(Theme.rounded(13, .semibold))
+                .foregroundStyle(.tertiary)
         }
         .card(padding: 16)
     }
@@ -261,6 +290,8 @@ struct HomeView: View {
                 voicePlayer.play(url)
                 model.markSeen(memo)
             }
+        } onScrub: {
+            model.markSeen(memo)
         }
     }
 

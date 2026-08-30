@@ -18,6 +18,10 @@ struct SettingsView: View {
     @State private var offeringLocalOnly: Ending?
     /// Outcome of a successful archive, for the alert saying where it went.
     @State private var archiveSummary: ArchiveSummary?
+    /// An unlink/wipe waiting behind a device-only archive's share sheet;
+    /// re-offered once that sheet closes instead of being silently dropped.
+    @State private var pendingEndingAfterShare: Ending?
+    @State private var confirmingEndingAfterShare: Ending?
 
     var body: some View {
         @Bindable var model = model
@@ -47,6 +51,14 @@ struct SettingsView: View {
                                 UIApplication.shared.open(url)
                             }
                         }
+                    }
+                }
+
+                if model.isPaired {
+                    Section {
+                        Toggle("Read receipts", isOn: $model.readReceiptsEnabled)
+                    } footer: {
+                        Text("Lets \(model.partnerName) see when you've looked at what they sent, and shows you the same for your sends once they turn it on too. Turning it off stops sharing new ones.")
                     }
                 }
 
@@ -191,10 +203,35 @@ struct SettingsView: View {
             // Only reachable when iCloud Drive wasn't available; nothing has
             // been deleted yet, so dismissing this can't lose the archive.
             .sheet(isPresented: Binding(get: { model.archiveToShare != nil },
-                                        set: { if !$0 { model.archiveToShare = nil } })) {
+                                        set: { if !$0 { model.archiveToShare = nil } }),
+                   onDismiss: {
+                       model.archiveToShare = nil
+                       if let pending = pendingEndingAfterShare {
+                           pendingEndingAfterShare = nil
+                           confirmingEndingAfterShare = pending
+                       }
+                   }) {
                 if let url = model.archiveToShare {
                     ShareSheet(url: url)
                 }
+            }
+            .confirmationDialog(
+                confirmingEndingAfterShare == .wipe
+                    ? "Delete everything and start over?"
+                    : unlinkTitle,
+                isPresented: Binding(get: { confirmingEndingAfterShare != nil },
+                                     set: { if !$0 { confirmingEndingAfterShare = nil } }),
+                titleVisibility: .visible
+            ) {
+                Button(confirmingEndingAfterShare == .wipe ? "Delete everything" : "Unlink",
+                       role: .destructive) {
+                    let ending = confirmingEndingAfterShare ?? .unlink
+                    confirmingEndingAfterShare = nil
+                    Task { await end(ending) }
+                }
+                Button("Not now", role: .cancel) { confirmingEndingAfterShare = nil }
+            } message: {
+                Text("The archive was only shared from this iPhone — continue only if you saved it somewhere safe.")
             }
             .alert("Memories saved", isPresented: Binding(get: { archiveSummary != nil },
                                                           set: { if !$0 { archiveSummary = nil } })) {
@@ -281,8 +318,9 @@ struct SettingsView: View {
         model.myDisplayName = trimmed
     }
 
-    /// Archives first, and deletes only if the archive reached iCloud Drive —
-    /// a device-only archive shows the share sheet and skips the ending.
+    /// Archives first, and deletes only if the archive reached iCloud Drive.
+    /// A device-only archive shows the share sheet, holding the ending until
+    /// that sheet closes — see `pendingEndingAfterShare`.
     private func saveMemories(then ending: Ending?) async {
         guard let outcome = await model.archiveMemories() else { return }
 
@@ -295,7 +333,7 @@ struct SettingsView: View {
             await end(ending)
         case .deviceOnly:
             // `model.archiveToShare` is set, which brings up the share sheet.
-            break
+            pendingEndingAfterShare = ending
         }
     }
 

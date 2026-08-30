@@ -59,6 +59,10 @@ struct MomentWidgetView: View {
 
     @ViewBuilder
     private func content(for moment: Moment) -> some View {
+        // Until the photo downloads, the background is the pale accent fill —
+        // white-on-pale text is invisible, so style for whichever is showing.
+        let onPhoto = MomentStore.shared.thumbnail(for: moment.id) != nil
+
         VStack(alignment: .leading, spacing: 0) {
             Spacer(minLength: 0)
 
@@ -68,8 +72,9 @@ struct MomentWidgetView: View {
                         .font(.system(size: family == .systemSmall ? 13 : 15,
                                       weight: .semibold, design: .rounded))
                         .lineLimit(2)
-                        .foregroundStyle(.white)
-                        .shadow(color: .black.opacity(0.55), radius: 4, y: 1)
+                        .foregroundStyle(onPhoto ? AnyShapeStyle(.white)
+                                                 : AnyShapeStyle(.primary))
+                        .shadow(color: .black.opacity(onPhoto ? 0.55 : 0), radius: 4, y: 1)
                 }
 
                 Spacer(minLength: 0)
@@ -79,9 +84,12 @@ struct MomentWidgetView: View {
                     Link(destination: URL(string: "redstring://compose")!) {
                         Image(systemName: "square.and.pencil")
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(onPhoto ? AnyShapeStyle(.white)
+                                                     : AnyShapeStyle(.secondary))
                             .padding(9)
-                            .background(.black.opacity(0.35), in: Circle())
+                            .background(onPhoto ? AnyShapeStyle(.black.opacity(0.35))
+                                                : AnyShapeStyle(.primary.opacity(0.08)),
+                                        in: Circle())
                     }
                 }
             }

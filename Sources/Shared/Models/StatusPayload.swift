@@ -96,6 +96,14 @@ enum PairRole: String, Codable {
         }
     }
 
+    /// One read-receipt record per side, carrying that side's seen-map.
+    var receiptRecordName: String {
+        switch self {
+        case .owner: return "receipt-owner"
+        case .participant: return "receipt-participant"
+        }
+    }
+
     /// Moment records are `moment-<role>-<uuid>`; the role in the name tells a
     /// device's own sends from its partner's without an extra field.
     var momentRecordPrefix: String { "moment-\(rawValue)-" }
@@ -188,6 +196,11 @@ struct Snapshot: Codable, Hashable {
     /// Needed because the widget often consumes the change-token delta first.
     var lastAnnouncedPartnerStatusAt: Date?
 
+    /// Whether this device's read-receipt record is behind its local seen-state.
+    /// Set by `markSeen` and the Settings toggle; cleared by a successful
+    /// `publishReceipts`, so a failed publish retries on the next refresh.
+    var receiptsDirty: Bool = false
+
     static let empty = Snapshot(
         mine: nil,
         theirs: nil,
@@ -207,6 +220,7 @@ struct Snapshot: Codable, Hashable {
         case lastCelebratedAt, notifiedMomentIDs
         case lastNudgeFailedAt, myStatusPublished
         case lastAnnouncedPartnerStatusAt
+        case receiptsDirty
     }
 
     /// Hand-written: synthesised `Codable` errors on missing keys, so a snapshot
@@ -243,6 +257,7 @@ struct Snapshot: Codable, Hashable {
             .decodeIfPresent(Bool.self, forKey: .myStatusPublished) ?? true
         lastAnnouncedPartnerStatusAt = try container
             .decodeIfPresent(Date.self, forKey: .lastAnnouncedPartnerStatusAt)
+        receiptsDirty = try container.decodeIfPresent(Bool.self, forKey: .receiptsDirty) ?? false
     }
 
     /// Hand-written: `latestPartnerVisualMoment`'s nil must be written as an
@@ -270,6 +285,7 @@ struct Snapshot: Codable, Hashable {
         try container.encode(myStatusPublished, forKey: .myStatusPublished)
         try container.encodeIfPresent(lastAnnouncedPartnerStatusAt,
                                       forKey: .lastAnnouncedPartnerStatusAt)
+        try container.encode(receiptsDirty, forKey: .receiptsDirty)
     }
 
     init(mine: StatusPayload?,

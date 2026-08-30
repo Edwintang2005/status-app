@@ -12,13 +12,16 @@
 		09DF6BAD17C27E550E804CDC /* Moment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0442A90D1A5DB4ABCFB5FB16 /* Moment.swift */; };
 		0FE3E7AFADBD02CEF113168E /* MomentAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = C513794F944B58BC26B42ED2 /* MomentAttachment.swift */; };
 		1636FAD57306A9C6397D05B1 /* CelebrationOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFFD179DB35C743DF9D7E748 /* CelebrationOverlay.swift */; };
+		196965D5E18E09E5136911AE /* HistoryFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 878F3DA6084DF1AB1669FC70 /* HistoryFilter.swift */; };
 		1BA5AA905994BA860C0DA728 /* GroupState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 696A470F75571AEF47953B89 /* GroupState.swift */; };
 		1EF73CE0937AEE44F02E93ED /* CloudDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8466C7C9528F65B29D3B5CA8 /* CloudDiagnostics.swift */; };
+		2299CC5BF22209A33467B696 /* StatusHistoryLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30373758976991BA5D086FF9 /* StatusHistoryLog.swift */; };
 		2D16C5199E0CF87E6D54A4B8 /* CloudDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8466C7C9528F65B29D3B5CA8 /* CloudDiagnostics.swift */; };
 		2D1E6EC3CE9E262A3FA51EB0 /* StatusProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B92EA7DEDAAF90C46953F00D /* StatusProvider.swift */; };
 		2EF5363DEE4A3F658794D1C6 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD8D0106D60EC77F6BBD92E8 /* NotificationManager.swift */; };
 		2F34A348353EC94815E9CA32 /* MemoryArchive.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBD41874B210F70D1875AAAE /* MemoryArchive.swift */; };
 		2FBDC5C2E133D9A716BC93D6 /* PinchToZoom.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88CFEE9BF9F2D4F1C4724B57 /* PinchToZoom.swift */; };
+		3128E1A6AA6F0D451B5659A4 /* StatusHistoryLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30373758976991BA5D086FF9 /* StatusHistoryLog.swift */; };
 		3152657AB5665312130C371B /* SyncBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BC200FA7147CB9336C7B085 /* SyncBackend.swift */; };
 		333DF0333E02B3FBF5CE442C /* VoiceRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75598DBB992C8EFEF7B1E974 /* VoiceRecorder.swift */; };
 		3387E3E899F13090F3808558 /* CrossProcessLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E0BAB580172AC55C2EEAC42 /* CrossProcessLock.swift */; };
@@ -43,6 +46,7 @@
 		665513B46F4C596B2470B72A /* Mood.swift in Sources */ = {isa = PBXBuildFile; fileRef = A03BCF2BEA397F562EA752CA /* Mood.swift */; };
 		6CC827F12FF3AC4B570ABF73 /* Mood.swift in Sources */ = {isa = PBXBuildFile; fileRef = A03BCF2BEA397F562EA752CA /* Mood.swift */; };
 		6D4A23DE015840A07C6C5AFE /* InviteLinkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FC21F26FBC085639D81B743 /* InviteLinkView.swift */; };
+		6D8CF89692B3A0D4F1EB1D4D /* StatusHistoryLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30373758976991BA5D086FF9 /* StatusHistoryLog.swift */; };
 		7484171A362F6E4A4991A4ED /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B010D0666534AA91EF320B6F /* Assets.xcassets */; };
 		76A4C07902D2BFAD119D0BFD /* GroupState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 696A470F75571AEF47953B89 /* GroupState.swift */; };
 		76F3516782432F0BC7D01DA4 /* CloudSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30D8E86092F4D16270481EB1 /* CloudSync.swift */; };
@@ -64,6 +68,7 @@
 		A45966300B70B89E854FB9FB /* MomentLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7555940C8F32AD881C18D9E /* MomentLibraryView.swift */; };
 		A9B4CF5F59927F105644DEFE /* CloudSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30D8E86092F4D16270481EB1 /* CloudSync.swift */; };
 		AB8284D702A9CDEFA3A707AF /* RedStringApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B55B1156B55002BD0180D1C0 /* RedStringApp.swift */; };
+		BF1744649A5E036BACF57BC6 /* ScrubbableWaveform.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC155C3E136DF4423C65E036 /* ScrubbableWaveform.swift */; };
 		C250A708710CB333E5F14370 /* RedStringNotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5A83FEA2BD3E31257DCBBA03 /* RedStringNotificationService.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		C3B31205EA967ED6F11B974F /* MomentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9908897AF8F96D8BAF86FB0D /* MomentIndex.swift */; };
 		C3B98137CA41B78505E32EAE /* AppConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 448B77B119777B4A4B476563 /* AppConfig.swift */; };
@@ -74,6 +79,7 @@
 		C98895535EBAED51DB5FDE79 /* SyncBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BC200FA7147CB9336C7B085 /* SyncBackend.swift */; };
 		CA2DF31574A3688EB5138FF7 /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86D0D329D6A34F59B704FBF5 /* WelcomeView.swift */; };
 		CB80FEFB3AD61E6C6180E327 /* MomentGalleryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 652B3CE8C44B5FDA32C9E0F1 /* MomentGalleryView.swift */; };
+		CC3292933259B5E3083F0A93 /* StatusHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 847AF10E5065B62CDA9C5D89 /* StatusHistoryView.swift */; };
 		CDE41656D5548893F3A93EA7 /* ShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB81BD9590AB73959572A67 /* ShareSheet.swift */; };
 		D21CF8F30BF04932B7CB37D8 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 40FB4DA9062749721CD09501 /* PrivacyInfo.xcprivacy */; };
 		D5E29F0C459C10C4DB025EFB /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B010D0666534AA91EF320B6F /* Assets.xcassets */; };
@@ -142,6 +148,7 @@
 		2A69E5DF62A9FA0AE8844D97 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		2BB81BD9590AB73959572A67 /* ShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheet.swift; sourceTree = "<group>"; };
 		2CA237875A45D4BD40441C2F /* SyncRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncRunner.swift; sourceTree = "<group>"; };
+		30373758976991BA5D086FF9 /* StatusHistoryLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusHistoryLog.swift; sourceTree = "<group>"; };
 		30D8E86092F4D16270481EB1 /* CloudSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSync.swift; sourceTree = "<group>"; };
 		337B972E15547CDA25869529 /* MomentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentStore.swift; sourceTree = "<group>"; };
 		34BCEF784AA8E17FAB64AAE7 /* MomentComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentComposerView.swift; sourceTree = "<group>"; };
@@ -168,7 +175,9 @@
 		7979986C14FC84136536B46B /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		830C54EC0A839C1BB7F6BEB0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		8466C7C9528F65B29D3B5CA8 /* CloudDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDiagnostics.swift; sourceTree = "<group>"; };
+		847AF10E5065B62CDA9C5D89 /* StatusHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusHistoryView.swift; sourceTree = "<group>"; };
 		86D0D329D6A34F59B704FBF5 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
+		878F3DA6084DF1AB1669FC70 /* HistoryFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryFilter.swift; sourceTree = "<group>"; };
 		88CFEE9BF9F2D4F1C4724B57 /* PinchToZoom.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinchToZoom.swift; sourceTree = "<group>"; };
 		8BC200FA7147CB9336C7B085 /* SyncBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncBackend.swift; sourceTree = "<group>"; };
 		93390A1C86AB274F1E6CF0D0 /* RedString-Release.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "RedString-Release.entitlements"; sourceTree = "<group>"; };
@@ -177,6 +186,7 @@
 		A03BCF2BEA397F562EA752CA /* Mood.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mood.swift; sourceTree = "<group>"; };
 		A7AB64341F25133945EE1C3E /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		AAF80F7994B39BDEC9BA087D /* PairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingView.swift; sourceTree = "<group>"; };
+		AC155C3E136DF4423C65E036 /* ScrubbableWaveform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrubbableWaveform.swift; sourceTree = "<group>"; };
 		AD8D0106D60EC77F6BBD92E8 /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
 		B010D0666534AA91EF320B6F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B55B1156B55002BD0180D1C0 /* RedStringApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedStringApp.swift; sourceTree = "<group>"; };
@@ -326,6 +336,7 @@
 				9908897AF8F96D8BAF86FB0D /* MomentIndex.swift */,
 				337B972E15547CDA25869529 /* MomentStore.swift */,
 				6FA4F7953C3F1ED24AAB950F /* SharedStore.swift */,
+				30373758976991BA5D086FF9 /* StatusHistoryLog.swift */,
 			);
 			path = Store;
 			sourceTree = "<group>";
@@ -348,6 +359,7 @@
 				CFFD179DB35C743DF9D7E748 /* CelebrationOverlay.swift */,
 				B9DF84C71D3758781306F1A2 /* DiagnosticsView.swift */,
 				4BAC23DC4509AB8BACE5175D /* DrawingCanvas.swift */,
+				878F3DA6084DF1AB1669FC70 /* HistoryFilter.swift */,
 				3E639AD30E2C0F3523EC9108 /* HomeView.swift */,
 				1FC21F26FBC085639D81B743 /* InviteLinkView.swift */,
 				34BCEF784AA8E17FAB64AAE7 /* MomentComposerView.swift */,
@@ -357,8 +369,10 @@
 				AAF80F7994B39BDEC9BA087D /* PairingView.swift */,
 				88CFEE9BF9F2D4F1C4724B57 /* PinchToZoom.swift */,
 				7979986C14FC84136536B46B /* RootView.swift */,
+				AC155C3E136DF4423C65E036 /* ScrubbableWaveform.swift */,
 				44EDE9EF4B8224158C8BCD5F /* SettingsView.swift */,
 				2BB81BD9590AB73959572A67 /* ShareSheet.swift */,
+				847AF10E5065B62CDA9C5D89 /* StatusHistoryView.swift */,
 				76CBD9146BE0A00FE8443DD6 /* VoiceMemoComposerView.swift */,
 				CC2D7FCC363C8704FC5847CE /* VoiceMomentViews.swift */,
 				86D0D329D6A34F59B704FBF5 /* WelcomeView.swift */,
@@ -539,6 +553,7 @@
 				665513B46F4C596B2470B72A /* Mood.swift in Sources */,
 				EC2395AE41D2675A3CC6CE04 /* NotificationService.swift in Sources */,
 				9BA1659D44B8CAF3427374D4 /* SharedStore.swift in Sources */,
+				3128E1A6AA6F0D451B5659A4 /* StatusHistoryLog.swift in Sources */,
 				9A3965DC39454EAEA0DCC5D6 /* StatusPayload.swift in Sources */,
 				C98895535EBAED51DB5FDE79 /* SyncBackend.swift in Sources */,
 				01E737544D6AC1DF7D7B81FC /* Theme.swift in Sources */,
@@ -564,6 +579,7 @@
 				83D8794613CF0DC5B936FF73 /* RedStringWidgetBundle.swift in Sources */,
 				4157478649F486842BA18ED3 /* SendNudgeIntent.swift in Sources */,
 				9614CAB0108EA5241C301DF4 /* SharedStore.swift in Sources */,
+				2299CC5BF22209A33467B696 /* StatusHistoryLog.swift in Sources */,
 				399732A1F343DD9CEC6C3CA8 /* StatusPayload.swift in Sources */,
 				2D1E6EC3CE9E262A3FA51EB0 /* StatusProvider.swift in Sources */,
 				5269346ABA17D6BB0C575885 /* StatusWidget.swift in Sources */,
@@ -590,6 +606,7 @@
 				EB42609B49AAAB10B43F93ED /* DiagnosticsView.swift in Sources */,
 				839CDFA5D1A274670F68093A /* DrawingCanvas.swift in Sources */,
 				76A4C07902D2BFAD119D0BFD /* GroupState.swift in Sources */,
+				196965D5E18E09E5136911AE /* HistoryFilter.swift in Sources */,
 				7BCC03E65D89B743A208D53B /* HomeView.swift in Sources */,
 				6D4A23DE015840A07C6C5AFE /* InviteLinkView.swift in Sources */,
 				2F34A348353EC94815E9CA32 /* MemoryArchive.swift in Sources */,
@@ -607,9 +624,12 @@
 				2FBDC5C2E133D9A716BC93D6 /* PinchToZoom.swift in Sources */,
 				AB8284D702A9CDEFA3A707AF /* RedStringApp.swift in Sources */,
 				545B0DA5DD884199F120B05F /* RootView.swift in Sources */,
+				BF1744649A5E036BACF57BC6 /* ScrubbableWaveform.swift in Sources */,
 				3ABDDC747C14821E4D588FB4 /* SettingsView.swift in Sources */,
 				CDE41656D5548893F3A93EA7 /* ShareSheet.swift in Sources */,
 				D6C27806930803840D09E275 /* SharedStore.swift in Sources */,
+				6D8CF89692B3A0D4F1EB1D4D /* StatusHistoryLog.swift in Sources */,
+				CC3292933259B5E3083F0A93 /* StatusHistoryView.swift in Sources */,
 				44AE8F513E75EFBBA7C11524 /* StatusPayload.swift in Sources */,
 				83C035DBFBC698DD5654F95A /* SyncBackend.swift in Sources */,
 				032C5DFD5C50860B64193321 /* SyncRunner.swift in Sources */,

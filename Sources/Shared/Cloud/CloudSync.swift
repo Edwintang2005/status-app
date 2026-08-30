@@ -85,6 +85,7 @@ actor CloudSync: SyncBackend {
         static let status = "Status"
         static let nudge = "Nudge"
         static let moment = "Moment"
+        static let receipt = "Receipt"
     }
 
     private enum Field {
@@ -113,6 +114,10 @@ actor CloudSync: SyncBackend {
         static let audio = "audio"
         static let duration = "duration"
         static let waveform = "waveform"
+
+        // Receipt. A JSON blob of {momentID: seenAt}; which moments someone
+        // read is behavioural, so it's encrypted like the captions.
+        static let seenMap = "seenMap"
     }
 
     /// One subscription per record type — each wants a different payload.
@@ -658,6 +663,7 @@ actor CloudSync: SyncBackend {
                 Field.count,
                 Field.momentID, Field.kind, Field.caption, Field.senderName, Field.sentAt,
                 Field.duration, Field.waveform,
+                Field.seenMap,
             ]
         )
 
@@ -706,6 +712,7 @@ actor CloudSync: SyncBackend {
         var theirStatus: CKRecord?
         var myNudge: CKRecord?
         var theirNudge: CKRecord?
+        var theirReceipts: CKRecord?
         var moments: [Moment] = []
 
         for record in changes.records {
@@ -717,6 +724,8 @@ actor CloudSync: SyncBackend {
             case RecordType.nudge:
                 if name == mineRole.nudgeRecordName { myNudge = record }
                 if name == theirsRole.nudgeRecordName { theirNudge = record }
+            case RecordType.receipt:
+                if name == theirsRole.receiptRecordName { theirReceipts = record }
             case RecordType.moment:
                 if let moment = Self.moment(from: record, mineRole: mineRole, theirsRole: theirsRole) {
                     moments.append(moment)
@@ -725,6 +734,11 @@ actor CloudSync: SyncBackend {
                 break
             }
         }
+
+        // Captured before the insert below, so "new" can mean "not already
+        // stored" — a full resync re-delivers the entire history, and reporting
+        // it all as new re-announced already-seen moments.
+        let alreadyKnown = MomentIndex.shared.knownIDs()
 
         // The partner deleting their own status record is how a participant
         // unlinks (they can't delete the owner's zone). Must not be ignored.
@@ -783,6 +797,21 @@ actor CloudSync: SyncBackend {
             }
         }
 
+        // Status history rides the refresh, gated on the status *record* changing
+        // (not a nudge-only delta); the log itself dedups by (fromMe, updatedAt).
+        if let theirs, theirStatus != nil, !erased {
+            StatusHistoryLog.shared.record(theirs, fromMe: false)
+        }
+        if let mine, myStatus != nil {
+            // Own statuses set on this device are logged at set time; this
+            // catches ones written by another device on the same account.
+            StatusHistoryLog.shared.record(mine, fromMe: true)
+        }
+
+        if let theirReceipts {
+            MomentIndex.shared.applyPartnerReceipts(Self.receiptMap(from: theirReceipts))
+        }
+
         // Bound to a `let` before crossing actors: capturing the mutable array is a data race.
         let arrived = moments.sorted { $0.sentAt < $1.sentAt }
         if arrived.isEmpty {
@@ -798,7 +827,7 @@ actor CloudSync: SyncBackend {
             await downloadRecentMedia(for: arrived, pairing: pairing, in: database)
         }
 
-        let newFromPartner = arrived.filter { !$0.fromMe }
+        let newFromPartner = arrived.filter { !$0.fromMe && !alreadyKnown.contains($0.id) }
         return RefreshResult(partnerStatus: partnerErased ? nil : (theirs ?? previousStatus),
                              newPartnerMoments: newFromPartner)
     }
@@ -873,9 +902,12 @@ actor CloudSync: SyncBackend {
         } catch {
             // Release the cooldown for immediate retry and record the failure —
             // the lock-screen widget has no other way to show an offline tap
-            // didn't send. Widgets reload now, not at the next timeline tick.
+            // didn't send. Only if our own claim is still standing: another
+            // process may have claimed (and sent) since, and clearing that
+            // live cooldown would let a second nudge straight through.
             await MainActor.run {
                 _ = store.mutate { snapshot in
+                    guard snapshot.lastNudgeSentAt == now else { return }
                     snapshot.lastNudgeSentAt = nil
                     snapshot.lastNudgeFailedAt = Date()
                 }
@@ -939,6 +971,51 @@ actor CloudSync: SyncBackend {
             _ = try await database.modifyRecords(saving: [record],
                                                  deleting: [],
                                                  savePolicy: .allKeys)
+        }
+    }
+
+    // MARK: - Read receipts
+
+    /// Writes this device's seen-map, overwriting the whole record. An empty
+    /// map is a retraction — receipts were turned off.
+    func publishReceipts(_ seen: [String: Date]) async throws {
+        let pairing = try await requirePairing()
+        let database = self.database(for: pairing)
+        let recordID = CKRecord.ID(recordName: pairing.role.receiptRecordName,
+                                   zoneID: zoneID(for: pairing))
+
+        try await withZoneRecovery(pairing) {
+            do {
+                try await saveReceipts(seen, to: recordID, in: database)
+            } catch let error as CKError where error.code == .serverRecordChanged {
+                log.notice("Receipt conflict, retrying against server record.")
+                try await saveReceipts(seen, to: recordID, in: database)
+            }
+        }
+    }
+
+    private func saveReceipts(_ seen: [String: Date],
+                              to recordID: CKRecord.ID,
+                              in database: CKDatabase) async throws {
+        let record = try await fetchRecord(recordID, in: database)
+            ?? CKRecord(recordType: RecordType.receipt, recordID: recordID)
+        // 0 encodes "seen, time unknown" (.distantPast) — see Moment.seenAt.
+        let raw = seen.mapValues { $0 == .distantPast ? 0 : $0.timeIntervalSince1970 }
+        record.encryptedValues[Field.seenMap] = try JSONEncoder().encode(raw)
+        record[Field.updatedAt] = Date() as CKRecordValue
+        _ = try await database.modifyRecords(saving: [record],
+                                             deleting: [],
+                                             savePolicy: .changedKeys)
+    }
+
+    private static func receiptMap(from record: CKRecord) -> [String: Date] {
+        guard let data = record.encryptedValues[Field.seenMap] as? Data,
+              let raw = try? JSONDecoder().decode([String: Double].self, from: data) else {
+            return [:]
+        }
+        return raw.reduce(into: [:]) { result, item in
+            guard isSafeMomentID(item.key) else { return }
+            result[item.key] = item.value <= 0 ? .distantPast : Date(timeIntervalSince1970: item.value)
         }
     }
 
@@ -1132,6 +1209,7 @@ actor CloudSync: SyncBackend {
             let name = id.recordName
             return name == role.statusRecordName
                 || name == role.nudgeRecordName
+                || name == role.receiptRecordName
                 || role.momentID(fromRecordName: name) != nil
         }
         guard !mine.isEmpty else { return }

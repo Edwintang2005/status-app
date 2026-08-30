@@ -59,6 +59,14 @@ enum AppConfig {
     /// full width, few enough that the metadata stays a few hundred bytes.
     static let voiceWaveformSampleCount = 48
 
+    /// Entries kept in the local status history log. Local-only (statuses are
+    /// overwritten in CloudKit), so the cap is about file size, not quota.
+    static let statusHistoryLimit = 100
+
+    /// Seen-moments carried in a read-receipt record. Covers everything a
+    /// sender could still be wondering about without growing unboundedly.
+    static let receiptMapLimit = 100
+
     /// The "buy me a coffee" tip link in Settings — a Beem payment link, so
     /// the tip goes person-to-person with no middleman fee.
     static let tipJarURL = URL(string:

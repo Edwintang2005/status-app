@@ -7,24 +7,31 @@ struct MomentLibraryView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var opened: Moment?
+    @State private var filter: HistoryFilter = .all
 
     private let columns = [GridItem(.adaptive(minimum: 104), spacing: 8)]
+
+    private var filtered: [Moment] {
+        model.history.filter { filter.allows(fromMe: $0.fromMe) }
+    }
 
     var body: some View {
         NavigationStack {
             ZStack {
                 Theme.Background()
 
-                if model.history.isEmpty {
+                if filtered.isEmpty {
                     ContentUnavailableView {
                         Label("Nothing here yet", systemImage: "photo.on.rectangle.angled")
                     } description: {
-                        Text("Anything you send each other shows up here.")
+                        Text(filter == .all
+                             ? "Anything you send each other shows up here."
+                             : "Nothing in this direction yet.")
                     }
                 } else {
                     ScrollView {
                         LazyVGrid(columns: columns, spacing: 8) {
-                            ForEach(model.history) { moment in
+                            ForEach(filtered) { moment in
                                 cell(moment)
                             }
                         }
@@ -39,15 +46,21 @@ struct MomentLibraryView: View {
                     Button("Done") { dismiss() }
                 }
             }
+            .safeAreaInset(edge: .top) {
+                HistoryFilterPicker(filter: $filter, partnerName: model.partnerName)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+            }
             .sheet(item: $opened) { moment in
-                MomentGalleryView(moments: model.history, startAt: moment)
+                // The filtered list, so paging stays within what was on screen.
+                MomentGalleryView(moments: filtered, startAt: moment)
                     .environment(model)
             }
         }
     }
 
     private var title: String {
-        let count = model.history.count
+        let count = filtered.count
         return count == 0 ? "History" : "History · \(count)"
     }
 
@@ -69,9 +82,9 @@ struct MomentLibraryView: View {
             }
             .overlay(alignment: .bottomLeading) {
                 if moment.fromMe {
-                    // Un-uploaded sends wear a clock; `retryPendingUploads`
-                    // clears it on the next successful foreground.
-                    Image(systemName: moment.uploaded ? "arrow.up.right" : "clock.fill")
+                    // Un-uploaded sends wear a clock (cleared by retryPendingUploads);
+                    // seen-by-partner (read receipts on, both sides) wears an eye.
+                    Image(systemName: sentBadgeSymbol(moment))
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(.white)
                         .padding(4)
@@ -83,6 +96,12 @@ struct MomentLibraryView: View {
             }
         }
         .buttonStyle(.plain)
+    }
+
+    private func sentBadgeSymbol(_ moment: Moment) -> String {
+        guard moment.uploaded else { return "clock.fill" }
+        if model.readReceiptsEnabled, moment.seenByPartnerAt != nil { return "eye.fill" }
+        return "arrow.up.right"
     }
 
     /// Entries past the media cache window are fetched on demand when opened,

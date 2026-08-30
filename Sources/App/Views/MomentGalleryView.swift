@@ -123,6 +123,11 @@ struct MomentGalleryView: View {
                 Text(attribution(moment))
                     .font(Theme.rounded(13))
                     .foregroundStyle(.secondary)
+                if let seen = seenLine(moment) {
+                    Label(seen, systemImage: "eye.fill")
+                        .font(Theme.rounded(12))
+                        .foregroundStyle(.tertiary)
+                }
             }
 
             Spacer(minLength: 0)
@@ -210,6 +215,15 @@ struct MomentGalleryView: View {
             : (sender.isEmpty ? model.partnerName : sender)
         let when = moment.sentAt.formatted(.relative(presentation: .named))
         return "\(who) · \(when)"
+    }
+
+    /// "Seen 2 hours ago" on own moments — read receipts on, partner confirmed.
+    /// `.distantPast` means seen before per-moment timestamps existed.
+    private func seenLine(_ moment: Moment) -> String? {
+        guard model.readReceiptsEnabled, moment.fromMe,
+              let seenAt = moment.seenByPartnerAt else { return nil }
+        guard seenAt > .distantPast else { return "Seen" }
+        return "Seen \(seenAt.formatted(.relative(presentation: .named)))"
     }
 
     /// Paging onto something counts as having looked at it.
