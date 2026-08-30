@@ -529,7 +529,7 @@ final class AppModel {
 
     // MARK: - Read receipts
 
-    /// Whether this device shares (and shows) read receipts. Off by default;
+    /// Whether this device shares (and shows) read receipts. On by default;
     /// each side controls its own sending, and display is gated on the same switch.
     var readReceiptsEnabled: Bool = SharedStore.shared.readReceiptsEnabled {
         didSet {

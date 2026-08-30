@@ -18,7 +18,7 @@ with the text fields end-to-end encrypted.
 | **Voice memos** | Up to 3 minutes (`AppConfig.voiceMemoMaxDuration`), with a live waveform while recording. Playable from the expanded notification without opening the app; a badge on the photo widget says one is waiting. Swipe across any playback waveform to scrub. |
 | **History** | Every photo, doodle and memo is kept. Browse the lot in the library — filterable by *from them* / *from me* — save any to Photos, and get it all back on a new phone. |
 | **Status history** | A rolling log of both sides' statuses, grouped by day, behind a tap on the partner card. Local-only — see "Status history" below. |
-| **Read receipts** | Opt-in, off by default. With the switch on, each side shares which moments it has seen; your own sends wear an eye badge in the library and a "Seen …" line in the gallery. |
+| **Read receipts** | On by default, with a per-side switch in Settings. Each side shares which moments it has seen; your own sends wear an eye badge in the library and a "Seen …" line in the gallery. |
 | **Names** | You set your own name; they set theirs. Whatever they call themselves is what you see — there's no renaming other people. |
 
 Widgets:
@@ -276,7 +276,7 @@ sent.
 
 ### Read receipts
 
-Off by default, one switch per side in Settings, and the switch gates both
+On by default, one switch per side in Settings, and the switch gates both
 directions: a device only *publishes* receipts while its own toggle is on, and
 only *shows* the partner's while it's on.
 

@@ -58,7 +58,7 @@ struct SettingsView: View {
                     Section {
                         Toggle("Read receipts", isOn: $model.readReceiptsEnabled)
                     } footer: {
-                        Text("Lets \(model.partnerName) see when you've looked at what they sent, and shows you the same for your sends once they turn it on too. Turning it off stops sharing new ones.")
+                        Text("Lets \(model.partnerName) see when you've looked at what they sent, and shows you the same for your sends while they have it on too. Turning it off stops sharing new ones.")
                     }
                 }
 

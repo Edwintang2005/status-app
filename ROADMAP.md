@@ -12,7 +12,7 @@ addition requires re-deploying the schema to Production (README → "Shipping it
   `AppConfig.statusHistoryLimit`, 100) written from `AppModel.setStatus` and
   `CloudSync.apply`, shown by `StatusHistoryView` (tap the partner card).
   Local-only: no CloudKit record, gaps possible, doesn't survive reinstall.
-- **Read receipts** — opt-in toggle in Settings, off by default, gates both
+- **Read receipts** — toggle in Settings, on by default, gates both
   sending and display. One `Receipt` record per side (`receipt-<role>`) carrying
   an encrypted seen-map; receiver publishes via `flushReceiptsIfNeeded`, sender
   folds it into `Moment.seenByPartnerAt`. Eye badge in the library, "Seen …"

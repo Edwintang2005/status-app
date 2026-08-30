@@ -73,11 +73,13 @@ final class SharedStore {
         set { store.setBool(newValue, forKey: Key.notificationsRequested) }
     }
 
-    /// Whether this device sends (and shows) read receipts. Off by default;
-    /// gates both directions — see `AppModel.readReceiptsEnabled`.
+    /// Whether this device sends (and shows) read receipts. On by default —
+    /// an absent key reads `true`, so the value is stored as explicit bytes
+    /// rather than through `bool(forKey:)`, where unset and `false` collapse.
+    /// Gates both directions — see `AppModel.readReceiptsEnabled`.
     var readReceiptsEnabled: Bool {
-        get { store.bool(forKey: Key.readReceipts) }
-        set { store.setBool(newValue, forKey: Key.readReceipts) }
+        get { store.data(forKey: Key.readReceipts).map { $0.first == 1 } ?? true }
+        set { store.setData(Data([newValue ? 1 : 0]), forKey: Key.readReceipts) }
     }
 
     /// Owner side: cached "invite link revoked" flag so `CloudSync` stops
