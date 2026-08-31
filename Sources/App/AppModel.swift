@@ -203,6 +203,11 @@ final class AppModel {
         }
         await refreshReadiness()
         guard isPaired else { return }
+        // One receipt publish per launch even when nothing marked itself dirty:
+        // covers moments seen before receipts existed and heals lost publishes.
+        if readReceiptsEnabled {
+            store.mutate(reloadWidgets: false) { $0.receiptsDirty = true }
+        }
         // Subscriptions are cheap to re-assert and easy to lose across reinstalls.
         try? await Backend.current.registerSubscription()
         await refresh()

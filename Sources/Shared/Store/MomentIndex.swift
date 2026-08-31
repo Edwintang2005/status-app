@@ -68,8 +68,12 @@ final class MomentIndex {
                 // without this merge heard voice memos would re-badge as new.
                 if let existing = all.first(where: { $0.id == moment.id }) {
                     moment.seen = moment.seen || existing.seen
-                    // Sticky like `seen`: a copy fetched back from CloudKit
-                    // proves the upload happened; uploaded never reverts to pending.
+                    // All local-only fields are sticky: a copy rebuilt from a
+                    // CloudKit record carries none of them, and every delta that
+                    // re-delivers a moment (own-send echoes, full resyncs) would
+                    // otherwise wipe seen times and partner receipts.
+                    moment.seenAt = moment.seenAt ?? existing.seenAt
+                    moment.seenByPartnerAt = moment.seenByPartnerAt ?? existing.seenByPartnerAt
                     moment.uploaded = moment.uploaded || existing.uploaded
                 }
                 all.removeAll { $0.id == moment.id }

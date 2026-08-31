@@ -808,10 +808,6 @@ actor CloudSync: SyncBackend {
             StatusHistoryLog.shared.record(mine, fromMe: true)
         }
 
-        if let theirReceipts {
-            MomentIndex.shared.applyPartnerReceipts(Self.receiptMap(from: theirReceipts))
-        }
-
         // Bound to a `let` before crossing actors: capturing the mutable array is a data race.
         let arrived = moments.sorted { $0.sentAt < $1.sentAt }
         if arrived.isEmpty {
@@ -825,6 +821,12 @@ actor CloudSync: SyncBackend {
         } else {
             await MainActor.run { store.record(arrived) }
             await downloadRecentMedia(for: arrived, pairing: pairing, in: database)
+        }
+
+        // After the moments above are in the index — a receipt arriving in the
+        // same delta (a full resync) must find the entries it refers to.
+        if let theirReceipts {
+            MomentIndex.shared.applyPartnerReceipts(Self.receiptMap(from: theirReceipts))
         }
 
         let newFromPartner = arrived.filter { !$0.fromMe && !alreadyKnown.contains($0.id) }
