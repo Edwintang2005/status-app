@@ -180,6 +180,7 @@ enum MoodGroup: String, CaseIterable, Identifiable {
                 Mood(emoji: "🍜", label: "ramen night"),
                 Mood(emoji: "🌮", label: "taco time"),
                 Mood(emoji: "🧋", label: "boba run"),
+                Mood(emoji: "🥨", label: "pretzel time"),
                 Mood(emoji: "🍻", label: "drinks"),
                 Mood(emoji: "🍷", label: "wine o'clock"),
                 Mood(emoji: "🍫", label: "snacking"),
