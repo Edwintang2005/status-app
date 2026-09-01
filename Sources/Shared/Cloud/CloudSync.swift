@@ -9,8 +9,9 @@ enum SyncError: LocalizedError {
     case iCloudUnavailable(CKAccountStatus)
     case shareURLMissing
     /// Refused to close the invite link because a participant was still
-    /// public after promotion — closing then would have removed them.
-    case couldNotSecureShare
+    /// public after promotion — closing then would have removed them. Carries
+    /// which step refused, so the diagnostics report can say.
+    case couldNotSecureShare(String)
     /// Accepted an invite, but the shared zone never appeared.
     case shareUnavailable
     /// The shared zone is gone: the other person unlinked, and this device has
@@ -37,9 +38,10 @@ enum SyncError: LocalizedError {
             }
         case .shareURLMissing:
             return "CloudKit didn't return an invite link. Try again."
-        case .couldNotSecureShare:
+        case .couldNotSecureShare(let detail):
             return "Couldn't close the invite link safely, so it was left "
-                + "open. Nothing else changed — try again in a moment."
+                + "open. Nothing else changed — try again in a moment. "
+                + "(\(detail))"
         case .shareUnavailable:
             // Mismatched CloudKit environments look identical from here and
             // are covered by "the same build".
@@ -361,7 +363,7 @@ actor CloudSync: SyncBackend {
                         confirmed.publicPermission = .readWrite
                         _ = try? await database.modifyRecords(saving: [confirmed], deleting: [])
                     }
-                    throw SyncError.couldNotSecureShare
+                    throw SyncError.couldNotSecureShare("the promotion didn't stick on the server; the link was reopened")
                 }
                 log.notice("Partner promoted to private participant; invite link closed. Participants now: \(confirmed.participants.count).")
             }
@@ -375,10 +377,17 @@ actor CloudSync: SyncBackend {
         matching publics: [CKShare.Participant]
     ) async throws -> [CKShare.Participant] {
         guard !publics.isEmpty else { return [] }
-        let lookupInfos = publics.compactMap { $0.userIdentity.lookupInfo }
+        // Public joiners usually have no `lookupInfo` — nobody is email/phone
+        // discoverable since iOS 17 — but the share exposes their user record
+        // ID to the owner, which resolves just as well.
+        let lookupInfos = publics.compactMap { participant in
+            participant.userIdentity.lookupInfo
+                ?? participant.userIdentity.userRecordID
+                    .map { CKUserIdentity.LookupInfo(userRecordID: $0) }
+        }
         guard lookupInfos.count == publics.count else {
-            log.error("A public participant has no lookup info; cannot promote safely.")
-            throw SyncError.couldNotSecureShare
+            log.error("A public participant has no lookup info or user record ID; cannot promote safely.")
+            throw SyncError.couldNotSecureShare("the partner's account couldn't be identified for promotion")
         }
 
         let operation = CKFetchShareParticipantsOperation(userIdentityLookupInfos: lookupInfos)
@@ -400,7 +409,7 @@ actor CloudSync: SyncBackend {
 
         guard fetched.count == publics.count else {
             log.error("Resolved \(fetched.count) of \(publics.count) participants; refusing a partial promotion.")
-            throw SyncError.couldNotSecureShare
+            throw SyncError.couldNotSecureShare("iCloud resolved \(fetched.count) of \(publics.count) participants")
         }
         return fetched
     }
