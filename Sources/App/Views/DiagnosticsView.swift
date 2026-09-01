@@ -11,6 +11,8 @@ struct DiagnosticsView: View {
     @State private var securing = false
     /// Outcome line for the manual promote-and-close, shown under its button.
     @State private var secureResult: String?
+    /// Outcome line for the DEBUG public-joiner sweep.
+    @State private var sweepResult: String?
 
     var body: some View {
         Form {
@@ -63,6 +65,26 @@ struct DiagnosticsView: View {
                 }
 
                 if SharedStore.shared.pairing?.role == .owner {
+                    #if DEBUG
+                    Section {
+                        Button {
+                            Task { await sweepNow() }
+                        } label: {
+                            Label("Sweep public joiners", systemImage: "person.badge.minus")
+                        }
+                        .disabled(securing)
+                        if let sweepResult {
+                            Text(sweepResult)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    } footer: {
+                        Text("Ejects anyone who came in through the open link, "
+                             + "then reopens it. Named participants and records "
+                             + "are untouched.")
+                    }
+                    #endif
+
                     Section {
                         Button {
                             Task { await secureNow() }
@@ -133,6 +155,15 @@ struct DiagnosticsView: View {
         .refreshable { await reload() }
     }
 
+    #if DEBUG
+    private func sweepNow() async {
+        securing = true
+        defer { securing = false }
+        sweepResult = await CloudSync.shared.sweepPublicJoiners()
+        await reload()
+    }
+    #endif
+
     /// The explicit trigger behind the button; the passive attempt in `reload()`
     /// stays quiet, this one always reports back.
     private func secureNow() async {
@@ -140,7 +171,8 @@ struct DiagnosticsView: View {
         defer { securing = false }
         let problem = await CloudSync.shared.secureInviteIfPartnerJoined()
         secureResult = problem
-            ?? "Done. Your partner should now be listed as accepted, with the invite closed."
+            ?? "Done — the link is closed. If your partner shows as \u{201C}invited\u{201D} "
+            + "or \u{201C}pending\u{201D} above, they confirm by tapping the invite link once."
         await reload()
     }
 

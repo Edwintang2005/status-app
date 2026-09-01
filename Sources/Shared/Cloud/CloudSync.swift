@@ -325,9 +325,13 @@ actor CloudSync: SyncBackend {
     }
 
     /// Owner side. Revokes link-based joining once the partner is in, so a forwarded
-    /// link can't add a third person. Idempotent. Closing the link and re-adding the
-    /// joiner as a fetched *private* participant must be one atomic save (per CKShare.h):
-    /// it lands whole or fails whole — there is no committed middle.
+    /// link can't add a third person. Idempotent, but a two-step handshake: no
+    /// single save converts a link-joined participant (an in-place role flip is
+    /// silently ignored — close included — and close+add in one save applies
+    /// the close but drops the add; both observed against the live service).
+    /// So: close (which sweeps the public joiner), then re-add them as an
+    /// *invited* private participant. They confirm by tapping the invite link
+    /// once, which flips them accepted — the link itself stays closed.
     func lockPairing() async throws {
         guard let pairing = await MainActor.run(body: { SharedStore.shared.pairing }),
               pairing.role == .owner else { throw SyncError.notPaired }
@@ -338,58 +342,73 @@ actor CloudSync: SyncBackend {
 
         if share.publicPermission != .none {
             let publics = share.participants.filter { $0.role == .publicUser }
+            // Resolve invite handles before anything is written — a failure
+            // here must abort while the partner is still untouched.
+            let invited = try await privateParticipants(matching: publics)
 
-            // Fetch private-participant handles first — any failure aborts
-            // before anything is written.
-            let refetched = try await privateParticipants(matching: publics)
-            for participant in refetched {
-                participant.permission = .readWrite
-                share.addParticipant(participant)
-            }
             share.publicPermission = .none
             _ = try await database.modifyRecords(saving: [share], deleting: [])
 
-            // Verify against the server; if the partner didn't survive the
-            // merge, reopen the link at once and report failure.
-            if !publics.isEmpty {
-                let confirmed = try await existingZoneShare(in: database, zoneID: zoneID)
-                let partnerIntact = confirmed?.participants.contains {
-                    $0.role != .owner && $0.role != .publicUser
-                        && $0.acceptanceStatus == .accepted
-                } ?? false
-                guard partnerIntact, let confirmed else {
+            if !invited.isEmpty {
+                guard let closed = try await existingZoneShare(in: database, zoneID: zoneID) else {
+                    throw SyncError.couldNotSecureShare("the share was unreadable after the close")
+                }
+                for participant in invited {
+                    participant.permission = .readWrite
+                    closed.addParticipant(participant)
+                }
+                _ = try await database.modifyRecords(saving: [closed], deleting: [])
+
+                // Verify the invitation landed; pending is success here — the
+                // partner's link tap is what flips it to accepted. Polled, since
+                // an immediate refetch can trail the save.
+                var confirmed: CKShare?
+                var partnerInvited = false
+                for attempt in 1...5 {
+                    confirmed = try await existingZoneShare(in: database, zoneID: zoneID)
+                    partnerInvited = confirmed?.participants.contains {
+                        $0.role != .owner && $0.role != .publicUser
+                    } ?? false
+                    if partnerInvited { break }
+                    log.notice("Private invitation not visible yet (attempt \(attempt) of 5).")
+                    try? await Task.sleep(for: .seconds(2))
+                }
+                guard partnerInvited else {
                     log.error("Partner did not survive the close; reopening the invite link.")
                     if let confirmed {
                         confirmed.publicPermission = .readWrite
                         _ = try? await database.modifyRecords(saving: [confirmed], deleting: [])
                     }
-                    // The exact post-save participant state, so a failure report
-                    // says what the server actually kept (role/status are CKShare
-                    // raw values: role 3 = public, 1 = private; status 2 = accepted).
                     let survivors = confirmed?.participants
                         .filter { $0.role != .owner }
                         .map { "role \($0.role.rawValue) status \($0.acceptanceStatus.rawValue)" }
                         .joined(separator: ", ")
                     throw SyncError.couldNotSecureShare(
-                        "the promotion didn't stick — the server kept: "
+                        "the private invitation didn't stick — the server kept: "
                         + ((survivors?.isEmpty ?? true) ? "no one but you" : survivors!)
                         + "; the link was reopened")
                 }
-                log.notice("Partner promoted to private participant; invite link closed. Participants now: \(confirmed.participants.count).")
+                log.notice("Invite closed; partner re-added as a private participant. Participants now: \(confirmed?.participants.count ?? 0).")
             }
         }
         await MainActor.run { SharedStore.shared.inviteClosed = true }
     }
 
-    /// Private-participant handles for the given public ones — the only objects
-    /// `addParticipant` accepts. Throws unless *every* one resolves: a partial swap must not start.
+    /// Re-accepting our own share — how a partner who is `pending` after the
+    /// promote handshake (or on a fresh device) confirms their private seat.
+    func reacceptShare(_ metadata: CKShare.Metadata) async throws {
+        try await requireAvailableAccount()
+        _ = try await container.accept(metadata)
+    }
+
+    /// Private-participant invite handles for the given public joiners. Public
+    /// joiners have no email/phone `lookupInfo` (discoverability is gone since
+    /// iOS 17), but the share exposes their `userRecordID`, which resolves too.
+    /// Throws unless *every* one resolves: a partial swap must not start.
     private func privateParticipants(
         matching publics: [CKShare.Participant]
     ) async throws -> [CKShare.Participant] {
         guard !publics.isEmpty else { return [] }
-        // Public joiners usually have no `lookupInfo` — nobody is email/phone
-        // discoverable since iOS 17 — but the share exposes their user record
-        // ID to the owner, which resolves just as well.
         let lookupInfos = publics.compactMap { participant in
             participant.userIdentity.lookupInfo
                 ?? participant.userIdentity.userRecordID
@@ -456,6 +475,36 @@ actor CloudSync: SyncBackend {
         }
         try await lockPairing()
         log.notice("Partner is on the share — invite link closed.")
+    }
+
+    /// Diagnostics maintenance: ejects link-joined (public) participants by
+    /// closing the share — the documented sweep — then reopens it. Named
+    /// participants survive and nobody's records are touched; the tool for a
+    /// stray joiner on an open link. Returns a report line either way.
+    func sweepPublicJoiners() async -> String {
+        guard let pairing = await MainActor.run(body: { SharedStore.shared.pairing }),
+              pairing.role == .owner else { return "Only the owner can sweep the share." }
+        let database = container.privateCloudDatabase
+        let zoneID = self.zoneID(for: pairing)
+        do {
+            guard let share = try await existingZoneShare(in: database, zoneID: zoneID) else {
+                return "No share found."
+            }
+            let publicCount = share.participants.filter { $0.role == .publicUser }.count
+            share.publicPermission = .none
+            _ = try await database.modifyRecords(saving: [share], deleting: [])
+
+            guard let closed = try await existingZoneShare(in: database, zoneID: zoneID) else {
+                return "Share unreadable after the sweep — check Diagnostics before sharing the link."
+            }
+            closed.publicPermission = .readWrite
+            _ = try await database.modifyRecords(saving: [closed], deleting: [])
+            await MainActor.run { SharedStore.shared.inviteClosed = false }
+            return "Swept \(publicCount) public joiner(s); link reopened. "
+                + "Participants now: \(closed.participants.count)."
+        } catch {
+            return "Sweep failed: \(error.localizedDescription)"
+        }
     }
 
     /// Diagnostics-panel trigger for the same promote-and-close the refresh attempts.

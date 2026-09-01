@@ -161,8 +161,21 @@ final class AppModel {
     /// Refused while paired: joining a second zone would break the change tokens and mix galleries.
     func receiveInvite(_ metadata: CKShare.Metadata) {
         guard !isPaired else {
-            errorMessage = "You're already linked with \(partnerName). "
-                + "To join a new invite, unlink first in Settings."
+            let zoneID = metadata.share.recordID.zoneID
+            if let pairing = store.pairing,
+               zoneID.zoneName == pairing.zoneName,
+               zoneID.ownerName == pairing.zoneOwnerName {
+                // Our own share's link: not a new pairing, a confirmation — how
+                // a partner left `pending` by the promote handshake accepts
+                // their private seat.
+                Task {
+                    try? await CloudSync.shared.reacceptShare(metadata)
+                    await refresh()
+                }
+            } else {
+                errorMessage = "You're already linked with \(partnerName). "
+                    + "To join a new invite, unlink first in Settings."
+            }
             return
         }
         pendingInvite = metadata
