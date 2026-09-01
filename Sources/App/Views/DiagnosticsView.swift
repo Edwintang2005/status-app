@@ -84,10 +84,13 @@ struct DiagnosticsView: View {
                                 .foregroundStyle(.secondary)
                         }
                     } footer: {
-                        Text("Runs the same promote-and-close the app attempts "
-                             + "on its own: your partner becomes a private "
-                             + "participant and the link stops admitting anyone "
-                             + "new. Use it if they still show as \u{201C}public\u{201D} above.")
+                        Text("Tries to make your partner a private participant "
+                             + "and close the link to anyone new. Caution: if "
+                             + "the promotion fails, CloudKit can drop them from "
+                             + "the share entirely — their app then unlinks and "
+                             + "they must rejoin with the invite link (history "
+                             + "comes back, but not their local read/seen state). "
+                             + "Only use it with your partner on standby.")
                     }
                 }
 
@@ -141,13 +144,11 @@ struct DiagnosticsView: View {
         await reload()
     }
 
-    /// Not read-only: opening or refreshing also *attempts* the promote-and-close
-    /// on the invite link; any failure lands in the Problems section.
+    /// Strictly read-only. The promote-and-close can evict a link-joined
+    /// partner from the share when it fails, so it only ever runs from the
+    /// explicit button above — never as a side effect of looking.
     private func reload() async {
-        let lockProblem = await CloudSync.shared.secureInviteIfPartnerJoined()
-        var result = await CloudSync.shared.diagnostics()
-        if let lockProblem { result.problems.append(lockProblem) }
-        diagnostics = result
+        diagnostics = await CloudSync.shared.diagnostics()
     }
 
     @ViewBuilder

@@ -39,9 +39,9 @@ enum SyncError: LocalizedError {
         case .shareURLMissing:
             return "CloudKit didn't return an invite link. Try again."
         case .couldNotSecureShare(let detail):
-            return "Couldn't close the invite link safely, so it was left "
-                + "open. Nothing else changed — try again in a moment. "
-                + "(\(detail))"
+            return "Couldn't close the invite link safely; it was reopened. "
+                + "Your partner may have lost access — if their app unlinks, "
+                + "send them the invite link to rejoin. (\(detail))"
         case .shareUnavailable:
             // Mismatched CloudKit environments look identical from here and
             // are covered by "the same build".
@@ -363,7 +363,17 @@ actor CloudSync: SyncBackend {
                         confirmed.publicPermission = .readWrite
                         _ = try? await database.modifyRecords(saving: [confirmed], deleting: [])
                     }
-                    throw SyncError.couldNotSecureShare("the promotion didn't stick on the server; the link was reopened")
+                    // The exact post-save participant state, so a failure report
+                    // says what the server actually kept (role/status are CKShare
+                    // raw values: role 3 = public, 1 = private; status 2 = accepted).
+                    let survivors = confirmed?.participants
+                        .filter { $0.role != .owner }
+                        .map { "role \($0.role.rawValue) status \($0.acceptanceStatus.rawValue)" }
+                        .joined(separator: ", ")
+                    throw SyncError.couldNotSecureShare(
+                        "the promotion didn't stick — the server kept: "
+                        + ((survivors?.isEmpty ?? true) ? "no one but you" : survivors!)
+                        + "; the link was reopened")
                 }
                 log.notice("Partner promoted to private participant; invite link closed. Participants now: \(confirmed.participants.count).")
             }
@@ -693,7 +703,14 @@ actor CloudSync: SyncBackend {
             await MainActor.run { SharedStore.shared.setChangeToken(encoded, for: tokenKey) }
         }
 
-        await closeInviteIfPartnerJoined(pairing)
+        // Automatic promote-and-close is OFF: promoting a link-joined (public)
+        // participant evicted them from the share instead of converting them
+        // (observed in Production, 2026-09: the atomic close+add landed, but the
+        // partner survived as neither public nor private). Until a conversion
+        // that provably preserves membership is found, closing is manual-only —
+        // the Diagnostics button — so a failure is a deliberate, watched act
+        // rather than a background loop that re-evicts the partner every refresh.
+        // await closeInviteIfPartnerJoined(pairing)
         return result
     }
 
