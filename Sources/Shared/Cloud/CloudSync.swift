@@ -64,8 +64,10 @@ enum InviteState: Sendable, Equatable {
     /// Still joinable, carrying the link to hand over.
     case open(URL)
     /// The share is there but no longer accepts joins from the link — either
-    /// the partner arrived or the owner closed it by hand.
-    case closed
+    /// the partner arrived or the owner closed it by hand. Still carries the
+    /// URL: the same link re-admits the existing partner on a new phone,
+    /// while staying useless to anyone else.
+    case closed(URL?)
     /// No share at all: not the owner, or the zone is gone. Distinct from
     /// `closed` — nothing here says anyone joined, and the UI must not claim so.
     case missing
@@ -314,8 +316,9 @@ actor CloudSync: SyncBackend {
                                                       zoneID: zoneID(for: pairing)) else {
             return .missing
         }
-        // A closed share still carries a `url`; handing it out would silently fail.
-        guard share.publicPermission == .readWrite, let url = share.url else { return .closed }
+        guard share.publicPermission == .readWrite, let url = share.url else {
+            return .closed(share.url)
+        }
         return .open(url)
     }
 
@@ -471,6 +474,50 @@ actor CloudSync: SyncBackend {
         await MainActor.run {
             // Leftover change tokens belong to a previous pairing's zone and
             // would fail every refresh from the first.
+            for key in ["private", "shared"] {
+                SharedStore.shared.setChangeToken(nil, for: key)
+            }
+            SharedStore.shared.pairing = info
+        }
+        try await bootstrapAfterPairing(displayName: displayName)
+    }
+
+    /// The couple's zone as the server still knows it, when this device has no
+    /// local pairing — a fresh install on a new phone. A shared-database hit
+    /// means this account already accepted the share; a private-database hit
+    /// (owner side) only counts with a share attached, since a bare leftover
+    /// zone isn't a pairing. `nil` means an invite link is genuinely needed.
+    func discoverExistingPairing() async -> (role: PairRole, zoneID: CKRecordZone.ID)? {
+        guard await MainActor.run(body: { SharedStore.shared.pairing == nil }) else { return nil }
+        guard (try? await accountStatus()) == .available else { return nil }
+
+        if let zone = try? await container.sharedCloudDatabase.allRecordZones()
+            .first(where: { $0.zoneID.zoneName == AppConfig.coupleZoneName }) {
+            return (.participant, zone.zoneID)
+        }
+        if let zone = try? await container.privateCloudDatabase.allRecordZones()
+            .first(where: { $0.zoneID.zoneName == AppConfig.coupleZoneName && $0.share != nil }) {
+            return (.owner, zone.zoneID)
+        }
+        return nil
+    }
+
+    /// Recommits a pairing found by `discoverExistingPairing` — the account is
+    /// already on the share (or owns the zone), so no invite link and no
+    /// `CKShare.Metadata` are involved. The cleared tokens make the next
+    /// refresh pull the whole zone, which is how the history comes back.
+    func rejoin(role: PairRole, zoneID: CKRecordZone.ID, displayName: String) async throws {
+        try await requireAvailableAccount()
+        if role == .participant {
+            try await waitForSharedZone(zoneID)
+        }
+
+        let info = PairingInfo(role: role,
+                               zoneName: zoneID.zoneName,
+                               zoneOwnerName: zoneID.ownerName,
+                               pairedAt: Date(),
+                               userRecordName: await currentUserRecordName())
+        await MainActor.run {
             for key in ["private", "shared"] {
                 SharedStore.shared.setChangeToken(nil, for: key)
             }

@@ -8,6 +8,9 @@ import UniformTypeIdentifiers
 struct DiagnosticsView: View {
     @State private var diagnostics: CloudDiagnostics?
     @State private var copied = false
+    @State private var securing = false
+    /// Outcome line for the manual promote-and-close, shown under its button.
+    @State private var secureResult: String?
 
     var body: some View {
         Form {
@@ -59,6 +62,35 @@ struct DiagnosticsView: View {
                          + "them to private first.")
                 }
 
+                if SharedStore.shared.pairing?.role == .owner {
+                    Section {
+                        Button {
+                            Task { await secureNow() }
+                        } label: {
+                            if securing {
+                                HStack {
+                                    ProgressView().controlSize(.small)
+                                    Text("Securing…")
+                                }
+                            } else {
+                                Label("Promote partner & close invite",
+                                      systemImage: "lock")
+                            }
+                        }
+                        .disabled(securing)
+                        if let secureResult {
+                            Text(secureResult)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    } footer: {
+                        Text("Runs the same promote-and-close the app attempts "
+                             + "on its own: your partner becomes a private "
+                             + "participant and the link stops admitting anyone "
+                             + "new. Use it if they still show as \u{201C}public\u{201D} above.")
+                    }
+                }
+
                 list("Push subscriptions", diagnostics.subscriptions,
                      empty: "None registered yet.")
 
@@ -96,6 +128,17 @@ struct DiagnosticsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await reload() }
         .refreshable { await reload() }
+    }
+
+    /// The explicit trigger behind the button; the passive attempt in `reload()`
+    /// stays quiet, this one always reports back.
+    private func secureNow() async {
+        securing = true
+        defer { securing = false }
+        let problem = await CloudSync.shared.secureInviteIfPartnerJoined()
+        secureResult = problem
+            ?? "Done. Your partner should now be listed as accepted, with the invite closed."
+        await reload()
     }
 
     /// Not read-only: opening or refreshing also *attempts* the promote-and-close

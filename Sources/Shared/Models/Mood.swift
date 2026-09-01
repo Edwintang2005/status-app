@@ -147,6 +147,7 @@ enum MoodGroup: String, CaseIterable, Identifiable {
             ]
         case .away:
             return [
+                Mood(emoji: "🏠", label: "home"),
                 Mood(emoji: "🚗", label: "driving"),
                 Mood(emoji: "🚆", label: "commuting"),
                 Mood(emoji: "✈️", label: "travelling"),

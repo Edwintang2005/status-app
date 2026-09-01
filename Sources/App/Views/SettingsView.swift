@@ -22,6 +22,9 @@ struct SettingsView: View {
     /// re-offered once that sheet closes instead of being silently dropped.
     @State private var pendingEndingAfterShare: Ending?
     @State private var confirmingEndingAfterShare: Ending?
+    /// Seven taps on the Version row reveal diagnostics in Release builds —
+    /// support needs the report from real installs, not just Debug ones.
+    @State private var versionTapCount = 0
 
     var body: some View {
         @Bindable var model = model
@@ -108,20 +111,14 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Link(destination: AppConfig.tipJarURL) {
-                        Label("Support your dev — buy me a coffee", systemImage: "cup.and.saucer.fill")
-                    }
-                } footer: {
-                    Text("Red String is free, with no ads and no subscriptions. If it makes your days a little closer, a coffee keeps it that way.")
-                }
-
-                Section {
                     LabeledContent("Version", value: versionString)
-                    #if DEBUG
-                    NavigationLink("iCloud diagnostics") {
-                        DiagnosticsView()
+                        .contentShape(Rectangle())
+                        .onTapGesture { versionTapCount += 1 }
+                    if showsDiagnostics {
+                        NavigationLink("iCloud diagnostics") {
+                            DiagnosticsView()
+                        }
                     }
-                    #endif
                 } footer: {
                     Text("Statuses are stored in your own iCloud with the text end-to-end encrypted. Photos, drawings and voice memos are CloudKit assets, which are encrypted by default.")
                 }
@@ -249,6 +246,14 @@ struct SettingsView: View {
         Section {
             if model.inviteClosed {
                 LabeledContent("Status", value: "Closed")
+                // Still worth sharing: the closed link re-admits the existing
+                // partner on a new phone, and admits nobody else.
+                if let url = model.inviteURL {
+                    ShareLink(item: url) {
+                        Label("Share link", systemImage: "square.and.arrow.up")
+                    }
+                    CopyLinkButton(url: url, prominent: false)
+                }
             } else {
                 // Absent only until `refreshInviteURL()` returns — a loading
                 // state, not an empty one.
@@ -283,7 +288,8 @@ struct SettingsView: View {
         if model.inviteClosed {
             return "Closed automatically when \(model.partnerName) joined. Nobody "
                 + "else can use the link you sent, even if it was forwarded or "
-                + "screenshotted."
+                + "screenshotted. \(model.partnerName) can still use it to rejoin "
+                + "on a new phone."
         }
         return "Anyone holding the link can still join. It closes itself the "
             + "moment \(model.partnerName) does — close it now if you sent it to "
@@ -294,6 +300,14 @@ struct SettingsView: View {
         let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
         return "\(short) (\(build))"
+    }
+
+    private var showsDiagnostics: Bool {
+        #if DEBUG
+        true
+        #else
+        versionTapCount >= 7
+        #endif
     }
 
     private struct ArchiveSummary: Identifiable {

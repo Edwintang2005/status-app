@@ -26,9 +26,13 @@ final class AppModel {
     @ObservationIgnored private let pathMonitor = NWPathMonitor()
     /// Starts `true` so the monitor's immediate first callback doesn't double up with `onLaunch`'s refresh.
     @ObservationIgnored private var networkWasSatisfied = true
-    /// Owner side: the link to hand to the partner, `nil` once closed.
+    /// Owner side: the link to hand to the partner. Kept after the invite
+    /// closes — the same link re-admits the existing partner on a new phone.
     /// Seeded from the store so it survives a relaunch — see `refreshInviteURL()`.
     private(set) var inviteURL: URL? = SharedStore.shared.inviteURL
+    /// A pairing found on the server with no local state — a fresh install on
+    /// a new phone. The pairing screen offers it as "Rejoin".
+    private(set) var rejoinablePairing: (role: PairRole, zoneID: CKRecordZone.ID)?
     /// The server has no share at all (vs. one that was closed) — keeps Settings from spinning forever.
     private(set) var inviteLinkUnavailable = false
     /// Non-nil when the backend can't work — no iCloud account, and so on.
@@ -191,6 +195,39 @@ final class AppModel {
     /// Backing out of a join — the invite is dropped.
     func declineInvite() {
         pendingInvite = nil
+    }
+
+    /// Looks for a pairing the server still holds for this account — a fresh
+    /// install on a new phone can rejoin it without a new invite link.
+    func checkForRejoinablePairing() async {
+        guard !isPaired, pendingInvite == nil else { return }
+        rejoinablePairing = await CloudSync.shared.discoverExistingPairing()
+    }
+
+    /// Recommits the discovered pairing under the name from the pairing screen.
+    func rejoin(name: String) async {
+        guard let found = rejoinablePairing else { return }
+        isBusy = true
+        defer { isBusy = false }
+
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        updateMyDisplayName(trimmed)
+
+        do {
+            try await CloudSync.shared.rejoin(role: found.role,
+                                              zoneID: found.zoneID,
+                                              displayName: trimmed)
+            rejoinablePairing = nil
+            reload()
+            await NotificationManager.requestAuthorizationIfNeeded()
+            await refresh()
+        } catch {
+            // Same shape as `acceptInvite`: `rejoin` commits the pairing before
+            // its bootstrap publish, so the store may already say paired.
+            reload()
+            present(error)
+        }
     }
 
     // MARK: - Lifecycle
@@ -619,9 +656,11 @@ final class AppModel {
                 setInviteURL(url)
                 setInviteClosed(false)
                 inviteLinkUnavailable = false
-            case .closed:
+            case .closed(let url):
                 // How this device finds out the invite was closed from another.
-                setInviteURL(nil)
+                // The URL is kept: it re-admits the existing partner on a new
+                // phone, and admits nobody else.
+                setInviteURL(url)
                 setInviteClosed(true)
                 inviteLinkUnavailable = false
             case .missing:
@@ -651,8 +690,7 @@ final class AppModel {
         defer { isBusy = false }
         do {
             try await CloudSync.shared.lockPairing()
-            setInviteURL(nil)
-            // Without this the invite section shows an unresolving spinner instead of "Closed".
+            // The URL is kept — a closed link still re-admits the existing partner.
             setInviteClosed(true)
         } catch {
             present(error)

@@ -26,6 +26,7 @@ struct PairingView: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .onAppear { if name.isEmpty { name = model.myDisplayName } }
+        .task { await model.checkForRejoinablePairing() }
         // Committed when editing ends, not per keystroke: each key reloaded the
         // widget timelines, and clearing the field flipped `hasName` false and
         // yanked this screen away mid-edit.
@@ -83,6 +84,10 @@ struct PairingView: View {
     @ViewBuilder
     private var cloudActions: some View {
         VStack(spacing: 14) {
+            if model.rejoinablePairing != nil {
+                rejoinCard
+            }
+
             if let url = model.inviteURL {
                 inviteReady(url: url)
             } else {
@@ -108,6 +113,35 @@ struct PairingView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 8)
         }
+    }
+
+    /// Shown when the server still holds this account's pairing (new phone,
+    /// fresh install): one tap brings the whole shared space back.
+    private var rejoinCard: some View {
+        VStack(spacing: 16) {
+            Text("Your shared space is still in iCloud")
+                .font(Theme.rounded(17, .semibold))
+            Text("This iCloud account is already paired. Rejoin and the statuses, photos and memos come back on their own.")
+                .font(Theme.rounded(13))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            Button {
+                nameFocused = false
+                commitName()
+                Task { await model.rejoin(name: trimmedName) }
+            } label: {
+                if model.isBusy {
+                    ProgressView().tint(.white)
+                } else {
+                    Text("Rejoin")
+                }
+            }
+            .buttonStyle(PrimaryButtonStyle())
+            .disabled(trimmedName.isEmpty || model.isBusy)
+            .opacity(trimmedName.isEmpty ? 0.5 : 1)
+        }
+        .card()
     }
 
     private func inviteReady(url: URL) -> some View {

@@ -66,10 +66,4 @@ enum AppConfig {
     /// Seen-moments carried in a read-receipt record. Covers everything a
     /// sender could still be wondering about without growing unboundedly.
     static let receiptMapLimit = 100
-
-    /// The "buy me a coffee" tip link in Settings — a Beem payment link, so
-    /// the tip goes person-to-person with no middleman fee.
-    static let tipJarURL = URL(string:
-        "https://beemit.com.au/pay?handle=EdwinTang&amount=500"
-        + "&description=%20%20%20%20%20%20%20%20coffee&source=payment-link")!
 }
