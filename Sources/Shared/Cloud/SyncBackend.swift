@@ -32,9 +32,10 @@ protocol SyncBackend: Sendable {
     /// Pulls the media files for a history entry whose photo or recording
     /// isn't cached locally any more. No-op for backends that never evict.
     func fetchMedia(for moment: Moment) async throws
-    /// Publishes this device's read-receipt seen-map ({momentID: seenAt});
-    /// an empty map retracts. No-op for backends without a partner.
-    func publishReceipts(_ seen: [String: Date]) async throws
+    /// Publishes this device's read-receipt seen-map ({momentID: seenAt}) and
+    /// which partner status it has had on screen; an empty map and `nil`
+    /// retract. No-op for backends without a partner.
+    func publishReceipts(_ seen: [String: Date], statusSeen: StatusSeen?) async throws
     func registerSubscription() async throws
     /// Takes this device's data out of the shared space (the owner removes the space
     /// itself). Throws rather than swallowing — claiming the photos are gone when the
@@ -77,7 +78,7 @@ struct DemoBackend: SyncBackend {
     }
     func send(_ moment: Moment) async throws {}
     func fetchMedia(for moment: Moment) async throws {}
-    func publishReceipts(_ seen: [String: Date]) async throws {}
+    func publishReceipts(_ seen: [String: Date], statusSeen: StatusSeen?) async throws {}
     func registerSubscription() async throws {}
     func unpair() async throws {}
 }

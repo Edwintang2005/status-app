@@ -77,6 +77,9 @@ enum DemoSeeder {
             snapshot.lastSeenPartnerNudgeCount = 14
             snapshot.lastNudgeSentAt = nil
             snapshot.lastNotifiedMomentID = "demo-heart"
+            // Sam saw the current status a few minutes after it was set.
+            snapshot.myStatusSeenByPartner = StatusSeen(statusUpdatedAt: now.addingTimeInterval(-45 * 60),
+                                                        seenAt: now.addingTimeInterval(-38 * 60))
         }
 
         seedStatusHistory(now: now)

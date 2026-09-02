@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HomeView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showingPicker = false
     @State private var showingSettings = false
     @State private var showingComposer = false
@@ -122,6 +123,13 @@ struct HomeView: View {
         // present it once that sheet closes instead of silently dropping it.
         .onChange(of: anySheetShowing) { _, showing in
             if !showing { consumePendingComposer() }
+        }
+        // The status read receipt: their status counts as seen whenever it is
+        // on this screen in the foreground — on arrival, and on every return.
+        .onAppear { model.markPartnerStatusSeen() }
+        .onChange(of: model.snapshot.theirs?.updatedAt) { _, _ in model.markPartnerStatusSeen() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { model.markPartnerStatusSeen() }
         }
     }
 
@@ -322,14 +330,25 @@ struct HomeView: View {
                 Text(model.snapshot.mine?.emoji ?? "➕")
                     .font(.system(size: 26))
 
-                Text(model.snapshot.mine?.message.isEmpty == false
-                     ? model.snapshot.mine!.message
-                     : "Set your status")
-                    .font(Theme.rounded(17, .semibold))
-                    .foregroundStyle(model.snapshot.mine?.message.isEmpty == false
-                                     ? .primary
-                                     : .secondary)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(model.snapshot.mine?.message.isEmpty == false
+                         ? model.snapshot.mine!.message
+                         : "Set your status")
+                        .font(Theme.rounded(17, .semibold))
+                        .foregroundStyle(model.snapshot.mine?.message.isEmpty == false
+                                         ? .primary
+                                         : .secondary)
+                        .lineLimit(1)
+                    // The status read receipt — read receipts on, both sides.
+                    if let seenAt = model.myStatusSeenAt {
+                        TimelineView(.periodic(from: .now, by: 60)) { _ in
+                            Label("Seen \(seenAt, format: .relative(presentation: .named))",
+                                  systemImage: "eye.fill")
+                                .font(Theme.rounded(11))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
 
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")

@@ -108,6 +108,12 @@ final class AppModel {
         history.count { $0.fromMe && !$0.uploaded }
     }
 
+    /// When the partner saw the status currently in `mine` — the "Seen …" line
+    /// under it. `nil` while unseen, for an older status, or with receipts off.
+    var myStatusSeenAt: Date? {
+        readReceiptsEnabled ? snapshot.myStatusSeenAt : nil
+    }
+
     /// What tapping the home card opens: whatever is unseen, else just the most recent.
     var carouselMoments: [Moment] {
         let unseen = unseenVisualMoments
@@ -473,15 +479,18 @@ final class AppModel {
         do {
             try await withUploadProtection("moment-upload") {
                 try await Backend.current.send(moment)
+                markUploaded(moment)
             }
-            markUploaded(moment)
         } catch {
             presentSendFailure(error, noun: moment.noun)
         }
     }
 
     /// Runs an upload inside a background-task assertion so locking the phone
-    /// doesn't suspend the process mid-upload and silently lose the send.
+    /// doesn't suspend the process mid-upload and silently lose the send. The
+    /// post-upload bookkeeping belongs *inside* `body` too: ending the assertion
+    /// is what lets iOS suspend, and a shared-container file lock taken right
+    /// after is a `0xdead10cc` kill (TestFlight crash, 2026-09).
     private func withUploadProtection<T>(_ name: String,
                                          _ body: () async throws -> T) async rethrows -> T {
         let assertion = BackgroundAssertion()
@@ -526,8 +535,8 @@ final class AppModel {
         do {
             try await withUploadProtection("voice-memo-upload") {
                 try await Backend.current.send(moment)
+                markUploaded(moment)
             }
-            markUploaded(moment)
         } catch {
             presentSendFailure(error, noun: moment.noun)
         }
@@ -581,8 +590,8 @@ final class AppModel {
             do {
                 try await withUploadProtection("moment-retry") {
                     try await Backend.current.send(moment)
+                    markUploaded(moment)
                 }
-                markUploaded(moment)
                 log.info("Retried upload of \(moment.id, privacy: .public) successfully")
             } catch {
                 log.error("Retry upload of \(moment.id, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
@@ -602,6 +611,26 @@ final class AppModel {
             store.mutate(reloadWidgets: false) { $0.receiptsDirty = true }
             Task { await flushReceiptsIfNeeded() }
         }
+    }
+
+    /// Records that the partner's current status has been on screen — the
+    /// status read receipt. Driven by the home screen, and only while the app
+    /// is actually in front: a background refresh isn't anyone looking.
+    func markPartnerStatusSeen() {
+        guard isPaired, readReceiptsEnabled,
+              UIApplication.shared.applicationState == .active,
+              let theirs = snapshot.theirs, theirs.updatedAt > .distantPast else { return }
+        var changed = false
+        store.mutate(reloadWidgets: false) {
+            // Forward only: a re-delivered older status must not re-stamp.
+            guard ($0.partnerStatusSeen?.statusUpdatedAt ?? .distantPast) < theirs.updatedAt else { return }
+            $0.partnerStatusSeen = StatusSeen(statusUpdatedAt: theirs.updatedAt, seenAt: Date())
+            $0.receiptsDirty = true
+            changed = true
+        }
+        guard changed else { return }
+        snapshot = store.snapshot
+        Task { await flushReceiptsIfNeeded() }
     }
 
     @ObservationIgnored private var isFlushingReceipts = false
@@ -624,8 +653,9 @@ final class AppModel {
         isFlushingReceipts = true
         defer { isFlushingReceipts = false }
         let map = readReceiptsEnabled ? currentSeenMap() : [:]
+        let statusSeen = readReceiptsEnabled ? store.snapshot.partnerStatusSeen : nil
         do {
-            try await Backend.current.publishReceipts(map)
+            try await Backend.current.publishReceipts(map, statusSeen: statusSeen)
             store.mutate(reloadWidgets: false) { $0.receiptsDirty = false }
         } catch {
             log.error("Receipt publish failed: \(error.localizedDescription, privacy: .public)")

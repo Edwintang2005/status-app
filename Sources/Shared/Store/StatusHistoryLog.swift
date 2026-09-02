@@ -16,12 +16,20 @@ struct StatusHistoryEntry: Codable, Hashable, Identifiable {
 
     var id: String { "\(fromMe ? "me" : "them")-\(at.timeIntervalSince1970)" }
 
-    init(_ payload: StatusPayload, fromMe: Bool) {
-        self.emoji = payload.emoji
-        self.message = payload.message
-        self.isCelebration = payload.isCelebration
-        self.at = Date(timeIntervalSince1970: payload.updatedAt.timeIntervalSince1970.rounded(.down))
+    init(emoji: String, message: String, isCelebration: Bool, at: Date, fromMe: Bool) {
+        self.emoji = emoji
+        self.message = message
+        self.isCelebration = isCelebration
+        self.at = Date(timeIntervalSince1970: at.timeIntervalSince1970.rounded(.down))
         self.fromMe = fromMe
+    }
+
+    init(_ payload: StatusPayload, fromMe: Bool) {
+        self.init(emoji: payload.emoji,
+                  message: payload.message,
+                  isCelebration: payload.isCelebration,
+                  at: payload.updatedAt,
+                  fromMe: fromMe)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -38,11 +46,11 @@ struct StatusHistoryEntry: Codable, Hashable, Identifiable {
     }
 }
 
-/// Rolling log of both sides' statuses, as a JSON file in the App Group.
-/// Local only (no CloudKit record — statuses are overwritten server-side), so
-/// entries this device never saw are absent, and the log doesn't survive a
-/// reinstall. Written from every process that notices a status change, hence
-/// the cross-process lock; dedup is by `(fromMe, at)`.
+/// Rolling log of both sides' statuses, as a JSON file in the App Group. Fed
+/// from two sources that dedup into one entry: the current `Status` record as
+/// it changes, and the per-change `StatusLog` records, which is what makes the
+/// log come back on a reinstall. Written from every process that notices a
+/// status change, hence the cross-process lock; dedup is by `(fromMe, at)`.
 final class StatusHistoryLog {
     static let shared = StatusHistoryLog()
 
@@ -68,20 +76,45 @@ final class StatusHistoryLog {
     func record(_ payload: StatusPayload, fromMe: Bool) {
         // Skip placeholders that were never a real status.
         guard payload.updatedAt > .distantPast else { return }
+        // Built as an entry so both sides of the dedup carry the same
+        // whole-second timestamp — see `StatusHistoryEntry.at`.
+        record([StatusHistoryEntry(payload, fromMe: fromMe)])
+    }
+
+    /// Batch form, one lock for a whole delta (a resync delivers the entire
+    /// cloud log at once). Same dedup; existing entries win.
+    func record(_ entries: [StatusHistoryEntry]) {
+        guard !entries.isEmpty else { return }
         lock.lock()
         defer { lock.unlock() }
 
         crossLock.withLock {
             var all = loadUnlocked()
-            // Compare via the entry so both sides of the check carry the same
-            // whole-second timestamp — see `StatusHistoryEntry.at`.
-            let entry = StatusHistoryEntry(payload, fromMe: fromMe)
-            guard !all.contains(where: { $0.fromMe == entry.fromMe && $0.at == entry.at }) else {
-                return
+            var known = Set(all.map(\.id))
+            var changed = false
+            for entry in entries where known.insert(entry.id).inserted {
+                all.append(entry)
+                changed = true
             }
-            all.insert(entry, at: 0)
+            guard changed else { return }
             all.sort { $0.at > $1.at }
             saveUnlocked(all)
+        }
+    }
+
+    /// Drops entries by dedup key — how a `StatusLog` record's deletion (the
+    /// cloud cap pruning the oldest) is mirrored locally.
+    func remove(fromMe: Bool, at dates: [Date]) {
+        guard !dates.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+
+        crossLock.withLock {
+            let targets = Set(dates.map { Int($0.timeIntervalSince1970.rounded(.down)) })
+            var all = loadUnlocked()
+            let before = all.count
+            all.removeAll { $0.fromMe == fromMe && targets.contains(Int($0.at.timeIntervalSince1970)) }
+            if all.count != before { saveUnlocked(all) }
         }
     }
 

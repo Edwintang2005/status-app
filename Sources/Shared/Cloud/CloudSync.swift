@@ -90,6 +90,9 @@ actor CloudSync: SyncBackend {
         static let nudge = "Nudge"
         static let moment = "Moment"
         static let receipt = "Receipt"
+        /// One per status change, alongside the overwritten `Status` — the
+        /// durable history that a reinstall gets back.
+        static let statusLog = "StatusLog"
     }
 
     private enum Field {
@@ -120,8 +123,11 @@ actor CloudSync: SyncBackend {
         static let waveform = "waveform"
 
         // Receipt. A JSON blob of {momentID: seenAt}; which moments someone
-        // read is behavioural, so it's encrypted like the captions.
+        // read is behavioural, so it's encrypted like the captions. The status
+        // receipt is two dates: when, and which status (`updatedAt`) it was.
         static let seenMap = "seenMap"
+        static let statusSeenAt = "statusSeenAt"
+        static let statusSeenFor = "statusSeenFor"
     }
 
     /// One subscription per record type — each wants a different payload.
@@ -688,11 +694,63 @@ actor CloudSync: SyncBackend {
                 log.notice("Status conflict, retrying against server record.")
                 try await saveStatus(payload, to: recordID, in: database)
             }
+            // Separate save: the log wants overwrite semantics (`allKeys`), the
+            // status a conflict check. A failure here still fails the publish,
+            // so `republishStatusIfNeeded` retries both — each is idempotent.
+            try await saveStatusLog(payload, role: pairing.role, zone: recordID.zoneID, in: database)
         }
 
         await MainActor.run {
             _ = SharedStore.shared.mutate { $0.mine = payload }
         }
+        await pruneStatusLog(pairing, in: database)
+    }
+
+    /// The per-change history record. Named by the status's own timestamp, so
+    /// republishing the same status lands on the same record.
+    private func saveStatusLog(_ payload: StatusPayload,
+                               role: PairRole,
+                               zone: CKRecordZone.ID,
+                               in database: CKDatabase) async throws {
+        let recordID = CKRecord.ID(recordName: role.statusLogRecordName(at: payload.updatedAt),
+                                   zoneID: zone)
+        let record = CKRecord(recordType: RecordType.statusLog, recordID: recordID)
+        record.encryptedValues[Field.emoji] = payload.emoji
+        record.encryptedValues[Field.message] = payload.message
+        record.encryptedValues[Field.isCelebration] = payload.isCelebration ? 1 : 0
+        record[Field.updatedAt] = payload.updatedAt as CKRecordValue
+        _ = try await database.modifyRecords(saving: [record],
+                                             deleting: [],
+                                             savePolicy: .allKeys)
+    }
+
+    /// Deletes this side's log records past `AppConfig.statusLogLimit`, oldest
+    /// first, and drops them locally. Best effort: the cap is housekeeping, and
+    /// the next publish tries again. Record names derive from the local log's
+    /// own entries, so no query (and no index) is needed.
+    private func pruneStatusLog(_ pairing: PairingInfo, in database: CKDatabase) async {
+        let own = StatusHistoryLog.shared.load().filter(\.fromMe)
+        guard own.count > AppConfig.statusLogLimit else { return }
+        let stale = Array(own[AppConfig.statusLogLimit...])
+        let zone = zoneID(for: pairing)
+        let ids = stale.map {
+            CKRecord.ID(recordName: pairing.role.statusLogRecordName(at: $0.at), zoneID: zone)
+        }
+        // Entries logged before the cloud log existed have no record; a
+        // per-item unknownItem is the expected answer for those.
+        for start in stride(from: 0, to: ids.count, by: 200) {
+            let batch = Array(ids[start..<min(start + 200, ids.count)])
+            do {
+                _ = try await database.modifyRecords(saving: [], deleting: batch)
+            } catch let error as CKError where Self.isUnknownItem(error) {
+                continue
+            } catch {
+                log.error("Status log prune failed: \(error.localizedDescription, privacy: .public)")
+                return
+            }
+        }
+        StatusHistoryLog.shared.remove(fromMe: true, at: stale.map(\.at))
+        log.notice("Pruned \(stale.count) status log record(s).")
     }
 
     private func saveStatus(_ payload: StatusPayload,
@@ -785,7 +843,7 @@ actor CloudSync: SyncBackend {
                 Field.count,
                 Field.momentID, Field.kind, Field.caption, Field.senderName, Field.sentAt,
                 Field.duration, Field.waveform,
-                Field.seenMap,
+                Field.seenMap, Field.statusSeenAt, Field.statusSeenFor,
             ]
         )
 
@@ -836,6 +894,7 @@ actor CloudSync: SyncBackend {
         var theirNudge: CKRecord?
         var theirReceipts: CKRecord?
         var moments: [Moment] = []
+        var logEntries: [StatusHistoryEntry] = []
 
         for record in changes.records {
             let name = record.recordID.recordName
@@ -852,6 +911,10 @@ actor CloudSync: SyncBackend {
                 if let moment = Self.moment(from: record, mineRole: mineRole, theirsRole: theirsRole) {
                     moments.append(moment)
                 }
+            case RecordType.statusLog:
+                if let entry = Self.logEntry(from: record, mineRole: mineRole, theirsRole: theirsRole) {
+                    logEntries.append(entry)
+                }
             default:
                 break
             }
@@ -866,6 +929,8 @@ actor CloudSync: SyncBackend {
         // unlinks (they can't delete the owner's zone). Must not be ignored.
         var partnerErased = false
         var removedMoments = false
+        var removedMyLogs: [Date] = []
+        var removedTheirLogs: [Date] = []
         for recordID in changes.deletedIDs {
             let name = recordID.recordName
             if name == theirsRole.statusRecordName { partnerErased = true }
@@ -876,7 +941,15 @@ actor CloudSync: SyncBackend {
                 MomentStore.shared.delete(id: id)
                 removedMoments = true
             }
+            if let date = mineRole.statusLogDate(fromRecordName: name) {
+                removedMyLogs.append(date)
+            } else if let date = theirsRole.statusLogDate(fromRecordName: name) {
+                removedTheirLogs.append(date)
+            }
         }
+        // The cloud cap pruning the oldest entries, mirrored locally.
+        StatusHistoryLog.shared.remove(fromMe: true, at: removedMyLogs)
+        StatusHistoryLog.shared.remove(fromMe: false, at: removedTheirLogs)
         // A delete and a recreation can share one delta; the record that exists now wins.
         if theirStatus != nil { partnerErased = false }
 
@@ -929,6 +1002,9 @@ actor CloudSync: SyncBackend {
             // catches ones written by another device on the same account.
             StatusHistoryLog.shared.record(mine, fromMe: true)
         }
+        // The durable log: one entry per `StatusLog` record. Same dedup key as
+        // the two lines above, so a status and its log record collapse into one.
+        StatusHistoryLog.shared.record(logEntries)
 
         // Bound to a `let` before crossing actors: capturing the mutable array is a data race.
         let arrived = moments.sorted { $0.sentAt < $1.sentAt }
@@ -949,6 +1025,10 @@ actor CloudSync: SyncBackend {
         // same delta (a full resync) must find the entries it refers to.
         if let theirReceipts {
             MomentIndex.shared.applyPartnerReceipts(Self.receiptMap(from: theirReceipts))
+            let statusSeen = Self.statusSeen(from: theirReceipts)
+            await MainActor.run {
+                _ = store.mutate(reloadWidgets: false) { $0.myStatusSeenByPartner = statusSeen }
+            }
         }
 
         let newFromPartner = arrived.filter { !$0.fromMe && !alreadyKnown.contains($0.id) }
@@ -1098,11 +1178,37 @@ actor CloudSync: SyncBackend {
         }
     }
 
+    private static func logEntry(from record: CKRecord,
+                                 mineRole: PairRole,
+                                 theirsRole: PairRole) -> StatusHistoryEntry? {
+        let name = record.recordID.recordName
+        let fromMe: Bool
+        let named: Date
+        if let date = mineRole.statusLogDate(fromRecordName: name) {
+            fromMe = true
+            named = date
+        } else if let date = theirsRole.statusLogDate(fromRecordName: name) {
+            fromMe = false
+            named = date
+        } else {
+            return nil
+        }
+        // Dated from the *name*, not the field: the name is what dedups against
+        // the `Status` record's own entry, and the field carries the same value.
+        return StatusHistoryEntry(
+            emoji: record.encryptedValues[Field.emoji] as? String ?? "💭",
+            message: record.encryptedValues[Field.message] as? String ?? "",
+            isCelebration: (record.encryptedValues[Field.isCelebration] as? Int).map { $0 != 0 } ?? false,
+            at: named,
+            fromMe: fromMe
+        )
+    }
+
     // MARK: - Read receipts
 
-    /// Writes this device's seen-map, overwriting the whole record. An empty
-    /// map is a retraction — receipts were turned off.
-    func publishReceipts(_ seen: [String: Date]) async throws {
+    /// Writes this device's seen-map and status receipt, overwriting the whole
+    /// record. An empty map and `nil` are a retraction — receipts were turned off.
+    func publishReceipts(_ seen: [String: Date], statusSeen: StatusSeen?) async throws {
         let pairing = try await requirePairing()
         let database = self.database(for: pairing)
         let recordID = CKRecord.ID(recordName: pairing.role.receiptRecordName,
@@ -1110,15 +1216,16 @@ actor CloudSync: SyncBackend {
 
         try await withZoneRecovery(pairing) {
             do {
-                try await saveReceipts(seen, to: recordID, in: database)
+                try await saveReceipts(seen, statusSeen: statusSeen, to: recordID, in: database)
             } catch let error as CKError where error.code == .serverRecordChanged {
                 log.notice("Receipt conflict, retrying against server record.")
-                try await saveReceipts(seen, to: recordID, in: database)
+                try await saveReceipts(seen, statusSeen: statusSeen, to: recordID, in: database)
             }
         }
     }
 
     private func saveReceipts(_ seen: [String: Date],
+                              statusSeen: StatusSeen?,
                               to recordID: CKRecord.ID,
                               in database: CKDatabase) async throws {
         let record = try await fetchRecord(recordID, in: database)
@@ -1126,10 +1233,21 @@ actor CloudSync: SyncBackend {
         // 0 encodes "seen, time unknown" (.distantPast) — see Moment.seenAt.
         let raw = seen.mapValues { $0 == .distantPast ? 0 : $0.timeIntervalSince1970 }
         record.encryptedValues[Field.seenMap] = try JSONEncoder().encode(raw)
+        // `nil` removes the fields — a retraction, like the empty map.
+        record.encryptedValues[Field.statusSeenAt] = statusSeen?.seenAt
+        record.encryptedValues[Field.statusSeenFor] = statusSeen?.statusUpdatedAt
         record[Field.updatedAt] = Date() as CKRecordValue
         _ = try await database.modifyRecords(saving: [record],
                                              deleting: [],
                                              savePolicy: .changedKeys)
+    }
+
+    private static func statusSeen(from record: CKRecord) -> StatusSeen? {
+        guard let seenAt = record.encryptedValues[Field.statusSeenAt] as? Date,
+              let statusUpdatedAt = record.encryptedValues[Field.statusSeenFor] as? Date else {
+            return nil
+        }
+        return StatusSeen(statusUpdatedAt: statusUpdatedAt, seenAt: seenAt)
     }
 
     private static func receiptMap(from record: CKRecord) -> [String: Date] {
@@ -1335,6 +1453,7 @@ actor CloudSync: SyncBackend {
                 || name == role.nudgeRecordName
                 || name == role.receiptRecordName
                 || role.momentID(fromRecordName: name) != nil
+                || role.statusLogDate(fromRecordName: name) != nil
         }
         guard !mine.isEmpty else { return }
 
@@ -1369,6 +1488,16 @@ actor CloudSync: SyncBackend {
         // Every failure must be a "gone" one; a real error must still surface.
         let codes = partials.compactMap { ($0 as? CKError)?.code }
         return !codes.isEmpty && codes.allSatisfy(gone.contains)
+    }
+
+    /// "That record doesn't exist" only — bare or per-item — without the
+    /// zone-gone codes `isAlreadyGone` also accepts.
+    private static func isUnknownItem(_ error: CKError) -> Bool {
+        if error.code == .unknownItem { return true }
+        guard error.code == .partialFailure,
+              let partials = error.partialErrorsByItemID?.values else { return false }
+        let codes = partials.compactMap { ($0 as? CKError)?.code }
+        return !codes.isEmpty && codes.allSatisfy { $0 == .unknownItem }
     }
 
     /// Token expiry arrives either bare or wrapped in `.partialFailure` (zone-scoped).

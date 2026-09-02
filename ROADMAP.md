@@ -3,6 +3,19 @@
 Effort: S = hours, M = days, L = a week+. Any CloudKit field/record-type
 addition requires re-deploying the schema to Production (README → "Shipping it").
 
+## Shipped (September 2026)
+
+- **Durable status history** — one `StatusLog` record per status change
+  (`statuslog-<role>-<seconds>`), written by `CloudSync.publish` alongside the
+  `Status` record and folded into `StatusHistoryLog` on refresh; the log now
+  survives a reinstall. Each side prunes its own records past
+  `AppConfig.statusLogLimit`, and deletions mirror locally. **Schema: the
+  `StatusLog` record type must exist in Production before release.**
+- **Status read receipts** — "Seen 2h ago" under your own status. Two
+  encrypted fields on the existing `Receipt` record (`statusSeenAt`,
+  `statusSeenFor`), stamped only from the foreground home screen. **Schema:
+  the two new `Receipt` fields must be deployed.**
+
 ## Shipped (August 2026)
 
 - **History filter: sent / received** — segmented control in the library and in
@@ -39,15 +52,11 @@ one *stronger* notification instead of a stack of identical ones.
 - Watermark logic is unchanged — a burst is still just a count increase.
 - Schema: one new field on `Nudge`; redeploy.
 
-### Status history phase 2 — durable log (M)
-
-One CloudKit `StatusLog` record per status (like moments) if recover-on-reinstall
-matters. Costs a record per status change; cap with periodic deletion. No new
-subscription — entries ride the existing refresh.
-
 ### Also on file (from README "Possible improvements")
 
-- Reactions on a moment (needs a `Reaction` record type + subscription).
+- Reactions on a moment (needs a `Reaction` record type + subscription). Built
+  and removed in September 2026 — the UI never felt right; the sync design
+  (one `reaction-<role>-<momentID>` record per person per moment, encrypted
+  emoji, own subscription, removal pushes that can't be suppressed) is in the
+  git history if it comes back.
 - Shared countdown lock-screen widget.
-- Status read receipts ("Seen 2h ago" under your own status) — the `Receipt`
-  record already has room for a `statusSeenAt` field.

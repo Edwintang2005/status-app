@@ -17,8 +17,8 @@ with the text fields end-to-end encrypted.
 | **Photos & doodles** | Snap a photo, draw a doodle, or scribble over a photo, and it lands on their home screen widget. Pick the paper colour for a doodle. |
 | **Voice memos** | Up to 3 minutes (`AppConfig.voiceMemoMaxDuration`), with a live waveform while recording. Playable from the expanded notification without opening the app; a badge on the photo widget says one is waiting. Swipe across any playback waveform to scrub. |
 | **History** | Every photo, doodle and memo is kept. Browse the lot in the library — filterable by *from them* / *from me* — save any to Photos, and get it all back on a new phone. |
-| **Status history** | A rolling log of both sides' statuses, grouped by day, behind a tap on the partner card. Local-only — see "Status history" below. |
-| **Read receipts** | On by default, with a per-side switch in Settings. Each side shares which moments it has seen; your own sends wear an eye badge in the library and a "Seen …" line in the gallery. |
+| **Status history** | A log of both sides' statuses, grouped by day, behind a tap on the partner card. Every change is its own CloudKit record, so it comes back on a new phone — see "Status history" below. |
+| **Read receipts** | On by default, with a per-side switch in Settings. Each side shares which moments it has seen; your own sends wear an eye badge in the library and a "Seen …" line in the gallery. Your own status gets the same line once they've had it on screen. |
 | **Names** | You set your own name; they set theirs. Whatever they call themselves is what you see — there's no renaming other people. |
 
 Widgets:
@@ -290,19 +290,33 @@ refresh folds the map into `Moment.seenByPartnerAt` via
 un-sees anything already shown. Turning the toggle off publishes an empty map,
 which stops sharing anything new.
 
+The same record carries a **status read receipt**: two encrypted dates saying
+which of the partner's statuses (its `updatedAt`) this device has had on screen,
+and when. The home screen stamps it (`AppModel.markPartnerStatusSeen`) only
+while the app is in the foreground — a background refresh isn't anyone looking
+— and the sender shows "Seen 2 hours ago" under their own status for as long as
+that status is still the current one. A new status starts unseen again.
+
 There is deliberately no push for receipts: they arrive with whatever refresh
 happens next. A partner on an older build simply ignores the record.
 
 ### Status history
 
-The app's CloudKit schema keeps only the *current* status per side, so history
-is a local rolling log: `status-history.json` in the App Group
-(`StatusHistoryLog`, capped at `AppConfig.statusHistoryLimit` (100)), written from
-`AppModel.setStatus` for your own and from `CloudSync.apply` for both sides —
-whichever process noticed the change first; entries dedup by
-`(fromMe, updatedAt)`. Being local means gaps are possible (only statuses this
-device actually saw are logged) and the log doesn't survive a reinstall. The
-sheet opens from the partner card on the home screen.
+Every status change is written twice: onto the overwritten `Status` record, and
+as its own `StatusLog` record named `statuslog-<role>-<seconds>` (the status's
+whole-second `updatedAt`, so a republish overwrites rather than duplicates).
+The log on device is `status-history.json` in the App Group
+(`StatusHistoryLog`, capped at `AppConfig.statusHistoryLimit`), fed from both:
+the `Status` record as it changes and every `StatusLog` record in a delta,
+deduping by `(fromMe, updatedAt)` so the two collapse into one entry. A device
+with no change token pulls the whole zone, which is how the log comes back on a
+new phone.
+
+Each side caps its own records at `AppConfig.statusLogLimit`: after a publish,
+`CloudSync.pruneStatusLog` deletes its oldest past the cap (record names derive
+from the local entries, so no query or index is needed), and both devices mirror
+the deletions. Entries logged before the cloud log existed have no record and
+are still local-only. The sheet opens from the partner card on the home screen.
 
 ### History, and where it lives
 
@@ -409,11 +423,13 @@ Everything below is already wired up; this is the order to do it in.
    `RedStringWidgetExtension`, `RedStringNotificationService`) inherit it from
    the project level.
 2. **Run once on a device** with a Debug build. That creates the CloudKit
-   *Development* schema automatically — record types `Status`, `Nudge`,
-   `Moment` and `Receipt` with their fields — the first time each record is
-   saved. Pair, set a status, send a nudge, send a photo, **and turn on read
-   receipts + view a received moment** (which publishes a `Receipt` record), so
-   every type and field actually gets created.
+   *Development* schema automatically — record types `Status`, `StatusLog`,
+   `Nudge`, `Moment` and `Receipt` with their fields — the first time each
+   record is saved. Pair, set a status (which also writes a `StatusLog`), send
+   a nudge, send a photo, **and turn on read receipts + view a received moment
+   with the home screen in front** (which publishes a `Receipt` record with
+   both the seen-map and the status-receipt fields), so every type and field
+   actually gets created.
 
    **Tapping "Create a link" is part of this step, not an optional extra.**
    Zone sharing needs a system record type, `cloudkit.share`, and CloudKit only
@@ -427,8 +443,9 @@ Everything below is already wired up; this is the order to do it in.
    (*Schema → Deploy Schema Changes*). Production does **not** auto-create
    anything, so an App Store build against an undeployed schema fails on every
    write. Re-deploy whenever you add a field. Confirm afterwards by switching
-   the Console to *Production* and checking that `Status`, `Nudge`, `Moment`,
-   `Receipt` **and `cloudkit.share`** are all listed under Record Types.
+   the Console to *Production* and checking that `Status`, `StatusLog`,
+   `Nudge`, `Moment`, `Receipt` **and `cloudkit.share`** are all listed under
+   Record Types.
 4. **Archive** with `make archive` (or Xcode's *Product → Archive*). The
    Release configuration already points at
    [RedString-Release.entitlements](Sources/App/Resources/RedString-Release.entitlements),

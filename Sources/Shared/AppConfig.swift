@@ -59,9 +59,14 @@ enum AppConfig {
     /// full width, few enough that the metadata stays a few hundred bytes.
     static let voiceWaveformSampleCount = 48
 
-    /// Entries kept in the local status history log. Local-only (statuses are
-    /// overwritten in CloudKit), so the cap is about file size, not quota.
-    static let statusHistoryLimit = 100
+    /// Entries kept in the local status history log, both sides together. Sized
+    /// to hold both partners' full cloud logs (`statusLogLimit` each).
+    static let statusHistoryLimit = 300
+
+    /// `StatusLog` records each side keeps in CloudKit. Every status change is a
+    /// record, so this caps the zone's growth; the publisher deletes its own
+    /// oldest entries past it, and both devices drop them from the local log.
+    static let statusLogLimit = 150
 
     /// Seen-moments carried in a read-receipt record. Covers everything a
     /// sender could still be wondering about without growing unboundedly.

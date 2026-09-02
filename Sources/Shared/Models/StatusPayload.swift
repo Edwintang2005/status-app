@@ -117,6 +117,24 @@ enum PairRole: String, Codable {
             : nil
     }
 
+    /// One `StatusLog` record per status change, `statuslog-<role>-<seconds>`.
+    /// Named by the status's whole-second `updatedAt`, so a republish of the
+    /// same status overwrites rather than duplicates.
+    var statusLogRecordPrefix: String { "statuslog-\(rawValue)-" }
+
+    func statusLogRecordName(at date: Date) -> String {
+        statusLogRecordPrefix + String(Int(date.timeIntervalSince1970.rounded(.down)))
+    }
+
+    /// The status timestamp back out of a log record name, or `nil` if it isn't ours.
+    func statusLogDate(fromRecordName name: String) -> Date? {
+        guard name.hasPrefix(statusLogRecordPrefix),
+              let seconds = TimeInterval(name.dropFirst(statusLogRecordPrefix.count)) else {
+            return nil
+        }
+        return Date(timeIntervalSince1970: seconds)
+    }
+
     var other: PairRole {
         self == .owner ? .participant : .owner
     }
@@ -146,6 +164,19 @@ struct PairingInfo: Codable, Hashable {
         self.zoneOwnerName = zoneOwnerName
         self.pairedAt = pairedAt
         self.userRecordName = userRecordName
+    }
+}
+
+/// A read receipt for a status: which version (`statusUpdatedAt`, the
+/// status's own whole-second stamp) was on screen, and when.
+struct StatusSeen: Codable, Hashable, Sendable {
+    var statusUpdatedAt: Date
+    var seenAt: Date
+
+    init(statusUpdatedAt: Date, seenAt: Date) {
+        // Whole seconds on both, like every persisted date — see `StatusHistoryEntry.at`.
+        self.statusUpdatedAt = Date(timeIntervalSince1970: statusUpdatedAt.timeIntervalSince1970.rounded(.down))
+        self.seenAt = Date(timeIntervalSince1970: seenAt.timeIntervalSince1970.rounded(.down))
     }
 }
 
@@ -201,6 +232,13 @@ struct Snapshot: Codable, Hashable {
     /// `publishReceipts`, so a failed publish retries on the next refresh.
     var receiptsDirty: Bool = false
 
+    /// The partner status this device has had on screen — what the receipt
+    /// publishes as a status read receipt. Only ever moves forward.
+    var partnerStatusSeen: StatusSeen?
+    /// The partner's receipt for *our* status. Meaningful only while its
+    /// `statusUpdatedAt` still matches `mine.updatedAt` — see `myStatusSeenAt`.
+    var myStatusSeenByPartner: StatusSeen?
+
     static let empty = Snapshot(
         mine: nil,
         theirs: nil,
@@ -221,6 +259,7 @@ struct Snapshot: Codable, Hashable {
         case lastNudgeFailedAt, myStatusPublished
         case lastAnnouncedPartnerStatusAt
         case receiptsDirty
+        case partnerStatusSeen, myStatusSeenByPartner
     }
 
     /// Hand-written: synthesised `Codable` errors on missing keys, so a snapshot
@@ -258,6 +297,9 @@ struct Snapshot: Codable, Hashable {
         lastAnnouncedPartnerStatusAt = try container
             .decodeIfPresent(Date.self, forKey: .lastAnnouncedPartnerStatusAt)
         receiptsDirty = try container.decodeIfPresent(Bool.self, forKey: .receiptsDirty) ?? false
+        partnerStatusSeen = try container.decodeIfPresent(StatusSeen.self, forKey: .partnerStatusSeen)
+        myStatusSeenByPartner = try container
+            .decodeIfPresent(StatusSeen.self, forKey: .myStatusSeenByPartner)
     }
 
     /// Hand-written: `latestPartnerVisualMoment`'s nil must be written as an
@@ -286,6 +328,8 @@ struct Snapshot: Codable, Hashable {
         try container.encodeIfPresent(lastAnnouncedPartnerStatusAt,
                                       forKey: .lastAnnouncedPartnerStatusAt)
         try container.encode(receiptsDirty, forKey: .receiptsDirty)
+        try container.encodeIfPresent(partnerStatusSeen, forKey: .partnerStatusSeen)
+        try container.encodeIfPresent(myStatusSeenByPartner, forKey: .myStatusSeenByPartner)
     }
 
     init(mine: StatusPayload?,
@@ -329,6 +373,14 @@ struct Snapshot: Codable, Hashable {
         if notifiedMomentIDs.count > 8 {
             notifiedMomentIDs.removeLast(notifiedMomentIDs.count - 8)
         }
+    }
+
+    /// When the partner saw the status currently in `mine`, or `nil` if the
+    /// receipt refers to an older one (a new status starts unseen again).
+    var myStatusSeenAt: Date? {
+        guard let mine, let seen = myStatusSeenByPartner,
+              seen.statusUpdatedAt == mine.updatedAt else { return nil }
+        return seen.seenAt
     }
 
     /// The partner's celebration status that hasn't been played yet; `nil` once

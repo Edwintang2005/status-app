@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The rolling status log, grouped by day, filterable by direction. Local-only
-/// data — entries exist from the moment this device first saw them.
+/// The rolling status log, grouped by day, filterable by direction. Backed by
+/// the cloud `StatusLog` records, so it comes back on a new phone.
 struct StatusHistoryView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
