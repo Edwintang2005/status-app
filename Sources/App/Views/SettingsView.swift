@@ -13,6 +13,7 @@ struct SettingsView: View {
     @State private var draftName = ""
     @State private var confirmingUnlink = false
     @State private var confirmingWipe = false
+    @State private var confirmingBlock = false
     /// Set when the iCloud side of an unlink failed, so a local-only reset can
     /// be offered explicitly rather than silently taken.
     @State private var offeringLocalOnly: Ending?
@@ -58,6 +59,25 @@ struct SettingsView: View {
                             }
                         }
                     }
+                }
+
+                Section {
+                    Toggle("Hide strong language", isOn: $model.contentFilterEnabled)
+                    if model.isPaired {
+                        Button("Block \(model.partnerName)…", role: .destructive) {
+                            confirmingBlock = true
+                        }
+                    }
+                    NavigationLink("Terms of Use") {
+                        TermsView(readOnly: true)
+                    }
+                    if let url = Report.mailURL(subject: "\(AppConfig.appName) report", body: "") {
+                        Link("Report a problem", destination: url)
+                    }
+                } header: {
+                    Text("Safety")
+                } footer: {
+                    Text(safetyFooter)
                 }
 
                 if model.isPaired {
@@ -170,6 +190,19 @@ struct SettingsView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text(unlinkFooter)
+            }
+            .confirmationDialog("Block \(model.partnerName)?",
+                                isPresented: $confirmingBlock,
+                                titleVisibility: .visible) {
+                Button("Block and report", role: .destructive) {
+                    Task {
+                        await model.block()
+                        dismiss()
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Everything \(model.partnerName) sent is removed from this iPhone immediately, the link ends, their invites are refused from now on, and we're notified. There is no undo.")
             }
             .confirmationDialog("Delete everything and start over?",
                                 isPresented: $confirmingWipe,
@@ -298,6 +331,13 @@ struct SettingsView: View {
         return "Anyone holding the link can still join. It closes itself the "
             + "moment \(model.partnerName) does — close it now if you sent it to "
             + "the wrong person."
+    }
+
+    private var safetyFooter: String {
+        "The filter hides strong language in what \(model.partnerName) sends; long-press a "
+            + "status or open a photo's menu to report it, which removes it from this iPhone "
+            + "at once. Reports and blocks go to \(AppConfig.supportEmail) and are acted on "
+            + "within 24 hours."
     }
 
     private var versionString: String {

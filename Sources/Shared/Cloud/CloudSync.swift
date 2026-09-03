@@ -23,6 +23,8 @@ enum SyncError: LocalizedError {
     /// Settings' plain close refused: someone has joined through the link, so
     /// closing here would evict them (that's the Diagnostics handshake).
     case inviteInUse
+    /// The invite comes from someone this device has blocked.
+    case blocked
 
     var errorDescription: String? {
         switch self {
@@ -63,6 +65,8 @@ enum SyncError: LocalizedError {
         case .inviteInUse:
             return "Your partner joined through this link, so closing it here would "
                 + "remove them. Use Settings → Diagnostics → Secure invite instead."
+        case .blocked:
+            return "This invite is from someone you've blocked."
         }
     }
 }

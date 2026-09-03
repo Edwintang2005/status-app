@@ -8,6 +8,7 @@ struct MomentLibraryView: View {
 
     @State private var opened: Moment?
     @State private var filter: HistoryFilter = .all
+    @State private var reporting: Moment?
 
     private let columns = [GridItem(.adaptive(minimum: 104), spacing: 8)]
 
@@ -56,6 +57,18 @@ struct MomentLibraryView: View {
                 MomentGalleryView(moments: filtered, startAt: moment)
                     .environment(model)
             }
+            .confirmationDialog("Report this \(reporting?.noun ?? "moment")?",
+                                isPresented: Binding(get: { reporting != nil },
+                                                     set: { if !$0 { reporting = nil } }),
+                                titleVisibility: .visible) {
+                Button("Report", role: .destructive) {
+                    if let reporting { model.report(reporting) }
+                    reporting = nil
+                }
+                Button("Cancel", role: .cancel) { reporting = nil }
+            } message: {
+                Text("It's removed from this iPhone straight away, and the details go to us by email. We act on reports within 24 hours.")
+            }
         }
     }
 
@@ -98,6 +111,15 @@ struct MomentLibraryView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel(for: moment))
         .accessibilityHint("Opens it")
+        .contextMenu {
+            if !moment.fromMe {
+                Button(role: .destructive) {
+                    reporting = moment
+                } label: {
+                    Label("Report…", systemImage: "flag")
+                }
+            }
+        }
     }
 
     /// Kind, sender, age, and whichever badge the tile is wearing.

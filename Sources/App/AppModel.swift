@@ -55,11 +55,18 @@ final class AppModel {
     }
 
     var errorMessage: String?
+    /// Informational, not a failure — shown under its own title (see `RootView`).
+    var noticeMessage: String?
     /// Set by the `redstring://compose` deep link so the widget opens straight into the composer.
     var pendingComposer = false
 
     /// A tapped invite held until `WelcomeView` has a display name — see `acceptInvite(name:)`.
     private(set) var pendingInvite: CKShare.Metadata?
+
+    /// Guideline 1.2: nothing else shows until the current terms are agreed to.
+    private(set) var termsAccepted: Bool
+    /// `updatedAt` of a reported partner status — see `SharedStore.hiddenPartnerStatusAt`.
+    private(set) var hiddenPartnerStatusAt: Date?
 
     /// Store is injectable so previews and tests run against a throwaway defaults suite.
     init(store: SharedStore = .shared) {
@@ -67,6 +74,8 @@ final class AppModel {
         self.snapshot = store.snapshot
         self.isPaired = store.pairing != nil
         self.role = store.pairing?.role
+        self.termsAccepted = store.acceptedTermsVersion >= AppConfig.termsVersion
+        self.hiddenPartnerStatusAt = store.hiddenPartnerStatusAt
     }
 
     // MARK: - Derived
@@ -288,7 +297,113 @@ final class AppModel {
         inviteClosed = store.inviteClosed
         // The closed link is kept on purpose — see `refreshInviteURL`.
         inviteURL = store.inviteURL
+        hiddenPartnerStatusAt = store.hiddenPartnerStatusAt
         history = MomentIndex.shared.load()
+    }
+
+    // MARK: - Safety (guideline 1.2)
+
+    func acceptTerms() {
+        store.acceptedTermsVersion = AppConfig.termsVersion
+        termsAccepted = true
+    }
+
+    /// The on-device word filter over the partner's text; widgets read the same switch.
+    var contentFilterEnabled: Bool = SharedStore.shared.contentFilterEnabled {
+        didSet {
+            guard oldValue != contentFilterEnabled else { return }
+            store.contentFilterEnabled = contentFilterEnabled
+            SharedStore.reloadWidgets()
+        }
+    }
+
+    /// The current partner status has been reported: its text stays hidden.
+    var isPartnerStatusReported: Bool {
+        guard let theirs = snapshot.theirs, let hidden = hiddenPartnerStatusAt else { return false }
+        return theirs.updatedAt == hidden
+    }
+
+    /// Removes the moment from this device for good and mails the report.
+    /// Only ever the partner's — there's nothing to report about your own.
+    func report(_ moment: Moment) {
+        guard !moment.fromMe else { return }
+        var hidden = store.hiddenMomentIDs
+        hidden.insert(moment.id)
+        store.hiddenMomentIDs = hidden
+        MomentIndex.shared.remove(id: moment.id)
+        MomentStore.shared.delete(id: moment.id)
+        store.refreshDerived()
+        reload()
+        sendReport(Report.Details(kind: moment.noun,
+                                  identifier: moment.id,
+                                  senderName: moment.senderName,
+                                  text: moment.caption,
+                                  pairing: store.pairing,
+                                  reporterName: myDisplayName))
+    }
+
+    /// Hides the partner's current status text (until they set another) and mails the report.
+    func reportPartnerStatus() {
+        guard let theirs = snapshot.theirs else { return }
+        store.hiddenPartnerStatusAt = theirs.updatedAt
+        hiddenPartnerStatusAt = theirs.updatedAt
+        SharedStore.reloadWidgets()
+        sendReport(Report.Details(kind: "status",
+                                  identifier: "status at \(theirs.updatedAt.formatted(.iso8601))",
+                                  senderName: theirs.displayName,
+                                  text: "\(theirs.emoji) \(theirs.message)",
+                                  pairing: store.pairing,
+                                  reporterName: myDisplayName))
+    }
+
+    /// Blocks the partner: everything they sent leaves this iPhone at once, the
+    /// link ends, their invites are refused from now on, and the developer is
+    /// told. Local removal is not conditional on iCloud — a block must land
+    /// even offline — so, unlike `unlink`, a failed cloud step is reported
+    /// afterwards rather than stopping it.
+    func block() async {
+        isBusy = true
+        defer { isBusy = false }
+        let name = partnerName
+        let status = snapshot.theirs
+        let pairing = store.pairing
+        let names = await CloudSync.shared.recordBlockedPartner()
+
+        var cloudProblem: String?
+        do {
+            try await Backend.current.unpair()
+        } catch {
+            cloudProblem = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+        finishUnlink(startingOver: false)
+
+        sendReport(Report.Details(kind: "blocked user",
+                                  identifier: names.isEmpty ? "(unknown record)" : names.joined(separator: ", "),
+                                  senderName: name,
+                                  text: status.map { "\($0.emoji) \($0.message)" } ?? "",
+                                  pairing: pairing,
+                                  reporterName: myDisplayName))
+        if let cloudProblem {
+            errorMessage = "\(name) is blocked and everything they sent has been removed from this "
+                + "iPhone. iCloud couldn't be reached to finish the unlink (\(cloudProblem)), so "
+                + "what you sent may still be in the shared space; try Settings → Unlink later "
+                + "if it reappears."
+        }
+    }
+
+    /// Opens Mail with the report. Without a mail account the text goes to the
+    /// clipboard instead, with the address to send it to.
+    private func sendReport(_ details: Report.Details) {
+        let body = Report.body(for: details)
+        guard let url = Report.mailURL(for: details) else { return }
+        UIApplication.shared.open(url) { opened in
+            guard !opened else { return }
+            Task { @MainActor in
+                UIPasteboard.general.string = body
+                self.noticeMessage = "Mail isn't set up on this iPhone, so the report has been "
+                    + "copied to your clipboard. Please email it to \(AppConfig.supportEmail)."
+            }
+        }
     }
 
     /// Older entries keep metadata but not media files; fetches the file back from CloudKit on demand.

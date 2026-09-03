@@ -15,6 +15,13 @@ addition requires re-deploying the schema to Production (README → "Shipping it
   per target with all user-facing strings routed through it. Found along the
   way: `MomentIndex.markSeen` stamped fractional seconds — now whole, per the
   persisted-date rule. No schema changes.
+- **App Review 1.2 (user-generated content)** — Terms of Use agreed before
+  anything else (`TermsView`, versioned via `AppConfig.termsVersion`); report
+  on any partner moment (gallery menu, library long-press) or status (long-press
+  the card), removing it locally at once and mailing the developer; Block in
+  Settings (local wipe, unlink, future invites refused, developer notified); an
+  on-device word filter over the partner's text in the app, notifications and
+  widgets; the terms and the 24-hour commitment on the support site.
 - **Audit fixes (round one)** — a late-finishing status publish no longer
   reverts a newer status locally or on the server (`saveStatus` skips when the
   server copy is newer); the nudge failure path compares whole-second dates, so

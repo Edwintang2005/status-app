@@ -165,9 +165,13 @@ final class NotificationService: UNNotificationServiceExtension {
                              to content: UNMutableNotificationContent,
                              partnerName: String) {
         content.title = partnerName
-        content.body = status.message.isEmpty
-            ? status.emoji
-            : "\(status.emoji) \(status.message)"
+        if status.message.isEmpty {
+            content.body = status.emoji
+        } else if ContentFilter.hides(status.message) {
+            content.body = String(localized: "updated their status")
+        } else {
+            content.body = "\(status.emoji) \(status.message)"
+        }
         // Each update stays individually in Notification Centre as history.
         content.threadIdentifier = "status-updates"
     }
@@ -188,7 +192,8 @@ final class NotificationService: UNNotificationServiceExtension {
                        partnerName: String) async {
         // `partnerName` covers records written before the sender set a name.
         content.title = moment.senderName.isEmpty ? partnerName : moment.senderName
-        content.body = moment.caption.isEmpty ? moment.arrivalSummary : moment.caption
+        content.body = moment.caption.isEmpty || ContentFilter.hides(moment.caption)
+            ? moment.arrivalSummary : moment.caption
 
         // The media may not be on disk yet (another process's download may be
         // in flight or failed), so fetch it here rather than settling for text.

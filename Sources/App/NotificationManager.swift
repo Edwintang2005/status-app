@@ -76,7 +76,8 @@ enum NotificationManager {
         await removeGenericBanners(body: CloudSync.GenericAlert.moment)
         let content = UNMutableNotificationContent()
         content.title = moment.senderName.isEmpty ? name : moment.senderName
-        content.body = moment.caption.isEmpty ? moment.arrivalSummary : moment.caption
+        content.body = moment.caption.isEmpty || ContentFilter.hides(moment.caption)
+            ? moment.arrivalSummary : moment.caption
         content.sound = .default
         content.categoryIdentifier = NotificationCategory.moment
 

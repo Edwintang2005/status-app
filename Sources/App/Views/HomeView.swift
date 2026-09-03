@@ -11,6 +11,9 @@ struct HomeView: View {
     @State private var showingStatusHistory = false
     /// Owned here so leaving the screen or starting a second memo stops playback.
     @State private var voicePlayer = VoicePlayer()
+    /// The user chose to see a filter-hidden status message this once.
+    @State private var revealFilteredStatus = false
+    @State private var confirmingStatusReport = false
     /// Snapshot taken when the carousel opens — paging marks moments seen, so
     /// reading `model.carouselMoments` live would shrink the list under the user.
     @State private var carouselQueue: [Moment] = []
@@ -180,6 +183,47 @@ struct HomeView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(partnerSummary)
         .accessibilityHint("Shows status history")
+        .contextMenu {
+            if model.snapshot.theirs != nil, !model.isPartnerStatusReported {
+                Button(role: .destructive) {
+                    confirmingStatusReport = true
+                } label: {
+                    Label("Report this status…", systemImage: "flag")
+                }
+            }
+            if partnerMessageIsFiltered, !revealFilteredStatus {
+                Button {
+                    revealFilteredStatus = true
+                } label: {
+                    Label("Show hidden text", systemImage: "eye")
+                }
+            }
+        }
+        .confirmationDialog("Report this status?",
+                            isPresented: $confirmingStatusReport,
+                            titleVisibility: .visible) {
+            Button("Report", role: .destructive) { model.reportPartnerStatus() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Its text is hidden on this iPhone straight away, and the details go to us by email. We act on reports within 24 hours.")
+        }
+        .onChange(of: model.snapshot.theirs?.updatedAt) { _, _ in revealFilteredStatus = false }
+    }
+
+    private var partnerMessageIsFiltered: Bool {
+        guard let theirs = model.snapshot.theirs else { return false }
+        return ContentFilter.hides(theirs.message)
+    }
+
+    /// The partner's message as shown: reported → says so; filtered → the
+    /// placeholder until revealed; otherwise the words.
+    private var partnerMessage: (text: String, muted: Bool) {
+        guard let theirs = model.snapshot.theirs else { return ("", true) }
+        if model.isPartnerStatusReported { return (String(localized: "Reported"), true) }
+        if partnerMessageIsFiltered && !revealFilteredStatus {
+            return (ContentFilter.hiddenPlaceholder, true)
+        }
+        return theirs.message.isEmpty ? (String(localized: "no message"), true) : (theirs.message, false)
     }
 
     /// VoiceOver's reading of the partner card: name, emoji, message, age.
@@ -187,9 +231,8 @@ struct HomeView: View {
         guard let theirs = model.snapshot.theirs else {
             return String(localized: "\(model.partnerName): waiting for their first status")
         }
-        let message = theirs.message.isEmpty ? String(localized: "no message") : theirs.message
         let when = theirs.updatedAt.formatted(.relative(presentation: .named))
-        return "\(model.partnerName): \(theirs.emoji) \(message), \(when)"
+        return "\(model.partnerName): \(theirs.emoji) \(partnerMessage.text), \(when)"
     }
 
     private var partnerCardContent: some View {
@@ -205,13 +248,13 @@ struct HomeView: View {
                         .font(Theme.rounded(11, .semibold))
                         .tracking(1.2)
                         .foregroundStyle(.secondary)
-                    Text(theirs.message.isEmpty ? "no message" : theirs.message)
+                    Text(partnerMessage.text)
                         .font(Theme.rounded(20, .semibold))
                         .lineLimit(2)
                         // Wrap within the proposed width rather than reporting a
                         // single-line ideal — see the containerRelativeFrame note.
                         .fixedSize(horizontal: false, vertical: true)
-                        .foregroundStyle(theirs.message.isEmpty ? .secondary : .primary)
+                        .foregroundStyle(partnerMessage.muted ? .secondary : .primary)
                     // TimelineView because `.relative(presentation:)` renders
                     // once and never ticks on its own.
                     TimelineView(.periodic(from: .now, by: 60)) { _ in
@@ -330,7 +373,8 @@ struct HomeView: View {
     }
 
     private func momentLabel(_ moment: Moment) -> String {
-        if moment.caption.isEmpty {
+        // A filtered caption reads as no caption; the gallery can reveal it.
+        if moment.caption.isEmpty || (!moment.fromMe && ContentFilter.hides(moment.caption)) {
             return moment.fromMe
                 ? String(localized: "You sent a \(moment.noun)")
                 : String(localized: "Sent you a \(moment.noun)")

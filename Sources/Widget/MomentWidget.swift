@@ -20,8 +20,13 @@ struct MomentWidgetView: View {
 
     @Environment(\.widgetFamily) private var family
 
-    /// The picture only — a memo never displaces it.
-    private var moment: Moment? { entry.snapshot.latestPartnerVisualMoment }
+    /// The picture only — a memo never displaces it. A caption the user's
+    /// filter hides is dropped, as if there were none.
+    private var moment: Moment? {
+        guard var moment = entry.snapshot.latestPartnerVisualMoment else { return nil }
+        if ContentFilter.hides(moment.caption) { moment.caption = "" }
+        return moment
+    }
     private var unheardMemos: Int { entry.snapshot.unheardVoiceMemoCount }
 
     var body: some View {

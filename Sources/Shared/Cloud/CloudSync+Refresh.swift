@@ -160,6 +160,11 @@ extension CloudSync {
             }
         }
 
+        // Reported moments stay reported: the record lives on in the sender's
+        // iCloud and every full resync re-delivers it.
+        let hidden = await MainActor.run { SharedStore.shared.hiddenMomentIDs }
+        moments.removeAll { hidden.contains($0.id) }
+
         // Captured before the insert below, so "new" can mean "not already
         // stored" — a full resync re-delivers the entire history, and reporting
         // it all as new re-announced already-seen moments.

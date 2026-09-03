@@ -17,6 +17,11 @@ enum AppConfig {
     /// zones are required for both zone sharing and database subscriptions.
     static let coupleZoneName = "CoupleZone"
 
+    /// Where reports and blocks are sent (guideline 1.2). Acted on within 24 hours.
+    static let supportEmail = "edwintang2005@gmail.com"
+    /// Bump to make everyone re-accept the terms on next launch.
+    static let termsVersion = 1
+
     /// Identifier passed to `WidgetCenter` reloads and declared by the widget.
     static let widgetKind = "RedStringStatusWidget"
 

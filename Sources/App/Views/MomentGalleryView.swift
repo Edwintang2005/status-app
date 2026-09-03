@@ -19,6 +19,9 @@ struct MomentGalleryView: View {
     @State private var loading: Set<String> = []
     /// Ids whose fetch failed, so we show a message instead of a forever-spinner.
     @State private var unavailable: Set<String> = []
+    /// Filter-hidden captions the user chose to see.
+    @State private var revealedCaptions: Set<String> = []
+    @State private var reporting: Moment?
 
     private enum SaveState: Equatable {
         case idle, saving, saved
@@ -62,6 +65,40 @@ struct MomentGalleryView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     exportButton
                 }
+                if let current, !current.fromMe {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu {
+                            if captionIsFiltered(current) && !revealedCaptions.contains(current.id) {
+                                Button {
+                                    revealedCaptions.insert(current.id)
+                                } label: {
+                                    Label("Show hidden caption", systemImage: "eye")
+                                }
+                            }
+                            Button(role: .destructive) {
+                                reporting = current
+                            } label: {
+                                Label("Report…", systemImage: "flag")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                        .accessibilityLabel("More")
+                    }
+                }
+            }
+            .confirmationDialog("Report this \(reporting?.noun ?? "moment")?",
+                                isPresented: Binding(get: { reporting != nil },
+                                                     set: { if !$0 { reporting = nil } }),
+                                titleVisibility: .visible) {
+                Button("Report", role: .destructive) {
+                    if let reporting { model.report(reporting) }
+                    reporting = nil
+                    dismiss()
+                }
+                Button("Cancel", role: .cancel) { reporting = nil }
+            } message: {
+                Text("It's removed from this iPhone straight away, and the details go to us by email. We act on reports within 24 hours.")
             }
             .task(id: selection) {
                 saveState = .idle
@@ -116,9 +153,15 @@ struct MomentGalleryView: View {
 
             VStack(spacing: 5) {
                 if !moment.caption.isEmpty {
-                    Text(moment.caption)
-                        .font(Theme.rounded(20, .semibold))
-                        .multilineTextAlignment(.center)
+                    if captionIsFiltered(moment) && !revealedCaptions.contains(moment.id) {
+                        Text(ContentFilter.hiddenPlaceholder)
+                            .font(Theme.rounded(15))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text(moment.caption)
+                            .font(Theme.rounded(20, .semibold))
+                            .multilineTextAlignment(.center)
+                    }
                 }
                 Text(attribution(moment))
                     .font(Theme.rounded(13))
@@ -204,6 +247,10 @@ struct MomentGalleryView: View {
                 .font(Theme.rounded(13))
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private func captionIsFiltered(_ moment: Moment) -> Bool {
+        !moment.fromMe && ContentFilter.hides(moment.caption)
     }
 
     /// Shows the name attached at send time; falls back to the current partner

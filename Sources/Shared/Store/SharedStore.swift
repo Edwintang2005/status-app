@@ -20,6 +20,11 @@ final class SharedStore {
         static let inviteClosed = "inviteClosed"
         static let inviteURL = "inviteURL"
         static let readReceipts = "readReceiptsEnabled"
+        static let termsVersion = "acceptedTermsVersion"
+        static let contentFilter = "contentFilterEnabled"
+        static let hiddenMoments = "hiddenMomentIDs"
+        static let hiddenStatusAt = "hiddenPartnerStatusAt"
+        static let blockedOwners = "blockedOwnerRecordNames"
     }
 
     init(store: GroupKeyValueStore = GroupFileStore()) {
@@ -82,6 +87,49 @@ final class SharedStore {
         set { store.setData(Data([newValue ? 1 : 0]), forKey: Key.readReceipts) }
     }
 
+    // MARK: - Safety (guideline 1.2)
+
+    /// Highest `AppConfig.termsVersion` the user has agreed to; 0 = never.
+    var acceptedTermsVersion: Int {
+        get { store.data(forKey: Key.termsVersion).flatMap { Int(String(decoding: $0, as: UTF8.self)) } ?? 0 }
+        set { store.setData(Data(String(newValue).utf8), forKey: Key.termsVersion) }
+    }
+
+    /// The on-device word filter over the partner's text. On by default —
+    /// stored as explicit bytes for the same reason as `readReceiptsEnabled`.
+    var contentFilterEnabled: Bool {
+        get { store.data(forKey: Key.contentFilter).map { $0.first == 1 } ?? true }
+        set { store.setData(Data([newValue ? 1 : 0]), forKey: Key.contentFilter) }
+    }
+
+    /// Reported moments: removed locally and kept out of every later delta
+    /// (`CloudSync.apply` drops them), since the record itself lives on in the
+    /// sender's iCloud. Written only by the app, so no cross-process lock.
+    var hiddenMomentIDs: Set<String> {
+        get { decode(Set<String>.self, forKey: Key.hiddenMoments) ?? [] }
+        set { encode(newValue, forKey: Key.hiddenMoments) }
+    }
+
+    /// `updatedAt` of a reported partner status; its text is never shown while
+    /// that status is current. Cleared with the pairing.
+    var hiddenPartnerStatusAt: Date? {
+        get { decode(Date.self, forKey: Key.hiddenStatusAt) }
+        set {
+            if let newValue {
+                encode(newValue, forKey: Key.hiddenStatusAt)
+            } else {
+                store.setData(nil, forKey: Key.hiddenStatusAt)
+            }
+        }
+    }
+
+    /// CloudKit user record names of blocked people; their invites are refused.
+    /// Survives unlink and "start over" — a block is meant to stick.
+    var blockedOwnerRecordNames: Set<String> {
+        get { decode(Set<String>.self, forKey: Key.blockedOwners) ?? [] }
+        set { encode(newValue, forKey: Key.blockedOwners) }
+    }
+
     /// Owner side: cached "invite link revoked" flag so `CloudSync` stops
     /// re-checking a closed share; the share's `publicPermission` is the truth.
     var inviteClosed: Bool {
@@ -116,6 +164,7 @@ final class SharedStore {
             // The next pairing gets a new share with a new link, which starts open.
             inviteClosed = false
             inviteURL = nil
+            hiddenPartnerStatusAt = nil
             for key in ["private", "shared"] { setChangeToken(nil, for: key) }
             snapshot = Snapshot(
                 mine: (name?.isEmpty == false) ? .initial(displayName: name!) : nil,

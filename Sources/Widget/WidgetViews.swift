@@ -8,7 +8,12 @@ struct StatusWidgetView: View {
 
     @Environment(\.widgetFamily) private var family
 
-    private var status: StatusPayload? { entry.snapshot.theirs }
+    /// The partner's status, with a message the user's filter hides replaced.
+    private var status: StatusPayload? {
+        guard var theirs = entry.snapshot.theirs else { return nil }
+        if ContentFilter.hides(theirs.message) { theirs.message = String(localized: "Hidden") }
+        return theirs
+    }
     private var mine: StatusPayload? { entry.snapshot.mine }
     private var isPaired: Bool { entry.snapshot.isPaired }
 

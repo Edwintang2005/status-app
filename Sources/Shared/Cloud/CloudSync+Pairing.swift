@@ -297,6 +297,33 @@ extension CloudSync {
         }
     }
 
+    /// Records who the partner is before a block clears the pairing: the owner's
+    /// record name for a participant, the share's participants for an owner.
+    /// Their invites are refused from then on (`acceptShare`). Returns the names.
+    func recordBlockedPartner() async -> [String] {
+        guard let pairing = await MainActor.run(body: { SharedStore.shared.pairing }) else { return [] }
+        var names: [String] = []
+        switch pairing.role {
+        case .participant:
+            names = [pairing.zoneOwnerName]
+        case .owner:
+            if let share = try? await existingZoneShare(in: container.privateCloudDatabase,
+                                                        zoneID: zoneID(for: pairing)) {
+                names = share.participants
+                    .filter { $0.role != .owner }
+                    .compactMap { $0.userIdentity.userRecordID?.recordName }
+            }
+        }
+        guard !names.isEmpty else { return [] }
+        let toBlock = names
+        await MainActor.run {
+            var blocked = SharedStore.shared.blockedOwnerRecordNames
+            blocked.formUnion(toBlock)
+            SharedStore.shared.blockedOwnerRecordNames = blocked
+        }
+        return names
+    }
+
     /// Settings' plain close: shuts the link only while nobody has come through
     /// it. With a link-joined partner on the share, closing evicts them — that is
     /// the promote handshake, which runs from Diagnostics only (invariant 9).
@@ -383,6 +410,11 @@ extension CloudSync {
     /// accepted `CKShare.Metadata`.
     func acceptShare(_ metadata: CKShare.Metadata, displayName: String) async throws {
         try await requireAvailableAccount()
+        // A blocked person's invite is refused before anything is accepted.
+        if let owner = metadata.share.owner.userIdentity.userRecordID?.recordName,
+           await MainActor.run(body: { SharedStore.shared.blockedOwnerRecordNames.contains(owner) }) {
+            throw SyncError.blocked
+        }
         _ = try await container.accept(metadata)
 
         let zoneID = metadata.share.recordID.zoneID
@@ -418,8 +450,10 @@ extension CloudSync {
         guard await MainActor.run(body: { SharedStore.shared.pairing == nil }) else { return nil }
         guard (try? await accountStatus()) == .available else { return nil }
 
+        let blocked = await MainActor.run { SharedStore.shared.blockedOwnerRecordNames }
         if let zone = try? await container.sharedCloudDatabase.allRecordZones()
-            .first(where: { $0.zoneID.zoneName == AppConfig.coupleZoneName }) {
+            .first(where: { $0.zoneID.zoneName == AppConfig.coupleZoneName
+                            && !blocked.contains($0.zoneID.ownerName) }) {
             return (.participant, zone.zoneID)
         }
         if let zone = try? await container.privateCloudDatabase.allRecordZones()
