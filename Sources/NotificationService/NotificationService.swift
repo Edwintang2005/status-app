@@ -13,21 +13,29 @@ final class NotificationService: UNNotificationServiceExtension {
     private let log = Logger(subsystem: AppConfig.appGroupID, category: "NotificationService")
 
     private var contentHandler: ((UNNotificationContent) -> Void)?
+    /// Its own copy, never the one `enrich` is rewriting — expiry must not
+    /// deliver a half-rewritten banner.
     private var fallback: UNMutableNotificationContent?
     private var work: Task<Void, Never>?
+    private let deliveryLock = NSLock()
+    private var delivered = false
 
     override func didReceive(_ request: UNNotificationRequest,
                              withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
         self.contentHandler = contentHandler
+        // Category up front, so every exit — enriched, unclaimed, refresh failed,
+        // or the expiry fallback — carries the banner actions.
+        let category = Self.category(for: request.content.userInfo)
+        let fallback = request.content.mutableCopy() as? UNMutableNotificationContent
+        fallback?.categoryIdentifier = category
+        self.fallback = fallback
         let mutable = request.content.mutableCopy() as? UNMutableNotificationContent
-        self.fallback = mutable
+        mutable?.categoryIdentifier = category
 
         work = Task { [weak self] in
             guard let self else { return }
             let enriched = await self.enrich(mutable, userInfo: request.content.userInfo)
-            // Expiry may already have delivered the fallback; don't call twice.
-            guard !Task.isCancelled else { return }
-            contentHandler(enriched ?? request.content)
+            self.deliver(enriched ?? request.content)
         }
     }
 
@@ -37,7 +45,26 @@ final class NotificationService: UNNotificationServiceExtension {
         // The refresh may have landed records before the deadline — reload anyway.
         SharedStore.reloadWidgets()
         if let fallback {
-            contentHandler?(fallback)
+            deliver(fallback)
+        }
+    }
+
+    /// Exactly one delivery, whichever of the Task and the expiry gets here first.
+    private func deliver(_ content: UNNotificationContent) {
+        deliveryLock.lock()
+        let first = !delivered
+        delivered = true
+        deliveryLock.unlock()
+        guard first else { return }
+        contentHandler?(content)
+    }
+
+    private static func category(for userInfo: [AnyHashable: Any]) -> String {
+        switch CKNotification(fromRemoteNotificationDictionary: userInfo)?.subscriptionID {
+        case CloudSync.SubscriptionID.status?: return NotificationCategory.status
+        case CloudSync.SubscriptionID.nudge?: return NotificationCategory.nudge
+        case CloudSync.SubscriptionID.moment?: return NotificationCategory.moment
+        default: return ""
         }
     }
 
@@ -53,6 +80,10 @@ final class NotificationService: UNNotificationServiceExtension {
         // Deferred so it runs on *every* exit — a refresh that throws midway
         // may still have applied records, and the widget must not miss them.
         defer { SharedStore.reloadWidgets() }
+
+        // What this device knew before the refresh — a status push whose emoji
+        // and message match it is a rename, and is worded as one.
+        let previousStatus = await MainActor.run { SharedStore.shared.snapshot.theirs }
 
         let result: RefreshResult
         do {
@@ -113,7 +144,13 @@ final class NotificationService: UNNotificationServiceExtension {
                     return claimed
                 }
                 if claimed {
-                    applyStatus(status, to: content, partnerName: partnerName)
+                    if let previousStatus, previousStatus.emoji == status.emoji,
+                       previousStatus.message == status.message,
+                       previousStatus.displayName != status.displayName {
+                        applyRename(status, to: content, previousName: previousStatus.displayName)
+                    } else {
+                        applyStatus(status, to: content, partnerName: partnerName)
+                    }
                 }
             }
         default:
@@ -132,6 +169,17 @@ final class NotificationService: UNNotificationServiceExtension {
             ? status.emoji
             : "\(status.emoji) \(status.message)"
         // Each update stays individually in Notification Centre as history.
+        content.threadIdentifier = "status-updates"
+    }
+
+    /// The status record changed but its words didn't: the partner renamed
+    /// themselves. The push can't be suppressed, so say what actually happened.
+    private func applyRename(_ status: StatusPayload,
+                             to content: UNMutableNotificationContent,
+                             previousName: String) {
+        let old = previousName.trimmingCharacters(in: .whitespacesAndNewlines)
+        content.title = old.isEmpty ? String(localized: "Your partner") : old
+        content.body = String(localized: "is now going by \(status.displayName)")
         content.threadIdentifier = "status-updates"
     }
 
@@ -158,7 +206,7 @@ final class NotificationService: UNNotificationServiceExtension {
                             partnerName: String,
                             nudgeCount: Int) async {
         content.title = partnerName
-        content.body = "is thinking of you 💭"
+        content.body = String(localized: "is thinking of you 💭")
         content.interruptionLevel = .timeSensitive
 
         // Awaited — the process may suspend once the handler runs. `max`, not

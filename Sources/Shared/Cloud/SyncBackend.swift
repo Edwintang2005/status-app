@@ -23,7 +23,8 @@ enum BackendReadiness: Equatable, Sendable {
 /// the share flows have their own UI, so `AppModel` calls `CloudSync` directly for those.
 protocol SyncBackend: Sendable {
     func readiness() async -> BackendReadiness
-    func publish(_ payload: StatusPayload) async throws
+    /// `logged: false` for a rename — the status didn't change, so no `StatusLog` record.
+    func publish(_ payload: StatusPayload, logged: Bool) async throws
     @discardableResult func refresh() async throws -> RefreshResult
     /// `false` when the cooldown blocked it.
     @discardableResult func sendNudge() async throws -> Bool
@@ -42,6 +43,12 @@ protocol SyncBackend: Sendable {
     /// delete never landed is the one lie this app must not tell. The caller clears
     /// local state only after success.
     func unpair() async throws
+}
+
+extension SyncBackend {
+    func publish(_ payload: StatusPayload) async throws {
+        try await publish(payload, logged: true)
+    }
 }
 
 /// The backend the app talks to.
@@ -64,7 +71,7 @@ enum DemoMode {
 
 struct DemoBackend: SyncBackend {
     func readiness() async -> BackendReadiness { .ready }
-    func publish(_ payload: StatusPayload) async throws {}
+    func publish(_ payload: StatusPayload, logged: Bool) async throws {}
     @discardableResult func refresh() async throws -> RefreshResult { .empty }
     @discardableResult func sendNudge() async throws -> Bool {
         SharedStore.shared.mutate { snapshot in

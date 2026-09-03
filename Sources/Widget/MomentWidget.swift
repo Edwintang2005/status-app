@@ -53,6 +53,9 @@ struct MomentWidgetView: View {
         .background(Theme.warm, in: Capsule())
         .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
         .padding(9)
+        .accessibilityLabel(unheardMemos == 1
+                            ? String(localized: "1 voice memo waiting")
+                            : String(localized: "\(unheardMemos) voice memos waiting"))
     }
 
     // MARK: - Content
@@ -91,6 +94,7 @@ struct MomentWidgetView: View {
                                                 : AnyShapeStyle(.primary.opacity(0.08)),
                                         in: Circle())
                     }
+                    .accessibilityLabel("Send a moment")
                 }
             }
             .padding(.horizontal, 12)
@@ -123,15 +127,17 @@ struct MomentWidgetView: View {
 
     private var emptyHint: String? {
         guard entry.snapshot.isPaired, unheardMemos == 0 else { return nil }
-        return "Tap to send the first one."
+        return String(localized: "Tap to send the first one.")
     }
 
     private var emptyLabel: String {
-        guard entry.snapshot.isPaired else { return "Open to pair" }
+        guard entry.snapshot.isPaired else { return String(localized: "Open to pair") }
         if unheardMemos > 0 {
-            return unheardMemos == 1 ? "Voice memo waiting" : "\(unheardMemos) memos waiting"
+            return unheardMemos == 1
+                ? String(localized: "Voice memo waiting")
+                : String(localized: "\(unheardMemos) memos waiting")
         }
-        return "No photos yet"
+        return String(localized: "No photos yet")
     }
 
     // MARK: - Background
@@ -140,6 +146,7 @@ struct MomentWidgetView: View {
     private var background: some View {
         if let moment, let image = MomentStore.shared.thumbnail(for: moment.id) {
             imageView(image)
+                .accessibilityLabel(String(localized: "\(moment.noun) from \(moment.senderName)"))
                 .overlay(alignment: .bottom) {
                     // Gradient only when there's a caption to keep legible.
                     if moment.caption.isEmpty == false {

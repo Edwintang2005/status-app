@@ -98,9 +98,9 @@ extension Moment {
     /// What to call this in a sentence: "sent you a …".
     var noun: String {
         switch kind {
-        case .photo: return "photo"
-        case .drawing: return "drawing"
-        case .voice: return "voice memo"
+        case .photo: return String(localized: "photo")
+        case .drawing: return String(localized: "drawing")
+        case .voice: return String(localized: "voice memo")
         }
     }
 
@@ -116,9 +116,9 @@ extension Moment {
     /// The notification body when there's no caption to show instead.
     var arrivalSummary: String {
         switch kind {
-        case .photo: return "sent you a photo 📷"
-        case .drawing: return "sent you a drawing ✏️"
-        case .voice: return "sent you a voice memo 🎙️"
+        case .photo: return String(localized: "sent you a photo 📷")
+        case .drawing: return String(localized: "sent you a drawing ✏️")
+        case .voice: return String(localized: "sent you a voice memo 🎙️")
         }
     }
 

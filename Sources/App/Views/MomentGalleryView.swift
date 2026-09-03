@@ -258,9 +258,12 @@ struct MomentGalleryView: View {
                 ShareLink(item: url) {
                     Image(systemName: "square.and.arrow.up")
                 }
+                .accessibilityLabel("Share voice memo")
             } else {
                 Image(systemName: "square.and.arrow.up")
                     .foregroundStyle(.tertiary)
+                    .accessibilityLabel("Share voice memo")
+                    .accessibilityHint("Not on this device yet")
             }
         } else {
             saveButton
@@ -283,6 +286,7 @@ struct MomentGalleryView: View {
                 Image(systemName: "square.and.arrow.down")
             }
             .disabled(current.map { !MomentStore.shared.hasImage(for: $0.id) } ?? true)
+            .accessibilityLabel("Save to Photos")
         }
     }
 

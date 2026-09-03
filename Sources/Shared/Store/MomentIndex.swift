@@ -13,11 +13,19 @@ final class MomentIndex {
     /// dropping the other side's insert for good.
     private let lock = NSLock()
     private let crossLock = CrossProcessLock(name: "moments-index.lock")
+    private let fileURL: URL?
+    /// Runs when the file is found corrupt; the default clears the CloudKit
+    /// change tokens so the next refresh rebuilds the index from the zone.
+    private let onCorrupt: () -> Void
 
-    private var fileURL: URL? {
-        FileManager.default
+    /// `fileURL` defaults to the App Group file; tests pass a temporary one.
+    init(fileURL: URL? = nil, onCorrupt: (() -> Void)? = nil) {
+        self.fileURL = fileURL ?? FileManager.default
             .containerURL(forSecurityApplicationGroupIdentifier: AppConfig.appGroupID)?
             .appendingPathComponent("moments-index.json")
+        self.onCorrupt = onCorrupt ?? {
+            for key in ["private", "shared"] { SharedStore.shared.setChangeToken(nil, for: key) }
+        }
     }
 
     /// Newest first.
@@ -39,7 +47,7 @@ final class MomentIndex {
             let sidecar = fileURL.appendingPathExtension("corrupt")
             try? FileManager.default.removeItem(at: sidecar)
             try? FileManager.default.moveItem(at: fileURL, to: sidecar)
-            for key in ["private", "shared"] { SharedStore.shared.setChangeToken(nil, for: key) }
+            onCorrupt()
             return []
         }
     }
@@ -95,9 +103,12 @@ final class MomentIndex {
             let targets = Set(ids)
             var all = loadUnlocked()
             var changed = false
+            // Whole seconds, like every persisted date: the value is compared
+            // against its own ISO-8601 copy once it comes back in a receipt.
+            let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
             for index in all.indices where targets.contains(all[index].id) && !all[index].seen {
                 all[index].seen = true
-                all[index].seenAt = Date()
+                all[index].seenAt = now
                 changed = true
             }
             if changed { saveUnlocked(all) }

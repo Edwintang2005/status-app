@@ -121,6 +121,7 @@ struct MoodPickerView: View {
                     .font(Theme.rounded(15))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Turn off the celebration")
         }
         .foregroundStyle(Theme.warm)
         .padding(.vertical, 10)
@@ -146,6 +147,7 @@ struct MoodPickerView: View {
                         .foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
             }
         }
         .padding(.vertical, 11)
@@ -220,9 +222,13 @@ struct MoodPickerView: View {
         }
         .buttonStyle(.plain)
         .animation(.smooth(duration: 0.2), value: selected)
+        // The emoji is decoration; the label is the status.
+        .accessibilityLabel(mood.label)
+        .accessibilityValue(mood.isCelebration ? "Celebration" : "")
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    /// Whether the text is (still) one of the ~90 preset labels — in which
+    /// Whether the text is (still) one of the ~200 preset labels — in which
     /// case tapping another preset should swap it as it always has.
     private func isPresetLabel(_ text: String) -> Bool {
         MoodGroup.allCases.contains { $0.moods.contains { $0.label == text } }

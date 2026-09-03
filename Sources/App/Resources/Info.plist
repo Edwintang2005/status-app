@@ -14,6 +14,18 @@
 	<string>Red String</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
+	<!-- Widgets reach onOpenURL without this; Shortcuts and Safari need it. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.edwintang.redstring</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>redstring</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>

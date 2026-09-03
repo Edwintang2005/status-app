@@ -67,7 +67,8 @@ struct StatusPayload: Codable, Hashable {
             emoji: "👋",
             message: "just joined",
             displayName: displayName,
-            updatedAt: Date(),
+            // Whole seconds, like every persisted date (invariant 14).
+            updatedAt: Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down)),
             nudgeCount: 0,
             lastNudgeAt: nil
         )

@@ -10,13 +10,21 @@ project:
 	xcodegen generate
 
 ## Compile check only — no signing, so the result must NOT be launched.
-## Without the App Group entitlement the app fatal-errors on startup
+## Without the App Group entitlement the app asserts on startup in Debug
 ## (GroupState.swift): the widget channel is a file in the group container,
 ## and there is no offline fallback. Use `make run` to actually run it.
 build: project
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 		-destination 'platform=iOS Simulator,name=$(SIM)' \
 		-configuration Debug CODE_SIGNING_ALLOWED=NO build
+
+## Unit tests. The test bundle compiles Sources/Shared directly (no host app),
+## so this needs neither signing nor the App Group.
+test: project
+	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
+		-destination 'platform=iOS Simulator,name=$(SIM)' \
+		-configuration Debug CODE_SIGNING_ALLOWED=NO \
+		-only-testing:RedStringTests test
 
 ## Build signed, install and launch on the simulator. Needs DEVELOPMENT_TEAM
 ## set (project.yml or Xcode's Signing tab) — the App Group and CloudKit

@@ -32,6 +32,7 @@ struct VoiceMomentTile: View {
             .background(.black.opacity(0.35), in: Capsule())
             .padding(6)
         }
+        .accessibilityLabel("Voice memo, \(moment.durationLabel)")
     }
 }
 
@@ -75,6 +76,7 @@ struct VoicePlaybackCard: View {
                 .buttonStyle(.plain)
                 .disabled(audioURL == nil)
                 .opacity(audioURL == nil ? 0.4 : 1)
+                .accessibilityLabel(isPlaying ? "Pause" : "Play")
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(isPlaying ? timeLabel(player.elapsed) : moment.durationLabel)
@@ -124,6 +126,23 @@ struct VoiceMemoRow: View {
         content
             .contentShape(Rectangle())
             .onTapGesture(perform: onTap)
+            // One element: double-tap plays, swipe up/down scrubs.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(title), \(moment.durationLabel)")
+            .accessibilityValue(accessibilityValue)
+            .accessibilityHint(isPlaying ? "Pauses" : "Plays")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { onTap() }
+            .accessibilityAdjustableAction { direction in
+                guard let audioURL else { return }
+                onScrub?()
+                player.seek(audioURL, by: direction == .increment ? 0.1 : -0.1)
+            }
+    }
+
+    private var accessibilityValue: String {
+        if isPlaying { return String(localized: "Playing") }
+        return !moment.seen && !moment.fromMe ? String(localized: "New") : ""
     }
 
     private var content: some View {
@@ -146,8 +165,8 @@ struct VoiceMemoRow: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    // Swipe to scrub; a plain tap still reaches the row's button
-                    // (10pt threshold keeps the two from fighting).
+                    // Swipe sideways to scrub; taps still reach the row, and a
+                    // vertical swipe still scrolls the home screen.
                     ScrubbableWaveform(moment: moment,
                                        audioURL: audioURL,
                                        player: player,
@@ -155,7 +174,7 @@ struct VoiceMemoRow: View {
                                        trackTint: Theme.accent.opacity(0.22),
                                        spacing: 2,
                                        maxBarWidth: 3,
-                                       minimumDragDistance: 10,
+                                       scrollSafe: true,
                                        onScrubStart: onScrub)
                         .frame(height: 22)
                 }

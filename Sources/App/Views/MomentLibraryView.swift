@@ -96,6 +96,27 @@ struct MomentLibraryView: View {
             }
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel(for: moment))
+        .accessibilityHint("Opens it")
+    }
+
+    /// Kind, sender, age, and whichever badge the tile is wearing.
+    private func accessibilityLabel(for moment: Moment) -> String {
+        let sender = moment.senderName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let who = moment.fromMe
+            ? String(localized: "you")
+            : (sender.isEmpty ? model.partnerName : sender)
+        var parts = [String(localized: "\(moment.noun) from \(who)"),
+                     moment.sentAt.formatted(.relative(presentation: .named))]
+        if !moment.seen && !moment.fromMe { parts.append(String(localized: "new")) }
+        if moment.fromMe {
+            if !moment.uploaded {
+                parts.append(String(localized: "waiting to send"))
+            } else if model.readReceiptsEnabled, moment.seenByPartnerAt != nil {
+                parts.append(String(localized: "seen"))
+            }
+        }
+        return parts.joined(separator: ", ")
     }
 
     private func sentBadgeSymbol(_ moment: Moment) -> String {

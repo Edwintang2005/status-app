@@ -57,9 +57,11 @@ final class StatusHistoryLog {
     private let log = Logger(subsystem: AppConfig.appGroupID, category: "StatusHistoryLog")
     private let lock = NSLock()
     private let crossLock = CrossProcessLock(name: "status-history.lock")
+    private let fileURL: URL?
 
-    private var fileURL: URL? {
-        FileManager.default
+    /// `fileURL` defaults to the App Group file; tests pass a temporary one.
+    init(fileURL: URL? = nil) {
+        self.fileURL = fileURL ?? FileManager.default
             .containerURL(forSecurityApplicationGroupIdentifier: AppConfig.appGroupID)?
             .appendingPathComponent("status-history.json")
     }

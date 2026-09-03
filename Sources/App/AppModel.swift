@@ -8,6 +8,10 @@ import os
 @MainActor
 @Observable
 final class AppModel {
+    /// The live model, for the app delegate's notification-action handler —
+    /// the only caller with no view hierarchy to reach it through.
+    @ObservationIgnored static weak var current: AppModel?
+
     private let store: SharedStore
     private let log = Logger(subsystem: AppConfig.appGroupID, category: "AppModel")
 
@@ -126,7 +130,7 @@ final class AppModel {
         guard !moment.seen, !moment.fromMe else { return }
         history = MomentIndex.shared.markSeen(ids: [moment.id])
         // The widget's unheard-memo badge is a snapshot field; this is what clears it.
-        store.applyDerived(from: history)
+        store.refreshDerived()
         snapshot = store.snapshot
         if readReceiptsEnabled, isPaired {
             store.mutate(reloadWidgets: false) { $0.receiptsDirty = true }
@@ -282,8 +286,8 @@ final class AppModel {
         isPaired = store.pairing != nil
         role = store.pairing?.role
         inviteClosed = store.inviteClosed
-        // The invite can close itself (CloudSync, on partner join); drop the dead link.
-        if inviteClosed, inviteURL != nil { setInviteURL(nil) }
+        // The closed link is kept on purpose — see `refreshInviteURL`.
+        inviteURL = store.inviteURL
         history = MomentIndex.shared.load()
     }
 
@@ -422,7 +426,8 @@ final class AppModel {
         guard paired else { return }
         Task { [payload] in
             do {
-                try await Backend.current.publish(payload)
+                // Not logged: the status didn't change, only the name on it.
+                try await Backend.current.publish(payload, logged: false)
                 markStatusPublished(payload)
             } catch {
                 // Quiet: the name is right locally, and `republishStatusIfNeeded` carries it over.
@@ -584,7 +589,7 @@ final class AppModel {
                 log.error("Dropping pending moment \(moment.id, privacy: .public): its media is gone.")
                 MomentIndex.shared.remove(id: moment.id)
                 history = MomentIndex.shared.load()
-                store.applyDerived(from: history)
+                store.refreshDerived()
                 continue
             }
             do {
@@ -649,17 +654,33 @@ final class AppModel {
     /// Publishes this device's seen-map when it has changed. Quiet on failure —
     /// the dirty flag stays set, so the next refresh retries.
     func flushReceiptsIfNeeded() async {
-        guard isPaired, !isFlushingReceipts, store.snapshot.receiptsDirty else { return }
+        guard isPaired, !isFlushingReceipts else { return }
         isFlushingReceipts = true
         defer { isFlushingReceipts = false }
-        let map = readReceiptsEnabled ? currentSeenMap() : [:]
-        let statusSeen = readReceiptsEnabled ? store.snapshot.partnerStatusSeen : nil
-        do {
-            try await Backend.current.publishReceipts(map, statusSeen: statusSeen)
-            store.mutate(reloadWidgets: false) { $0.receiptsDirty = false }
-        } catch {
-            log.error("Receipt publish failed: \(error.localizedDescription, privacy: .public)")
+        // Claim the flag before the network call, like the nudge cooldown: a
+        // `markSeen` or toggle landing mid-flight re-dirties it and the next pass
+        // publishes that too, instead of a blanket clear swallowing it.
+        while claimReceiptsDirty() {
+            let map = readReceiptsEnabled ? currentSeenMap() : [:]
+            let statusSeen = readReceiptsEnabled ? store.snapshot.partnerStatusSeen : nil
+            do {
+                try await Backend.current.publishReceipts(map, statusSeen: statusSeen)
+            } catch {
+                log.error("Receipt publish failed: \(error.localizedDescription, privacy: .public)")
+                store.mutate(reloadWidgets: false) { $0.receiptsDirty = true }
+                return
+            }
         }
+    }
+
+    private func claimReceiptsDirty() -> Bool {
+        var claimed = false
+        store.mutate(reloadWidgets: false) {
+            guard $0.receiptsDirty else { return }
+            $0.receiptsDirty = false
+            claimed = true
+        }
+        return claimed
     }
 
     // MARK: - Status history
@@ -728,11 +749,13 @@ final class AppModel {
         store.inviteURL = url
     }
 
-    func lockPairing() async {
+    /// Settings' close. Refuses (with an explanation) once someone has joined
+    /// through the link — that case is the Diagnostics handshake.
+    func closeInvite() async {
         isBusy = true
         defer { isBusy = false }
         do {
-            try await CloudSync.shared.lockPairing()
+            try await CloudSync.shared.closeUnusedInvite()
             // The URL is kept — a closed link still re-admits the existing partner.
             setInviteClosed(true)
         } catch {

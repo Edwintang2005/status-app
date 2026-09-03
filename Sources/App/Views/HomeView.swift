@@ -60,6 +60,7 @@ struct HomeView: View {
                         Image(systemName: "photo.stack")
                     }
                     .disabled(model.history.isEmpty)
+                    .accessibilityLabel("History")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -67,6 +68,7 @@ struct HomeView: View {
                     } label: {
                         Image(systemName: "gearshape")
                     }
+                    .accessibilityLabel("Settings")
                 }
             }
             .toolbarBackground(.hidden, for: .navigationBar)
@@ -176,6 +178,18 @@ struct HomeView: View {
             partnerCardContent
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(partnerSummary)
+        .accessibilityHint("Shows status history")
+    }
+
+    /// VoiceOver's reading of the partner card: name, emoji, message, age.
+    private var partnerSummary: String {
+        guard let theirs = model.snapshot.theirs else {
+            return String(localized: "\(model.partnerName): waiting for their first status")
+        }
+        let message = theirs.message.isEmpty ? String(localized: "no message") : theirs.message
+        let when = theirs.updatedAt.formatted(.relative(presentation: .named))
+        return "\(model.partnerName): \(theirs.emoji) \(message), \(when)"
     }
 
     private var partnerCardContent: some View {
@@ -279,6 +293,10 @@ struct HomeView: View {
             .shadow(color: .black.opacity(0.10), radius: 20, y: 10)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(unseen > 1
+                            ? String(localized: "\(momentLabel(moment)). \(unseen) new")
+                            : momentLabel(moment))
+        .accessibilityHint("Opens it")
         // On the whole card, not the picture: zooming only the square would be
         // cut off by the card's rounded clip.
         .pinchToZoom()
@@ -314,10 +332,10 @@ struct HomeView: View {
     private func momentLabel(_ moment: Moment) -> String {
         if moment.caption.isEmpty {
             return moment.fromMe
-                ? "You sent a \(moment.noun)"
-                : "Sent you a \(moment.noun)"
+                ? String(localized: "You sent a \(moment.noun)")
+                : String(localized: "Sent you a \(moment.noun)")
         }
-        return moment.fromMe ? "You: \(moment.caption)" : moment.caption
+        return moment.fromMe ? String(localized: "You: \(moment.caption)") : moment.caption
     }
 
     // MARK: - Mine
@@ -361,6 +379,19 @@ struct HomeView: View {
             .overlay(Capsule().strokeBorder(Color.white.opacity(0.35), lineWidth: 1))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(myStatusSummary)
+        .accessibilityHint("Changes your status")
+    }
+
+    private var myStatusSummary: String {
+        guard let mine = model.snapshot.mine, !mine.message.isEmpty || !mine.emoji.isEmpty else {
+            return String(localized: "Set your status")
+        }
+        var summary = String(localized: "Your status: \(mine.emoji) \(mine.message)")
+        if let seenAt = model.myStatusSeenAt {
+            summary += String(localized: ". Seen \(seenAt.formatted(.relative(presentation: .named)))")
+        }
+        return summary
     }
 
     private var syncFooter: some View {
@@ -393,6 +424,7 @@ struct HomeView: View {
             .font(Theme.rounded(12))
             .foregroundStyle(.tertiary)
             .padding(.top, 4)
+            .accessibilityElement(children: .combine)
         }
     }
 }
@@ -417,6 +449,7 @@ private struct NudgeButton: View {
         // Accent, not warm: the heart wears the red string's crimson.
         .buttonStyle(PrimaryButtonStyle(tint: ready ? Theme.accent : Color.secondary.opacity(0.4)))
         .disabled(!ready)
+        .accessibilityLabel(ready ? "Send a nudge" : "Nudge sent")
         .animation(.smooth, value: ready)
         .task(id: lastSentAt) { await countDown() }
     }

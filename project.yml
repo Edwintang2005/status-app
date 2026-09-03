@@ -2,8 +2,8 @@
 # Regenerate the Xcode project with:  make project     (or: xcodegen generate)
 #
 # To rebrand: change `bundleIdPrefix` and the PRODUCT_BUNDLE_IDENTIFIERs below,
-# then the matching IDs in Sources/Shared/AppConfig.swift, the three
-# .entitlements files and the NSUbiquitousContainers key in
+# then the matching IDs in Sources/Shared/AppConfig.swift, the four
+# .entitlements files (app Debug + Release, widget, NSE) and the NSUbiquitousContainers key in
 # Sources/App/Resources/Info.plist, and re-run `make project`.
 
 name: RedString
@@ -39,6 +39,9 @@ settings:
     DEVELOPMENT_TEAM: "3L8Q3U3WY3"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     SWIFT_EMIT_LOC_STRINGS: YES
+    # Each target keeps its own Localizable.xcstrings under Resources/; the
+    # build fills them from SwiftUI text, LocalizedStringResource and String(localized:).
+    LOCALIZATION_PREFERS_STRING_CATALOGS: YES
     GENERATE_INFOPLIST_FILE: NO
     ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
     # dSYMs for every archive, so TestFlight and App Store crash reports come
@@ -73,6 +76,8 @@ targets:
         buildPhase: none
       - path: Sources/App/Resources/RedString-Release.entitlements
         buildPhase: none
+      # The lock-screen heart's intent, also exposed to Siri/Shortcuts by the app.
+      - path: Sources/Widget/SendNudgeIntent.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.edwintang.redstring
@@ -142,6 +147,21 @@ targets:
         INFOPLIST_FILE: Sources/NotificationService/Resources/Info.plist
         CODE_SIGN_ENTITLEMENTS: Sources/NotificationService/Resources/RedStringNotificationService.entitlements
 
+  # Unit tests over Sources/Shared, compiled straight into the bundle — no host
+  # app, so no signing and no App Group: the stores under test take injected
+  # files or a throwaway UserDefaults suite. App-target logic isn't covered here.
+  RedStringTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Sources/Shared
+      - path: Tests/RedStringTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.edwintang.redstring.tests
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+
 schemes:
   RedString:
     build:
@@ -149,7 +169,12 @@ schemes:
         RedString: all
         RedStringWidgetExtension: all
         RedStringNotificationService: all
+        RedStringTests: [test]
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - RedStringTests
     archive:
       config: Release

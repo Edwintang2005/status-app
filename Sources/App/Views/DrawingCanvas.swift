@@ -172,7 +172,7 @@ struct DrawingPalette: View {
     var body: some View {
         VStack(spacing: 14) {
             HStack(spacing: 10) {
-                ForEach(Array(DrawingController.palette.enumerated()), id: \.offset) { _, colour in
+                ForEach(Array(DrawingController.palette.enumerated()), id: \.offset) { index, colour in
                     Button {
                         controller.color = colour
                         controller.isErasing = false
@@ -189,6 +189,8 @@ struct DrawingPalette: View {
                             )
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(String(localized: "Colour \(index + 1)"))
+                    .accessibilityAddTraits(isSelected(colour) ? .isSelected : [])
                 }
 
                 // Any colour at all, including the eyedropper.
@@ -206,7 +208,7 @@ struct DrawingPalette: View {
 
             HStack(spacing: 18) {
                 // Clear is irreversible, so it sits far from undo.
-                toolButton("trash", active: false) { controller.clear() }
+                toolButton("trash", label: "Clear the drawing", active: false) { controller.clear() }
 
                 Divider().frame(height: 24)
 
@@ -227,14 +229,16 @@ struct DrawingPalette: View {
                             )
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(String(localized: "Brush size \(Int(width))"))
+                    .accessibilityAddTraits(controller.width == width && !controller.isErasing ? .isSelected : [])
                 }
 
                 Divider().frame(height: 24)
 
-                toolButton("eraser", active: controller.isErasing) {
+                toolButton("eraser", label: "Eraser", active: controller.isErasing) {
                     controller.isErasing.toggle()
                 }
-                toolButton("arrow.uturn.backward", active: false) { controller.undo() }
+                toolButton("arrow.uturn.backward", label: "Undo", active: false) { controller.undo() }
             }
 
             if showsBackdrop {
@@ -264,6 +268,8 @@ struct DrawingPalette: View {
                                     )
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("Background colour")
+                            .accessibilityAddTraits(controller.backdrop == backdrop ? .isSelected : [])
                         }
                         ColorPicker("Any background",
                                     selection: $controller.backdropColor,
@@ -301,6 +307,7 @@ struct DrawingPalette: View {
     }
 
     private func toolButton(_ symbol: String,
+                            label: LocalizedStringKey,
                             active: Bool,
                             action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -310,6 +317,8 @@ struct DrawingPalette: View {
                 .background(Circle().fill(active ? Theme.accent.opacity(0.18) : .clear))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 }
 

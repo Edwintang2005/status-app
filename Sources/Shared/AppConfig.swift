@@ -5,7 +5,8 @@ import Foundation
 enum AppConfig {
     static let appName = "Red String"
 
-    /// Must match `com.apple.security.application-groups` in both entitlements files.
+    /// Must match `com.apple.security.application-groups` in all four entitlements
+    /// files (app Debug and Release, widget, notification service).
     static let appGroupID = "group.com.edwintang.redstring"
 
     /// Must match `com.apple.developer.icloud-container-identifiers` in both

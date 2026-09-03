@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// One place for colour, type and elevation, defined in code (no asset-catalog
 /// palette to sync). The palette is the app icon's: rope crimson, fox orange, fish steel blue, icon cream.
@@ -49,8 +50,11 @@ enum Theme {
         }
     }
 
+    /// Follows Dynamic Type like the system text styles, capped so fixed-height
+    /// tiles and single-line rows still fit at the accessibility sizes.
     static func rounded(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .rounded)
+        let scaled = min(UIFontMetrics.default.scaledValue(for: size), size * 1.35)
+        return .system(size: scaled, weight: weight, design: .rounded)
     }
 }
 

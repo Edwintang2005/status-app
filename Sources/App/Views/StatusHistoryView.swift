@@ -80,9 +80,11 @@ struct StatusHistoryView: View {
             if entry.isCelebration {
                 Image(systemName: "sparkles")
                     .foregroundStyle(Theme.warm)
+                    .accessibilityLabel("Celebration")
             }
         }
         .listRowBackground(Color.clear)
+        .accessibilityElement(children: .combine)
     }
 
     private func who(_ entry: StatusHistoryEntry) -> String {

@@ -20,6 +20,31 @@ enum NotificationManager {
         }
     }
 
+    /// Actions on the banners: a heart back on all three, a text reply on a
+    /// status. Handled in `AppDelegate.userNotificationCenter(_:didReceive:)`.
+    static func registerCategories() {
+        let heart = UNNotificationAction(
+            identifier: NotificationCategory.Action.heartBack,
+            title: String(localized: "Send a heart back"),
+            options: [],
+            icon: UNNotificationActionIcon(systemImageName: "heart.fill"))
+        let reply = UNTextInputNotificationAction(
+            identifier: NotificationCategory.Action.replyStatus,
+            title: String(localized: "Reply with a status"),
+            options: [],
+            icon: UNNotificationActionIcon(systemImageName: "text.bubble"),
+            textInputButtonTitle: String(localized: "Set"),
+            textInputPlaceholder: String(localized: "Say anything"))
+        UNUserNotificationCenter.current().setNotificationCategories([
+            UNNotificationCategory(identifier: NotificationCategory.status,
+                                   actions: [heart, reply], intentIdentifiers: []),
+            UNNotificationCategory(identifier: NotificationCategory.nudge,
+                                   actions: [heart], intentIdentifiers: []),
+            UNNotificationCategory(identifier: NotificationCategory.moment,
+                                   actions: [heart], intentIdentifiers: []),
+        ])
+    }
+
     static func authorizationStatus() async -> UNAuthorizationStatus {
         await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
     }
@@ -53,6 +78,7 @@ enum NotificationManager {
         content.title = moment.senderName.isEmpty ? name : moment.senderName
         content.body = moment.caption.isEmpty ? moment.arrivalSummary : moment.caption
         content.sound = .default
+        content.categoryIdentifier = NotificationCategory.moment
 
         // If the refresh's best-effort media download failed, fetch here rather
         // than announcing a photo with no photo.
@@ -83,8 +109,11 @@ enum NotificationManager {
 
         let content = UNMutableNotificationContent()
         content.title = name
-        content.body = stale ? "was thinking of you earlier 💭" : "is thinking of you 💭"
+        content.body = stale
+            ? String(localized: "was thinking of you earlier 💭")
+            : String(localized: "is thinking of you 💭")
         content.sound = .default
+        content.categoryIdentifier = NotificationCategory.nudge
         // Old news doesn't get to break through Focus the way a live tap does.
         if !stale { content.interruptionLevel = .timeSensitive }
 

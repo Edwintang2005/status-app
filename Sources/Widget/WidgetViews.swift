@@ -20,7 +20,7 @@ struct StatusWidgetView: View {
     }
 
     /// What to call them before they've said anything.
-    private var name: String { knownName ?? "Them" }
+    private var name: String { knownName ?? String(localized: "Them") }
 
     /// Paired, but nothing has arrived yet — distinct from "not paired".
     private var isWaiting: Bool { isPaired && status == nil }
@@ -51,7 +51,7 @@ struct StatusWidgetView: View {
         guard isPaired else {
             return Text("\(AppConfig.appName): not paired")
         }
-        let theirs = status.map { "\($0.emoji) \(name)" } ?? "💭 nothing yet"
+        let theirs = status.map { "\($0.emoji) \(name)" } ?? String(localized: "💭 nothing yet")
         guard let mine else {
             return Text(theirs)
         }
@@ -76,6 +76,12 @@ struct StatusWidgetView: View {
                     .font(.system(size: 20))
             }
         }
+        .accessibilityLabel(circularSummary)
+    }
+
+    private var circularSummary: String {
+        if let status { return "\(name): \(status.emoji) \(personMessage(for: status))" }
+        return isWaiting ? String(localized: "Nothing from them yet") : String(localized: "Open to pair")
     }
 
     // MARK: Rectangular
@@ -123,11 +129,12 @@ struct StatusWidgetView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 6)
+        .accessibilityElement(children: .combine)
     }
 
     private func personMessage(for status: StatusPayload?) -> String {
-        guard let status else { return "nothing yet" }
-        return status.message.isEmpty ? "no message" : status.message
+        guard let status else { return String(localized: "nothing yet") }
+        return status.message.isEmpty ? String(localized: "no message") : status.message
     }
 
     // MARK: Home screen
@@ -179,12 +186,13 @@ struct StatusWidgetView: View {
                     .background(Theme.accent, in: Circle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Send a nudge")
         }
     }
 
     private var smallMessage: String {
-        guard let status else { return "Nothing yet. Send yours." }
-        return status.message.isEmpty ? "no message" : status.message
+        guard let status else { return String(localized: "Nothing yet. Send yours.") }
+        return status.message.isEmpty ? String(localized: "no message") : status.message
     }
 
     private var notPaired: some View {
@@ -223,6 +231,12 @@ struct NudgeWidgetView: View {
         return "heart.fill"
     }
 
+    private var accessibilityLabel: String {
+        if recentlySent { return String(localized: "Nudge sent") }
+        if recentlyFailed { return String(localized: "Nudge didn't send. Tap to retry") }
+        return String(localized: "Send a nudge")
+    }
+
     var body: some View {
         ZStack {
             AccessoryWidgetBackground()
@@ -233,6 +247,7 @@ struct NudgeWidgetView: View {
                         .widgetAccentable()
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(accessibilityLabel)
             } else {
                 Image(systemName: "link.badge.plus")
                     .font(.system(size: 20))

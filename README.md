@@ -60,7 +60,7 @@ Then, once:
    survives. Then re-run `make project`.
 2. **Change the bundle IDs** if `com.edwintang.redstring` isn't yours. Four
    places must agree:
-   - `PRODUCT_BUNDLE_IDENTIFIER` in [project.yml](project.yml) (all three targets)
+   - `PRODUCT_BUNDLE_IDENTIFIER` in [project.yml](project.yml) (all four targets, tests included)
    - the identifiers in [Sources/Shared/AppConfig.swift](Sources/Shared/AppConfig.swift)
    - the container and group IDs in all four `.entitlements` files
    - the `NSUbiquitousContainers` key in
@@ -230,6 +230,21 @@ only when the partner gets it. Each send type recovers its own way:
 
 A nudge or a moment arriving also runs a full refresh in the extension, so in
 practice status tends to ride along with them.
+
+### Acting from the banner, or by voice
+
+Every enriched banner carries actions: **Send a heart back** on all three
+kinds, and **Reply with a status** on a status alert, which sets your own
+status (💬 plus your words) without opening the app. The service extension
+stamps the category; the app registers the actions at launch and handles taps
+in `AppDelegate`, going through `AppModel` so the usual publish path (and its
+offline recovery) runs. The lock-screen heart's intent is also an App
+Shortcut — "Send a nudge with Red String" works from Siri and the Shortcuts
+app.
+
+Icon-only controls have VoiceOver labels, voice-memo rows are single elements
+(double-tap plays, swipe up or down scrubs), and the rounded type follows
+Dynamic Type up to 1.35× so fixed-height tiles keep fitting.
 
 ## Photos and doodles
 
@@ -419,7 +434,7 @@ rapid-fire hearts, plus reactions on a moment and a shared countdown widget.
 Everything below is already wired up; this is the order to do it in.
 
 1. **Set your team** — `DEVELOPMENT_TEAM` in [project.yml](project.yml),
-   then `make project`. All three targets (`RedString`,
+   then `make project`. The shipping targets (`RedString`,
    `RedStringWidgetExtension`, `RedStringNotificationService`) inherit it from
    the project level.
 2. **Run once on a device** with a Debug build. That creates the CloudKit
@@ -472,7 +487,7 @@ Two things to know about the CloudKit schema:
 
 ```
 Sources/
-  Shared/      compiled into ALL THREE targets
+  Shared/      compiled into every target, the test bundle included
     AppConfig.swift              the IDs that must match the entitlements
     Theme.swift                  colours, cards, buttons
     Waveform.swift               condenses recorder levels into memo waveforms
@@ -489,13 +504,18 @@ Sources/
     Store/StatusHistoryLog.swift local rolling status log (see "Status history")
     Cloud/SyncBackend.swift      the sync surface the UI depends on, plus the
                                  DEBUG-only demo backend
-    Cloud/CloudSync.swift        CloudKit: sharing, records, assets,
-                                 subscriptions
+    Cloud/CloudSync.swift        the CloudKit actor's core; one extension file
+    Cloud/CloudSync+*.swift      per concern: Pairing, Status, Refresh, Nudges,
+                                 Moments, Receipts, Subscriptions, Unpairing
     Cloud/CloudDiagnostics.swift the report behind the Debug-only Settings row
+    Notifications.swift          banner category/action IDs, Notification.Names
   App/
-    RedStringApp.swift, AppDelegate.swift  push registration, share acceptance
+    RedStringApp.swift, AppDelegate.swift  push registration, share acceptance,
+                                           banner actions
+    RedStringShortcuts.swift               Siri / Shortcuts: "send a nudge"
     AppModel.swift, SyncRunner.swift       state and the refresh→notify path
     NotificationManager.swift              local notifications + authorization
+                                           + action categories
     MemoryArchive.swift                    the "archive memories" export
     DemoSeeder.swift                       DEBUG-only screenshot content
     Audio/VoiceRecorder.swift, VoicePlayer.swift
@@ -514,11 +534,17 @@ Sources/
     RedStringWidgetBundle.swift
     StatusWidget.swift, WidgetViews.swift, StatusProvider.swift
     MomentWidget.swift                   the photo/doodle widget
-    SendNudgeIntent.swift                the lock screen heart
+    SendNudgeIntent.swift                the lock screen heart (also compiled
+                                         into the app for Siri)
   NotificationService/
     NotificationService.swift            enriches pushes; runs when the app can't
+Tests/
+  RedStringTests/                        XCTest over Sources/Shared — no host app
 
-Each target's Resources/ also carries a PrivacyInfo.xcprivacy — required for
+Each target's Resources/ also carries a Localizable.xcstrings (an Xcode IDE
+build fills it from SwiftUI text and String(localized:) — xcodebuild doesn't
+write it back; English only so far, but every user-facing string goes through
+it) and a PrivacyInfo.xcprivacy — required for
 App Store submission. Red String declares no tracking and no collected data;
 the required-reason APIs are the App Group defaults suite (CA92.1) and the
 file timestamps MomentStore.prune reads inside the app's own container
@@ -531,7 +557,9 @@ file timestamps MomentStore.prune reads inside the app's own container
 |---|---|
 | `make project` | regenerate the Xcode project from `project.yml` |
 | `make build` | compile check for the Simulator (unsigned — don't launch it) |
+| `make test` | unit tests over `Sources/Shared` (unsigned; no host app or App Group needed) |
 | `make run` | build signed, install and launch on the Simulator |
+| `make device` | build signed and install the Debug config on a connected iPhone — the only route to the CloudKit Development schema |
 | `make archive` | archive the Release config for TestFlight / the App Store |
 | `make clean` | |
 

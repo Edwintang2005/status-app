@@ -164,11 +164,13 @@ final class SharedStore {
     func record(_ moments: [Moment]) {
         guard !moments.isEmpty else { return }
         let all = MomentIndex.shared.insert(moments)
-        applyDerived(from: all, reloadWidgets: false)
+        refreshDerived(reloadWidgets: false)
 
         // Index keeps every entry; only recent files stay on disk — older
-        // media is re-fetched from CloudKit on demand.
+        // media is re-fetched from CloudKit on demand. A send still waiting to
+        // upload has no cloud copy to re-fetch, so its files stay whatever its age.
         let keep = all.prefix(AppConfig.momentImageCacheLimit).map(\.id)
+            + all.filter { $0.fromMe && !$0.uploaded }.map(\.id)
         MomentStore.shared.prune(keeping: keep)
         Self.reloadWidgets()
     }
@@ -178,18 +180,30 @@ final class SharedStore {
     }
 
     /// Recomputes snapshot fields derived from the history index; call whenever
-    /// the index changes. `all` must be the whole index, newest first.
-    func applyDerived(from all: [Moment], reloadWidgets: Bool = true) {
+    /// the index changes. The index is read *inside* the locked mutate: a list
+    /// captured earlier can be applied after another process's newer one, and
+    /// the widget would regress to an older moment.
+    func refreshDerived(reloadWidgets: Bool = true) {
         mutate(reloadWidgets: reloadWidgets) { snapshot in
-            // Unconditional: each field must be able to return to nil when the
-            // last moment in its direction is deleted.
-            snapshot.latestPartnerMoment = all.first { !$0.fromMe }
-            snapshot.latestOwnMoment = all.first { $0.fromMe }
-            snapshot.latestPartnerVisualMoment = all.first { !$0.fromMe && !$0.isVoice }
-            snapshot.unheardVoiceMemoCount = all
-                .filter { !$0.fromMe && $0.isVoice && !$0.seen }
-                .count
+            Self.fillDerived(&snapshot, from: MomentIndex.shared.load())
         }
+    }
+
+    /// Same, from a list the caller already holds (tests and previews).
+    func applyDerived(from all: [Moment], reloadWidgets: Bool = true) {
+        mutate(reloadWidgets: reloadWidgets) { Self.fillDerived(&$0, from: all) }
+    }
+
+    /// `all` is the whole index, newest first.
+    private static func fillDerived(_ snapshot: inout Snapshot, from all: [Moment]) {
+        // Unconditional: each field must be able to return to nil when the
+        // last moment in its direction is deleted.
+        snapshot.latestPartnerMoment = all.first { !$0.fromMe }
+        snapshot.latestOwnMoment = all.first { $0.fromMe }
+        snapshot.latestPartnerVisualMoment = all.first { !$0.fromMe && !$0.isVoice }
+        snapshot.unheardVoiceMemoCount = all
+            .filter { !$0.fromMe && $0.isVoice && !$0.seen }
+            .count
     }
 
     // MARK: - CloudKit change tokens

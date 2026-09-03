@@ -12,7 +12,9 @@ struct RedStringApp: App {
         // Before the model reads the store — see `DemoSeeder`.
         DemoSeeder.seedIfRequested()
         #endif
-        _model = State(initialValue: AppModel())
+        let model = AppModel()
+        _model = State(initialValue: model)
+        MainActor.assumeIsolated { AppModel.current = model }
     }
 
     var body: some Scene {

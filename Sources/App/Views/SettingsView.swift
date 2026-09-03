@@ -16,6 +16,9 @@ struct SettingsView: View {
     /// Set when the iCloud side of an unlink failed, so a local-only reset can
     /// be offered explicitly rather than silently taken.
     @State private var offeringLocalOnly: Ending?
+    /// Why the cloud unlink failed, shown inside the local-only dialog — an
+    /// alert and a dialog presented in the same turn lose one of them.
+    @State private var localOnlyReason: String?
     /// Outcome of a successful archive, for the alert saying where it went.
     @State private var archiveSummary: ArchiveSummary?
     /// An unlink/wipe waiting behind a device-only archive's share sheet;
@@ -195,7 +198,8 @@ struct SettingsView: View {
                 }
                 Button("Cancel", role: .cancel) { offeringLocalOnly = nil }
             } message: {
-                Text("Nothing was deleted from iCloud, so what you've shared is still in \(model.partnerName)'s copy. You can clear this iPhone now and try again from a better connection, or cancel and wait.")
+                Text((localOnlyReason.map { $0 + "\n\n" } ?? "")
+                     + "Nothing was deleted from iCloud, so what you've shared is still in \(model.partnerName)'s copy. You can clear this iPhone now and try again from a better connection, or cancel and wait.")
             }
             // Only reachable when iCloud Drive wasn't available; nothing has
             // been deleted yet, so dismissing this can't lose the archive.
@@ -273,7 +277,7 @@ struct SettingsView: View {
                     }
                 }
                 Button("Close the invite link", role: .destructive) {
-                    Task { await model.lockPairing() }
+                    Task { await model.closeInvite() }
                 }
             }
         } header: {
@@ -402,7 +406,9 @@ struct SettingsView: View {
         if await model.unlink(startingOver: ending == .wipe) {
             dismiss()
         } else {
-            // `model.errorMessage` already says what went wrong.
+            // Move the reason into the dialog rather than racing it with the alert.
+            localOnlyReason = model.errorMessage
+            model.errorMessage = nil
             offeringLocalOnly = ending
         }
     }

@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        NotificationManager.registerCategories()
         // Required for CloudKit database subscriptions to reach us at all.
         application.registerForRemoteNotifications()
         return true
@@ -71,6 +72,28 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         }
         return [.banner, .sound]
     }
+
+    /// Banner actions. The app may be launched into the background for these,
+    /// so the work goes through the model (created in `RedStringApp.init`, ahead
+    /// of any delegate callback) and is awaited — returning early would suspend
+    /// the process mid-publish.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        let action = response.actionIdentifier
+        let text = (response as? UNTextInputNotificationResponse)?.userText
+        switch action {
+        case NotificationCategory.Action.heartBack:
+            await AppModel.current?.sendNudge()
+        case NotificationCategory.Action.replyStatus:
+            let message = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !message.isEmpty else { return }
+            await AppModel.current?.setStatus(emoji: "💬", message: message)
+        default:
+            break
+        }
+    }
 }
 
 final class SceneDelegate: NSObject, UIWindowSceneDelegate {
@@ -115,11 +138,4 @@ final class InviteInbox {
         defer { metadata = nil }
         return metadata
     }
-}
-
-extension Notification.Name {
-    static let pairingDidChange = Notification.Name("RedStringPairingDidChange")
-    static let pairingDidFail = Notification.Name("RedStringPairingDidFail")
-    /// Object is the `CKShare.Metadata` from the tapped link.
-    static let inviteDidArrive = Notification.Name("RedStringInviteDidArrive")
 }
