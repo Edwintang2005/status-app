@@ -9,6 +9,8 @@ struct HomeView: View {
     @State private var showingVoiceComposer = false
     @State private var showingLibrary = false
     @State private var showingStatusHistory = false
+    /// The easter egg — see `EasterEggView`.
+    @State private var showingAnniversary = false
     /// Owned here so leaving the screen or starting a second memo stops playback.
     @State private var voicePlayer = VoicePlayer()
     /// The user chose to see a filter-hidden status message this once.
@@ -56,6 +58,20 @@ struct HomeView: View {
             .navigationTitle(AppConfig.appName)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                // The title is drawn by hand so a long press on it can open the
+                // easter egg; `navigationTitle` stays for the back button.
+                ToolbarItem(placement: .principal) {
+                    Text(AppConfig.appName)
+                        .font(.headline)
+                        .onLongPressGesture(minimumDuration: 1.2) {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            showingAnniversary = true
+                        }
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityAction(named: Text("Our time together")) {
+                            showingAnniversary = true
+                        }
+                }
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
                         showingLibrary = true
@@ -118,6 +134,10 @@ struct HomeView: View {
             StatusHistoryView()
                 .environment(model)
         }
+        .sheet(isPresented: $showingAnniversary) {
+            EasterEggView()
+                .environment(model)
+        }
         .onChange(of: model.pendingComposer) { _, pending in
             if pending { consumePendingComposer() }
         }
@@ -142,7 +162,8 @@ struct HomeView: View {
     /// is only consumed when it can actually be shown.
     private var anySheetShowing: Bool {
         showingPicker || showingSettings || showingComposer || showingVoiceComposer
-            || showingLibrary || showingStatusHistory || !carouselQueue.isEmpty
+            || showingLibrary || showingStatusHistory || showingAnniversary
+            || !carouselQueue.isEmpty
     }
 
     private func consumePendingComposer() {

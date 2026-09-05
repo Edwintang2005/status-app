@@ -124,7 +124,7 @@ struct CelebrationOverlay: View {
 
 /// One piece of confetti on a ballistic arc. Position is a pure function of
 /// elapsed time, so the whole layer is one `Canvas` in a `TimelineView`.
-private struct ConfettiPiece: Identifiable {
+struct ConfettiPiece: Identifiable {
     let id = UUID()
     /// Launch direction in radians, and speed in points per second.
     let angle: Double
@@ -162,7 +162,7 @@ private struct ConfettiPiece: Identifiable {
     }
 }
 
-private struct ConfettiLayer: View {
+struct ConfettiLayer: View {
     let pieces: [ConfettiPiece]
     let start: Date
 

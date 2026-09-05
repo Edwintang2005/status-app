@@ -18,158 +18,115 @@ struct Mood: Identifiable, Hashable, Codable {
     }
 }
 
-/// Preset groups, so the picker reads as short lists; `MoodPickerView` also
-/// offers search over the whole catalogue.
+/// Preset groups, deliberately short — the picker's emoji slot covers the long
+/// tail, so each drawer holds only the things people say most. `MoodPickerView`
+/// also offers search over the whole catalogue.
 enum MoodGroup: String, CaseIterable, Identifiable {
-    case mood = "Mood"
     case us = "Us"
+    case mood = "Mood"
     case doing = "Doing"
     case away = "Out & about"
-    case food = "Food & drink"
     case rest = "Rest"
 
     var id: String { rawValue }
 
     var moods: [Mood] {
         switch self {
+        case .us:
+            return [
+                Mood(emoji: "💗", label: "thinking about you"),
+                Mood(emoji: "💭", label: "dreamt of you"),
+                Mood(emoji: "💞", label: "love you"),
+                Mood(emoji: "🥹", label: "miss you"),
+                Mood(emoji: "🤗", label: "hug"),
+                Mood(emoji: "😘", label: "kiss"),
+                Mood(emoji: "🫂", label: "need a hug"),
+                Mood(emoji: "🫶", label: "always here"),
+                Mood(emoji: "🏅", label: "proud of you"),
+                Mood(emoji: "🙇", label: "begging for forgiveness"),
+                // The carrot is the joke, and the joke is the point.
+                Mood(emoji: "🥕", label: "rooting for you"),
+                Mood(emoji: "😍", label: "love your look"),
+                Mood(emoji: "😉", label: "flirting with you"),
+                Mood(emoji: "👊", label: "playfight"),
+                Mood(emoji: "👂", label: "I'm listening"),
+                Mood(emoji: "🤙", label: "one call away"),
+                Mood(emoji: "🔮", label: "guess what"),
+                Mood(emoji: "🎁", label: "got you something"),
+                Mood(emoji: "🌹", label: "date night?"),
+                Mood(emoji: "🎬", label: "movie tonight?"),
+                // Deliberately mixed in with ordinary presets: one more thing
+                // you can say, not a feature.
+                Mood(emoji: "🎉", label: "happy anniversary", isCelebration: true),
+                Mood(emoji: "🛫", label: "see you soon"),
+                Mood(emoji: "⏳", label: "waiting for you"),
+                Mood(emoji: "📸", label: "send me a pic"),
+                Mood(emoji: "🍪", label: "saved you a cookie"),
+                Mood(emoji: "🫖", label: "spilling tea"),
+                Mood(emoji: "🤤", label: "drooling"),
+            ]
         case .mood:
             var moods = [
                 Mood(emoji: "🥰", label: "loving"),
-                Mood(emoji: "🥹", label: "miss you"),
-                Mood(emoji: "🥺", label: "need you now"),
                 Mood(emoji: "😊", label: "happy"),
-                Mood(emoji: "😄", label: "overjoyed"),
                 Mood(emoji: "🤩", label: "excited"),
                 Mood(emoji: "😌", label: "content"),
                 Mood(emoji: "😜", label: "silly"),
                 Mood(emoji: "😮", label: "surprised"),
                 Mood(emoji: "🫠", label: "melting"),
-                Mood(emoji: "🥳", label: "celebrating"),
-                Mood(emoji: "🎯", label: "determined"),
-                Mood(emoji: "💪", label: "powering through"),
                 Mood(emoji: "🍀", label: "feeling lucky"),
                 Mood(emoji: "😇", label: "innocent"),
+                Mood(emoji: "🤞", label: "wish me luck"),
+                Mood(emoji: "🫡", label: "on it"),
+                Mood(emoji: "😶", label: "speechless"),
                 Mood(emoji: "🤔", label: "thinking"),
                 Mood(emoji: "🧠", label: "overthinking"),
-                Mood(emoji: "😳", label: "flustered"),
-                Mood(emoji: "😬", label: "awkward"),
                 Mood(emoji: "🙃", label: "hanging in there"),
-                Mood(emoji: "🎢", label: "up and down"),
-                Mood(emoji: "😑", label: "bored"),
                 Mood(emoji: "😐", label: "meh"),
                 Mood(emoji: "🫥", label: "drained"),
                 Mood(emoji: "😢", label: "sad"),
-                Mood(emoji: "😭", label: "crying"),
-                Mood(emoji: "🥲", label: "emotional"),
                 Mood(emoji: "🧍", label: "lonely"),
-                Mood(emoji: "😟", label: "worried"),
                 Mood(emoji: "😰", label: "anxious"),
                 Mood(emoji: "😩", label: "stressed"),
                 Mood(emoji: "😤", label: "frustrated"),
-                Mood(emoji: "😠", label: "angry"),
                 Mood(emoji: "🤯", label: "overwhelmed"),
-                Mood(emoji: "🙅", label: "leave me alone"),
-                Mood(emoji: "😪", label: "sleepy"),
                 Mood(emoji: "🥱", label: "tired"),
-                Mood(emoji: "🥶", label: "freezing"),
-                Mood(emoji: "🥵", label: "too hot"),
-                Mood(emoji: "🤞", label: "wish me luck"),
-                Mood(emoji: "🫡", label: "on it"),
-                Mood(emoji: "🫤", label: "not sure"),
-                Mood(emoji: "😶", label: "speechless"),
             ]
-            // 🫪 is Unicode 16.0; iOS renders it only from 18.4 — offering it
-            // below that shows a placeholder box in the picker.
+            // 🫩 and 🫪 are Unicode 16.0; iOS renders them only from 18.4 —
+            // offering them below that shows placeholder boxes in the picker.
             if #available(iOS 18.4, *) {
+                moods.append(Mood(emoji: "🫩", label: "sleep deprived"))
                 moods.append(Mood(emoji: "🫪", label: "exhausted"))
             }
             return moods
-        case .us:
-            return [
-                Mood(emoji: "💌", label: "thinking of you"),
-                Mood(emoji: "💗", label: "sending a heart"),
-                Mood(emoji: "🤗", label: "hug"),
-                Mood(emoji: "😘", label: "kiss"),
-                Mood(emoji: "🫂", label: "need a hug"),
-                Mood(emoji: "🤝", label: "hold my hand"),
-                Mood(emoji: "🫶", label: "always here"),
-                Mood(emoji: "🙇", label: "begging for forgiveness"),
-                // The carrot is the joke, and the joke is the point.
-                Mood(emoji: "🥕", label: "rooting for you"),
-                Mood(emoji: "🏅", label: "proud of you"),
-                Mood(emoji: "😍", label: "love your look"),
-                Mood(emoji: "👂", label: "I'm listening"),
-                Mood(emoji: "☎️", label: "one call away"),
-                Mood(emoji: "🫖", label: "spilling tea"),
-                Mood(emoji: "🥊", label: "playfight"),
-                Mood(emoji: "😉", label: "flirting with you"),
-                Mood(emoji: "🌹", label: "date night?"),
-                Mood(emoji: "🎬", label: "movie tonight?"),
-                Mood(emoji: "🚶", label: "walk with me?"),
-                Mood(emoji: "🎁", label: "got you something"),
-                Mood(emoji: "🍪", label: "saved you one"),
-                Mood(emoji: "🌻", label: "you'd love this"),
-                Mood(emoji: "📸", label: "send me a pic"),
-                Mood(emoji: "💭", label: "dreamt of you"),
-                Mood(emoji: "🔮", label: "guess what"),
-                Mood(emoji: "🐻", label: "be my little spoon"),
-                Mood(emoji: "🗓️", label: "counting down"),
-                // Deliberately mixed in with ordinary presets: one more thing
-                // you can say, not a feature.
-                Mood(emoji: "🎉", label: "happy anniversary", isCelebration: true),
-                Mood(emoji: "🛫", label: "see you soon"),
-                Mood(emoji: "💞", label: "love you"),
-                Mood(emoji: "🤤", label: "drooling"),
-                Mood(emoji: "🧡", label: "grateful for you"),
-                Mood(emoji: "💐", label: "flowers for you"),
-                Mood(emoji: "🎵", label: "this song's for you"),
-                Mood(emoji: "☂️", label: "got you covered"),
-                Mood(emoji: "🥂", label: "celebrate tonight?"),
-                Mood(emoji: "🧺", label: "picnic?"),
-                Mood(emoji: "📍", label: "come find me"),
-                Mood(emoji: "⏳", label: "waiting for you"),
-            ]
         case .doing:
             return [
                 Mood(emoji: "💼", label: "working"),
                 Mood(emoji: "💻", label: "heads down"),
                 Mood(emoji: "🏫", label: "in class"),
-                Mood(emoji: "🧑‍🏫", label: "teaching"),
                 Mood(emoji: "📚", label: "studying"),
-                Mood(emoji: "📖", label: "reading"),
+                Mood(emoji: "📝", label: "exam"),
                 Mood(emoji: "📞", label: "on a call"),
-                Mood(emoji: "🧹", label: "cleaning"),
                 Mood(emoji: "🍳", label: "cooking"),
                 Mood(emoji: "🎮", label: "gaming"),
-                Mood(emoji: "🎧", label: "music on"),
                 Mood(emoji: "🍿", label: "watching a movie"),
-                Mood(emoji: "📺", label: "watching something"),
-                Mood(emoji: "📱", label: "on my phone"),
+                Mood(emoji: "📺", label: "watching tv"),
                 Mood(emoji: "🎨", label: "making something"),
-                Mood(emoji: "✍️", label: "writing"),
-                Mood(emoji: "🧁", label: "baking"),
-                Mood(emoji: "🧺", label: "laundry day"),
-                Mood(emoji: "🌱", label: "gardening"),
-                Mood(emoji: "🎸", label: "practising"),
-                Mood(emoji: "🧩", label: "puzzling"),
-                Mood(emoji: "🛠️", label: "fixing things"),
-                Mood(emoji: "🗒️", label: "planning"),
-                Mood(emoji: "🎲", label: "game night"),
-                Mood(emoji: "🎴", label: "playing cards"),
-                Mood(emoji: "🐶", label: "walking the dog"),
                 Mood(emoji: "💄", label: "getting ready"),
-                Mood(emoji: "🦸", label: "saving the world"),
+                Mood(emoji: "🧳", label: "packing"),
                 Mood(emoji: "🏋️", label: "at the gym"),
-                Mood(emoji: "🏃", label: "working out"),
-                Mood(emoji: "🧘", label: "yoga"),
-                Mood(emoji: "🎤", label: "karaoke"),
-                Mood(emoji: "🚴", label: "cycling"),
+                Mood(emoji: "💪", label: "flex"),
+                Mood(emoji: "🏃", label: "running"),
                 Mood(emoji: "🏊", label: "swimming"),
-                Mood(emoji: "⚽", label: "playing sport"),
-                Mood(emoji: "🎳", label: "bowling"),
-                Mood(emoji: "🧶", label: "crafting"),
-                Mood(emoji: "📦", label: "packing"),
-                Mood(emoji: "📝", label: "exam"),
+                Mood(emoji: "🎲", label: "game night"),
+                Mood(emoji: "🃏", label: "playing cards"),
+                Mood(emoji: "☕️", label: "coffee break"),
+                Mood(emoji: "🍽️", label: "eating"),
+                Mood(emoji: "🥗", label: "dinner"),
+                Mood(emoji: "🥪", label: "eating a sandwich"),
+                Mood(emoji: "🥨", label: "pretzel time"),
+                Mood(emoji: "🍻", label: "drinks"),
+                Mood(emoji: "🍷", label: "wine o'clock"),
             ]
         case .away:
             return [
@@ -177,56 +134,15 @@ enum MoodGroup: String, CaseIterable, Identifiable {
                 Mood(emoji: "🚗", label: "driving"),
                 Mood(emoji: "🚆", label: "commuting"),
                 Mood(emoji: "✈️", label: "travelling"),
-                Mood(emoji: "🧳", label: "work trip"),
                 Mood(emoji: "🧑‍💼", label: "in a meeting"),
                 Mood(emoji: "🛒", label: "shopping"),
                 Mood(emoji: "📋", label: "running errands"),
-                Mood(emoji: "💈", label: "haircut"),
                 Mood(emoji: "🏥", label: "appointment"),
                 Mood(emoji: "🏖️", label: "beach day"),
-                Mood(emoji: "🥾", label: "hiking"),
-                Mood(emoji: "🌳", label: "in the park"),
-                Mood(emoji: "🎶", label: "at a gig"),
-                Mood(emoji: "🏟️", label: "at a game"),
-                Mood(emoji: "🌏", label: "exploring"),
-                Mood(emoji: "📵", label: "phone away"),
                 Mood(emoji: "👨‍👩‍👧", label: "with family"),
                 Mood(emoji: "🧑‍🤝‍🧑", label: "with friends"),
-                Mood(emoji: "🌧️", label: "need space"),
+                Mood(emoji: "📵", label: "phone away"),
                 Mood(emoji: "🪫", label: "low battery"),
-                Mood(emoji: "💸", label: "no money"),
-                Mood(emoji: "🏕️", label: "camping"),
-                Mood(emoji: "🎭", label: "at a show"),
-                Mood(emoji: "🚌", label: "on the bus"),
-                Mood(emoji: "☔", label: "caught in the rain"),
-                Mood(emoji: "🏛️", label: "museum day"),
-                Mood(emoji: "🦷", label: "dentist"),
-            ]
-        case .food:
-            return [
-                Mood(emoji: "☕️", label: "coffee break"),
-                Mood(emoji: "🥞", label: "brunch"),
-                Mood(emoji: "🍽️", label: "eating"),
-                Mood(emoji: "😋", label: "hungry"),
-                Mood(emoji: "🥗", label: "lunch"),
-                Mood(emoji: "🍕", label: "takeaway"),
-                Mood(emoji: "🍜", label: "ramen night"),
-                Mood(emoji: "🌮", label: "taco time"),
-                Mood(emoji: "🧋", label: "boba run"),
-                Mood(emoji: "🥨", label: "pretzel time"),
-                Mood(emoji: "🥪", label: "eating a sandwich"),
-                Mood(emoji: "🍻", label: "drinks"),
-                Mood(emoji: "🍷", label: "wine o'clock"),
-                Mood(emoji: "🍫", label: "snacking"),
-                Mood(emoji: "🍦", label: "ice cream"),
-                Mood(emoji: "🍰", label: "something sweet"),
-                Mood(emoji: "🍎", label: "being healthy"),
-                Mood(emoji: "🍔", label: "cheat day"),
-                Mood(emoji: "🥡", label: "leftovers"),
-                Mood(emoji: "🥐", label: "pastry run"),
-                Mood(emoji: "🍵", label: "tea time"),
-                Mood(emoji: "🍹", label: "cocktails"),
-                Mood(emoji: "🎂", label: "cake!"),
             ]
         case .rest:
             return [
@@ -237,26 +153,13 @@ enum MoodGroup: String, CaseIterable, Identifiable {
                 Mood(emoji: "🌅", label: "just woke up"),
                 Mood(emoji: "🚿", label: "shower"),
                 Mood(emoji: "🛁", label: "bath"),
-                Mood(emoji: "🛀", label: "bath together"),
-                Mood(emoji: "💆", label: "massage"),
-                Mood(emoji: "🪷", label: "meditating"),
                 Mood(emoji: "🧖", label: "relaxing"),
                 Mood(emoji: "🛋️", label: "couch potato"),
                 Mood(emoji: "🧸", label: "cosy"),
                 Mood(emoji: "📴", label: "switching off"),
-                Mood(emoji: "🌃", label: "early night"),
-                Mood(emoji: "🚽", label: "toilet"),
                 Mood(emoji: "🤒", label: "sick"),
                 Mood(emoji: "🤕", label: "headache"),
-                Mood(emoji: "🤢", label: "stomachache"),
                 Mood(emoji: "🥴", label: "hungover"),
-                Mood(emoji: "😵", label: "fainted"),
-                Mood(emoji: "😷", label: "under the weather"),
-                Mood(emoji: "🤧", label: "sniffly"),
-                Mood(emoji: "💊", label: "meds taken"),
-                Mood(emoji: "🩹", label: "recovering"),
-                Mood(emoji: "🕯️", label: "winding down"),
-                Mood(emoji: "🧊", label: "icing it"),
             ]
         }
     }

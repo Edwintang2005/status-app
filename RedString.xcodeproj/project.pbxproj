@@ -69,6 +69,7 @@
 		585B7DC30268673DE0237A80 /* SharedStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FA4F7953C3F1ED24AAB950F /* SharedStore.swift */; };
 		59284FB5EEDF955048194CFC /* ModelCodableTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DF6930F6BBA189BC0377B8D /* ModelCodableTests.swift */; };
 		597D9360992B2DCB406DD1DA /* CloudSync+Subscriptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A3B711D3B8D03E8650F67E /* CloudSync+Subscriptions.swift */; };
+		59A7AA67E23FCF903E458065 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FA544AEDA7D5295103EFE323 /* Assets.xcassets */; };
 		5EED013C32726EC1CA8AB96C /* CloudSync+Nudges.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15A99D777CB54E1D2965B72F /* CloudSync+Nudges.swift */; };
 		63A2D81E9FD8220E46E75D00 /* MomentAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = C513794F944B58BC26B42ED2 /* MomentAttachment.swift */; };
 		63B4354AF285CED56C372D0D /* CloudDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8466C7C9528F65B29D3B5CA8 /* CloudDiagnostics.swift */; };
@@ -88,6 +89,7 @@
 		771E1EFC0E178EF3BF722FC1 /* MomentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9908897AF8F96D8BAF86FB0D /* MomentIndex.swift */; };
 		79AD5AE8FE7CAB369D18E0A3 /* WaveformTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4070DB188B61F687F8CDB03D /* WaveformTests.swift */; };
 		7BCC03E65D89B743A208D53B /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E639AD30E2C0F3523EC9108 /* HomeView.swift */; };
+		7F1694E17F43168AD72A0CF8 /* AnniversaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BCA5FEECD892983ED73394C /* AnniversaryView.swift */; };
 		826DE82D8F0CD03AC98EFD28 /* CloudSync+Receipts.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9A1F8165BD76031FD581B32 /* CloudSync+Receipts.swift */; };
 		82F5E6EDD5924EBA4E89D9E0 /* MomentIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BA82DF0261120A5F30615DF /* MomentIndexTests.swift */; };
 		8325151309B1594069E3F12D /* Moderation.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE27AE24C06FB3BD67B08794 /* Moderation.swift */; };
@@ -112,6 +114,7 @@
 		9BA1659D44B8CAF3427374D4 /* SharedStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FA4F7953C3F1ED24AAB950F /* SharedStore.swift */; };
 		9CA702A78345750D38C6FBE9 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 9E958D9BEA9342B39917EFA2 /* Localizable.xcstrings */; };
 		9E5191C4B18F4EAFCA632237 /* CloudSync+Moments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 668DF1E7F6BA116D79645727 /* CloudSync+Moments.swift */; };
+		9ED2BC782EEA8D3CA279254F /* TieTheStringView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6D8E9381A68B07E3D63B706 /* TieTheStringView.swift */; };
 		9F5960E94435AD5851A96BB9 /* MomentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 337B972E15547CDA25869529 /* MomentStore.swift */; };
 		A4340592ED6D3E198F803DFD /* PairRoleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFAA0FEB80367A2775BEF05C /* PairRoleTests.swift */; };
 		A45966300B70B89E854FB9FB /* MomentLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7555940C8F32AD881C18D9E /* MomentLibraryView.swift */; };
@@ -248,6 +251,7 @@
 		501B7837F5E0190ACCA62AA6 /* ModerationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModerationTests.swift; sourceTree = "<group>"; };
 		534E6813B345A235562938A6 /* StatusWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusWidget.swift; sourceTree = "<group>"; };
 		5A83FEA2BD3E31257DCBBA03 /* RedStringNotificationService.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = RedStringNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		5BCA5FEECD892983ED73394C /* AnniversaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnniversaryView.swift; sourceTree = "<group>"; };
 		63A7F81CBAFF99201F303756 /* RedString.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RedString.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		652B3CE8C44B5FDA32C9E0F1 /* MomentGalleryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentGalleryView.swift; sourceTree = "<group>"; };
 		668DF1E7F6BA116D79645727 /* CloudSync+Moments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSync+Moments.swift"; sourceTree = "<group>"; };
@@ -294,6 +298,7 @@
 		CC36D56E416646F82EFC3D48 /* TermsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TermsView.swift; sourceTree = "<group>"; };
 		CD8012A38BB2B4804C28A13D /* AppIcon.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = AppIcon.xcassets; sourceTree = "<group>"; };
 		CFFD179DB35C743DF9D7E748 /* CelebrationOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CelebrationOverlay.swift; sourceTree = "<group>"; };
+		D6D8E9381A68B07E3D63B706 /* TieTheStringView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TieTheStringView.swift; sourceTree = "<group>"; };
 		D7555940C8F32AD881C18D9E /* MomentLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentLibraryView.swift; sourceTree = "<group>"; };
 		E92E3390E59B9B7286EA2FCC /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		E9DB927AC93A1FEF6AD3652F /* MomentWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentWidget.swift; sourceTree = "<group>"; };
@@ -303,6 +308,7 @@
 		F66D2E134697A8EAB6A4B453 /* RedStringNotificationService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RedStringNotificationService.entitlements; sourceTree = "<group>"; };
 		F7A3B711D3B8D03E8650F67E /* CloudSync+Subscriptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSync+Subscriptions.swift"; sourceTree = "<group>"; };
 		F9A1F8165BD76031FD581B32 /* CloudSync+Receipts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSync+Receipts.swift"; sourceTree = "<group>"; };
+		FA544AEDA7D5295103EFE323 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -486,6 +492,7 @@
 		B722839F69477ACD2E828BF0 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				5BCA5FEECD892983ED73394C /* AnniversaryView.swift */,
 				B5D255F7EC3902194FFEB4FD /* CameraPicker.swift */,
 				CFFD179DB35C743DF9D7E748 /* CelebrationOverlay.swift */,
 				B9DF84C71D3758781306F1A2 /* DiagnosticsView.swift */,
@@ -505,6 +512,7 @@
 				2BB81BD9590AB73959572A67 /* ShareSheet.swift */,
 				847AF10E5065B62CDA9C5D89 /* StatusHistoryView.swift */,
 				CC36D56E416646F82EFC3D48 /* TermsView.swift */,
+				D6D8E9381A68B07E3D63B706 /* TieTheStringView.swift */,
 				76CBD9146BE0A00FE8443DD6 /* VoiceMemoComposerView.swift */,
 				CC2D7FCC363C8704FC5847CE /* VoiceMomentViews.swift */,
 				86D0D329D6A34F59B704FBF5 /* WelcomeView.swift */,
@@ -533,6 +541,7 @@
 			isa = PBXGroup;
 			children = (
 				CD8012A38BB2B4804C28A13D /* AppIcon.xcassets */,
+				FA544AEDA7D5295103EFE323 /* Assets.xcassets */,
 				830C54EC0A839C1BB7F6BEB0 /* Info.plist */,
 				1F79104FD98AAD694DD9EAD4 /* Localizable.xcstrings */,
 				40FB4DA9062749721CD09501 /* PrivacyInfo.xcprivacy */,
@@ -694,6 +703,7 @@
 			files = (
 				DC3BEBD1679301B2D93CA156 /* AppIcon.xcassets in Resources */,
 				8CDEF7739AD4356EF83F025C /* Assets.xcassets in Resources */,
+				59A7AA67E23FCF903E458065 /* Assets.xcassets in Resources */,
 				0F6B4AC2ED66FF7140E8DC27 /* Localizable.xcstrings in Resources */,
 				D21CF8F30BF04932B7CB37D8 /* PrivacyInfo.xcprivacy in Resources */,
 			);
@@ -832,6 +842,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7F1694E17F43168AD72A0CF8 /* AnniversaryView.swift in Sources */,
 				385DDACCB9A3483D90079387 /* AppConfig.swift in Sources */,
 				6536B3EE918DC4E2C830C1FC /* AppDelegate.swift in Sources */,
 				DE2A3B37FC37BE33AE44297E /* AppModel.swift in Sources */,
@@ -885,6 +896,7 @@
 				032C5DFD5C50860B64193321 /* SyncRunner.swift in Sources */,
 				B069228C42907914287F6222 /* TermsView.swift in Sources */,
 				E1D3B6CE0A3B5263CFC06009 /* Theme.swift in Sources */,
+				9ED2BC782EEA8D3CA279254F /* TieTheStringView.swift in Sources */,
 				3AAC856BF9CBD91AB7580CC3 /* VoiceMemoComposerView.swift in Sources */,
 				6517C37F86C4B7ED53C4F7ED /* VoiceMomentViews.swift in Sources */,
 				45C88A408716E5DB8F1754CE /* VoicePlayer.swift in Sources */,

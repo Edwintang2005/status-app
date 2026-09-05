@@ -48,6 +48,10 @@ addition requires re-deploying the schema to Production (README → "Shipping it
   🎯 determined, 🏫 in class with 🧑‍🏫 kept as teaching, 📞 on a call (☎️ takes over one call away), 🧘 yoga
   and 🪷 meditating, 🌃 early night and 🌅 just woke up, 🧖 relaxing, 📋
   running errands, 😋 hungry with 🤤 moved to "drooling" under Us.
+- **Catalogue trim + custom emoji** — five short drawers (Us first, ~90
+  presets, food folded into Doing; 🃏 for playing cards) and an emoji slot in
+  the picker (`EmojiField`: a UIKit text field that opens the emoji keyboard)
+  for everything the presets no longer list.
 - **Durable status history** — one `StatusLog` record per status change
   (`statuslog-<role>-<seconds>`), written by `CloudSync.publish` alongside the
   `Status` record and folded into `StatusHistoryLog` on refresh; the log now

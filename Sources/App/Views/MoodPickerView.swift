@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Two taps to a new status: pick a preset, done. Typing is available but never
-/// required — the custom field is seeded from whichever preset you tapped.
+/// required — the custom field is seeded from whichever preset you tapped, and
+/// the emoji slot beside it takes any emoji from the keyboard.
 struct MoodPickerView: View {
     var initialEmoji: String = ""
     let onSelect: (String, String, Bool) -> Void
@@ -83,10 +84,19 @@ struct MoodPickerView: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 12) {
-                Text(emoji.isEmpty ? "💭" : emoji)
-                    .font(.system(size: 34))
-                    .opacity(emoji.isEmpty ? 0.35 : 1)
-                    .frame(width: 48)
+                // Any emoji at all: tapping opens the emoji keyboard, and a
+                // pick hands focus on to the words.
+                EmojiField(emoji: $emoji) {
+                    selectedPresetID = nil
+                    isCelebration = false
+                    messageFocused = true
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                }
+                .frame(width: 52, height: 48)
+                .background(Color.primary.opacity(0.06),
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .accessibilityLabel(emoji.isEmpty ? String(localized: "Emoji") : String(localized: "Emoji: \(emoji)"))
+                .accessibilityHint("Choose any emoji")
 
                 TextField("Say anything", text: $message)
                     .font(Theme.rounded(17))
@@ -228,8 +238,8 @@ struct MoodPickerView: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    /// Whether the text is (still) one of the ~200 preset labels — in which
-    /// case tapping another preset should swap it as it always has.
+    /// Whether the text is (still) one of the preset labels — in which case
+    /// tapping another preset should swap it as it always has.
     private func isPresetLabel(_ text: String) -> Bool {
         MoodGroup.allCases.contains { $0.moods.contains { $0.label == text } }
     }
@@ -238,6 +248,88 @@ struct MoodPickerView: View {
         guard !emoji.isEmpty else { return }
         onSelect(emoji, message, isCelebration)
         dismiss()
+    }
+}
+
+// MARK: - Emoji field
+
+/// A one-emoji text field that opens straight onto the emoji keyboard. UIKit,
+/// because SwiftUI has no way to ask for that keyboard: a `UITextField` that
+/// overrides `textInputMode` (and a non-nil context identifier, which the
+/// system needs before it honours the override). Anything typed that isn't an
+/// emoji is dropped; the newest emoji wins and the keyboard is dismissed.
+private struct EmojiField: UIViewRepresentable {
+    @Binding var emoji: String
+    /// Called after a new emoji lands, so the caller can move focus along.
+    var onPicked: () -> Void
+
+    func makeUIView(context: Context) -> EmojiTextField {
+        let field = EmojiTextField()
+        field.delegate = context.coordinator
+        field.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
+        field.font = .systemFont(ofSize: 34)
+        field.textAlignment = .center
+        field.tintColor = .clear
+        field.autocorrectionType = .no
+        field.spellCheckingType = .no
+        field.attributedPlaceholder = NSAttributedString(
+            string: "💭",
+            attributes: [.foregroundColor: UIColor.label.withAlphaComponent(0.35),
+                         .font: UIFont.systemFont(ofSize: 34)])
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        return field
+    }
+
+    func updateUIView(_ field: EmojiTextField, context: Context) {
+        context.coordinator.parent = self
+        if !field.isEditing, field.text != emoji { field.text = emoji }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: EmojiField
+
+        init(parent: EmojiField) { self.parent = parent }
+
+        @objc func changed(_ field: UITextField) {
+            let typed = field.text ?? ""
+            guard let picked = typed.last(where: \.isEmoji) else {
+                // Letters, digits, or a clear: back to whatever was there.
+                field.text = typed.isEmpty ? "" : parent.emoji
+                if typed.isEmpty { parent.emoji = "" }
+                return
+            }
+            let value = String(picked)
+            field.text = value
+            guard value != parent.emoji else { return }
+            parent.emoji = value
+            field.resignFirstResponder()
+            parent.onPicked()
+        }
+
+        func textFieldShouldReturn(_ field: UITextField) -> Bool {
+            field.resignFirstResponder()
+            return true
+        }
+    }
+}
+
+final class EmojiTextField: UITextField {
+    override var textInputContextIdentifier: String? { "" }
+
+    override var textInputMode: UITextInputMode? {
+        UITextInputMode.activeInputModes.first { $0.primaryLanguage == "emoji" } ?? super.textInputMode
+    }
+}
+
+private extension Character {
+    /// Emoji proper: pictographs and sequences, not "1" or "#" (which carry the
+    /// emoji property but need a variation selector to render as one).
+    var isEmoji: Bool {
+        guard let first = unicodeScalars.first else { return false }
+        return first.properties.isEmojiPresentation
+            || (first.properties.isEmoji && unicodeScalars.count > 1)
     }
 }
 

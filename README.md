@@ -522,6 +522,8 @@ Sources/
     Views/
       HomeView, RootView, WelcomeView, PairingView, SettingsView
       MoodPickerView, CelebrationOverlay   statuses and celebrations
+      TieTheStringView, LogoView,          easter egg: long-press the home title, tie the
+      AnniversaryView                      string, hold the logo
       MomentComposerView                   photo + doodle composer
       VoiceMemoComposerView, VoiceMomentViews
       ScrubbableWaveform                   swipe-to-seek wrapper over WaveformBars
