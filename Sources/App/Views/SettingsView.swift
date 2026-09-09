@@ -29,6 +29,10 @@ struct SettingsView: View {
     /// Seven taps on the Version row reveal diagnostics in Release builds —
     /// support needs the report from real installs, not just Debug ones.
     @State private var versionTapCount = 0
+    /// A long press on the title reveals the owner's anniversary row — the
+    /// date behind the easter egg, kept out of the ordinary list.
+    @State private var showsOurDate = false
+    @State private var editingOurDate = false
 
     var body: some View {
         @Bindable var model = model
@@ -86,6 +90,10 @@ struct SettingsView: View {
                     } footer: {
                         Text("Lets \(model.partnerName) see when you've looked at what they sent, and shows you the same for your sends while they have it on too. Turning it off stops sharing new ones.")
                     }
+                }
+
+                if showsOurDate, model.canEditAnniversary {
+                    ourDateSection
                 }
 
                 if model.role == .owner {
@@ -151,9 +159,26 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Settings")
+                        .font(.headline)
+                        .onLongPressGesture(minimumDuration: 1.2) {
+                            guard model.canEditAnniversary else { return }
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            withAnimation(.smooth) { showsOurDate = true }
+                        }
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityAction(named: Text("Our date")) {
+                            if model.canEditAnniversary { showsOurDate = true }
+                        }
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
+            }
+            .sheet(isPresented: $editingOurDate) {
+                AnniversaryEditorView(mode: .edit)
+                    .environment(model)
             }
             .task { notificationStatus = await NotificationManager.authorizationStatus() }
             // Re-check when the user returns from the Settings app.
@@ -352,6 +377,29 @@ struct SettingsView: View {
         #else
         versionTapCount >= 7
         #endif
+    }
+
+    private var ourDateSection: some View {
+        Section {
+            Button {
+                editingOurDate = true
+            } label: {
+                LabeledContent("Our date") {
+                    if let anniversary = model.anniversary {
+                        Text(anniversary.startsAt,
+                             format: Date.FormatStyle(date: .abbreviated, time: .shortened,
+                                                      timeZone: anniversary.timeZone))
+                    } else {
+                        Text("Not set")
+                    }
+                }
+                .foregroundStyle(.primary)
+            }
+        } header: {
+            Text("Just for you two")
+        } footer: {
+            Text("The day the hidden count starts from. \(model.partnerName) sees the same count; only you can change the date.")
+        }
     }
 
     private struct ArchiveSummary: Identifiable {

@@ -25,6 +25,7 @@ final class SharedStore {
         static let hiddenMoments = "hiddenMomentIDs"
         static let hiddenStatusAt = "hiddenPartnerStatusAt"
         static let blockedOwners = "blockedOwnerRecordNames"
+        static let anniversaryPrompt = "anniversaryPromptPending"
     }
 
     init(store: GroupKeyValueStore = GroupFileStore()) {
@@ -123,6 +124,14 @@ final class SharedStore {
         }
     }
 
+    /// Owner side: the "when did you two begin?" prompt is owed — set when the
+    /// zone is created, cleared once answered or skipped. Persisted so a kill
+    /// between creating the link and the prompt doesn't lose it.
+    var anniversaryPromptPending: Bool {
+        get { store.bool(forKey: Key.anniversaryPrompt) }
+        set { store.setBool(newValue, forKey: Key.anniversaryPrompt) }
+    }
+
     /// CloudKit user record names of blocked people; their invites are refused.
     /// Survives unlink and "start over" — a block is meant to stick.
     var blockedOwnerRecordNames: Set<String> {
@@ -165,6 +174,7 @@ final class SharedStore {
             inviteClosed = false
             inviteURL = nil
             hiddenPartnerStatusAt = nil
+            anniversaryPromptPending = false
             for key in ["private", "shared"] { setChangeToken(nil, for: key) }
             snapshot = Snapshot(
                 mine: (name?.isEmpty == false) ? .initial(displayName: name!) : nil,

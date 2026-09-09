@@ -240,6 +240,13 @@ struct Snapshot: Codable, Hashable {
     /// `statusUpdatedAt` still matches `mine.updatedAt` — see `myStatusSeenAt`.
     var myStatusSeenByPartner: StatusSeen?
 
+    /// When the two of them began — the owner sets it, the `Anniversary`
+    /// record carries it over. `nil` until they do.
+    var anniversary: Anniversary?
+    /// Owner side: whether `anniversary` has reached CloudKit — the twin of
+    /// `myStatusPublished`, republished on the next refresh.
+    var anniversaryPublished: Bool = true
+
     static let empty = Snapshot(
         mine: nil,
         theirs: nil,
@@ -261,6 +268,7 @@ struct Snapshot: Codable, Hashable {
         case lastAnnouncedPartnerStatusAt
         case receiptsDirty
         case partnerStatusSeen, myStatusSeenByPartner
+        case anniversary, anniversaryPublished
     }
 
     /// Hand-written: synthesised `Codable` errors on missing keys, so a snapshot
@@ -301,6 +309,9 @@ struct Snapshot: Codable, Hashable {
         partnerStatusSeen = try container.decodeIfPresent(StatusSeen.self, forKey: .partnerStatusSeen)
         myStatusSeenByPartner = try container
             .decodeIfPresent(StatusSeen.self, forKey: .myStatusSeenByPartner)
+        anniversary = try container.decodeIfPresent(Anniversary.self, forKey: .anniversary)
+        anniversaryPublished = try container
+            .decodeIfPresent(Bool.self, forKey: .anniversaryPublished) ?? true
     }
 
     /// Hand-written: `latestPartnerVisualMoment`'s nil must be written as an
@@ -331,6 +342,8 @@ struct Snapshot: Codable, Hashable {
         try container.encode(receiptsDirty, forKey: .receiptsDirty)
         try container.encodeIfPresent(partnerStatusSeen, forKey: .partnerStatusSeen)
         try container.encodeIfPresent(myStatusSeenByPartner, forKey: .myStatusSeenByPartner)
+        try container.encodeIfPresent(anniversary, forKey: .anniversary)
+        try container.encode(anniversaryPublished, forKey: .anniversaryPublished)
     }
 
     init(mine: StatusPayload?,

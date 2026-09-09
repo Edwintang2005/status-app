@@ -1,7 +1,51 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%lld months" : {
 
+    },
+    "%lld years" : {
+
+    },
+    "1 month" : {
+
+    },
+    "1 year" : {
+
+    },
+    "drawing" : {
+
+    },
+    "Hidden by your content filter" : {
+
+    },
+    "is now going by %@" : {
+
+    },
+    "is thinking of you 💭" : {
+
+    },
+    "photo" : {
+
+    },
+    "sent you a drawing ✏️" : {
+
+    },
+    "sent you a photo 📷" : {
+
+    },
+    "sent you a voice memo 🎙️" : {
+
+    },
+    "updated their status" : {
+
+    },
+    "voice memo" : {
+
+    },
+    "Your partner" : {
+
+    }
   },
   "version" : "1.0"
 }

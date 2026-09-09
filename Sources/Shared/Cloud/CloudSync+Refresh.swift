@@ -84,6 +84,7 @@ extension CloudSync {
                 Field.momentID, Field.kind, Field.caption, Field.senderName, Field.sentAt,
                 Field.duration, Field.waveform,
                 Field.seenMap, Field.statusSeenAt, Field.statusSeenFor,
+                Field.startsAt, Field.timeZone,
             ]
         )
 
@@ -133,6 +134,7 @@ extension CloudSync {
         var myNudge: CKRecord?
         var theirNudge: CKRecord?
         var theirReceipts: CKRecord?
+        var anniversaryRecord: CKRecord?
         var moments: [Moment] = []
         var logEntries: [StatusHistoryEntry] = []
 
@@ -147,6 +149,8 @@ extension CloudSync {
                 if name == theirsRole.nudgeRecordName { theirNudge = record }
             case RecordType.receipt:
                 if name == theirsRole.receiptRecordName { theirReceipts = record }
+            case RecordType.anniversary:
+                if name == Self.anniversaryRecordName { anniversaryRecord = record }
             case RecordType.moment:
                 if let moment = Self.moment(from: record, mineRole: mineRole, theirsRole: theirsRole) {
                     moments.append(moment)
@@ -173,12 +177,14 @@ extension CloudSync {
         // The partner deleting their own status record is how a participant
         // unlinks (they can't delete the owner's zone). Must not be ignored.
         var partnerErased = false
+        var anniversaryErased = false
         var removedMoments = false
         var removedMyLogs: [Date] = []
         var removedTheirLogs: [Date] = []
         for recordID in changes.deletedIDs {
             let name = recordID.recordName
             if name == theirsRole.statusRecordName { partnerErased = true }
+            if name == Self.anniversaryRecordName { anniversaryErased = true }
             if let id = mineRole.momentID(fromRecordName: name)
                 ?? theirsRole.momentID(fromRecordName: name),
                Self.isSafeMomentID(id) {
@@ -197,6 +203,9 @@ extension CloudSync {
         StatusHistoryLog.shared.remove(fromMe: false, at: removedTheirLogs)
         // A delete and a recreation can share one delta; the record that exists now wins.
         if theirStatus != nil { partnerErased = false }
+        if anniversaryRecord != nil { anniversaryErased = false }
+        let anniversary = anniversaryRecord.flatMap(Self.anniversary(from:))
+        let anniversaryChanged = anniversaryRecord != nil || anniversaryErased
 
         let store = SharedStore.shared
         let previousStatus = await MainActor.run { store.snapshot.theirs }
@@ -231,6 +240,11 @@ extension CloudSync {
                     $0.theirs = nil
                 } else if let theirs {
                     $0.theirs = theirs
+                }
+                // The owner's own unpublished edit outranks the server copy —
+                // `republishAnniversaryIfNeeded` carries it over.
+                if anniversaryChanged, $0.anniversaryPublished {
+                    $0.anniversary = anniversary
                 }
                 $0.isPaired = true
                 $0.lastSyncedAt = Date()

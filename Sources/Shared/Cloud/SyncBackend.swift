@@ -37,6 +37,8 @@ protocol SyncBackend: Sendable {
     /// which partner status it has had on screen; an empty map and `nil`
     /// retract. No-op for backends without a partner.
     func publishReceipts(_ seen: [String: Date], statusSeen: StatusSeen?) async throws
+    /// Owner only: writes the pair's anniversary, or deletes it with `nil`.
+    func publishAnniversary(_ anniversary: Anniversary?) async throws
     func registerSubscription() async throws
     /// Takes this device's data out of the shared space (the owner removes the space
     /// itself). Throws rather than swallowing — claiming the photos are gone when the
@@ -86,6 +88,7 @@ struct DemoBackend: SyncBackend {
     func send(_ moment: Moment) async throws {}
     func fetchMedia(for moment: Moment) async throws {}
     func publishReceipts(_ seen: [String: Date], statusSeen: StatusSeen?) async throws {}
+    func publishAnniversary(_ anniversary: Anniversary?) async throws {}
     func registerSubscription() async throws {}
     func unpair() async throws {}
 }

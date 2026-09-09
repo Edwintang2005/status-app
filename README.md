@@ -289,6 +289,17 @@ Changing your own name republishes your `Status` record immediately, so your
 partner sees it on their next sync. It does not rewrite anything you've already
 sent.
 
+### The anniversary
+
+The hidden count (long-press the home title, tie the string, hold the logo)
+runs from a date only the zone owner sets: the prompt after creating the
+invite link, or later from the row a long press on the Settings title reveals.
+It travels as one `Anniversary` record (`anniversary`, encrypted `startsAt` +
+`timeZone`) that both sides pick up on any refresh; the owner's time zone
+rides along so the monthly mark is the same moment on both phones. Until it's
+set, the count screen says so — and offers the owner the picker. Offline edits
+recover like statuses do (`Snapshot.anniversaryPublished`).
+
 ### Read receipts
 
 On by default, one switch per side in Settings, and the switch gates both
@@ -439,12 +450,13 @@ Everything below is already wired up; this is the order to do it in.
    the project level.
 2. **Run once on a device** with a Debug build. That creates the CloudKit
    *Development* schema automatically — record types `Status`, `StatusLog`,
-   `Nudge`, `Moment` and `Receipt` with their fields — the first time each
-   record is saved. Pair, set a status (which also writes a `StatusLog`), send
-   a nudge, send a photo, **and turn on read receipts + view a received moment
-   with the home screen in front** (which publishes a `Receipt` record with
-   both the seen-map and the status-receipt fields), so every type and field
-   actually gets created.
+   `Nudge`, `Moment`, `Receipt` and `Anniversary` with their fields — the first
+   time each record is saved. Pair, set a status (which also writes a
+   `StatusLog`), send a nudge, send a photo, **turn on read receipts + view a
+   received moment with the home screen in front** (which publishes a `Receipt`
+   record with both the seen-map and the status-receipt fields), **and answer
+   the "when did you begin?" prompt as the owner** (the `Anniversary` record),
+   so every type and field actually gets created.
 
    **Tapping "Create a link" is part of this step, not an optional extra.**
    Zone sharing needs a system record type, `cloudkit.share`, and CloudKit only
@@ -459,8 +471,8 @@ Everything below is already wired up; this is the order to do it in.
    anything, so an App Store build against an undeployed schema fails on every
    write. Re-deploy whenever you add a field. Confirm afterwards by switching
    the Console to *Production* and checking that `Status`, `StatusLog`,
-   `Nudge`, `Moment`, `Receipt` **and `cloudkit.share`** are all listed under
-   Record Types.
+   `Nudge`, `Moment`, `Receipt`, `Anniversary` **and `cloudkit.share`** are all
+   listed under Record Types.
 4. **Archive** with `make archive` (or Xcode's *Product → Archive*). The
    Release configuration already points at
    [RedString-Release.entitlements](Sources/App/Resources/RedString-Release.entitlements),

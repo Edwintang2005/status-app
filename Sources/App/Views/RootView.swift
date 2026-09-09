@@ -44,6 +44,14 @@ struct RootView: View {
         .sheet(item: $model.presentedInvite) { invite in
             InviteLinkSheet(url: invite.url, partnerName: model.partnerName)
         }
+        // The one question asked of the owner after creating the link, once the
+        // link sheet is out of the way. Swiping it away counts as "not now".
+        .sheet(isPresented: Binding(
+            get: { model.anniversaryPromptPending && model.canEditAnniversary && model.presentedInvite == nil },
+            set: { if !$0 { model.dismissAnniversaryPrompt() } })) {
+            AnniversaryEditorView(mode: .prompt)
+                .environment(model)
+        }
         .alert("Something went wrong",
                isPresented: Binding(get: { model.errorMessage != nil },
                                     set: { if !$0 { model.errorMessage = nil } })) {

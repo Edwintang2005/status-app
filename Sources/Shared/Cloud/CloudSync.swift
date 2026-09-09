@@ -25,6 +25,8 @@ enum SyncError: LocalizedError {
     case inviteInUse
     /// The invite comes from someone this device has blocked.
     case blocked
+    /// An owner-only write (the anniversary) attempted from the participant side.
+    case notOwner
 
     var errorDescription: String? {
         switch self {
@@ -67,6 +69,8 @@ enum SyncError: LocalizedError {
                 + "remove them. Use Settings → Diagnostics → Secure invite instead."
         case .blocked:
             return "This invite is from someone you've blocked."
+        case .notOwner:
+            return "Only the person who created the link can set this."
         }
     }
 }
@@ -107,7 +111,13 @@ actor CloudSync: SyncBackend {
         /// One per status change, alongside the overwritten `Status` — the
         /// durable history that a reinstall gets back.
         static let statusLog = "StatusLog"
+        /// One per pair, written by the owner: when the two of them began.
+        static let anniversary = "Anniversary"
     }
+
+    /// The pair's one `Anniversary` record. Not role-derived: there is only
+    /// ever one, and only the owner writes it.
+    static let anniversaryRecordName = "anniversary"
 
     enum Field {
         // Status. The human-readable parts are encrypted.
@@ -142,6 +152,11 @@ actor CloudSync: SyncBackend {
         static let seenMap = "seenMap"
         static let statusSeenAt = "statusSeenAt"
         static let statusSeenFor = "statusSeenFor"
+
+        // Anniversary. A date is personal even if it isn't words, so both go
+        // through `encryptedValues`.
+        static let startsAt = "startsAt"
+        static let timeZone = "timeZone"
     }
 
     /// One subscription per record type — each wants a different payload.

@@ -1,60 +1,9 @@
 import SwiftUI
 
-/// The easter egg's clock. Sydney's calendar throughout, so the monthly mark
-/// stays on the 5th at 11:02 pm across the daylight-saving change.
-enum Anniversary {
-    static let timeZone = TimeZone(identifier: "Australia/Sydney")!
-
-    static let calendar: Calendar = {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
-        return calendar
-    }()
-
-    /// 5 June 2026, 11:02 pm AEST.
-    static let start = calendar.date(from: DateComponents(year: 2026, month: 6, day: 5,
-                                                          hour: 23, minute: 2))!
-
-    struct Milestone {
-        let months: Int
-        let date: Date
-
-        var title: String {
-            if months % 12 == 0 {
-                let years = months / 12
-                return years == 1 ? String(localized: "1 year") : String(localized: "\(years) years")
-            }
-            return months == 1 ? String(localized: "1 month") : String(localized: "\(months) months")
-        }
-    }
-
-    /// Monthly to a year, then yearly; the run is ascending so the first date
-    /// past `now` is the next one.
-    static func milestones() -> [Milestone] {
-        let months = [1, 2, 3, 6, 9, 12] + stride(from: 24, through: 12 * 60, by: 12)
-        return months.compactMap { count in
-            calendar.date(byAdding: .month, value: count, to: start)
-                .map { Milestone(months: count, date: $0) }
-        }
-    }
-
-    /// From tomorrow: today's milestone is the headline, not what's next.
-    static func nextMilestone(after now: Date) -> Milestone? {
-        guard let tomorrow = calendar.date(byAdding: .day, value: 1,
-                                           to: calendar.startOfDay(for: now)) else { return nil }
-        return milestones().first { $0.date >= tomorrow }
-    }
-
-    /// The milestone landing today (Sydney's day), if any — the whole day
-    /// celebrates, not just the minute.
-    static func milestoneToday(_ now: Date) -> Milestone? {
-        milestones().first { calendar.isDate($0.date, inSameDayAs: now) }
-    }
-}
-
-/// Hidden behind a long press on the home screen's title: how long the two of
-/// them have been tied together, ticking live, with the next milestone and a
-/// celebration on milestone days.
+/// The last layer of the easter egg: how long the two of them have been tied
+/// together, ticking live from the date the owner set, with the next milestone
+/// and a celebration on milestone days. Says so while no date is set — and
+/// hands the owner the picker.
 struct AnniversaryView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -62,23 +11,28 @@ struct AnniversaryView: View {
     @State private var revealed = false
     @State private var pieces = ConfettiPiece.emitter(count: 48)
     @State private var opened = Date()
+    @State private var editing = false
 
     var body: some View {
         ZStack {
             Theme.Background()
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                let now = context.date
-                let milestone = Anniversary.milestoneToday(now)
+            if let anniversary = model.anniversary {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    let now = context.date
+                    let milestone = anniversary.milestoneToday(now)
 
-                // One view, not two: a tuple here is stacked, not layered.
-                content(now: now, celebrating: milestone)
-                    .overlay {
-                        if milestone != nil, !reduceMotion {
-                            ConfettiLayer(pieces: pieces, start: opened)
-                                .allowsHitTesting(false)
-                                .ignoresSafeArea()
+                    // One view, not two: a tuple here is stacked, not layered.
+                    content(anniversary, now: now, celebrating: milestone)
+                        .overlay {
+                            if milestone != nil, !reduceMotion {
+                                ConfettiLayer(pieces: pieces, start: opened)
+                                    .allowsHitTesting(false)
+                                    .ignoresSafeArea()
+                            }
                         }
-                    }
+                }
+            } else {
+                unset
             }
 
             VStack {
@@ -97,6 +51,10 @@ struct AnniversaryView: View {
             }
             .padding(20)
         }
+        .sheet(isPresented: $editing) {
+            AnniversaryEditorView(mode: .edit)
+                .environment(model)
+        }
         .task {
             opened = .now
             UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -104,10 +62,49 @@ struct AnniversaryView: View {
         }
     }
 
+    // MARK: - No date yet
+
+    private var unset: some View {
+        VStack(spacing: 18) {
+            Spacer(minLength: 0)
+            Text("❤️")
+                .font(.system(size: 64))
+                .scaleEffect(revealed ? 1 : 0.3)
+                .accessibilityHidden(true)
+            Text("No date yet")
+                .font(.system(size: 30, weight: .bold, design: .rounded))
+            if model.canEditAnniversary {
+                Text("Tell the app when the two of you began and the count starts here — on both phones.")
+                    .font(Theme.rounded(15))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    editing = true
+                } label: {
+                    Label("Set our date", systemImage: "calendar.badge.clock")
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .padding(.top, 8)
+            } else {
+                Text("\(model.partnerName) hasn't set the day the two of you began. Once they do, the count appears here.")
+                    .font(Theme.rounded(15))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 36)
+        .opacity(revealed ? 1 : 0)
+    }
+
     // MARK: - Content
 
-    private func content(now: Date, celebrating: Anniversary.Milestone?) -> some View {
-        let elapsed = max(0, now.timeIntervalSince(Anniversary.start))
+    private func content(_ anniversary: Anniversary,
+                         now: Date,
+                         celebrating: Anniversary.Milestone?) -> some View {
+        let elapsed = max(0, now.timeIntervalSince(anniversary.startsAt))
         let days = Int(elapsed / 86_400)
         let clock = Int(elapsed) % 86_400
 
@@ -158,13 +155,13 @@ struct AnniversaryView: View {
                     .padding(.top, 14)
                     .accessibilityLabel(clockLabel(clock))
 
-                breakdown(now: now)
+                breakdown(anniversary, now: now)
                     .padding(.top, 20)
 
                 VStack(spacing: 12) {
-                    sinceCard
-                    if let next = Anniversary.nextMilestone(after: now) {
-                        nextCard(next, now: now)
+                    sinceCard(anniversary)
+                    if let next = anniversary.nextMilestone(after: now) {
+                        nextCard(next, anniversary: anniversary, now: now)
                     }
                 }
                 .padding(.top, 30)
@@ -184,15 +181,8 @@ struct AnniversaryView: View {
         .accessibilityLabel("Tied together for \(days) days")
     }
 
-    /// Calendar months and days between the two *dates*, which is how people
-    /// count these things — "3 months today", not "2 months, 30 days" until 11:02 pm.
-    private func breakdown(now: Date) -> some View {
-        let calendar = Anniversary.calendar
-        let parts = calendar.dateComponents([.month, .day],
-                                            from: calendar.startOfDay(for: Anniversary.start),
-                                            to: calendar.startOfDay(for: now))
-        let months = max(0, parts.month ?? 0)
-        let days = max(0, parts.day ?? 0)
+    private func breakdown(_ anniversary: Anniversary, now: Date) -> some View {
+        let (months, days) = anniversary.monthsAndDays(at: now)
 
         return Group {
             if months > 0 {
@@ -208,31 +198,43 @@ struct AnniversaryView: View {
         .background(Theme.accent.opacity(0.12), in: Capsule())
     }
 
-    private var sinceCard: some View {
-        HStack(spacing: 14) {
-            Image(systemName: "calendar.badge.clock")
-                .font(Theme.rounded(22))
-                .foregroundStyle(Theme.accent)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Since")
-                    .font(Theme.rounded(11, .semibold))
-                    .tracking(1.2)
-                    .textCase(.uppercase)
-                    .foregroundStyle(.secondary)
-                Text(Anniversary.start, format: startStyle)
-                    .font(Theme.rounded(17, .semibold))
-                    .fixedSize(horizontal: false, vertical: true)
+    /// The owner can tap through to change it; the partner just reads it.
+    private func sinceCard(_ anniversary: Anniversary) -> some View {
+        Button {
+            editing = true
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "calendar.badge.clock")
+                    .font(Theme.rounded(22))
+                    .foregroundStyle(Theme.accent)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Since")
+                        .font(Theme.rounded(11, .semibold))
+                        .tracking(1.2)
+                        .textCase(.uppercase)
+                        .foregroundStyle(.secondary)
+                    Text(anniversary.startsAt,
+                         format: Date.FormatStyle(date: .long, time: .shortened, timeZone: anniversary.timeZone))
+                        .font(Theme.rounded(17, .semibold))
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                if model.canEditAnniversary {
+                    Image(systemName: "pencil")
+                        .font(Theme.rounded(13, .semibold))
+                        .foregroundStyle(.tertiary)
+                }
             }
-            Spacer(minLength: 0)
+            .card(padding: 16)
         }
-        .card(padding: 16)
+        .buttonStyle(.plain)
+        .disabled(!model.canEditAnniversary)
+        .accessibilityHint(model.canEditAnniversary ? "Changes the date" : "")
     }
 
-    private func nextCard(_ next: Anniversary.Milestone, now: Date) -> some View {
-        let daysLeft = Anniversary.calendar.dateComponents(
-            [.day],
-            from: Anniversary.calendar.startOfDay(for: now),
-            to: Anniversary.calendar.startOfDay(for: next.date)).day ?? 0
+    private func nextCard(_ next: Anniversary.Milestone, anniversary: Anniversary, now: Date) -> some View {
+        let daysLeft = anniversary.daysUntil(next.date, from: now)
 
         return HStack(spacing: 14) {
             Image(systemName: "sparkles")
@@ -246,7 +248,7 @@ struct AnniversaryView: View {
                     .foregroundStyle(.secondary)
                 Text(next.title)
                     .font(Theme.rounded(17, .semibold))
-                Text(next.date, format: dayStyle)
+                Text(next.date, format: Date.FormatStyle(date: .complete, timeZone: anniversary.timeZone))
                     .font(Theme.rounded(13))
                     .foregroundStyle(.secondary)
             }
@@ -262,14 +264,6 @@ struct AnniversaryView: View {
     }
 
     // MARK: - Formatting
-
-    private var startStyle: Date.FormatStyle {
-        Date.FormatStyle(date: .long, time: .shortened, timeZone: Anniversary.timeZone)
-    }
-
-    private var dayStyle: Date.FormatStyle {
-        Date.FormatStyle(date: .complete, timeZone: Anniversary.timeZone)
-    }
 
     private func clockString(_ seconds: Int) -> String {
         String(format: "%02d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60)

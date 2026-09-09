@@ -1,7 +1,833 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "" : {
 
+    },
+    ". Seen %@" : {
+
+    },
+    "%@ & %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ & %2$@"
+          }
+        }
+      }
+    },
+    "%@ from %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ from %2$@"
+          }
+        }
+      }
+    },
+    "%@ hasn't set the day the two of you began. Once they do, the count appears here." : {
+
+    },
+    "%@, %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, %2$@"
+          }
+        }
+      }
+    },
+    "%@: waiting for their first status" : {
+
+    },
+    "%@. %lld new" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@. %2$lld new"
+          }
+        }
+      }
+    },
+    "%@. From %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@. From %2$@."
+          }
+        }
+      }
+    },
+    "%lld" : {
+
+    },
+    "%lld months" : {
+
+    },
+    "%lld new" : {
+
+    },
+    "%lld percent" : {
+
+    },
+    "%lld waiting to send" : {
+
+    },
+    "%lld years" : {
+
+    },
+    "%lld%%" : {
+
+    },
+    "^[%lld day](inflect: true)" : {
+
+    },
+    "^[%lld month](inflect: true), ^[%lld day](inflect: true)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "^[%1$lld month](inflect: true), ^[%2$lld day](inflect: true)"
+          }
+        }
+      }
+    },
+    "❤️" : {
+
+    },
+    "🐟" : {
+
+    },
+    "💌" : {
+
+    },
+    "💛" : {
+
+    },
+    "💭" : {
+
+    },
+    "🦊" : {
+
+    },
+    "1 month" : {
+
+    },
+    "1 waiting to send" : {
+
+    },
+    "1 year" : {
+
+    },
+    "A fox and a fish" : {
+
+    },
+    "A glance at each other, from anywhere." : {
+
+    },
+    "A private status app for two people who choose to pair with each other. Everything you send — statuses, nudges, photos, drawings and voice memos — goes only to your partner, through your own iCloud. You are responsible for what you send." : {
+
+    },
+    "Account" : {
+
+    },
+    "Add a caption (optional)" : {
+
+    },
+    "and %lld hours, %lld minutes, %lld seconds" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "and %1$lld hours, %2$lld minutes, %3$lld seconds"
+          }
+        }
+      }
+    },
+    "Any background" : {
+
+    },
+    "Any colour" : {
+
+    },
+    "Any status, photo, drawing or voice memo your partner sends can be reported from inside the app. Reporting removes it from your iPhone immediately and sends the details to us. A word filter, on by default, hides strong language from your partner's messages; you can turn it off in Settings." : {
+
+    },
+    "Anything you send each other shows up here." : {
+
+    },
+    "BACKGROUND" : {
+
+    },
+    "Background colour" : {
+
+    },
+    "Before you start" : {
+
+    },
+    "Block %@?" : {
+
+    },
+    "Block %@…" : {
+
+    },
+    "Block and report" : {
+
+    },
+    "Blocking" : {
+
+    },
+    "Brush size %lld" : {
+
+    },
+    "Cancel" : {
+
+    },
+    "Celebration" : {
+
+    },
+    "Changes the date" : {
+
+    },
+    "Changes your status" : {
+
+    },
+    "Choose any emoji" : {
+
+    },
+    "Clear search" : {
+
+    },
+    "Clear the drawing" : {
+
+    },
+    "Close" : {
+
+    },
+    "Close the invite link" : {
+
+    },
+    "Colour %lld" : {
+
+    },
+    "Contact" : {
+
+    },
+    "Container" : {
+
+    },
+    "Continue" : {
+
+    },
+    "Copied" : {
+
+    },
+    "Copy link" : {
+
+    },
+    "Copy report" : {
+
+    },
+    "Couldn't load that photo" : {
+
+    },
+    "Couldn't load this one" : {
+
+    },
+    "Couldn't reach iCloud" : {
+
+    },
+    "Couldn't save" : {
+
+    },
+    "Create invite link" : {
+
+    },
+    "Delete everything" : {
+
+    },
+    "Delete everything and start over" : {
+
+    },
+    "Delete everything and start over?" : {
+
+    },
+    "Dismiss" : {
+
+    },
+    "Don't send anything that is threatening, harassing, hateful, sexually explicit without consent, violent, illegal, or that involves a minor in any sexual way. Don't use Red String to abuse, stalk or pressure anyone. There is no tolerance for objectionable content or abusive behaviour: content is removed and the person who sent it is ejected." : {
+
+    },
+    "Done" : {
+
+    },
+    "drawing" : {
+
+    },
+    "Emoji" : {
+
+    },
+    "Emoji: %@" : {
+
+    },
+    "Environment" : {
+
+    },
+    "Eraser" : {
+
+    },
+    "Everything %@ sent is removed from this iPhone immediately, the link ends, their invites are refused from now on, and we're notified. There is no undo." : {
+
+    },
+    "Fetching from iCloud…" : {
+
+    },
+    "Fills their screen when they next open the app" : {
+
+    },
+    "Filter" : {
+
+    },
+    "from %@" : {
+
+    },
+    "Happy %@" : {
+
+    },
+    "Hidden by your content filter" : {
+
+    },
+    "Hide strong language" : {
+
+    },
+    "History" : {
+
+    },
+    "Hold to open" : {
+
+    },
+    "I agree" : {
+
+    },
+    "iCloud diagnostics" : {
+
+    },
+    "in ^[%lld day](inflect: true)" : {
+
+    },
+    "IN YOUR WORDS" : {
+
+    },
+    "Invite link" : {
+
+    },
+    "is thinking of you 💭" : {
+
+    },
+    "It may not be downloaded from iCloud yet. Check your connection and try again." : {
+
+    },
+    "It's removed from this iPhone straight away, and the details go to us by email. We act on reports within 24 hours." : {
+
+    },
+    "It's the start of a count hidden somewhere in the app. Only the two of you can find it." : {
+
+    },
+    "Its text is hidden on this iPhone straight away, and the details go to us by email. We act on reports within 24 hours." : {
+
+    },
+    "Join %@" : {
+
+    },
+    "Just for you two" : {
+
+    },
+    "Let them know you're thinking of them." : {
+
+    },
+    "Lets %@ see when you've looked at what they sent, and shows you the same for your sends while they have it on too. Turning it off stops sharing new ones." : {
+
+    },
+    "Link copied" : {
+
+    },
+    "Love it" : {
+
+    },
+    "Memories saved" : {
+
+    },
+    "Moment" : {
+
+    },
+    "More" : {
+
+    },
+    "new" : {
+
+    },
+    "New" : {
+
+    },
+    "Next up" : {
+
+    },
+    "No account, no email, no password. Your name stays on your phones and in your own iCloud." : {
+
+    },
+    "No date yet" : {
+
+    },
+    "no message" : {
+
+    },
+    "No share found — either this device isn't paired, or the shared zone is gone." : {
+
+    },
+    "No status matches “%@”" : {
+
+    },
+    "No statuses yet" : {
+
+    },
+    "No tolerance for objectionable content or abuse" : {
+
+    },
+    "Not now" : {
+
+    },
+    "Not on this device yet" : {
+
+    },
+    "Not playing" : {
+
+    },
+    "Not set" : {
+
+    },
+    "Not synced yet" : {
+
+    },
+    "Nothing here yet" : {
+
+    },
+    "Nothing in this direction yet." : {
+
+    },
+    "Notifications" : {
+
+    },
+    "Nudge sent" : {
+
+    },
+    "Nudges and moments" : {
+
+    },
+    "OK" : {
+
+    },
+    "One more thing" : {
+
+    },
+    "Open" : {
+
+    },
+    "Open Settings" : {
+
+    },
+    "Opens it" : {
+
+    },
+    "Or, if they've already sent you a link, just tap it — this app will open and pair itself." : {
+
+    },
+    "Our date" : {
+
+    },
+    "Our time together" : {
+
+    },
+    "Pairing" : {
+
+    },
+    "Pause" : {
+
+    },
+    "Pauses" : {
+
+    },
+    "photo" : {
+
+    },
+    "Pick a photo, or start drawing" : {
+
+    },
+    "Pick the day, and the minute if you know it. %@ will see the same count, and only you can change it." : {
+
+    },
+    "Play" : {
+
+    },
+    "Playback position" : {
+
+    },
+    "Playing" : {
+
+    },
+    "Plays" : {
+
+    },
+    "Problems" : {
+
+    },
+    "Promote partner & close invite" : {
+
+    },
+    "Questions, reports and appeals: edwintang2005@gmail.com." : {
+
+    },
+    "Read receipts" : {
+
+    },
+    "Reading iCloud…" : {
+
+    },
+    "Record" : {
+
+    },
+    "Redo" : {
+
+    },
+    "Rejoin" : {
+
+    },
+    "Remove" : {
+
+    },
+    "Remove from this iPhone only" : {
+
+    },
+    "Remove the date" : {
+
+    },
+    "Remove the date?" : {
+
+    },
+    "Reply with a status" : {
+
+    },
+    "Report" : {
+
+    },
+    "Report a problem" : {
+
+    },
+    "Report copied" : {
+
+    },
+    "Report this %@?" : {
+
+    },
+    "Report this status?" : {
+
+    },
+    "Report this status…" : {
+
+    },
+    "Report…" : {
+
+    },
+    "Reported" : {
+
+    },
+    "Reporting" : {
+
+    },
+    "Safety" : {
+
+    },
+    "Save" : {
+
+    },
+    "Save memories to iCloud…" : {
+
+    },
+    "Save memories, then delete" : {
+
+    },
+    "Save memories, then unlink" : {
+
+    },
+    "Save to Photos" : {
+
+    },
+    "Saved" : {
+
+    },
+    "Say anything" : {
+
+    },
+    "Search statuses" : {
+
+    },
+    "Securing…" : {
+
+    },
+    "seen" : {
+
+    },
+    "Seen %@" : {
+
+    },
+    "Send" : {
+
+    },
+    "Send a heart back" : {
+
+    },
+    "Send a moment" : {
+
+    },
+    "Send a nudge" : {
+
+    },
+    "Send a voice memo" : {
+
+    },
+    "Send this to %@" : {
+
+    },
+    "Send this to your partner" : {
+
+    },
+    "Sent · %llds" : {
+
+    },
+    "Sent you a %@" : {
+
+    },
+    "sent you a drawing ✏️" : {
+
+    },
+    "sent you a photo 📷" : {
+
+    },
+    "sent you a voice memo 🎙️" : {
+
+    },
+    "Set" : {
+
+    },
+    "Set our date" : {
+
+    },
+    "Set your status" : {
+
+    },
+    "Settings" : {
+
+    },
+    "Settings → Block ends the link, removes everything your partner sent from your iPhone instantly, refuses any future invite from them, and notifies us." : {
+
+    },
+    "Share invite link" : {
+
+    },
+    "Share link" : {
+
+    },
+    "Share participants" : {
+
+    },
+    "Share voice memo" : {
+
+    },
+    "Show hidden caption" : {
+
+    },
+    "Show hidden text" : {
+
+    },
+    "Shows status history" : {
+
+    },
+    "Since" : {
+
+    },
+    "Something went wrong" : {
+
+    },
+    "Start over" : {
+
+    },
+    "Status" : {
+
+    },
+    "Status history" : {
+
+    },
+    "Statuses are logged here from now on, as they happen." : {
+
+    },
+    "Statuses are stored in your own iCloud with the text end-to-end encrypted. Photos, drawings and voice memos are CloudKit assets, which are encrypted by default." : {
+
+    },
+    "Stop" : {
+
+    },
+    "Synced %@" : {
+
+    },
+    "Syncing…" : {
+
+    },
+    "Tap anywhere to close" : {
+
+    },
+    "Tell the app when the two of you began and the count starts here — on both phones." : {
+
+    },
+    "Terms of Use" : {
+
+    },
+    "The archive was only shared from this iPhone — continue only if you saved it somewhere safe." : {
+
+    },
+    "The count disappears on both phones until a date is set again." : {
+
+    },
+    "The day the hidden count starts from. %@ sees the same count; only you can change the date." : {
+
+    },
+    "The link closes itself the moment %@ joins, so a forwarded copy can't add anyone else. You can find it again in Settings until then." : {
+
+    },
+    "These terms supplement Apple's standard Licensed Application End User License Agreement, which also applies." : {
+
+    },
+    "They tap it once and you're linked. That's the whole setup — no accounts, nothing to type." : {
+
+    },
+    "They tap it once. That's the whole setup." : {
+
+    },
+    "Thinking of you" : {
+
+    },
+    "This device" : {
+
+    },
+    "This iCloud account is already paired. Rejoin and the statuses, photos and memos come back on their own." : {
+
+    },
+    "This is the name %@ sees on your status, your nudges and anything you send. Their name is theirs to set." : {
+
+    },
+    "Tie the red string between them" : {
+
+    },
+    "Tie the string" : {
+
+    },
+    "Tie them together" : {
+
+    },
+    "Tied together for" : {
+
+    },
+    "Tied together for %lld days" : {
+
+    },
+    "Turn off the celebration" : {
+
+    },
+    "Undo" : {
+
+    },
+    "Unlink" : {
+
+    },
+    "Version" : {
+
+    },
+    "voice memo" : {
+
+    },
+    "Voice memo" : {
+
+    },
+    "Voice memo, %@" : {
+
+    },
+    "Waiting for their first status" : {
+
+    },
+    "waiting to send" : {
+
+    },
+    "was thinking of you earlier 💭" : {
+
+    },
+    "We act on every report within 24 hours: the reported content is removed and, where the report is upheld, the person who sent it is ejected from the shared space and barred from pairing with the reporter again. Because messages are end-to-end encrypted in your iCloud, we can only see what you include in a report." : {
+
+    },
+    "What Red String is" : {
+
+    },
+    "What we do" : {
+
+    },
+    "When did the two of you begin?" : {
+
+    },
+    "When it began" : {
+
+    },
+    "you" : {
+
+    },
+    "You can change this later in Settings." : {
+
+    },
+    "You sent a %@" : {
+
+    },
+    "You: %@" : {
+
+    },
+    "You'll appear as" : {
+
+    },
+    "You'll share one private space in iCloud — just the two of you." : {
+
+    },
+    "Your name" : {
+
+    },
+    "Your shared space is still in iCloud" : {
+
+    },
+    "Your status" : {
+
+    },
+    "Your status: %@ %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Your status: %1$@ %2$@"
+          }
+        }
+      }
+    },
+    "Your statuses, photos and drawings are end-to-end encrypted in your own iCloud. No servers, no accounts, no ads." : {
+
+    }
   },
   "version" : "1.0"
 }

@@ -24,6 +24,8 @@ final class SnapshotCodableTests: XCTestCase {
         XCTAssertEqual(snapshot.notifiedMomentIDs, [])
         XCTAssertFalse(snapshot.receiptsDirty)
         XCTAssertNil(snapshot.partnerStatusSeen)
+        XCTAssertNil(snapshot.anniversary)
+        XCTAssertTrue(snapshot.anniversaryPublished, "pre-field snapshots must not republish")
         XCTAssertEqual(snapshot.latestPartnerVisualMoment?.id, "m1",
                        "absent key: legacy snapshots treat every moment as a picture")
     }
@@ -69,6 +71,8 @@ final class SnapshotCodableTests: XCTestCase {
         snapshot.receiptsDirty = true
         snapshot.partnerStatusSeen = StatusSeen(statusUpdatedAt: Fixtures.date(-60), seenAt: Fixtures.t0)
         snapshot.myStatusSeenByPartner = StatusSeen(statusUpdatedAt: Fixtures.t0, seenAt: Fixtures.date(1))
+        snapshot.anniversary = Anniversary(startsAt: Fixtures.date(-90 * 86_400), timeZoneID: "Australia/Sydney")
+        snapshot.anniversaryPublished = false
 
         let data = try JSONEncoder.shared.encode(snapshot)
         let decoded = try JSONDecoder.shared.decode(Snapshot.self, from: data)

@@ -1,7 +1,143 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%@ · %@ You" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · %2$@ You"
+          }
+        }
+      }
+    },
+    "%@ from %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ from %2$@"
+          }
+        }
+      }
+    },
+    "%@: not paired" : {
 
+    },
+    "%lld" : {
+
+    },
+    "%lld memos waiting" : {
+
+    },
+    "%lld months" : {
+
+    },
+    "%lld voice memos waiting" : {
+
+    },
+    "%lld years" : {
+
+    },
+    "💭" : {
+
+    },
+    "💭 nothing yet" : {
+
+    },
+    "1 month" : {
+
+    },
+    "1 voice memo waiting" : {
+
+    },
+    "1 year" : {
+
+    },
+    "drawing" : {
+
+    },
+    "Hidden" : {
+
+    },
+    "Hidden by your content filter" : {
+
+    },
+    "How you're both doing, at a glance." : {
+
+    },
+    "Let them know you're thinking of them." : {
+
+    },
+    "no message" : {
+
+    },
+    "No photos yet" : {
+
+    },
+    "Nothing from them yet" : {
+
+    },
+    "nothing yet" : {
+
+    },
+    "Nothing yet. Send yours." : {
+
+    },
+    "Nudge" : {
+
+    },
+    "Nudge didn't send. Tap to retry" : {
+
+    },
+    "Nudge sent" : {
+
+    },
+    "Open to pair" : {
+
+    },
+    "photo" : {
+
+    },
+    "Send a moment" : {
+
+    },
+    "Send a nudge" : {
+
+    },
+    "sent you a drawing ✏️" : {
+
+    },
+    "sent you a photo 📷" : {
+
+    },
+    "sent you a voice memo 🎙️" : {
+
+    },
+    "Statuses" : {
+
+    },
+    "Tap to send a 'thinking of you'." : {
+
+    },
+    "Tap to send the first one." : {
+
+    },
+    "The last photo or doodle they sent you, and a badge when a voice memo is waiting." : {
+
+    },
+    "Their photo" : {
+
+    },
+    "Them" : {
+
+    },
+    "voice memo" : {
+
+    },
+    "Voice memo waiting" : {
+
+    }
   },
   "version" : "1.0"
 }

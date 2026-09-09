@@ -76,6 +76,12 @@ enum DemoSeeder {
                                             lastNudgeAt: now.addingTimeInterval(-7_200))
             snapshot.lastSeenPartnerNudgeCount = 14
             snapshot.lastNudgeSentAt = nil
+            // The easter egg's clock: 5 June 2026, 11:02 pm in Sydney.
+            var sydney = Calendar(identifier: .gregorian)
+            sydney.timeZone = TimeZone(identifier: "Australia/Sydney")!
+            if let began = sydney.date(from: DateComponents(year: 2026, month: 6, day: 5, hour: 23, minute: 2)) {
+                snapshot.anniversary = Anniversary(startsAt: began, timeZoneID: "Australia/Sydney")
+            }
             snapshot.lastNotifiedMomentID = "demo-heart"
             // Sam saw the current status a few minutes after it was set.
             snapshot.myStatusSeenByPartner = StatusSeen(statusUpdatedAt: now.addingTimeInterval(-45 * 60),

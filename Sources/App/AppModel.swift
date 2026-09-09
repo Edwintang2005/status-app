@@ -25,6 +25,7 @@ final class AppModel {
     /// Re-entrancy guard: a slow retry must not overlap the next foreground's.
     @ObservationIgnored private var isRetryingUploads = false
     @ObservationIgnored private var isRepublishingStatus = false
+    @ObservationIgnored private var isRepublishingAnniversary = false
 
     /// Fires a refresh on the offline→online edge — the only trigger that watches the network itself.
     @ObservationIgnored private let pathMonitor = NWPathMonitor()
@@ -67,6 +68,8 @@ final class AppModel {
     private(set) var termsAccepted: Bool
     /// `updatedAt` of a reported partner status — see `SharedStore.hiddenPartnerStatusAt`.
     private(set) var hiddenPartnerStatusAt: Date?
+    /// Owner side: the "when did you two begin?" prompt is owed — see `SharedStore.anniversaryPromptPending`.
+    private(set) var anniversaryPromptPending = false
 
     /// Store is injectable so previews and tests run against a throwaway defaults suite.
     init(store: SharedStore = .shared) {
@@ -76,11 +79,17 @@ final class AppModel {
         self.role = store.pairing?.role
         self.termsAccepted = store.acceptedTermsVersion >= AppConfig.termsVersion
         self.hiddenPartnerStatusAt = store.hiddenPartnerStatusAt
+        self.anniversaryPromptPending = store.anniversaryPromptPending
     }
 
     // MARK: - Derived
 
     var partnerName: String { snapshot.partnerDisplayName }
+
+    /// When the two of them began, as the owner set it — `nil` until they do.
+    var anniversary: Anniversary? { snapshot.anniversary }
+    /// Only the zone owner sets the date; the participant just receives it.
+    var canEditAnniversary: Bool { isPaired && role == .owner }
 
     /// Whether this person has ever set a name — the one gate before the rest
     /// of the app, since everything sent carries it and there's no sensible default.
@@ -298,6 +307,7 @@ final class AppModel {
         // The closed link is kept on purpose — see `refreshInviteURL`.
         inviteURL = store.inviteURL
         hiddenPartnerStatusAt = store.hiddenPartnerStatusAt
+        anniversaryPromptPending = store.anniversaryPromptPending
         history = MomentIndex.shared.load()
     }
 
@@ -460,6 +470,7 @@ final class AppModel {
             reload()
             // A working refresh is the recovery moment for sends that died offline.
             await republishStatusIfNeeded()
+            await republishAnniversaryIfNeeded()
             await retryPendingUploads()
             await flushReceiptsIfNeeded()
         } catch {
@@ -687,6 +698,63 @@ final class AppModel {
         }
     }
 
+    // MARK: - Anniversary
+
+    /// Owner only. Written locally first (and marked unpublished in the same
+    /// mutate), then pushed; a failure is quiet because `republishAnniversaryIfNeeded`
+    /// carries it over on the next refresh. `nil` removes the date on both phones.
+    func setAnniversary(_ anniversary: Anniversary?) async {
+        guard canEditAnniversary else { return }
+        store.mutate(reloadWidgets: false) {
+            $0.anniversary = anniversary
+            $0.anniversaryPublished = false
+        }
+        store.anniversaryPromptPending = false
+        reload()
+
+        do {
+            try await Backend.current.publishAnniversary(anniversary)
+            markAnniversaryPublished(anniversary)
+            reload()
+        } catch {
+            log.error("Anniversary publish failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// The prompt after creating the link was skipped; Settings still has the row.
+    func dismissAnniversaryPrompt() {
+        store.anniversaryPromptPending = false
+        anniversaryPromptPending = false
+    }
+
+    /// Flips the published flag only if `anniversary` is still the current value —
+    /// a late-finishing publish must not mark a newer offline edit as delivered.
+    private func markAnniversaryPublished(_ anniversary: Anniversary?) {
+        store.mutate(reloadWidgets: false) {
+            guard $0.anniversary == anniversary else { return }
+            $0.anniversaryPublished = true
+        }
+    }
+
+    /// Re-publishes the anniversary if its last publish never landed. Safe to
+    /// re-run: one fixed record name, and only the owner writes it.
+    func republishAnniversaryIfNeeded() async {
+        guard canEditAnniversary, !isRepublishingAnniversary else { return }
+        let snapshot = store.snapshot
+        guard !snapshot.anniversaryPublished else { return }
+        isRepublishingAnniversary = true
+        defer { isRepublishingAnniversary = false }
+
+        do {
+            try await Backend.current.publishAnniversary(snapshot.anniversary)
+            markAnniversaryPublished(snapshot.anniversary)
+            reload()
+            log.info("Republished the offline anniversary update")
+        } catch {
+            log.error("Anniversary republish failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     /// Re-sends own moments whose upload never completed; runs on every foreground
     /// refresh, quiet on failure (the pending badge already says so).
     /// Safe to re-run — `CloudSync.send` overwrites a deterministic record name.
@@ -816,6 +884,9 @@ final class AppModel {
             reload()
             // After `reload()`, which flips `isPaired` and dismisses the pairing screen.
             presentedInvite = InviteLink(url: url)
+            // Owed once the link sheet closes — see `RootView`.
+            store.anniversaryPromptPending = true
+            anniversaryPromptPending = true
             await NotificationManager.requestAuthorizationIfNeeded()
         } catch {
             // `createPairInvite` commits the pairing before its bootstrap publish;
