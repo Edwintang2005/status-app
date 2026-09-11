@@ -83,6 +83,11 @@ final class MomentIndex {
                     moment.seenAt = moment.seenAt ?? existing.seenAt
                     moment.seenByPartnerAt = moment.seenByPartnerAt ?? existing.seenByPartnerAt
                     moment.uploaded = moment.uploaded || existing.uploaded
+                    // Moments never change after sending, so words already held
+                    // beat a copy that arrived with its encrypted fields empty.
+                    if moment.caption.isEmpty { moment.caption = existing.caption }
+                    if moment.senderName.isEmpty { moment.senderName = existing.senderName }
+                    if moment.waveform.isEmpty { moment.waveform = existing.waveform }
                 }
                 all.removeAll { $0.id == moment.id }
                 all.append(moment)

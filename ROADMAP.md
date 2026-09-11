@@ -58,6 +58,15 @@ addition requires re-deploying the schema to Production (README → "Shipping it
   survives a reinstall. Each side prunes its own records past
   `AppConfig.statusLogLimit`, and deletions mirror locally. **Schema: the
   `StatusLog` record type must exist in Production before release.**
+- **Audit fixes (round three)** — the anniversary (and any encrypted field)
+  can no longer vanish from a background refresh: a record whose encrypted
+  fields come back empty is skipped and the change token held so it's fetched
+  again (`CloudSync.isReadable`, CLAUDE.md invariant 2); held captions, sender
+  names and waveforms beat empty re-deliveries; no 💭 placeholder in the status
+  log; the status read receipt clears only from a readable receipt.
+  Diagnostics counts unreadable records per process. The snapshot fold
+  (`RefreshDelta`) and every notification claim (`AnnouncementPolicy`) are
+  pure and under `make test`. No schema changes.
 - **Status read receipts** — "Seen 2h ago" under your own status. Two
   encrypted fields on the existing `Receipt` record (`statusSeenAt`,
   `statusSeenFor`), stamped only from the foreground home screen. **Schema:
@@ -98,6 +107,24 @@ one *stronger* notification instead of a stack of identical ones.
   machinery at lower intensity).
 - Watermark logic is unchanged — a burst is still just a count increase.
 - Schema: one new field on `Nudge`; redeploy.
+
+### Alternate app icons (S)
+
+Let each person pick the Home Screen icon from Settings.
+- **Assets**: one more `.appiconset` per variant in
+  `Sources/App/Resources/AppIcon.xcassets`, a single 1024px PNG each (iOS 17
+  needs no other sizes). Candidates: colour/seasonal takes on the red string;
+  the fox-and-fish `Logo` as a hidden unlock once the pair has tied the string.
+- **Build**: `ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES` (or
+  `…_INCLUDE_ALL_APPICON_ASSETS: YES`) on the app target in `project.yml` —
+  Xcode writes `CFBundleAlternateIcons` itself; no Info.plist edits. Then
+  `make project` and commit the regenerated project.
+- **UI**: a row of icon previews in `SettingsView` calling
+  `UIApplication.setAlternateIconName` (nil restores the default); the current
+  choice is read back from `alternateIconName`, so nothing is persisted. iOS
+  shows a one-time confirmation alert that can't be suppressed.
+- Per device, not synced (widgets and the NSE are unaffected). Could ride
+  `Snapshot` later if both phones should match. No schema changes.
 
 ### Also on file (from README "Possible improvements")
 

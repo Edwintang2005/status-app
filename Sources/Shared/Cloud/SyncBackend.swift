@@ -7,6 +7,9 @@ struct RefreshResult: Sendable {
     /// New partner moments, oldest first. Often several at once — a fresh
     /// install's change fetch returns the whole zone.
     var newPartnerMoments: [Moment] = []
+    /// Records this pass couldn't decrypt; `CloudSync.refresh` then keeps the
+    /// change token so they come round again.
+    var unreadableRecords = 0
 
     var newestPartnerMoment: Moment? { newPartnerMoments.last }
 

@@ -26,6 +26,7 @@ final class SharedStore {
         static let hiddenStatusAt = "hiddenPartnerStatusAt"
         static let blockedOwners = "blockedOwnerRecordNames"
         static let anniversaryPrompt = "anniversaryPromptPending"
+        static let unreadable = "unreadableRecords"
     }
 
     init(store: GroupKeyValueStore = GroupFileStore()) {
@@ -175,6 +176,7 @@ final class SharedStore {
             inviteURL = nil
             hiddenPartnerStatusAt = nil
             anniversaryPromptPending = false
+            store.setData(nil, forKey: Key.unreadable)
             for key in ["private", "shared"] { setChangeToken(nil, for: key) }
             snapshot = Snapshot(
                 mine: (name?.isEmpty == false) ? .initial(displayName: name!) : nil,
@@ -264,6 +266,47 @@ final class SharedStore {
             .filter { !$0.fromMe && $0.isVoice && !$0.seen }
             .count
     }
+
+    // MARK: - Unreadable records (Diagnostics)
+
+    /// Per-process count of records whose encrypted fields came back empty —
+    /// the evidence for whether background processes lose decryption.
+    struct UnreadableTally: Codable, Equatable {
+        var counts: [String: Int] = [:]
+        var lastAt: Date?
+
+        var summary: String {
+            guard !counts.isEmpty else { return "none" }
+            let parts = counts.keys.sorted().map { "\($0) \(counts[$0] ?? 0)" }
+            let last = lastAt.map { " (last \($0.formatted(date: .abbreviated, time: .shortened)))" } ?? ""
+            return parts.joined(separator: ", ") + last
+        }
+    }
+
+    private static let tallyLock = CrossProcessLock(name: "unreadable.lock")
+
+    var unreadableTally: UnreadableTally {
+        decode(UnreadableTally.self, forKey: Key.unreadable) ?? UnreadableTally()
+    }
+
+    func noteUnreadableRecords(_ count: Int) {
+        guard count > 0 else { return }
+        Self.tallyLock.withLock {
+            var tally = unreadableTally
+            tally.counts[Self.processLabel, default: 0] += count
+            tally.lastAt = Date()
+            encode(tally, forKey: Key.unreadable)
+        }
+    }
+
+    /// Which of the three processes this is, for the tally above.
+    static let processLabel: String = {
+        guard let extensionInfo = Bundle.main.infoDictionary?["NSExtension"] as? [String: Any],
+              let point = extensionInfo["NSExtensionPointIdentifier"] as? String else {
+            return "app"
+        }
+        return point == "com.apple.widgetkit-extension" ? "widget" : "notification service"
+    }()
 
     // MARK: - CloudKit change tokens
 

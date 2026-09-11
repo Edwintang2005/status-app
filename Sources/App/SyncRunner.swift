@@ -16,38 +16,23 @@ enum SyncRunner {
 
         let result = try await Backend.current.refresh()
 
-        // Check and write inside one `mutate`, under the cross-process lock: the service
+        // Check and claim inside one `mutate`, under the cross-process lock: the service
         // extension advances the same watermarks, and check-then-act outside it double-announced.
-        if let theirs = result.partnerStatus {
-            var shouldAnnounceNudge = false
-            store.mutate(reloadWidgets: false) { snapshot in
-                guard theirs.nudgeCount > snapshot.lastSeenPartnerNudgeCount else { return }
-                snapshot.lastSeenPartnerNudgeCount = theirs.nudgeCount
-                // First sight of the partner's status: any standing count is history,
-                // not a fresh tap — adopt it silently.
-                shouldAnnounceNudge = previousStatus != nil
-            }
-            if announce, shouldAnnounceNudge {
-                let name = store.snapshot.partnerDisplayName
-                await NotificationManager.postNudge(from: name, sentAt: theirs.lastNudgeAt)
-            }
+        var claims = AnnouncementPolicy.Claims()
+        store.mutate(reloadWidgets: false) {
+            claims = AnnouncementPolicy.claim(result, previousStatus: previousStatus, in: &$0)
         }
-
-        // Announce only the newest, even if several arrived at once.
-        if let moment = result.newestPartnerMoment {
-            var shouldAnnounceMoment = false
-            store.mutate(reloadWidgets: false) { snapshot in
-                guard !snapshot.hasAnnounced(moment.id) else { return }
-                snapshot.recordAnnounced(moment.id)
-                shouldAnnounceMoment = true
+        if announce {
+            let name = store.snapshot.partnerDisplayName
+            if claims.nudge {
+                await NotificationManager.postNudge(from: name, sentAt: result.partnerStatus?.lastNudgeAt)
             }
-            if announce, shouldAnnounceMoment {
-                let name = store.snapshot.partnerDisplayName
+            if let moment = claims.moment {
                 await NotificationManager.postMoment(moment, from: name)
             }
         }
 
-        let changed = previousStatus != result.partnerStatus || !result.newPartnerMoments.isEmpty
+        let changed = AnnouncementPolicy.changed(result, previousStatus: previousStatus)
         if changed {
             // The open app's model has its own snapshot copy — without this,
             // HomeView keeps the old status until the next foreground.

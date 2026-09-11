@@ -61,10 +61,13 @@ extension CloudSync {
         } else {
             return nil
         }
+        // No placeholder: `StatusHistoryLog` keeps the first entry it sees for a
+        // timestamp, so a 💭 written here would outlive the readable copy.
+        guard let emoji = record.encryptedValues[Field.emoji] as? String else { return nil }
         // Dated from the *name*, not the field: the name is what dedups against
         // the `Status` record's own entry, and the field carries the same value.
         return StatusHistoryEntry(
-            emoji: record.encryptedValues[Field.emoji] as? String ?? "💭",
+            emoji: emoji,
             message: record.encryptedValues[Field.message] as? String ?? "",
             isCelebration: (record.encryptedValues[Field.isCelebration] as? Int).map { $0 != 0 } ?? false,
             at: named,

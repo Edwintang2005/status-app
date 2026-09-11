@@ -99,20 +99,14 @@ final class NotificationService: UNNotificationServiceExtension {
         // process refreshes first consumes the delta, so it can't classify the push.
         switch notification.subscriptionID {
         case CloudSync.SubscriptionID.moment?:
-            // Prefer the newest *un-announced* moment — from this refresh's delta
-            // first, then the index — picked and claimed inside one `mutate` under
-            // the cross-process lock: rapid-fire pushes run as concurrent extension
-            // instances and must not claim (or re-caption) the same moment.
-            let fromDelta = result.newPartnerMoments.sorted { $0.sentAt > $1.sentAt }
-            let fromIndex = MomentIndex.shared.load().filter { !$0.fromMe }
+            // Picked and claimed inside one `mutate` under the cross-process lock —
+            // see `AnnouncementPolicy.claimMomentBanner`.
+            let fromDelta = result.newPartnerMoments
+            let fromIndex = MomentIndex.shared.load()
             let moment = await MainActor.run { () -> Moment? in
                 var chosen: Moment?
-                _ = SharedStore.shared.mutate(reloadWidgets: false) { snapshot in
-                    chosen = fromDelta.first { !snapshot.hasAnnounced($0.id) }
-                        ?? fromIndex.first { !snapshot.hasAnnounced($0.id) }
-                        ?? fromDelta.first
-                        ?? fromIndex.first
-                    if let chosen { snapshot.recordAnnounced(chosen.id) }
+                _ = SharedStore.shared.mutate(reloadWidgets: false) {
+                    chosen = AnnouncementPolicy.claimMomentBanner(delta: fromDelta, index: fromIndex, in: &$0)
                 }
                 return chosen
             }
@@ -128,18 +122,13 @@ final class NotificationService: UNNotificationServiceExtension {
                 await applyNudge(to: content, partnerName: partnerName, nudgeCount: count)
             }
         case CloudSync.SubscriptionID.status?:
-            // Rewrite judged by watermark, not by "did *my* refresh see the
-            // change" — the widget often consumes the delta first. Check-and-claim
-            // in one `mutate` under the cross-process lock so concurrent pushes
-            // don't both rewrite.
+            // Check-and-claim in one `mutate` under the cross-process lock so
+            // concurrent pushes don't both rewrite — see `AnnouncementPolicy.claimStatusBanner`.
             if let status = result.partnerStatus {
                 let claimed = await MainActor.run { () -> Bool in
                     var claimed = false
                     _ = SharedStore.shared.mutate(reloadWidgets: false) {
-                        let announced = $0.lastAnnouncedPartnerStatusAt ?? .distantPast
-                        guard status.updatedAt > announced else { return }
-                        $0.lastAnnouncedPartnerStatusAt = status.updatedAt
-                        claimed = true
+                        claimed = AnnouncementPolicy.claimStatusBanner(for: status, in: &$0)
                     }
                     return claimed
                 }

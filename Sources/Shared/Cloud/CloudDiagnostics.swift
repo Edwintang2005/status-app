@@ -19,6 +19,9 @@ struct CloudDiagnostics: Sendable {
     /// The invite link's real state ("open" = anyone with the URL can join),
     /// or `nil` when there is no share to ask.
     var sharePublicPermission: String?
+    /// Records whose encrypted fields arrived empty, per process — see
+    /// `SharedStore.noteUnreadableRecords`.
+    var unreadableRecords: String
     /// Anything that failed while gathering the above, rather than a silent gap.
     var problems: [String]
 
@@ -35,6 +38,7 @@ struct CloudDiagnostics: Sendable {
             "Subscriptions: \(subscriptions.isEmpty ? "none" : subscriptions.joined(separator: ", "))",
             "Invite link: \(sharePublicPermission ?? "no share")",
             "Participants: \(shareParticipants.isEmpty ? "none" : shareParticipants.joined(separator: " | "))",
+            "Unreadable encrypted records: \(unreadableRecords)",
         ]
         if !problems.isEmpty {
             lines.append("Problems: " + problems.joined(separator: " | "))
@@ -104,7 +108,9 @@ extension CloudSync {
         }
 
         var subscriptions: [String] = []
-        let pairing = await MainActor.run { SharedStore.shared.pairing }
+        let (pairing, unreadable) = await MainActor.run {
+            (SharedStore.shared.pairing, SharedStore.shared.unreadableTally.summary)
+        }
         let database = pairing.map { self.database(for: $0) } ?? container.privateCloudDatabase
         do {
             subscriptions = try await database.allSubscriptions()
@@ -139,6 +145,7 @@ extension CloudSync {
             pairing: Self.describe(pairing),
             shareParticipants: shareParticipants,
             sharePublicPermission: sharePublicPermission,
+            unreadableRecords: unreadable,
             problems: problems
         )
     }

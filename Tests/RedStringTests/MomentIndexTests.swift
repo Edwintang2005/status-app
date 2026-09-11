@@ -23,6 +23,22 @@ final class MomentIndexTests: XCTestCase {
         XCTAssertEqual(index.load().last?.caption, "edited")
     }
 
+    func testEncryptedTextSurvivesUnreadableRedelivery() {
+        let (index, _) = makeIndex()
+        var sent = Fixtures.moment("v1", kind: .voice)
+        sent.caption = "for you"
+        sent.waveform = [0.2, 0.8]
+        index.insert([sent])
+
+        // A copy rebuilt from a record whose encrypted fields came back empty.
+        var blank = Fixtures.moment("v1", kind: .voice)
+        blank.senderName = ""
+        let merged = index.insert([blank]).first!
+        XCTAssertEqual(merged.caption, "for you")
+        XCTAssertEqual(merged.senderName, "Sam")
+        XCTAssertEqual(merged.waveform, [0.2, 0.8])
+    }
+
     func testLocalOnlyFieldsSurviveRedelivery() {
         let (index, _) = makeIndex()
         var own = Fixtures.moment("o1", fromMe: true, uploaded: true)

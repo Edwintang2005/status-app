@@ -40,7 +40,13 @@ extension CloudSync {
         // forever. Re-applying the same delta twice is tolerated everywhere here.
         let result = await apply(changes, pairing: pairing, database: database)
 
-        if let token = changes.token {
+        // Readable before token: a record whose encrypted fields came back empty
+        // (a background process without the share's keys) carried nothing into
+        // local state, and advancing past it would lose its words for good.
+        if result.unreadableRecords > 0 {
+            log.notice("\(result.unreadableRecords) records arrived unreadable; keeping the change token so they're fetched again.")
+            await MainActor.run { SharedStore.shared.noteUnreadableRecords(result.unreadableRecords) }
+        } else if let token = changes.token {
             let encoded = Self.encodeToken(token)
             await MainActor.run {
                 // An unlink mid-refresh cleared the tokens; writing this one back
@@ -137,9 +143,16 @@ extension CloudSync {
         var anniversaryRecord: CKRecord?
         var moments: [Moment] = []
         var logEntries: [StatusHistoryEntry] = []
+        var unreadable = 0
 
         for record in changes.records {
             let name = record.recordID.recordName
+            // Every type below always carries its probe field; an empty one means
+            // the process couldn't decrypt, and the record is left for a later fetch.
+            guard Self.isReadable(record) else {
+                unreadable += 1
+                continue
+            }
             switch record.recordType {
             case RecordType.status:
                 if name == mineRole.statusRecordName { myStatus = record }
@@ -162,6 +175,9 @@ extension CloudSync {
             default:
                 break
             }
+        }
+        if unreadable > 0 {
+            log.notice("\(unreadable) records in this delta had unreadable encrypted fields.")
         }
 
         // Reported moments stay reported: the record lives on in the sender's
@@ -204,8 +220,6 @@ extension CloudSync {
         // A delete and a recreation can share one delta; the record that exists now wins.
         if theirStatus != nil { partnerErased = false }
         if anniversaryRecord != nil { anniversaryErased = false }
-        let anniversary = anniversaryRecord.flatMap(Self.anniversary(from:))
-        let anniversaryChanged = anniversaryRecord != nil || anniversaryErased
 
         let store = SharedStore.shared
         let previousStatus = await MainActor.run { store.snapshot.theirs }
@@ -214,38 +228,28 @@ extension CloudSync {
         // each into what was already known.
         let mine = Self.payload(from: myStatus, nudge: myNudge,
                                 existing: await MainActor.run { store.snapshot.mine })
-        // Bound to a `let` before crossing actors: capturing the mutable flag
+        let theirs = partnerErased ? nil : Self.payload(from: theirStatus, nudge: theirNudge,
+                                                        existing: previousStatus)
+        // Bound to a `let` before crossing actors: capturing the mutable locals
         // is a data race under strict concurrency.
+        let delta = RefreshDelta(
+            mine: mine,
+            theirs: theirs,
+            partnerErased: partnerErased,
+            anniversary: anniversaryRecord.flatMap(Self.anniversary(from:)),
+            anniversaryErased: anniversaryErased,
+            receiptReadable: theirReceipts != nil,
+            statusSeen: theirReceipts.flatMap(Self.statusSeen(from:)),
+            unreadableRecords: unreadable
+        )
         let erased = partnerErased
-        let theirs = erased ? nil : Self.payload(from: theirStatus, nudge: theirNudge,
-                                                 existing: previousStatus)
 
         await MainActor.run {
             _ = store.mutate(reloadWidgets: false) {
                 // Checked *inside* the locked mutate: an unlink can land mid-refresh,
                 // and writing this delta would resurrect the ex's status onto a wiped snapshot.
                 guard store.pairing != nil else { return }
-                if let mine {
-                    // A status set offline is newer than the server copy; adopting the
-                    // server's silently reverted it. Keep the newer local text and take
-                    // only the server-owned nudge counter.
-                    if mine.updatedAt >= ($0.mine?.updatedAt ?? .distantPast) {
-                        $0.mine = mine
-                    } else {
-                        $0.mine?.nudgeCount = mine.nudgeCount
-                        $0.mine?.lastNudgeAt = mine.lastNudgeAt
-                    }
-                }
-                if erased {
-                    $0.theirs = nil
-                } else if let theirs {
-                    $0.theirs = theirs
-                }
-                // The owner's own unpublished edit outranks the server copy —
-                // `republishAnniversaryIfNeeded` carries it over.
-                if anniversaryChanged, $0.anniversaryPublished {
-                    $0.anniversary = anniversary
-                }
+                delta.fold(into: &$0)
                 $0.isPaired = true
                 $0.lastSyncedAt = Date()
             }
@@ -292,15 +296,30 @@ extension CloudSync {
         // same delta (a full resync) must find the entries it refers to.
         if let theirReceipts {
             MomentIndex.shared.applyPartnerReceipts(Self.receiptMap(from: theirReceipts))
-            let statusSeen = Self.statusSeen(from: theirReceipts)
-            await MainActor.run {
-                _ = store.mutate(reloadWidgets: false) { $0.myStatusSeenByPartner = statusSeen }
-            }
         }
 
         let newFromPartner = arrived.filter { !$0.fromMe && !alreadyKnown.contains($0.id) }
-        return RefreshResult(partnerStatus: partnerErased ? nil : (theirs ?? previousStatus),
-                             newPartnerMoments: newFromPartner)
+        return RefreshResult(partnerStatus: erased ? nil : (theirs ?? previousStatus),
+                             newPartnerMoments: newFromPartner,
+                             unreadableRecords: unreadable)
+    }
+
+    /// Whether the process could decrypt this record. Each type is probed on a
+    /// field every version of the app has always written; `Nudge` has none.
+    static func isReadable(_ record: CKRecord) -> Bool {
+        switch record.recordType {
+        case RecordType.status, RecordType.statusLog:
+            return record.encryptedValues[Field.emoji] != nil
+        case RecordType.moment:
+            return record.encryptedValues[Field.senderName] != nil
+                || record.encryptedValues[Field.caption] != nil
+        case RecordType.receipt:
+            return record.encryptedValues[Field.seenMap] != nil
+        case RecordType.anniversary:
+            return record.encryptedValues[Field.startsAt] != nil
+        default:
+            return true
+        }
     }
 
     /// Only the newest few, so a first sync after reinstall doesn't pull down
