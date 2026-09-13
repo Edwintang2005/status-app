@@ -69,21 +69,35 @@ extension CloudSync {
         let ids = stale.map {
             CKRecord.ID(recordName: pairing.role.statusLogRecordName(at: $0.at), zoneID: zone)
         }
-        // Entries logged before the cloud log existed have no record; a
-        // per-item unknownItem is the expected answer for those.
+        // Entries logged before the cloud log existed have no record, and a
+        // per-item unknownItem is the expected answer for those. Non-atomic, so
+        // one such entry can't fail its whole batch (which left the cloud log
+        // growing until those entries aged out); only what the server confirmed
+        // gone — deleted or never there — leaves the local log.
+        var removed: [Date] = []
         for start in stride(from: 0, to: ids.count, by: 200) {
             let batch = Array(ids[start..<min(start + 200, ids.count)])
+            let dates = stale[start..<min(start + 200, stale.count)].map(\.at)
             do {
-                _ = try await database.modifyRecords(saving: [], deleting: batch)
-            } catch let error as CKError where Self.isUnknownItem(error) {
-                continue
+                let result = try await database.modifyRecords(saving: [], deleting: batch, atomically: false)
+                for (id, date) in zip(batch, dates) {
+                    switch result.deleteResults[id] {
+                    case .success?:
+                        removed.append(date)
+                    case .failure(let error as CKError)? where error.code == .unknownItem:
+                        removed.append(date)
+                    default:
+                        break
+                    }
+                }
             } catch {
                 log.error("Status log prune failed: \(error.localizedDescription, privacy: .public)")
-                return
+                break
             }
         }
-        StatusHistoryLog.shared.remove(fromMe: true, at: stale.map(\.at))
-        log.notice("Pruned \(stale.count) status log record(s).")
+        guard !removed.isEmpty else { return }
+        StatusHistoryLog.shared.remove(fromMe: true, at: removed)
+        log.notice("Pruned \(removed.count) status log record(s).")
     }
 
     func saveStatus(_ payload: StatusPayload,

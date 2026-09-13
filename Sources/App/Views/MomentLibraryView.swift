@@ -74,7 +74,7 @@ struct MomentLibraryView: View {
 
     private var title: String {
         let count = filtered.count
-        return count == 0 ? "History" : "History · \(count)"
+        return count == 0 ? String(localized: "History") : String(localized: "History · \(count)")
     }
 
     private func cell(_ moment: Moment) -> some View {
@@ -102,7 +102,7 @@ struct MomentLibraryView: View {
                         .foregroundStyle(.white)
                         .padding(4)
                         .background(moment.uploaded ? AnyShapeStyle(.black.opacity(0.35))
-                                                    : AnyShapeStyle(Theme.warm),
+                                                    : AnyShapeStyle(Theme.warmDeep),
                                     in: Circle())
                         .padding(6)
                 }
@@ -124,10 +124,9 @@ struct MomentLibraryView: View {
 
     /// Kind, sender, age, and whichever badge the tile is wearing.
     private func accessibilityLabel(for moment: Moment) -> String {
-        let sender = moment.senderName.trimmingCharacters(in: .whitespacesAndNewlines)
         let who = moment.fromMe
             ? String(localized: "you")
-            : (sender.isEmpty ? model.partnerName : sender)
+            : moment.displaySenderName(fallback: model.partnerName)
         var parts = [String(localized: "\(moment.noun) from \(who)"),
                      moment.sentAt.formatted(.relative(presentation: .named))]
         if !moment.seen && !moment.fromMe { parts.append(String(localized: "new")) }

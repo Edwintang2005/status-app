@@ -23,7 +23,7 @@ enum SyncRunner {
             claims = AnnouncementPolicy.claim(result, previousStatus: previousStatus, in: &$0)
         }
         if announce {
-            let name = store.snapshot.partnerDisplayName
+            let name = store.snapshot.moderatedPartnerName
             if claims.nudge {
                 await NotificationManager.postNudge(from: name, sentAt: result.partnerStatus?.lastNudgeAt)
             }
@@ -35,8 +35,9 @@ enum SyncRunner {
         let changed = AnnouncementPolicy.changed(result, previousStatus: previousStatus)
         if changed {
             // The open app's model has its own snapshot copy — without this,
-            // HomeView keeps the old status until the next foreground.
-            NotificationCenter.default.post(name: .pairingDidChange, object: nil)
+            // HomeView keeps the old status until the next foreground. A re-read
+            // only: this *is* the refresh, so asking for another finds nothing.
+            NotificationCenter.default.post(name: .snapshotDidChange, object: nil)
         }
         return changed
     }

@@ -8,20 +8,21 @@ struct StatusWidgetView: View {
 
     @Environment(\.widgetFamily) private var family
 
-    /// The partner's status, with a message the user's filter hides replaced.
+    /// The partner's status as it may be shown: reported → no words; a message
+    /// the filter hides → a short stand-in that fits a tile.
     private var status: StatusPayload? {
-        guard var theirs = entry.snapshot.theirs else { return nil }
-        if ContentFilter.hides(theirs.message) { theirs.message = String(localized: "Hidden") }
-        return theirs
+        entry.snapshot.theirs?.moderated(reportedAt: SharedStore.shared.hiddenPartnerStatusAt,
+                                         filteredText: String(localized: "Hidden"))
     }
     private var mine: StatusPayload? { entry.snapshot.mine }
     private var isPaired: Bool { entry.snapshot.isPaired }
 
     /// The partner's name only once they've published one — the "Partner"
-    /// fallback reads cold as a heading.
+    /// fallback reads cold as a heading. Filtered like the rest of their text.
     private var knownName: String? {
-        let name = status?.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (name?.isEmpty == false) ? name : nil
+        guard let name = status?.displayName else { return nil }
+        let shown = ContentFilter.displayName(name, fallback: "")
+        return shown.isEmpty ? nil : shown
     }
 
     /// What to call them before they've said anything.

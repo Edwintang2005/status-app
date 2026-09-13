@@ -115,9 +115,10 @@ struct InviteLinkSheet: View {
                         .card()
 
                         Label {
-                            Text("The link closes itself the moment \(partnerName) joins, so a forwarded copy can't add anyone else. You can find it again in Settings until then.")
+                            Text("The link is the only way in, so send it to \(partnerName) alone. You can find it again — and close it — in Settings.")
                                 .font(Theme.rounded(12))
                                 .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         } icon: {
                             Image(systemName: "lock.shield")
                                 .foregroundStyle(Theme.mint)
@@ -125,6 +126,7 @@ struct InviteLinkSheet: View {
                         .padding(.horizontal, 12)
                     }
                     .padding(20)
+                    .containerRelativeFrame(.horizontal)
                 }
             }
             .navigationTitle("Invite link")

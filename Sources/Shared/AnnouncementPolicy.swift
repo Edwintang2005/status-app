@@ -23,36 +23,67 @@ enum AnnouncementPolicy {
             snapshot.lastSeenPartnerNudgeCount = theirs.nudgeCount
             claims.nudge = previousStatus != nil
         }
-        // Only the newest, even if several arrived at once.
+        // One notification for the newest, but every moment in the burst is
+        // marked announced — otherwise the push banner's index fallback would
+        // later describe an older one from this batch as new.
         if let moment = result.newestPartnerMoment, !snapshot.hasAnnounced(moment.id) {
-            snapshot.recordAnnounced(moment.id)
             claims.moment = moment
         }
+        for moment in result.newPartnerMoments { snapshot.recordAnnounced(moment) }
         return claims
     }
 
+    /// What a status push banner should say, or `nil` when this status has
+    /// already been announced (another process claimed it first).
+    enum StatusBanner: Equatable, Sendable {
+        case update
+        /// Same words, new name: the partner renamed themselves.
+        case rename(previousName: String)
+    }
+
     /// Whether a status push may rewrite its banner: judged by watermark, not by
-    /// "did *my* refresh see the change" — the widget often consumes the delta first.
-    static func claimStatusBanner(for status: StatusPayload, in snapshot: inout Snapshot) -> Bool {
+    /// "did *my* refresh see the change" — the widget often consumes the delta
+    /// first. The rename check compares against the last *announced* status for
+    /// the same reason: a pre-refresh snapshot is already current in that case.
+    static func claimStatusBanner(for status: StatusPayload, in snapshot: inout Snapshot) -> StatusBanner? {
         let announced = snapshot.lastAnnouncedPartnerStatusAt ?? .distantPast
-        guard status.updatedAt > announced else { return false }
+        guard status.updatedAt > announced else { return nil }
+        let previous = snapshot.lastAnnouncedPartnerStatus
         snapshot.lastAnnouncedPartnerStatusAt = status.updatedAt
+        snapshot.lastAnnouncedPartnerStatus = status
+        if let previous,
+           previous.emoji == status.emoji,
+           previous.message == status.message,
+           previous.isCelebration == status.isCelebration,
+           previous.displayName != status.displayName {
+            return .rename(previousName: previous.displayName)
+        }
+        return .update
+    }
+
+    /// Whether a nudge push may announce: the partner's count moved past the
+    /// watermark. `max`, not assignment — concurrent instances land out of order.
+    static func claimNudgeBanner(count: Int, in snapshot: inout Snapshot) -> Bool {
+        guard count > snapshot.lastSeenPartnerNudgeCount else { return false }
+        snapshot.lastSeenPartnerNudgeCount = count
         return true
     }
 
     /// The moment a push banner should describe: the newest un-announced one from
-    /// this refresh's delta, then from the index, then the newest at all. Rapid
-    /// pushes run as concurrent extension instances and must not claim the same one.
+    /// this refresh's delta, then from the index — but only newer than anything
+    /// already announced, so a history re-fetched wholesale (the ids list holds
+    /// eight) is never mistaken for news. `nil` when there is nothing: the
+    /// generic wording beats re-describing an old moment. Rapid pushes run as
+    /// concurrent extension instances and must not claim the same one.
     static func claimMomentBanner(delta: [Moment],
                                   index: [Moment],
                                   in snapshot: inout Snapshot) -> Moment? {
+        let floor = snapshot.lastAnnouncedMomentSentAt ?? .distantPast
         let fromDelta = delta.sorted { $0.sentAt > $1.sentAt }
-        let fromIndex = index.filter { !$0.fromMe }
+        let fromIndex = index.filter { !$0.fromMe && $0.sentAt > floor }
         let chosen = fromDelta.first { !snapshot.hasAnnounced($0.id) }
             ?? fromIndex.first { !snapshot.hasAnnounced($0.id) }
-            ?? fromDelta.first
-            ?? fromIndex.first
-        if let chosen { snapshot.recordAnnounced(chosen.id) }
+        if let chosen { snapshot.recordAnnounced(chosen) }
         return chosen
     }
 

@@ -242,11 +242,11 @@ enum MomentStoreError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .containerUnavailable:
-            return "The shared App Group container isn't available."
+            return String(localized: "The shared App Group container isn't available.")
         case .encodingFailed:
-            return "Couldn't encode that image."
+            return String(localized: "Couldn't encode that image.")
         case .audioMissing:
-            return "That recording is no longer on this device."
+            return String(localized: "That recording is no longer on this device.")
         }
     }
 }

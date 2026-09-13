@@ -13,10 +13,14 @@ struct CelebrationOverlay: View {
     @State private var pieces = ConfettiPiece.emitter()
     @State private var start = Date()
 
-    /// Their text, or a stand-in if they armed a celebration and sent no words.
+    /// Their text, or a stand-in if they armed a celebration and sent no words
+    /// — or the filter hides them; this fills the screen, so it goes through it too.
     private var headline: String {
         let trimmed = payload.message.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Happy anniversary" : trimmed
+        guard !trimmed.isEmpty, !ContentFilter.hides(trimmed) else {
+            return String(localized: "Happy anniversary")
+        }
+        return trimmed
     }
 
     var body: some View {
@@ -77,7 +81,7 @@ struct CelebrationOverlay: View {
 
             // Sized to fit rather than truncated — anniversary messages run long.
             Text(headline)
-                .font(.system(size: 44, weight: .bold, design: .rounded))
+                .font(Theme.rounded(44, .bold))
                 .multilineTextAlignment(.center)
                 .lineLimit(4)
                 .minimumScaleFactor(0.45)
@@ -98,7 +102,7 @@ struct CelebrationOverlay: View {
             Button(action: finish) {
                 Label("Love it", systemImage: "heart.fill")
             }
-            .buttonStyle(PrimaryButtonStyle(tint: Theme.warm))
+            .buttonStyle(PrimaryButtonStyle(tint: Theme.warmDeep))
             .padding(.horizontal, 44)
             .opacity(revealed ? 1 : 0)
             // Delayed until the words have landed.

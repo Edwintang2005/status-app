@@ -30,10 +30,11 @@ extension CloudSync {
             await MainActor.run { SharedStore.shared.setChangeToken(nil, for: tokenKey) }
             changes = try await fetchZoneChanges(zone: zone, in: database, since: nil)
         } catch let error as CKError where Self.isAlreadyGone(error) {
-            // The other side unlinked, or the zone was never reachable.
-            try await abandonMissingZone(pairing)
-            throw SyncError.linkEnded
+            // The other side unlinked, or the zone is briefly gone mid-handshake.
+            throw try await zoneGoneVerdict(pairing)
         }
+        // The zone answered: any earlier "gone" sighting was transient.
+        await MainActor.run { SharedStore.shared.zoneGoneSeenAt = nil }
 
         // Apply first, then advance the token: the other order can persist the token
         // without the records (the extension gets killed on a deadline), losing them
@@ -42,17 +43,36 @@ extension CloudSync {
 
         // Readable before token: a record whose encrypted fields came back empty
         // (a background process without the share's keys) carried nothing into
-        // local state, and advancing past it would lose its words for good.
-        if result.unreadableRecords > 0 {
-            log.notice("\(result.unreadableRecords) records arrived unreadable; keeping the change token so they're fetched again.")
-            await MainActor.run { SharedStore.shared.noteUnreadableRecords(result.unreadableRecords) }
-        } else if let token = changes.token {
+        // local state, and advancing past it would lose its words for good. The
+        // one exception is the app giving up on records it has failed to read on
+        // several separate looks — otherwise a single unreadable record pins the
+        // token, and the whole delta behind it, forever (`noteUnreadableRecords`).
+        var advanceToken = true
+        if !result.unreadableRecordNames.isEmpty {
+            let names = result.unreadableRecordNames
+            advanceToken = await MainActor.run { SharedStore.shared.noteUnreadableRecords(names) }
+            if !advanceToken {
+                log.notice("\(names.count) records arrived unreadable; keeping the change token so they're fetched again.")
+            }
+        } else {
+            await MainActor.run { SharedStore.shared.clearUnreadableHold() }
+        }
+        if advanceToken, let token = changes.token {
             let encoded = Self.encodeToken(token)
+            let hadToken = previous != nil
             await MainActor.run {
-                // An unlink mid-refresh cleared the tokens; writing this one back
+                let store = SharedStore.shared
+                // An unlink (or unlink + re-pair) mid-refresh: writing this token
                 // would hand the next pairing a cursor into a zone that's gone.
-                guard SharedStore.shared.pairing != nil else { return }
-                SharedStore.shared.setChangeToken(encoded, for: tokenKey)
+                guard store.pairing?.sameZone(as: pairing) == true else { return }
+                // A corrupt moment index found during `apply` cleared the tokens
+                // so the next refresh rebuilds the history from the whole zone;
+                // writing this one back would leave the index truncated for good.
+                if hadToken, store.changeToken(for: tokenKey) == nil {
+                    log.notice("Change token was cleared during apply (index rebuild); not advancing it.")
+                    return
+                }
+                store.setChangeToken(encoded, for: tokenKey)
             }
         }
 
@@ -91,6 +111,7 @@ extension CloudSync {
                 Field.duration, Field.waveform,
                 Field.seenMap, Field.statusSeenAt, Field.statusSeenFor,
                 Field.startsAt, Field.timeZone,
+                Field.requestedAt,
             ]
         )
 
@@ -141,16 +162,17 @@ extension CloudSync {
         var theirNudge: CKRecord?
         var theirReceipts: CKRecord?
         var anniversaryRecord: CKRecord?
+        var requestRecord: CKRecord?
         var moments: [Moment] = []
         var logEntries: [StatusHistoryEntry] = []
-        var unreadable = 0
+        var unreadable: [String] = []
 
         for record in changes.records {
             let name = record.recordID.recordName
             // Every type below always carries its probe field; an empty one means
             // the process couldn't decrypt, and the record is left for a later fetch.
             guard Self.isReadable(record) else {
-                unreadable += 1
+                unreadable.append(name)
                 continue
             }
             switch record.recordType {
@@ -164,6 +186,8 @@ extension CloudSync {
                 if name == theirsRole.receiptRecordName { theirReceipts = record }
             case RecordType.anniversary:
                 if name == Self.anniversaryRecordName { anniversaryRecord = record }
+            case RecordType.anniversaryRequest:
+                if name == Self.anniversaryRequestRecordName { requestRecord = record }
             case RecordType.moment:
                 if let moment = Self.moment(from: record, mineRole: mineRole, theirsRole: theirsRole) {
                     moments.append(moment)
@@ -176,8 +200,8 @@ extension CloudSync {
                 break
             }
         }
-        if unreadable > 0 {
-            log.notice("\(unreadable) records in this delta had unreadable encrypted fields.")
+        if !unreadable.isEmpty {
+            log.notice("\(unreadable.count) records in this delta had unreadable encrypted fields.")
         }
 
         // Reported moments stay reported: the record lives on in the sender's
@@ -194,6 +218,7 @@ extension CloudSync {
         // unlinks (they can't delete the owner's zone). Must not be ignored.
         var partnerErased = false
         var anniversaryErased = false
+        var requestErased = false
         var removedMoments = false
         var removedMyLogs: [Date] = []
         var removedTheirLogs: [Date] = []
@@ -201,6 +226,7 @@ extension CloudSync {
             let name = recordID.recordName
             if name == theirsRole.statusRecordName { partnerErased = true }
             if name == Self.anniversaryRecordName { anniversaryErased = true }
+            if name == Self.anniversaryRequestRecordName { requestErased = true }
             if let id = mineRole.momentID(fromRecordName: name)
                 ?? theirsRole.momentID(fromRecordName: name),
                Self.isSafeMomentID(id) {
@@ -220,14 +246,23 @@ extension CloudSync {
         // A delete and a recreation can share one delta; the record that exists now wins.
         if theirStatus != nil { partnerErased = false }
         if anniversaryRecord != nil { anniversaryErased = false }
+        if requestRecord != nil { requestErased = false }
 
         let store = SharedStore.shared
-        let previousStatus = await MainActor.run { store.snapshot.theirs }
+        let (previousStatus, previousMine, minePublished) = await MainActor.run {
+            (store.snapshot.theirs, store.snapshot.mine, store.snapshot.myStatusPublished)
+        }
 
         // A status record and its nudge counter arrive independently; fold
         // each into what was already known.
-        let mine = Self.payload(from: myStatus, nudge: myNudge,
-                                existing: await MainActor.run { store.snapshot.mine })
+        let mine = Self.payload(from: myStatus, nudge: myNudge, existing: previousMine)
+        // Our own records moved on the server — another device on this iCloud
+        // account did it. Judged against what was held, not "arrived": a full
+        // resync re-delivers everything and changes nothing. An unpublished
+        // local edit legitimately differs from the server copy, so it doesn't count.
+        let ownRecordsChanged = (myStatus != nil && minePublished && mine?.updatedAt != previousMine?.updatedAt)
+            || (myNudge != nil && mine?.nudgeCount != previousMine?.nudgeCount)
+            || moments.contains { $0.fromMe && !alreadyKnown.contains($0.id) }
         let theirs = partnerErased ? nil : Self.payload(from: theirStatus, nudge: theirNudge,
                                                         existing: previousStatus)
         // Bound to a `let` before crossing actors: capturing the mutable locals
@@ -240,15 +275,18 @@ extension CloudSync {
             anniversaryErased: anniversaryErased,
             receiptReadable: theirReceipts != nil,
             statusSeen: theirReceipts.flatMap(Self.statusSeen(from:)),
-            unreadableRecords: unreadable
+            anniversaryRequestedAt: requestRecord.flatMap(Self.anniversaryRequestDate(from:)),
+            anniversaryRequestErased: requestErased,
+            unreadableRecords: unreadable.count
         )
         let erased = partnerErased
 
         await MainActor.run {
             _ = store.mutate(reloadWidgets: false) {
-                // Checked *inside* the locked mutate: an unlink can land mid-refresh,
-                // and writing this delta would resurrect the ex's status onto a wiped snapshot.
-                guard store.pairing != nil else { return }
+                // Checked *inside* the locked mutate, by zone identity: an unlink
+                // — or an unlink and a new pairing — can land mid-refresh, and
+                // writing this delta would file the ex's records onto the wrong snapshot.
+                guard store.pairing?.sameZone(as: pairing) == true else { return }
                 delta.fold(into: &$0)
                 $0.isPaired = true
                 $0.lastSyncedAt = Date()
@@ -257,7 +295,7 @@ extension CloudSync {
 
         // An unlink can land mid-refresh (the status write above checks under the
         // lock); past this point nothing from the ex's zone may be filed either.
-        guard await MainActor.run(body: { store.pairing != nil }) else { return .empty }
+        guard await MainActor.run(body: { store.pairing?.sameZone(as: pairing) == true }) else { return .empty }
 
         // Status history rides the refresh, gated on the status *record* changing
         // (not a nudge-only delta); the log itself dedups by (fromMe, updatedAt).
@@ -301,7 +339,8 @@ extension CloudSync {
         let newFromPartner = arrived.filter { !$0.fromMe && !alreadyKnown.contains($0.id) }
         return RefreshResult(partnerStatus: erased ? nil : (theirs ?? previousStatus),
                              newPartnerMoments: newFromPartner,
-                             unreadableRecords: unreadable)
+                             unreadableRecordNames: unreadable,
+                             ownRecordsChanged: ownRecordsChanged)
     }
 
     /// Whether the process could decrypt this record. Each type is probed on a
@@ -317,6 +356,8 @@ extension CloudSync {
             return record.encryptedValues[Field.seenMap] != nil
         case RecordType.anniversary:
             return record.encryptedValues[Field.startsAt] != nil
+        case RecordType.anniversaryRequest:
+            return record.encryptedValues[Field.requestedAt] != nil
         default:
             return true
         }

@@ -17,6 +17,9 @@
         }
       }
     },
+    "%@ asked: when did the two of you begin?" : {
+
+    },
     "%@ from %@" : {
       "localizations" : {
         "en" : {
@@ -28,6 +31,28 @@
       }
     },
     "%@ hasn't set the day the two of you began. Once they do, the count appears here." : {
+
+    },
+    "%@ invited you" : {
+
+    },
+    "%@ is blocked and everything they sent has been removed from this iPhone. iCloud couldn't be reached to finish the unlink (%@), so what you sent may still be in the shared space; try Settings → Unlink later if it reappears." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ is blocked and everything they sent has been removed from this iPhone. iCloud couldn't be reached to finish the unlink (%2$@), so what you sent may still be in the shared space; try Settings → Unlink later if it reappears."
+          }
+        }
+      }
+    },
+    "%@ is in, and the link still admits anyone holding it. Closing it now would also remove them: to close it safely, have them on standby and use iCloud diagnostics (tap Version seven times) → Promote partner & close invite. They confirm by tapping the link once." : {
+
+    },
+    "%@ needs the microphone" : {
+
+    },
+    "%@ sent a voice memo" : {
 
     },
     "%@, %@" : {
@@ -66,16 +91,39 @@
     "%lld" : {
 
     },
+    "%lld couldn't be fetched back from iCloud and are listed in Memories.txt without a file." : {
+
+    },
+    "%lld moments saved to iCloud Drive › %@ › %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld moments saved to iCloud Drive › %2$@ › %3$@."
+          }
+        }
+      }
+    },
     "%lld months" : {
 
     },
     "%lld new" : {
 
     },
+    "%lld of %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld of %2$lld"
+          }
+        }
+      }
+    },
     "%lld percent" : {
 
     },
-    "%lld waiting to send" : {
+    "%lld waiting to send · tap to retry" : {
 
     },
     "%lld years" : {
@@ -115,10 +163,20 @@
     "🦊" : {
 
     },
+    "1 moment saved to iCloud Drive › %@ › %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "1 moment saved to iCloud Drive › %1$@ › %2$@."
+          }
+        }
+      }
+    },
     "1 month" : {
 
     },
-    "1 waiting to send" : {
+    "1 waiting to send · tap to retry" : {
 
     },
     "1 year" : {
@@ -130,6 +188,9 @@
     "A glance at each other, from anywhere." : {
 
     },
+    "A glance at each other, from anywhere. First — what should they call you?" : {
+
+    },
     "A private status app for two people who choose to pair with each other. Everything you send — statuses, nudges, photos, drawings and voice memos — goes only to your partner, through your own iCloud. You are responsible for what you send." : {
 
     },
@@ -137,6 +198,12 @@
 
     },
     "Add a caption (optional)" : {
+
+    },
+    "All" : {
+
+    },
+    "Allow photo access in Settings to save." : {
 
     },
     "and %lld hours, %lld minutes, %lld seconds" : {
@@ -158,13 +225,22 @@
     "Any status, photo, drawing or voice memo your partner sends can be reported from inside the app. Reporting removes it from your iPhone immediately and sends the details to us. A word filter, on by default, hides strong language from your partner's messages; you can turn it off in Settings." : {
 
     },
+    "Anyone holding the link can join. If %@ hasn't joined yet, you can close it now and create a fresh one — once they're in, closing is done from iCloud diagnostics with them on standby." : {
+
+    },
     "Anything you send each other shows up here." : {
+
+    },
+    "Ask %@ to set it" : {
+
+    },
+    "Asked %@. They'll see it when they next open the app." : {
 
     },
     "BACKGROUND" : {
 
     },
-    "Background colour" : {
+    "Background colour %lld" : {
 
     },
     "Before you start" : {
@@ -197,6 +273,9 @@
     "Changes your status" : {
 
     },
+    "Charcoal background" : {
+
+    },
     "Choose any emoji" : {
 
     },
@@ -210,6 +289,15 @@
 
     },
     "Close the invite link" : {
+
+    },
+    "Closed" : {
+
+    },
+    "Closed. Nobody new can use the link you sent, even if it was forwarded or screenshotted. If %@ is already in, it still re-admits them on a new phone." : {
+
+    },
+    "CloudKit didn't return an invite link. Try again." : {
 
     },
     "Colour %lld" : {
@@ -227,10 +315,22 @@
     "Copied" : {
 
     },
+    "Copies every photo, drawing and voice memo — with the date, the caption and who sent it — into iCloud Drive › %@, as ordinary files that open in anything. Nothing is deleted, and the archive stays after you unlink." : {
+
+    },
     "Copy link" : {
 
     },
     "Copy report" : {
+
+    },
+    "Couldn't close the invite link safely; it was reopened. Your partner may have lost access — if their app unlinks, send them the invite link to rejoin. (%@)" : {
+
+    },
+    "Couldn't encode that image." : {
+
+    },
+    "Couldn't fetch that voice memo from iCloud. Try again in a moment." : {
 
     },
     "Couldn't load that photo" : {
@@ -239,10 +339,25 @@
     "Couldn't load this one" : {
 
     },
+    "Couldn't open the shared space. Ask them to send a fresh invite link, and check you're both on the same build of %@." : {
+
+    },
     "Couldn't reach iCloud" : {
 
     },
+    "Couldn't reach your shared space just now. Try again in a moment." : {
+
+    },
     "Couldn't save" : {
+
+    },
+    "Couldn't send that %@ right now — it's saved, and will be sent automatically next time you open the app." : {
+
+    },
+    "Couldn't tell which iCloud database this build uses." : {
+
+    },
+    "Cream background" : {
 
     },
     "Create invite link" : {
@@ -257,13 +372,34 @@
     "Delete everything and start over?" : {
 
     },
+    "Deletes everything you sent — your status, your photos, drawings and voice memos — out of the shared space, then leaves it. Anything %@ sent stays in their own iCloud, which is theirs to delete. Your name stays on this iPhone, so you can pair again." : {
+
+    },
+    "Deletes the shared space from your iCloud: both your statuses, and every photo, drawing and voice memo either of you sent. %@'s app unlinks itself the next time it opens. Your name stays on this iPhone, so you can pair again." : {
+
+    },
+    "Discard" : {
+
+    },
+    "Discard this moment?" : {
+
+    },
+    "Discard this recording?" : {
+
+    },
     "Dismiss" : {
+
+    },
+    "Does everything unlinking does, and also forgets your name and clears every photo, drawing and voice memo held on this iPhone. %@ starts as it did the day you installed it. There is no undo." : {
 
     },
     "Don't send anything that is threatening, harassing, hateful, sexually explicit without consent, violent, illegal, or that involves a minor in any sexual way. Don't use Red String to abuse, stalk or pressure anyone. There is no tolerance for objectionable content or abusive behaviour: content is removed and the person who sent it is ejected." : {
 
     },
     "Done" : {
+
+    },
+    "Done — the link is closed. If your partner shows as “invited” or “pending” above, they confirm by tapping the invite link once." : {
 
     },
     "drawing" : {
@@ -296,7 +432,16 @@
     "from %@" : {
 
     },
+    "From %@" : {
+
+    },
+    "From me" : {
+
+    },
     "Happy %@" : {
+
+    },
+    "Happy anniversary" : {
 
     },
     "Hidden by your content filter" : {
@@ -308,6 +453,9 @@
     "History" : {
 
     },
+    "History · %lld" : {
+
+    },
     "Hold to open" : {
 
     },
@@ -317,10 +465,25 @@
     "iCloud diagnostics" : {
 
     },
+    "iCloud is restricted on this device." : {
+
+    },
+    "iCloud is temporarily unavailable. Try again shortly." : {
+
+    },
+    "iCloud isn't available right now." : {
+
+    },
     "in ^[%lld day](inflect: true)" : {
 
     },
     "IN YOUR WORDS" : {
+
+    },
+    "Installed from TestFlight or the App Store, so this app uses the Production database. Both of you must be on this side to pair. A second device on the same iCloud account writes the same records as this one, not the partner's." : {
+
+    },
+    "Installed from Xcode, so this app uses the Development database. It cannot see or pair with a copy installed from TestFlight — they are separate databases with separate data. A second device on the same iCloud account writes the same records as this one, not the partner's." : {
 
     },
     "Invite link" : {
@@ -347,6 +510,15 @@
     "Just for you two" : {
 
     },
+    "Keep editing" : {
+
+    },
+    "Keep it" : {
+
+    },
+    "Lavender background" : {
+
+    },
     "Let them know you're thinking of them." : {
 
     },
@@ -356,10 +528,19 @@
     "Link copied" : {
 
     },
+    "Listen back, or send it" : {
+
+    },
     "Love it" : {
 
     },
+    "Mail isn't set up on this iPhone, so the report has been copied to your clipboard. Please email it to %@." : {
+
+    },
     "Memories saved" : {
+
+    },
+    "Mint background" : {
 
     },
     "Moment" : {
@@ -419,6 +600,9 @@
     "Nothing in this direction yet." : {
 
     },
+    "Nothing was deleted from iCloud, so what you've shared is still in %@'s copy. You can clear this iPhone now and try again from a better connection, or cancel and wait." : {
+
+    },
     "Notifications" : {
 
     },
@@ -428,10 +612,25 @@
     "Nudges and moments" : {
 
     },
+    "Off" : {
+
+    },
     "OK" : {
 
     },
+    "On" : {
+
+    },
     "One more thing" : {
+
+    },
+    "One more thing before you're in: what should they call you?" : {
+
+    },
+    "Only the person who created the link can set this." : {
+
+    },
+    "Only the person who joined the link can ask for this." : {
 
     },
     "Open" : {
@@ -455,6 +654,9 @@
     "Pairing" : {
 
     },
+    "Partner" : {
+
+    },
     "Pause" : {
 
     },
@@ -468,6 +670,9 @@
 
     },
     "Pick the day, and the minute if you know it. %@ will see the same count, and only you can change it." : {
+
+    },
+    "Pink background" : {
 
     },
     "Play" : {
@@ -488,7 +693,7 @@
     "Promote partner & close invite" : {
 
     },
-    "Questions, reports and appeals: edwintang2005@gmail.com." : {
+    "Questions, reports and appeals: %@." : {
 
     },
     "Read receipts" : {
@@ -498,6 +703,9 @@
 
     },
     "Record" : {
+
+    },
+    "Recording — tap to stop" : {
 
     },
     "Redo" : {
@@ -548,6 +756,9 @@
     "Reporting" : {
 
     },
+    "Retries the send now" : {
+
+    },
     "Safety" : {
 
     },
@@ -581,6 +792,9 @@
     "seen" : {
 
     },
+    "Seen" : {
+
+    },
     "Seen %@" : {
 
     },
@@ -603,6 +817,9 @@
 
     },
     "Send this to your partner" : {
+
+    },
+    "Sending…" : {
 
     },
     "Sent · %llds" : {
@@ -656,7 +873,13 @@
     "Shows status history" : {
 
     },
+    "Sign in to iCloud in Settings to use %@." : {
+
+    },
     "Since" : {
+
+    },
+    "Sky blue background" : {
 
     },
     "Something went wrong" : {
@@ -689,10 +912,16 @@
     "Tap anywhere to close" : {
 
     },
+    "Tap to record" : {
+
+    },
     "Tell the app when the two of you began and the count starts here — on both phones." : {
 
     },
     "Terms of Use" : {
+
+    },
+    "That recording is no longer on this device." : {
 
     },
     "The archive was only shared from this iPhone — continue only if you saved it somewhere safe." : {
@@ -704,7 +933,29 @@
     "The day the hidden count starts from. %@ sees the same count; only you can change the date." : {
 
     },
-    "The link closes itself the moment %@ joins, so a forwarded copy can't add anyone else. You can find it again in Settings until then." : {
+    "The filter hides strong language in what %@ sends; long-press a status or open a photo's menu to report it, which removes it from this iPhone at once. Reports and blocks go to %@ and are acted on within 24 hours." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "The filter hides strong language in what %1$@ sends; long-press a status or open a photo's menu to report it, which removes it from this iPhone at once. Reports and blocks go to %2$@ and are acted on within 24 hours."
+          }
+        }
+      }
+    },
+    "The link is the only way in, so send it to %@ alone. You can find it again — and close it — in Settings." : {
+
+    },
+    "The shared App Group container isn't available." : {
+
+    },
+    "The shared space is no longer available. Everything shared has been removed from this device — pair again to start over." : {
+
+    },
+    "them" : {
+
+    },
+    "There's nothing saved on this iPhone to archive yet." : {
 
     },
     "These terms supplement Apple's standard Licensed Application End User License Agreement, which also applies." : {
@@ -722,7 +973,16 @@
     "This device" : {
 
     },
+    "This device is signed into a different iCloud account than the one you paired with. Sign back into that account to see your shared space, or unlink from Settings." : {
+
+    },
+    "This device isn't paired yet." : {
+
+    },
     "This iCloud account is already paired. Rejoin and the statuses, photos and memos come back on their own." : {
+
+    },
+    "This invite is from someone you've blocked." : {
 
     },
     "This is the name %@ sees on your status, your nudges and anything you send. Their name is theirs to set." : {
@@ -743,13 +1003,28 @@
     "Tied together for %lld days" : {
 
     },
+    "Today" : {
+
+    },
     "Turn off the celebration" : {
+
+    },
+    "Turn on" : {
+
+    },
+    "Unavailable" : {
 
     },
     "Undo" : {
 
     },
     "Unlink" : {
+
+    },
+    "Unlink from %@" : {
+
+    },
+    "Unlink from %@?" : {
 
     },
     "Version" : {
@@ -776,6 +1051,9 @@
     "We act on every report within 24 hours: the reported content is removed and, where the report is upheld, the person who sent it is ejected from the shared space and barred from pairing with the reporter again. Because messages are end-to-end encrypted in your iCloud, we can only see what you include in a report." : {
 
     },
+    "Welcome to %@" : {
+
+    },
     "What Red String is" : {
 
     },
@@ -788,7 +1066,16 @@
     "When it began" : {
 
     },
+    "White background" : {
+
+    },
+    "Yesterday" : {
+
+    },
     "you" : {
+
+    },
+    "You" : {
 
     },
     "You can change this later in Settings." : {
@@ -806,7 +1093,16 @@
     "You'll share one private space in iCloud — just the two of you." : {
 
     },
+    "You're already linked with %@. To join a new invite, unlink first in Settings." : {
+
+    },
+    "You've been invited" : {
+
+    },
     "Your name" : {
+
+    },
+    "Your partner joined through this link, so closing it here would remove them. Closing it safely re-seats them, which needs them on standby: Settings → tap Version seven times → iCloud diagnostics → Promote partner & close invite." : {
 
     },
     "Your shared space is still in iCloud" : {
@@ -826,6 +1122,9 @@
       }
     },
     "Your statuses, photos and drawings are end-to-end encrypted in your own iCloud. No servers, no accounts, no ads." : {
+
+    },
+    "Your voice memo" : {
 
     }
   },

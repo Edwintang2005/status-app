@@ -26,6 +26,9 @@ final class SnapshotCodableTests: XCTestCase {
         XCTAssertNil(snapshot.partnerStatusSeen)
         XCTAssertNil(snapshot.anniversary)
         XCTAssertTrue(snapshot.anniversaryPublished, "pre-field snapshots must not republish")
+        XCTAssertNil(snapshot.lastAnnouncedPartnerStatus)
+        XCTAssertNil(snapshot.anniversaryRequestedAt)
+        XCTAssertTrue(snapshot.anniversaryRequestPublished, "pre-field snapshots must not republish")
         XCTAssertEqual(snapshot.latestPartnerVisualMoment?.id, "m1",
                        "absent key: legacy snapshots treat every moment as a picture")
     }
@@ -73,6 +76,11 @@ final class SnapshotCodableTests: XCTestCase {
         snapshot.myStatusSeenByPartner = StatusSeen(statusUpdatedAt: Fixtures.t0, seenAt: Fixtures.date(1))
         snapshot.anniversary = Anniversary(startsAt: Fixtures.date(-90 * 86_400), timeZoneID: "Australia/Sydney")
         snapshot.anniversaryPublished = false
+        snapshot.lastAnnouncedPartnerStatus = Fixtures.status(at: Fixtures.date(-60), nudges: 3)
+        snapshot.anniversaryRequestedAt = Fixtures.date(-120)
+        snapshot.anniversaryRequestPublished = false
+        snapshot.anniversaryRequestDismissedAt = Fixtures.date(-180)
+        snapshot.lastAnnouncedMomentSentAt = Fixtures.date(-240)
 
         let data = try JSONEncoder.shared.encode(snapshot)
         let decoded = try JSONDecoder.shared.decode(Snapshot.self, from: data)
@@ -118,6 +126,19 @@ final class SnapshotCodableTests: XCTestCase {
 
         snapshot.theirs = Fixtures.status("💼", "working", at: Fixtures.date(20))
         XCTAssertNil(snapshot.pendingCelebration)
+    }
+
+    func testAnniversaryRequestPendingIsOncePerAskAndMootOnceSet() {
+        var snapshot = Snapshot.empty
+        XCTAssertFalse(snapshot.anniversaryRequestPending)
+        snapshot.anniversaryRequestedAt = Fixtures.t0
+        XCTAssertTrue(snapshot.anniversaryRequestPending)
+        snapshot.anniversaryRequestDismissedAt = Fixtures.t0
+        XCTAssertFalse(snapshot.anniversaryRequestPending, "dismissed once per ask")
+        snapshot.anniversaryRequestedAt = Fixtures.date(60)
+        XCTAssertTrue(snapshot.anniversaryRequestPending, "asking again brings it back")
+        snapshot.anniversary = Anniversary(startsAt: Fixtures.date(-86_400))
+        XCTAssertFalse(snapshot.anniversaryRequestPending, "a set date answers every ask")
     }
 
     func testDerivedHelpers() {

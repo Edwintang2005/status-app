@@ -12,7 +12,13 @@ struct VoiceMemoComposerView: View {
     @State private var recorder = VoiceRecorder()
     @State private var player = VoicePlayer()
     @State private var caption = ""
+    @State private var confirmingDiscard = false
     @FocusState private var captionFocused: Bool
+
+    /// A take in progress or in hand, or words typed for it.
+    private var hasContent: Bool {
+        recorder.state == .recording || recorder.hasTake || !caption.isEmpty
+    }
 
     var body: some View {
         NavigationStack {
@@ -26,11 +32,13 @@ struct VoiceMemoComposerView: View {
                         if let message = recorder.errorMessage {
                             Text(message)
                                 .font(Theme.rounded(13))
-                                .foregroundStyle(Theme.warm)
+                                .foregroundStyle(Theme.warmDeep)
                                 .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     .padding(20)
+                    .containerRelativeFrame(.horizontal)
                 }
                 .scrollDismissesKeyboard(.interactively)
             }
@@ -38,7 +46,9 @@ struct VoiceMemoComposerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") {
+                        if hasContent { confirmingDiscard = true } else { dismiss() }
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Send") { send() }
@@ -46,7 +56,15 @@ struct VoiceMemoComposerView: View {
                         .disabled(!recorder.hasTake)
                 }
             }
+            .confirmationDialog("Discard this recording?",
+                                isPresented: $confirmingDiscard,
+                                titleVisibility: .visible) {
+                Button("Discard", role: .destructive) { dismiss() }
+                Button("Keep it", role: .cancel) {}
+            }
         }
+        // A two-minute take must not vanish on an accidental pull-down.
+        .interactiveDismissDisabled(hasContent)
         .onDisappear {
             player.stop()
             // A no-op once `send()` has handed the file over.
@@ -111,13 +129,13 @@ struct VoiceMemoComposerView: View {
     private var statusLine: String {
         switch recorder.state {
         case .idle:
-            return "Tap to record"
+            return String(localized: "Tap to record")
         case .denied:
-            return "\(AppConfig.appName) needs the microphone"
+            return String(localized: "\(AppConfig.appName) needs the microphone")
         case .recording:
-            return "Recording — tap to stop"
+            return String(localized: "Recording — tap to stop")
         case .finished:
-            return player.isPlaying ? "Playing" : "Listen back, or send it"
+            return player.isPlaying ? String(localized: "Playing") : String(localized: "Listen back, or send it")
         }
     }
 
@@ -184,7 +202,7 @@ struct VoiceMemoComposerView: View {
             Label(recording ? "Stop" : "Record",
                   systemImage: recording ? "stop.fill" : "mic.fill")
         }
-        .buttonStyle(PrimaryButtonStyle(tint: recording ? Theme.warm : Theme.accent))
+        .buttonStyle(PrimaryButtonStyle(tint: recording ? Theme.warmDeep : Theme.accent))
         .animation(.smooth(duration: 0.2), value: recording)
     }
 
@@ -193,6 +211,11 @@ struct VoiceMemoComposerView: View {
             .font(Theme.rounded(16))
             .focused($captionFocused)
             .submitLabel(.done)
+            .onChange(of: caption) { _, text in
+                if text.count > AppConfig.captionMaxLength {
+                    caption = String(text.prefix(AppConfig.captionMaxLength))
+                }
+            }
             .padding(.vertical, 14)
             .padding(.horizontal, 16)
             .background(Color.primary.opacity(0.05),

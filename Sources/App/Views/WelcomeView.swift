@@ -42,6 +42,9 @@ struct WelcomeView: View {
                 .padding(.horizontal, 26)
                 .padding(.bottom, 28)
                 .frame(minHeight: 560)
+                // Pinned: the title carries the inviter's name, a single line of
+                // someone else's text — see CLAUDE.md invariant 18.
+                .containerRelativeFrame(.horizontal)
             }
             .scrollDismissesKeyboard(.interactively)
         }
@@ -65,11 +68,13 @@ struct WelcomeView: View {
             Text(title)
                 .font(Theme.rounded(30, .bold))
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
 
             Text(subtitle)
                 .font(Theme.rounded(16))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 6)
         }
         .padding(.bottom, 30)
@@ -78,17 +83,17 @@ struct WelcomeView: View {
     private var title: String {
         switch mode {
         case .firstRun:
-            return "Welcome to \(AppConfig.appName)"
+            return String(localized: "Welcome to \(AppConfig.appName)")
         case .joining(let ownerName):
-            guard let ownerName, !ownerName.isEmpty else { return "You've been invited" }
-            return "\(ownerName) invited you"
+            guard let ownerName, !ownerName.isEmpty else { return String(localized: "You've been invited") }
+            return String(localized: "\(ownerName) invited you")
         }
     }
 
     private var subtitle: String {
         isJoining
-            ? "One more thing before you're in: what should they call you?"
-            : "A glance at each other, from anywhere. First — what should they call you?"
+            ? String(localized: "One more thing before you're in: what should they call you?")
+            : String(localized: "A glance at each other, from anywhere. First — what should they call you?")
     }
 
     private var field: some View {
@@ -118,8 +123,10 @@ struct WelcomeView: View {
             Button(action: commit) {
                 if model.isBusy {
                     ProgressView().tint(.white)
+                } else if isJoining {
+                    Text("Join \(joinTarget)")
                 } else {
-                    Text(isJoining ? "Join \(joinTarget)" : "Continue")
+                    Text("Continue")
                 }
             }
             .buttonStyle(PrimaryButtonStyle())
@@ -133,11 +140,15 @@ struct WelcomeView: View {
             }
 
             Label {
-                Text(isJoining
-                     ? "You'll share one private space in iCloud — just the two of you."
-                     : "No account, no email, no password. Your name stays on your phones and in your own iCloud.")
-                    .font(Theme.rounded(12))
-                    .foregroundStyle(.secondary)
+                Group {
+                    if isJoining {
+                        Text("You'll share one private space in iCloud — just the two of you.")
+                    } else {
+                        Text("No account, no email, no password. Your name stays on your phones and in your own iCloud.")
+                    }
+                }
+                .font(Theme.rounded(12))
+                .foregroundStyle(.secondary)
             } icon: {
                 Image(systemName: "lock.shield")
                     .foregroundStyle(Theme.mint)
@@ -150,7 +161,7 @@ struct WelcomeView: View {
         if case .joining(let ownerName) = mode, let ownerName, !ownerName.isEmpty {
             return ownerName
         }
-        return "them"
+        return String(localized: "them")
     }
 
     private func commit() {

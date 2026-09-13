@@ -175,6 +175,19 @@ final class MomentIndex {
         Set(load().map(\.id))
     }
 
+    /// Drops everything except own sends that never reached CloudKit — the
+    /// one thing a wipe can't get back from the zone. Returns what was kept.
+    @discardableResult
+    func retainPendingUploads() -> [Moment] {
+        lock.lock()
+        defer { lock.unlock() }
+        return crossLock.withLock {
+            let kept = loadUnlocked().filter { $0.fromMe && !$0.uploaded }
+            saveUnlocked(kept)
+            return kept
+        }
+    }
+
     func clear() {
         lock.lock()
         defer { lock.unlock() }

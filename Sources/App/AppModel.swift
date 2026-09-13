@@ -18,14 +18,16 @@ final class AppModel {
     private(set) var snapshot: Snapshot
     private(set) var isPaired: Bool
     private(set) var role: PairRole?
-    /// Owner side: invite revoked, via Settings or automatically once the partner joined.
-    private(set) var inviteClosed: Bool = SharedStore.shared.inviteClosed
+    /// Owner side: invite revoked from Settings or Diagnostics.
+    private(set) var inviteClosed: Bool
     private(set) var isBusy = false
     private(set) var isRefreshing = false
     /// Re-entrancy guard: a slow retry must not overlap the next foreground's.
-    @ObservationIgnored private var isRetryingUploads = false
+    /// Observed too — the home footer shows "Sending…" while it runs.
+    private(set) var isRetryingUploads = false
     @ObservationIgnored private var isRepublishingStatus = false
     @ObservationIgnored private var isRepublishingAnniversary = false
+    @ObservationIgnored private var isRepublishingAnniversaryRequest = false
 
     /// Fires a refresh on the offline→online edge — the only trigger that watches the network itself.
     @ObservationIgnored private let pathMonitor = NWPathMonitor()
@@ -34,7 +36,7 @@ final class AppModel {
     /// Owner side: the link to hand to the partner. Kept after the invite
     /// closes — the same link re-admits the existing partner on a new phone.
     /// Seeded from the store so it survives a relaunch — see `refreshInviteURL()`.
-    private(set) var inviteURL: URL? = SharedStore.shared.inviteURL
+    private(set) var inviteURL: URL?
     /// A pairing found on the server with no local state — a fresh install on
     /// a new phone. The pairing screen offers it as "Rejoin".
     private(set) var rejoinablePairing: (role: PairRole, zoneID: CKRecordZone.ID)?
@@ -70,6 +72,9 @@ final class AppModel {
     private(set) var hiddenPartnerStatusAt: Date?
     /// Owner side: the "when did you two begin?" prompt is owed — see `SharedStore.anniversaryPromptPending`.
     private(set) var anniversaryPromptPending = false
+    /// `HomeView` has a sheet up. Root-level presentations (the anniversary
+    /// prompt) wait for it to close rather than being dropped by SwiftUI.
+    var homeSheetShowing = false
 
     /// Store is injectable so previews and tests run against a throwaway defaults suite.
     init(store: SharedStore = .shared) {
@@ -77,6 +82,10 @@ final class AppModel {
         self.snapshot = store.snapshot
         self.isPaired = store.pairing != nil
         self.role = store.pairing?.role
+        self.inviteClosed = store.inviteClosed
+        self.inviteURL = store.inviteURL
+        self.contentFilterEnabled = store.contentFilterEnabled
+        self.readReceiptsEnabled = store.readReceiptsEnabled
         self.termsAccepted = store.acceptedTermsVersion >= AppConfig.termsVersion
         self.hiddenPartnerStatusAt = store.hiddenPartnerStatusAt
         self.anniversaryPromptPending = store.anniversaryPromptPending
@@ -84,7 +93,8 @@ final class AppModel {
 
     // MARK: - Derived
 
-    var partnerName: String { snapshot.partnerDisplayName }
+    /// The partner's name as shown everywhere — filtered like any of their text.
+    var partnerName: String { snapshot.moderatedPartnerName }
 
     /// When the two of them began, as the owner set it — `nil` until they do.
     var anniversary: Anniversary? { snapshot.anniversary }
@@ -201,8 +211,7 @@ final class AppModel {
                     await refresh()
                 }
             } else {
-                errorMessage = "You're already linked with \(partnerName). "
-                    + "To join a new invite, unlink first in Settings."
+                errorMessage = String(localized: "You're already linked with \(partnerName). To join a new invite, unlink first in Settings.")
             }
             return
         }
@@ -299,6 +308,11 @@ final class AppModel {
         await refresh()
     }
 
+    /// The store changed under this model's own refresh: re-read, no fetch.
+    func reloadLocally() {
+        reload()
+    }
+
     private func reload() {
         snapshot = store.snapshot
         isPaired = store.pairing != nil
@@ -319,7 +333,7 @@ final class AppModel {
     }
 
     /// The on-device word filter over the partner's text; widgets read the same switch.
-    var contentFilterEnabled: Bool = SharedStore.shared.contentFilterEnabled {
+    var contentFilterEnabled: Bool {
         didSet {
             guard oldValue != contentFilterEnabled else { return }
             store.contentFilterEnabled = contentFilterEnabled
@@ -394,10 +408,7 @@ final class AppModel {
                                   pairing: pairing,
                                   reporterName: myDisplayName))
         if let cloudProblem {
-            errorMessage = "\(name) is blocked and everything they sent has been removed from this "
-                + "iPhone. iCloud couldn't be reached to finish the unlink (\(cloudProblem)), so "
-                + "what you sent may still be in the shared space; try Settings → Unlink later "
-                + "if it reappears."
+            errorMessage = String(localized: "\(name) is blocked and everything they sent has been removed from this iPhone. iCloud couldn't be reached to finish the unlink (\(cloudProblem)), so what you sent may still be in the shared space; try Settings → Unlink later if it reappears.")
         }
     }
 
@@ -410,8 +421,7 @@ final class AppModel {
             guard !opened else { return }
             Task { @MainActor in
                 UIPasteboard.general.string = body
-                self.noticeMessage = "Mail isn't set up on this iPhone, so the report has been "
-                    + "copied to your clipboard. Please email it to \(AppConfig.supportEmail)."
+                self.noticeMessage = String(localized: "Mail isn't set up on this iPhone, so the report has been copied to your clipboard. Please email it to \(AppConfig.supportEmail).")
             }
         }
     }
@@ -458,6 +468,13 @@ final class AppModel {
         pathMonitor.start(queue: DispatchQueue(label: "redstring.network-path"))
     }
 
+    /// The system reported an iCloud account change: make the next readiness
+    /// check look the account up for real, then refresh.
+    func accountDidChange() async {
+        await Backend.current.noteAccountChanged()
+        await refresh()
+    }
+
     func refresh() async {
         guard !isRefreshing else { return }
         isRefreshing = true
@@ -471,6 +488,7 @@ final class AppModel {
             // A working refresh is the recovery moment for sends that died offline.
             await republishStatusIfNeeded()
             await republishAnniversaryIfNeeded()
+            await republishAnniversaryRequestIfNeeded()
             await retryPendingUploads()
             await flushReceiptsIfNeeded()
         } catch {
@@ -499,7 +517,9 @@ final class AppModel {
     func setStatus(emoji: String, message: String, isCelebration: Bool = false) async {
         let payload = StatusPayload(
             emoji: emoji,
-            message: message.trimmingCharacters(in: .whitespacesAndNewlines),
+            // Capped here too: the banner reply bypasses the composer's field.
+            message: String(message.trimmingCharacters(in: .whitespacesAndNewlines)
+                                .prefix(AppConfig.statusMessageMaxLength)),
             displayName: snapshot.mine?.displayName ?? "",
             updatedAt: statusTimestamp(),
             nudgeCount: snapshot.mine?.nudgeCount ?? 0,
@@ -589,7 +609,8 @@ final class AppModel {
         // Pending only when paired — an unpaired send has nothing to retry.
         let moment = Moment(
             kind: kind,
-            caption: caption.trimmingCharacters(in: .whitespacesAndNewlines),
+            caption: String(caption.trimmingCharacters(in: .whitespacesAndNewlines)
+                                .prefix(AppConfig.captionMaxLength)),
             senderName: snapshot.mine?.displayName ?? "",
             fromMe: true,
             uploaded: !isPaired
@@ -643,7 +664,8 @@ final class AppModel {
 
         let moment = Moment(
             kind: .voice,
-            caption: caption.trimmingCharacters(in: .whitespacesAndNewlines),
+            caption: String(caption.trimmingCharacters(in: .whitespacesAndNewlines)
+                                .prefix(AppConfig.captionMaxLength)),
             senderName: snapshot.mine?.displayName ?? "",
             fromMe: true,
             uploaded: !isPaired,
@@ -708,6 +730,9 @@ final class AppModel {
         store.mutate(reloadWidgets: false) {
             $0.anniversary = anniversary
             $0.anniversaryPublished = false
+            // Setting a date answers any standing ask, so it can't resurface
+            // if the date is later removed.
+            if let asked = $0.anniversaryRequestedAt { $0.anniversaryRequestDismissedAt = asked }
         }
         store.anniversaryPromptPending = false
         reload()
@@ -755,6 +780,84 @@ final class AppModel {
         }
     }
 
+    // MARK: - Anniversary request (participant asks, owner answers)
+
+    /// Participant only, and only while there's no date to show.
+    var canRequestAnniversary: Bool { isPaired && role == .participant && anniversary == nil }
+
+    /// Participant side: when this device last asked, for the "Asked …" line.
+    var anniversaryRequestedAt: Date? {
+        role == .participant ? snapshot.anniversaryRequestedAt : nil
+    }
+
+    /// Owner side: the partner has asked and this device hasn't answered or dismissed it.
+    var anniversaryRequestPending: Bool {
+        canEditAnniversary && snapshot.anniversaryRequestPending
+    }
+
+    /// Same shape as `setAnniversary`: filed locally and marked unpublished in
+    /// one mutate, pushed, and carried over by the next refresh on failure.
+    func requestAnniversary() async {
+        guard canRequestAnniversary else { return }
+        // Whole seconds, like every persisted date (invariant 14).
+        let now = statusTimestamp()
+        store.mutate(reloadWidgets: false) {
+            $0.anniversaryRequestedAt = now
+            $0.anniversaryRequestPublished = false
+        }
+        reload()
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+
+        do {
+            try await Backend.current.publishAnniversaryRequest(at: now)
+            markAnniversaryRequestPublished(now)
+            reload()
+        } catch {
+            log.error("Anniversary request publish failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Owner side: the prompt was waved away; it stays away until they ask again.
+    func dismissAnniversaryRequest() {
+        store.mutate(reloadWidgets: false) {
+            $0.anniversaryRequestDismissedAt = $0.anniversaryRequestedAt
+        }
+        reload()
+    }
+
+    private func markAnniversaryRequestPublished(_ date: Date) {
+        store.mutate(reloadWidgets: false) {
+            guard $0.anniversaryRequestedAt == date else { return }
+            $0.anniversaryRequestPublished = true
+        }
+    }
+
+    func republishAnniversaryRequestIfNeeded() async {
+        guard isPaired, role == .participant, !isRepublishingAnniversaryRequest else { return }
+        let snapshot = store.snapshot
+        guard !snapshot.anniversaryRequestPublished, let date = snapshot.anniversaryRequestedAt else { return }
+        isRepublishingAnniversaryRequest = true
+        defer { isRepublishingAnniversaryRequest = false }
+
+        do {
+            try await Backend.current.publishAnniversaryRequest(at: date)
+            markAnniversaryRequestPublished(date)
+            reload()
+            log.info("Republished the offline anniversary request")
+        } catch {
+            log.error("Anniversary request republish failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    // MARK: - Pending uploads
+
+    /// The home footer's tap-to-retry: the same pass the next refresh would
+    /// run, without waiting for one. `retryPendingUploads` guards re-entry.
+    func retryPendingNow() async {
+        await retryPendingUploads()
+        reload()
+    }
+
     /// Re-sends own moments whose upload never completed; runs on every foreground
     /// refresh, quiet on failure (the pending badge already says so).
     /// Safe to re-run — `CloudSync.send` overwrites a deterministic record name.
@@ -791,7 +894,7 @@ final class AppModel {
 
     /// Whether this device shares (and shows) read receipts. On by default;
     /// each side controls its own sending, and display is gated on the same switch.
-    var readReceiptsEnabled: Bool = SharedStore.shared.readReceiptsEnabled {
+    var readReceiptsEnabled: Bool {
         didSet {
             guard oldValue != readReceiptsEnabled else { return }
             store.readReceiptsEnabled = readReceiptsEnabled
@@ -868,9 +971,12 @@ final class AppModel {
 
     // MARK: - Status history
 
-    /// The rolling status log, newest first — loaded on demand by the history sheet.
+    /// The rolling status log, newest first, with a reported or filtered partner
+    /// status shown as such — loaded on demand by the history sheet.
     func loadStatusHistory() -> [StatusHistoryEntry] {
-        StatusHistoryLog.shared.load()
+        let reportedAt = hiddenPartnerStatusAt
+        let filterOn = contentFilterEnabled
+        return StatusHistoryLog.shared.load().map { $0.moderated(reportedAt: reportedAt, filterEnabled: filterOn) }
     }
 
     // MARK: - Pairing
@@ -1027,7 +1133,7 @@ final class AppModel {
     private func presentSendFailure(_ error: Error, noun: String) {
         let code = (error as? CKError).map { "CKError \($0.code.rawValue): " } ?? ""
         log.error("Send failed (\(code, privacy: .public))\(error.localizedDescription, privacy: .public)")
-        errorMessage = "Couldn't send that \(noun) right now — it's saved, and will be sent automatically next time you open the app."
+        errorMessage = String(localized: "Couldn't send that \(noun) right now — it's saved, and will be sent automatically next time you open the app.")
     }
 
     private func present(_ error: Error) {

@@ -169,6 +169,18 @@ struct DrawingPalette: View {
     /// Hidden when a photo is behind the canvas — a backdrop would never show.
     var showsBackdrop: Bool = true
 
+    /// One per entry of `DrawingController.backdrops`, in order — seven
+    /// swatches all called "Background colour" were indistinguishable to VoiceOver.
+    private static var backdropNames: [String] {
+        [String(localized: "White background"),
+         String(localized: "Cream background"),
+         String(localized: "Pink background"),
+         String(localized: "Sky blue background"),
+         String(localized: "Mint background"),
+         String(localized: "Lavender background"),
+         String(localized: "Charcoal background")]
+    }
+
     var body: some View {
         VStack(spacing: 14) {
             HStack(spacing: 10) {
@@ -251,7 +263,7 @@ struct DrawingPalette: View {
                         .foregroundStyle(.secondary)
 
                     HStack(spacing: 12) {
-                        ForEach(DrawingController.backdrops) { backdrop in
+                        ForEach(Array(DrawingController.backdrops.enumerated()), id: \.element.id) { index, backdrop in
                             Button {
                                 controller.backdrop = backdrop
                             } label: {
@@ -268,7 +280,8 @@ struct DrawingPalette: View {
                                     )
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("Background colour")
+                            .accessibilityLabel(Self.backdropNames[safe: index]
+                                                ?? String(localized: "Background colour \(index + 1)"))
                             .accessibilityAddTraits(controller.backdrop == backdrop ? .isSelected : [])
                         }
                         ColorPicker("Any background",
@@ -332,5 +345,11 @@ extension UIImage {
         let origin = CGPoint(x: rect.midX - scaled.width / 2,
                              y: rect.midY - scaled.height / 2)
         draw(in: CGRect(origin: origin, size: scaled))
+    }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }

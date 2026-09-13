@@ -15,8 +15,56 @@ final class SharedStoreTests: XCTestCase {
         XCTAssertTrue(store.readReceiptsEnabled, "on by default")
         XCTAssertFalse(store.inviteClosed)
         XCTAssertNil(store.inviteURL)
-        XCTAssertFalse(store.hasRequestedNotifications)
         XCTAssertNil(store.changeToken(for: "private"))
+        XCTAssertEqual(store.unreadableTally.summary, "none")
+    }
+
+    // MARK: Unreadable-record hold (CLAUDE.md invariant 2)
+
+    /// The test bundle has no `NSExtension` entry, so it counts as the app —
+    /// the only process allowed to give up on a record.
+    func testUnreadableHoldGivesUpAfterSeparateAppRefreshes() {
+        let (store, _) = makeStore()
+        let t0 = Fixtures.t0
+        let gap = AppConfig.unreadableHoldSpacing
+        XCTAssertFalse(store.noteUnreadableRecords(["moment-owner-a"], now: t0))
+        // A burst of refreshes (launch + foreground) counts once.
+        XCTAssertFalse(store.noteUnreadableRecords(["moment-owner-a"], now: t0.addingTimeInterval(5)))
+        XCTAssertFalse(store.noteUnreadableRecords(["moment-owner-a"], now: t0.addingTimeInterval(gap)))
+        XCTAssertEqual(store.unreadableTally.heldStreak, 2)
+        XCTAssertTrue(store.noteUnreadableRecords(["moment-owner-a"], now: t0.addingTimeInterval(2 * gap)),
+                      "the third separate look gives up")
+        let tally = store.unreadableTally
+        XCTAssertEqual(tally.abandoned, 1)
+        XCTAssertEqual(tally.heldStreak, 0)
+        XCTAssertEqual(tally.heldNames, [])
+        XCTAssertEqual(tally.counts["app"], 4, "every skip is still counted")
+    }
+
+    func testUnreadableHoldRestartsWhenTheRecordsChange() {
+        let (store, _) = makeStore()
+        let t0 = Fixtures.t0
+        let gap = AppConfig.unreadableHoldSpacing
+        XCTAssertFalse(store.noteUnreadableRecords(["a"], now: t0))
+        XCTAssertFalse(store.noteUnreadableRecords(["a"], now: t0.addingTimeInterval(gap)))
+        // A new unreadable record joins: not the same stuck set any more.
+        XCTAssertFalse(store.noteUnreadableRecords(["a", "b"], now: t0.addingTimeInterval(2 * gap)))
+        XCTAssertEqual(store.unreadableTally.heldStreak, 1)
+        // A subset of what was held still counts as the same records.
+        XCTAssertFalse(store.noteUnreadableRecords(["b"], now: t0.addingTimeInterval(3 * gap)))
+        XCTAssertEqual(store.unreadableTally.heldStreak, 2)
+
+        store.clearUnreadableHold()
+        XCTAssertEqual(store.unreadableTally.heldStreak, 0)
+        XCTAssertEqual(store.unreadableTally.heldNames, [])
+        XCTAssertEqual(store.unreadableTally.counts["app"], 5, "clearing the hold keeps the evidence")
+    }
+
+    func testLegacyTallyDecodes() throws {
+        let tally = try decode(SharedStore.UnreadableTally.self, #"{"counts":{"widget":3}}"#)
+        XCTAssertEqual(tally.counts["widget"], 3)
+        XCTAssertEqual(tally.heldStreak, 0)
+        XCTAssertEqual(tally.abandoned, 0)
     }
 
     func testReadReceiptsToggleRoundTrips() {
@@ -47,6 +95,27 @@ final class SharedStoreTests: XCTestCase {
         XCTAssertEqual(store.changeToken(for: "private"), Data([1, 2, 3]))
         store.pairing = nil
         XCTAssertNil(store.pairing)
+    }
+
+    func testUnlinkRemembersTheZoneAndStartOverForgetsIt() {
+        let (store, _) = makeStore()
+        let info = PairingInfo(role: .participant, zoneName: "CoupleZone", zoneOwnerName: "_owner",
+                               pairedAt: Fixtures.t0)
+        store.pairing = info
+        store.clearPairing(keepingName: true)
+        XCTAssertEqual(store.lastPairing?.sameZone(as: info), true)
+        store.pairing = info
+        store.clearPairing(keepingName: false)
+        XCTAssertNil(store.lastPairing)
+    }
+
+    func testZoneGoneSightingClearsWithThePairing() {
+        let (store, _) = makeStore()
+        XCTAssertNil(store.zoneGoneSeenAt)
+        store.zoneGoneSeenAt = Fixtures.t0
+        XCTAssertEqual(store.zoneGoneSeenAt, Fixtures.t0)
+        store.clearPairing(keepingName: false)
+        XCTAssertNil(store.zoneGoneSeenAt, "a new pairing starts with no stale sighting")
     }
 
     func testInviteURLRoundTrips() {

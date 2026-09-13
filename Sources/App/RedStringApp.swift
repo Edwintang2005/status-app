@@ -27,18 +27,20 @@ struct RedStringApp: App {
                     switch phase {
                     case .active:
                         // Every banner's content is now on screen — clear the backlog.
+                        // Only here: `.inactive` also fires for Control Centre, an
+                        // incoming call and every app switch, and swept banners the
+                        // user had not read.
                         NotificationManager.clearDelivered()
                         Task { await model.refresh() }
-                    case .inactive:
-                        // Fires as Notification Centre is pulled down over the open
-                        // app — see `clearDelivered` for why this proxies "shade opened".
-                        NotificationManager.clearDelivered()
                     default:
                         break
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .pairingDidChange)) { _ in
                     Task { await model.reloadFromStore() }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .snapshotDidChange)) { _ in
+                    model.reloadLocally()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .pairingDidFail)) { note in
                     model.errorMessage = note.object as? String
@@ -52,7 +54,7 @@ struct RedStringApp: App {
                 .onReceive(NotificationCenter.default
                     .publisher(for: .CKAccountChanged)
                     .receive(on: DispatchQueue.main)) { _ in
-                    Task { await model.refresh() }
+                    Task { await model.accountDidChange() }
                 }
                 .onOpenURL { url in
                     // Widget tap opens the composer — only when paired, so the latched

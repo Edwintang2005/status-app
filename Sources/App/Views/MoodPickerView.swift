@@ -52,6 +52,7 @@ struct MoodPickerView: View {
                     }
                     .padding(20)
                     .padding(.bottom, 24)
+                    .containerRelativeFrame(.horizontal)
                 }
                 .scrollDismissesKeyboard(.interactively)
             }
@@ -103,6 +104,12 @@ struct MoodPickerView: View {
                     .focused($messageFocused)
                     .submitLabel(.done)
                     .onSubmit(commit)
+                    // A glance, not a paragraph; widgets truncate anything longer.
+                    .onChange(of: message) { _, text in
+                        if text.count > AppConfig.statusMessageMaxLength {
+                            message = String(text.prefix(AppConfig.statusMessageMaxLength))
+                        }
+                    }
             }
             .padding(.vertical, 12)
             .padding(.horizontal, 14)
@@ -133,7 +140,7 @@ struct MoodPickerView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Turn off the celebration")
         }
-        .foregroundStyle(Theme.warm)
+        .foregroundStyle(Theme.warmDeep)
         .padding(.vertical, 10)
         .padding(.horizontal, 14)
         .background(Theme.warm.opacity(0.12),

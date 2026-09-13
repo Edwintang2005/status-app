@@ -16,7 +16,6 @@ final class SharedStore {
     private enum Key {
         static let snapshot = "snapshot"
         static let pairing = "pairing"
-        static let notificationsRequested = "notificationsRequested"
         static let inviteClosed = "inviteClosed"
         static let inviteURL = "inviteURL"
         static let readReceipts = "readReceiptsEnabled"
@@ -27,6 +26,8 @@ final class SharedStore {
         static let blockedOwners = "blockedOwnerRecordNames"
         static let anniversaryPrompt = "anniversaryPromptPending"
         static let unreadable = "unreadableRecords"
+        static let zoneGone = "zoneGoneSeenAt"
+        static let lastPairing = "lastPairing"
     }
 
     init(store: GroupKeyValueStore = GroupFileStore()) {
@@ -73,11 +74,6 @@ final class SharedStore {
                 store.setData(nil, forKey: Key.pairing)
             }
         }
-    }
-
-    var hasRequestedNotifications: Bool {
-        get { store.bool(forKey: Key.notificationsRequested) }
-        set { store.setBool(newValue, forKey: Key.notificationsRequested) }
     }
 
     /// Whether this device sends (and shows) read receipts. On by default —
@@ -133,6 +129,34 @@ final class SharedStore {
         set { store.setBool(newValue, forKey: Key.anniversaryPrompt) }
     }
 
+    /// When a refresh first found the shared zone missing. The self-unlink
+    /// waits for a second sighting `AppConfig.zoneGoneConfirmation` later
+    /// (`CloudSync.zoneGoneVerdict`); any successful fetch clears it.
+    var zoneGoneSeenAt: Date? {
+        get { decode(Date.self, forKey: Key.zoneGone) }
+        set {
+            if let newValue {
+                encode(newValue, forKey: Key.zoneGone)
+            } else {
+                store.setData(nil, forKey: Key.zoneGone)
+            }
+        }
+    }
+
+    /// The pairing this device was last cut loose from (`clearPairing(keepingName:)`),
+    /// so re-accepting the *same* zone — a partner evicted by the close handshake
+    /// tapping the link again — can keep its unsent media instead of wiping.
+    var lastPairing: PairingInfo? {
+        get { decode(PairingInfo.self, forKey: Key.lastPairing) }
+        set {
+            if let newValue {
+                encode(newValue, forKey: Key.lastPairing)
+            } else {
+                store.setData(nil, forKey: Key.lastPairing)
+            }
+        }
+    }
+
     /// CloudKit user record names of blocked people; their invites are refused.
     /// Survives unlink and "start over" — a block is meant to stick.
     var blockedOwnerRecordNames: Set<String> {
@@ -170,12 +194,15 @@ final class SharedStore {
                 ? snapshot.mine?.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
                 : nil
 
+            // An unlink remembers where it came from; "start over" forgets it.
+            lastPairing = keepingName ? pairing : nil
             pairing = nil
             // The next pairing gets a new share with a new link, which starts open.
             inviteClosed = false
             inviteURL = nil
             hiddenPartnerStatusAt = nil
             anniversaryPromptPending = false
+            zoneGoneSeenAt = nil
             store.setData(nil, forKey: Key.unreadable)
             for key in ["private", "shared"] { setChangeToken(nil, for: key) }
             snapshot = Snapshot(
@@ -193,12 +220,15 @@ final class SharedStore {
         Self.reloadWidgets()
     }
 
-    /// Erases every cached moment file and the index that lists them.
-    func eraseLocalMedia() {
-        MomentIndex.shared.clear()
+    /// Erases every cached moment file and the index that lists them. With
+    /// `keepingPendingUploads`, own sends that never reached CloudKit survive —
+    /// they exist nowhere else, and a re-pairing to the same zone re-sends them.
+    func eraseLocalMedia(keepingPendingUploads: Bool = false) {
+        let kept = keepingPendingUploads ? MomentIndex.shared.retainPendingUploads() : []
+        if !keepingPendingUploads { MomentIndex.shared.clear() }
         StatusHistoryLog.shared.clear()
         // No grace window: an unlink erases everything, even seconds-old recordings.
-        MomentStore.shared.prune(keeping: [], graceInterval: 0)
+        MomentStore.shared.prune(keeping: kept.map(\.id), graceInterval: 0)
         MomentStore.clearThumbnailCache()
     }
 
@@ -270,14 +300,41 @@ final class SharedStore {
     // MARK: - Unreadable records (Diagnostics)
 
     /// Per-process count of records whose encrypted fields came back empty —
-    /// the evidence for whether background processes lose decryption.
+    /// the evidence for whether background processes lose decryption — plus the
+    /// hold the app keeps over them (see `noteUnreadableRecords`).
     struct UnreadableTally: Codable, Equatable {
         var counts: [String: Int] = [:]
         var lastAt: Date?
+        /// Record names the change token is currently being held for.
+        var heldNames: [String] = []
+        /// Separate app refreshes that found the same names unreadable.
+        var heldStreak = 0
+        var heldAt: Date?
+        /// Records the app gave up on and advanced past — gone until a full resync.
+        var abandoned = 0
+
+        init() {}
+
+        private enum CodingKeys: String, CodingKey {
+            case counts, lastAt, heldNames, heldStreak, heldAt, abandoned
+        }
+
+        /// Hand-written: fields added after the first release fall back (invariant 5).
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            counts = try container.decodeIfPresent([String: Int].self, forKey: .counts) ?? [:]
+            lastAt = try container.decodeIfPresent(Date.self, forKey: .lastAt)
+            heldNames = try container.decodeIfPresent([String].self, forKey: .heldNames) ?? []
+            heldStreak = try container.decodeIfPresent(Int.self, forKey: .heldStreak) ?? 0
+            heldAt = try container.decodeIfPresent(Date.self, forKey: .heldAt)
+            abandoned = try container.decodeIfPresent(Int.self, forKey: .abandoned) ?? 0
+        }
 
         var summary: String {
             guard !counts.isEmpty else { return "none" }
-            let parts = counts.keys.sorted().map { "\($0) \(counts[$0] ?? 0)" }
+            var parts = counts.keys.sorted().map { "\($0) \(counts[$0] ?? 0)" }
+            if !heldNames.isEmpty { parts.append("holding \(heldNames.count) (\(heldStreak) app refresh\(heldStreak == 1 ? "" : "es"))") }
+            if abandoned > 0 { parts.append("gave up on \(abandoned)") }
             let last = lastAt.map { " (last \($0.formatted(date: .abbreviated, time: .shortened)))" } ?? ""
             return parts.joined(separator: ", ") + last
         }
@@ -289,12 +346,59 @@ final class SharedStore {
         decode(UnreadableTally.self, forKey: Key.unreadable) ?? UnreadableTally()
     }
 
-    func noteUnreadableRecords(_ count: Int) {
-        guard count > 0 else { return }
+    /// Records that a refresh skipped these records, and decides whether the
+    /// change token should advance past them anyway. Holding is right while
+    /// the process simply lacks the keys (a locked device's extensions), but a
+    /// record nobody can ever read would pin the token — and the whole delta
+    /// behind it — forever. So only the *foreground app*, which has the keys
+    /// when unlocked, counts; after `AppConfig.unreadableHoldLimit` separate
+    /// looks at the same names it gives up on them. Returns `true` to advance.
+    @discardableResult
+    func noteUnreadableRecords(_ names: [String], now: Date = Date()) -> Bool {
+        guard !names.isEmpty else { return false }
+        return Self.tallyLock.withLock {
+            var tally = unreadableTally
+            tally.counts[Self.processLabel, default: 0] += names.count
+            tally.lastAt = now
+
+            var advance = false
+            if Self.processLabel == "app" {
+                let sameRecords = Set(names).isSubset(of: tally.heldNames)
+                if !sameRecords {
+                    tally.heldStreak = 1
+                    tally.heldAt = now
+                } else if let held = tally.heldAt,
+                          now.timeIntervalSince(held) >= AppConfig.unreadableHoldSpacing {
+                    tally.heldStreak += 1
+                    tally.heldAt = now
+                }
+                if tally.heldStreak >= AppConfig.unreadableHoldLimit {
+                    advance = true
+                    tally.abandoned += names.count
+                    tally.heldStreak = 0
+                    tally.heldAt = nil
+                    tally.heldNames = []
+                    log.error("Giving up on \(names.count) record(s) that stayed unreadable across \(AppConfig.unreadableHoldLimit) refreshes; advancing the change token.")
+                }
+            }
+            if !advance {
+                // Every process notes what it saw; a superset from an extension
+                // keeps the app's next (smaller) set counting as the same records.
+                tally.heldNames = names
+            }
+            encode(tally, forKey: Key.unreadable)
+            return advance
+        }
+    }
+
+    /// A refresh read everything: whatever was being held has resolved.
+    func clearUnreadableHold() {
         Self.tallyLock.withLock {
             var tally = unreadableTally
-            tally.counts[Self.processLabel, default: 0] += count
-            tally.lastAt = Date()
+            guard !tally.heldNames.isEmpty || tally.heldStreak > 0 else { return }
+            tally.heldNames = []
+            tally.heldStreak = 0
+            tally.heldAt = nil
             encode(tally, forKey: Key.unreadable)
         }
     }

@@ -10,9 +10,9 @@ enum HistoryFilter: String, CaseIterable, Identifiable {
 
     func label(partnerName: String) -> String {
         switch self {
-        case .all: return "All"
-        case .received: return "From \(partnerName)"
-        case .sent: return "From me"
+        case .all: return String(localized: "All")
+        case .received: return String(localized: "From \(partnerName)")
+        case .sent: return String(localized: "From me")
         }
     }
 

@@ -72,7 +72,7 @@ struct AnniversaryView: View {
                 .scaleEffect(revealed ? 1 : 0.3)
                 .accessibilityHidden(true)
             Text("No date yet")
-                .font(.system(size: 30, weight: .bold, design: .rounded))
+                .font(Theme.rounded(30, .bold))
             if model.canEditAnniversary {
                 Text("Tell the app when the two of you began and the count starts here — on both phones.")
                     .font(Theme.rounded(15))
@@ -92,6 +92,24 @@ struct AnniversaryView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
+                if model.canRequestAnniversary {
+                    // The ask travels with the next sync and greets the owner
+                    // when they next open the app — no push, by design.
+                    Button {
+                        Task { await model.requestAnniversary() }
+                    } label: {
+                        Label("Ask \(model.partnerName) to set it", systemImage: "hand.wave")
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .padding(.top, 8)
+                    if let asked = model.anniversaryRequestedAt {
+                        Text("Asked \(asked, format: .relative(presentation: .named)). They'll see it when they next open the app.")
+                            .font(Theme.rounded(12))
+                            .foregroundStyle(.tertiary)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
             Spacer(minLength: 0)
         }
@@ -120,7 +138,7 @@ struct AnniversaryView: View {
 
                 if let celebrating {
                     Text("Happy \(celebrating.title)")
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                        .font(Theme.rounded(34, .bold))
                         .foregroundStyle(Theme.accent)
                         .multilineTextAlignment(.center)
                         .padding(.bottom, 18)
@@ -133,7 +151,7 @@ struct AnniversaryView: View {
                     .foregroundStyle(.secondary)
 
                 Text("\(days)")
-                    .font(.system(size: 104, weight: .bold, design: .rounded))
+                    .font(Theme.rounded(104, .bold))
                     .monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
@@ -147,7 +165,7 @@ struct AnniversaryView: View {
                     .accessibilityHidden(true)
 
                 Text(clockString(clock))
-                    .font(.system(size: 30, weight: .medium, design: .rounded))
+                    .font(Theme.rounded(30, .medium))
                     .monospacedDigit()
                     .contentTransition(.numericText())
                     .animation(.smooth(duration: 0.3), value: clock)
@@ -168,7 +186,7 @@ struct AnniversaryView: View {
 
                 Text("\(model.myDisplayName) & \(model.partnerName)")
                     .font(Theme.rounded(15, .medium))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
                     .padding(.top, 28)
                     .padding(.bottom, 24)
             }
@@ -198,39 +216,49 @@ struct AnniversaryView: View {
         .background(Theme.accent.opacity(0.12), in: Capsule())
     }
 
-    /// The owner can tap through to change it; the partner just reads it.
+    /// The owner can tap through to change it; the partner just reads it — as
+    /// a plain card, not a disabled button, which rendered greyed as if broken.
+    @ViewBuilder
     private func sinceCard(_ anniversary: Anniversary) -> some View {
-        Button {
-            editing = true
-        } label: {
-            HStack(spacing: 14) {
-                Image(systemName: "calendar.badge.clock")
-                    .font(Theme.rounded(22))
-                    .foregroundStyle(Theme.accent)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Since")
-                        .font(Theme.rounded(11, .semibold))
-                        .tracking(1.2)
-                        .textCase(.uppercase)
-                        .foregroundStyle(.secondary)
-                    Text(anniversary.startsAt,
-                         format: Date.FormatStyle(date: .long, time: .shortened, timeZone: anniversary.timeZone))
-                        .font(Theme.rounded(17, .semibold))
-                        .foregroundStyle(.primary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
-                if model.canEditAnniversary {
-                    Image(systemName: "pencil")
-                        .font(Theme.rounded(13, .semibold))
-                        .foregroundStyle(.tertiary)
-                }
+        if model.canEditAnniversary {
+            Button {
+                editing = true
+            } label: {
+                sinceCardContent(anniversary)
             }
-            .card(padding: 16)
+            .buttonStyle(.plain)
+            .accessibilityHint("Changes the date")
+        } else {
+            sinceCardContent(anniversary)
+                .accessibilityElement(children: .combine)
         }
-        .buttonStyle(.plain)
-        .disabled(!model.canEditAnniversary)
-        .accessibilityHint(model.canEditAnniversary ? "Changes the date" : "")
+    }
+
+    private func sinceCardContent(_ anniversary: Anniversary) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: "calendar.badge.clock")
+                .font(Theme.rounded(22))
+                .foregroundStyle(Theme.accent)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Since")
+                    .font(Theme.rounded(11, .semibold))
+                    .tracking(1.2)
+                    .textCase(.uppercase)
+                    .foregroundStyle(.secondary)
+                Text(anniversary.startsAt,
+                     format: Date.FormatStyle(date: .long, time: .shortened, timeZone: anniversary.timeZone))
+                    .font(Theme.rounded(17, .semibold))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            if model.canEditAnniversary {
+                Image(systemName: "pencil")
+                    .font(Theme.rounded(13, .semibold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .card(padding: 16)
     }
 
     private func nextCard(_ next: Anniversary.Milestone, anniversary: Anniversary, now: Date) -> some View {
@@ -258,7 +286,7 @@ struct AnniversaryView: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
-                .background(Theme.warm, in: Capsule())
+                .background(Theme.warmDeep, in: Capsule())
         }
         .card(padding: 16)
     }

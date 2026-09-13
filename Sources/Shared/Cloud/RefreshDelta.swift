@@ -19,6 +19,10 @@ struct RefreshDelta: Sendable, Equatable {
     var receiptReadable = false
     var statusSeen: StatusSeen?
 
+    /// The `AnniversaryRequest` record, when it arrived readable, and its deletion.
+    var anniversaryRequestedAt: Date?
+    var anniversaryRequestErased = false
+
     /// Records whose encrypted fields came back empty. Whatever they carried is
     /// not in this delta, so the change token must not advance past them.
     var unreadableRecords = 0
@@ -39,7 +43,16 @@ struct RefreshDelta: Sendable, Equatable {
         if partnerErased {
             snapshot.theirs = nil
         } else if let theirs {
-            snapshot.theirs = theirs
+            // Deltas from concurrent processes can land out of order; an older
+            // copy must not regress the status, but its nudge counter is server
+            // state and is taken either way.
+            if var held = snapshot.theirs, theirs.updatedAt < held.updatedAt {
+                held.nudgeCount = max(held.nudgeCount, theirs.nudgeCount)
+                held.lastNudgeAt = theirs.lastNudgeAt ?? held.lastNudgeAt
+                snapshot.theirs = held
+            } else {
+                snapshot.theirs = theirs
+            }
         }
 
         // The owner's own unpublished edit outranks the server copy —
@@ -55,6 +68,16 @@ struct RefreshDelta: Sendable, Equatable {
 
         if receiptReadable {
             snapshot.myStatusSeenByPartner = statusSeen
+        }
+
+        // Same shape as the anniversary: the participant's own unpublished ask
+        // outranks the server copy; unreadable is neither value nor removal.
+        if snapshot.anniversaryRequestPublished {
+            if anniversaryRequestErased {
+                snapshot.anniversaryRequestedAt = nil
+            } else if let anniversaryRequestedAt {
+                snapshot.anniversaryRequestedAt = anniversaryRequestedAt
+            }
         }
     }
 }

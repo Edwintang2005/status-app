@@ -13,10 +13,37 @@
     "1 year" : {
 
     },
+    "a new name" : {
+
+    },
+    "CloudKit didn't return an invite link. Try again." : {
+
+    },
+    "Couldn't close the invite link safely; it was reopened. Your partner may have lost access — if their app unlinks, send them the invite link to rejoin. (%@)" : {
+
+    },
+    "Couldn't encode that image." : {
+
+    },
+    "Couldn't open the shared space. Ask them to send a fresh invite link, and check you're both on the same build of %@." : {
+
+    },
+    "Couldn't reach your shared space just now. Try again in a moment." : {
+
+    },
     "drawing" : {
 
     },
     "Hidden by your content filter" : {
+
+    },
+    "iCloud is restricted on this device." : {
+
+    },
+    "iCloud is temporarily unavailable. Try again shortly." : {
+
+    },
+    "iCloud isn't available right now." : {
 
     },
     "is now going by %@" : {
@@ -25,7 +52,19 @@
     "is thinking of you 💭" : {
 
     },
+    "Only the person who created the link can set this." : {
+
+    },
+    "Only the person who joined the link can ask for this." : {
+
+    },
+    "Partner" : {
+
+    },
     "photo" : {
+
+    },
+    "Reported" : {
 
     },
     "sent you a drawing ✏️" : {
@@ -37,13 +76,46 @@
     "sent you a voice memo 🎙️" : {
 
     },
+    "Sign in to iCloud in Settings to use %@." : {
+
+    },
+    "That recording is no longer on this device." : {
+
+    },
+    "The shared App Group container isn't available." : {
+
+    },
+    "The shared space is no longer available. Everything shared has been removed from this device — pair again to start over." : {
+
+    },
+    "This device is signed into a different iCloud account than the one you paired with. Sign back into that account to see your shared space, or unlink from Settings." : {
+
+    },
+    "This device isn't paired yet." : {
+
+    },
+    "This invite is from someone you've blocked." : {
+
+    },
     "updated their status" : {
 
     },
     "voice memo" : {
 
     },
+    "You changed your status from another device." : {
+
+    },
+    "You sent a nudge from another device." : {
+
+    },
+    "You sent something from another device." : {
+
+    },
     "Your partner" : {
+
+    },
+    "Your partner joined through this link, so closing it here would remove them. Closing it safely re-seats them, which needs them on standby: Settings → tap Version seven times → iCloud diagnostics → Promote partner & close invite." : {
 
     }
   },

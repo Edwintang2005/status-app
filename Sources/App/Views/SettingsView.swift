@@ -62,6 +62,15 @@ struct SettingsView: View {
                                 UIApplication.shared.open(url)
                             }
                         }
+                    } else if notificationStatus == .notDetermined {
+                        // The system prompt was never shown (or was dismissed
+                        // by a relaunch); "Not set" alone was a dead end.
+                        Button("Turn on") {
+                            Task {
+                                await NotificationManager.requestAuthorizationIfNeeded()
+                                notificationStatus = await NotificationManager.authorizationStatus()
+                            }
+                        }
                     }
                 }
 
@@ -257,7 +266,7 @@ struct SettingsView: View {
                 Button("Cancel", role: .cancel) { offeringLocalOnly = nil }
             } message: {
                 Text((localOnlyReason.map { $0 + "\n\n" } ?? "")
-                     + "Nothing was deleted from iCloud, so what you've shared is still in \(model.partnerName)'s copy. You can clear this iPhone now and try again from a better connection, or cancel and wait.")
+                     + String(localized: "Nothing was deleted from iCloud, so what you've shared is still in \(model.partnerName)'s copy. You can clear this iPhone now and try again from a better connection, or cancel and wait."))
             }
             // Only reachable when iCloud Drive wasn't available; nothing has
             // been deleted yet, so dismissing this can't lose the archive.
@@ -307,7 +316,7 @@ struct SettingsView: View {
     private var inviteSection: some View {
         Section {
             if model.inviteClosed {
-                LabeledContent("Status", value: "Closed")
+                LabeledContent("Status", value: String(localized: "Closed"))
                 // Still worth sharing: the closed link re-admits the existing
                 // partner on a new phone, and admits nobody else.
                 if let url = model.inviteURL {
@@ -328,7 +337,7 @@ struct SettingsView: View {
                 } else if model.inviteLinkUnavailable {
                     // No share on the server — say so rather than spin, without
                     // claiming it was closed (nothing here means the partner joined).
-                    LabeledContent("Status", value: "Unavailable")
+                    LabeledContent("Status", value: String(localized: "Unavailable"))
                 } else {
                     LabeledContent("Status") {
                         ProgressView().controlSize(.small)
@@ -345,24 +354,24 @@ struct SettingsView: View {
         }
     }
 
-    /// Pulled out of the section: inline it timed out the type-checker.
+    /// Pulled out of the section: inline it timed out the type-checker. The
+    /// link does *not* close itself once the partner joins — CloudKit can't
+    /// convert a link-joined participant in one step (CLAUDE.md invariant 9),
+    /// so the copy says what actually happens in each state.
     private var inviteFooter: String {
         if model.inviteClosed {
-            return "Closed automatically when \(model.partnerName) joined. Nobody "
-                + "else can use the link you sent, even if it was forwarded or "
-                + "screenshotted. \(model.partnerName) can still use it to rejoin "
-                + "on a new phone."
+            return String(localized: "Closed. Nobody new can use the link you sent, even if it was forwarded or screenshotted. If \(model.partnerName) is already in, it still re-admits them on a new phone.")
         }
-        return "Anyone holding the link can still join. It closes itself the "
-            + "moment \(model.partnerName) does — close it now if you sent it to "
-            + "the wrong person."
+        // `theirs` is only a hint that they're in (they may have joined and not
+        // posted yet), so neither branch claims to know for certain.
+        if model.snapshot.theirs != nil {
+            return String(localized: "\(model.partnerName) is in, and the link still admits anyone holding it. Closing it now would also remove them: to close it safely, have them on standby and use iCloud diagnostics (tap Version seven times) → Promote partner & close invite. They confirm by tapping the link once.")
+        }
+        return String(localized: "Anyone holding the link can join. If \(model.partnerName) hasn't joined yet, you can close it now and create a fresh one — once they're in, closing is done from iCloud diagnostics with them on standby.")
     }
 
     private var safetyFooter: String {
-        "The filter hides strong language in what \(model.partnerName) sends; long-press a "
-            + "status or open a photo's menu to report it, which removes it from this iPhone "
-            + "at once. Reports and blocks go to \(AppConfig.supportEmail) and are acted on "
-            + "within 24 hours."
+        String(localized: "The filter hides strong language in what \(model.partnerName) sends; long-press a status or open a photo's menu to report it, which removes it from this iPhone at once. Reports and blocks go to \(AppConfig.supportEmail) and are acted on within 24 hours.")
     }
 
     private var versionString: String {
@@ -408,10 +417,7 @@ struct SettingsView: View {
     }
 
     private var archiveFooter: String {
-        "Copies every photo, drawing and voice memo — with the date, the caption "
-            + "and who sent it — into iCloud Drive › \(AppConfig.appName), as ordinary "
-            + "files that open in anything. Nothing is deleted, and the archive "
-            + "stays after you unlink."
+        String(localized: "Copies every photo, drawing and voice memo — with the date, the caption and who sent it — into iCloud Drive › \(AppConfig.appName), as ordinary files that open in anything. Nothing is deleted, and the archive stays after you unlink.")
     }
 
     /// A blank name never commits ("" means "no name" and would swap the screen
@@ -444,12 +450,11 @@ struct SettingsView: View {
     }
 
     private func successText(_ outcome: MemoryArchive.Outcome) -> String {
-        var text = "\(outcome.momentCount) moment\(outcome.momentCount == 1 ? "" : "s") "
-            + "saved to iCloud Drive › \(AppConfig.appName) › "
-            + "\(outcome.folder.lastPathComponent)."
+        var text = outcome.momentCount == 1
+            ? String(localized: "1 moment saved to iCloud Drive › \(AppConfig.appName) › \(outcome.folder.lastPathComponent).")
+            : String(localized: "\(outcome.momentCount) moments saved to iCloud Drive › \(AppConfig.appName) › \(outcome.folder.lastPathComponent).")
         if outcome.unrecovered > 0 {
-            text += " \(outcome.unrecovered) couldn't be fetched back from iCloud and are "
-                + "listed in Memories.txt without a file."
+            text += " " + String(localized: "\(outcome.unrecovered) couldn't be fetched back from iCloud and are listed in Memories.txt without a file.")
         }
         return text
     }
@@ -461,32 +466,24 @@ struct SettingsView: View {
     }
 
     private var unlinkLabel: String {
-        "Unlink from \(model.partnerName)"
+        String(localized: "Unlink from \(model.partnerName)")
     }
 
     private var unlinkTitle: String {
-        "Unlink from \(model.partnerName)?"
+        String(localized: "Unlink from \(model.partnerName)?")
     }
 
     /// The two roles genuinely differ — the owner holds the shared space, the
     /// other person is a guest in it — so each hears exactly what leaves and stays.
     private var unlinkFooter: String {
         if model.role == .owner {
-            return "Deletes the shared space from your iCloud: both your statuses, "
-                + "and every photo, drawing and voice memo either of you sent. "
-                + "\(model.partnerName)'s app unlinks itself the next time it opens. "
-                + "Your name stays on this iPhone, so you can pair again."
+            return String(localized: "Deletes the shared space from your iCloud: both your statuses, and every photo, drawing and voice memo either of you sent. \(model.partnerName)'s app unlinks itself the next time it opens. Your name stays on this iPhone, so you can pair again.")
         }
-        return "Deletes everything you sent — your status, your photos, drawings "
-            + "and voice memos — out of the shared space, then leaves it. Anything "
-            + "\(model.partnerName) sent stays in their own iCloud, which is theirs "
-            + "to delete. Your name stays on this iPhone, so you can pair again."
+        return String(localized: "Deletes everything you sent — your status, your photos, drawings and voice memos — out of the shared space, then leaves it. Anything \(model.partnerName) sent stays in their own iCloud, which is theirs to delete. Your name stays on this iPhone, so you can pair again.")
     }
 
     private var wipeFooter: String {
-        return "Does everything unlinking does, and also forgets your name and "
-            + "clears every photo, drawing and voice memo held on this iPhone. \(AppConfig.appName) "
-            + "starts as it did the day you installed it. There is no undo."
+        String(localized: "Does everything unlinking does, and also forgets your name and clears every photo, drawing and voice memo held on this iPhone. \(AppConfig.appName) starts as it did the day you installed it. There is no undo.")
     }
 
     /// Try the cloud; only claim it's done when it is.
@@ -503,9 +500,9 @@ struct SettingsView: View {
 
     private var notificationLabel: String {
         switch notificationStatus {
-        case .authorized, .provisional, .ephemeral: return "On"
-        case .denied: return "Off"
-        default: return "Not set"
+        case .authorized, .provisional, .ephemeral: return String(localized: "On")
+        case .denied: return String(localized: "Off")
+        default: return String(localized: "Not set")
         }
     }
 }

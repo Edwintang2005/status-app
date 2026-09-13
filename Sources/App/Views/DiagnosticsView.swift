@@ -124,7 +124,7 @@ struct DiagnosticsView: View {
                         ForEach(diagnostics.problems, id: \.self) { problem in
                             Text(problem)
                                 .font(.system(.footnote, design: .monospaced))
-                                .foregroundStyle(Theme.warm)
+                                .foregroundStyle(Theme.warmDeep)
                         }
                     }
                 }
@@ -171,8 +171,7 @@ struct DiagnosticsView: View {
         defer { securing = false }
         let problem = await CloudSync.shared.secureInviteIfPartnerJoined()
         secureResult = problem
-            ?? "Done — the link is closed. If your partner shows as \u{201C}invited\u{201D} "
-            + "or \u{201C}pending\u{201D} above, they confirm by tapping the invite link once."
+            ?? String(localized: "Done — the link is closed. If your partner shows as \u{201C}invited\u{201D} or \u{201C}pending\u{201D} above, they confirm by tapping the invite link once.")
         await reload()
     }
 
@@ -205,15 +204,11 @@ struct DiagnosticsView: View {
     private func environmentFooter(_ environment: CloudEnvironment) -> String {
         switch environment {
         case .development:
-            return "Installed from Xcode, so this app uses the Development "
-                + "database. It cannot see or pair with a copy installed from "
-                + "TestFlight — they are separate databases with separate data."
+            return String(localized: "Installed from Xcode, so this app uses the Development database. It cannot see or pair with a copy installed from TestFlight — they are separate databases with separate data. A second device on the same iCloud account writes the same records as this one, not the partner's.")
         case .production:
-            return "Installed from TestFlight or the App Store, so this app "
-                + "uses the Production database. Both of you must be on this "
-                + "side to pair."
+            return String(localized: "Installed from TestFlight or the App Store, so this app uses the Production database. Both of you must be on this side to pair. A second device on the same iCloud account writes the same records as this one, not the partner's.")
         case .unknown:
-            return "Couldn't tell which iCloud database this build uses."
+            return String(localized: "Couldn't tell which iCloud database this build uses.")
         }
     }
 

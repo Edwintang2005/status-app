@@ -96,7 +96,7 @@ custom zone in their private database and shares the whole zone; the other side
 accepts, and the zone shows up in their shared database. Both can then write
 into it.
 
-### The invite link closes itself
+### Closing the invite link
 
 The link is created with `publicPermission = .readWrite`, which makes it a
 **bearer token**: whoever holds the URL can join, not just the person you sent
@@ -104,24 +104,35 @@ it to. That matters more than it first looks, because a device joining with no
 change token is handed the *entire zone* — every photo, drawing and voice memo
 ever sent, not just what happens next.
 
-So the app revokes it rather than the user. On the owner's next refresh after
-the partner has joined, `closeInviteIfPartnerJoined()` sets the share's
-`publicPermission` to `.none`. The proof it waits for is a `status-participant`
-record existing — only a share participant can write one — so it costs no extra
-fetch, and the single round trip to revoke happens once per pairing. A
-forwarded screenshot is then worthless.
+Closing it after the partner has joined is **manual, and a two-step
+handshake** (CLAUDE.md invariant 9). CloudKit offers no single save that turns
+a link-joined (public) participant into a private one: flipping their role in
+place is silently ignored, and closing the link in the same save as re-adding
+them applies the close and drops the add — both verified against the live
+service. So `lockPairing` closes the link first (which sweeps the public
+joiner off the share), then re-invites them by `userRecordID` as a *pending*
+private participant; they confirm by tapping the same invite link once. While
+they're pending they have no zone access, and a failure between the two steps
+reopens the link rather than leaving them evicted. Their own app is defended
+too: a refresh that finds the zone missing only *notes* it, and the device
+unlinks itself (and wipes) only if the zone is still missing on a second look
+two minutes or more later — so a refresh landing inside the handshake window
+costs nothing. Even then, anything they sent that never reached CloudKit is
+kept, and tapping the same link again re-sends it. Because the partner has to
+be on standby for that, the app never does it on its own: it lives behind
+**Settings → Diagnostics (tap Version seven times) → Promote partner & close
+invite**, and the Settings footer says so.
 
-**Settings → Close the invite link** is still there for closing it *early*,
-before anyone joins, if you sent it to the wrong person; once closed the row
-reads "Invite link — Closed" instead. The local `inviteClosed` flag only stops
-a settled pairing re-checking the server; the share's own permission is the
-truth. Creating a genuinely new invite reopens the share and re-arms the
-auto-close.
+**Settings → Close the invite link** is for closing it *early*, before anyone
+joins, if you sent it to the wrong person; it refuses once someone is on the
+share, so it can never evict. Once closed the row reads "Invite link — Closed".
+The local `inviteClosed` flag only stops a settled pairing re-checking the
+server; the share's own permission is the truth. Creating a genuinely new
+invite reopens the share.
 
-Two things this deliberately does **not** claim to protect against: the window
-between your partner joining and the owner's next refresh (small, and a silent
-push usually closes it within seconds), and anyone with access to the owner's
-unlocked phone.
+Two things this deliberately does **not** claim to protect against: the link
+staying open until the owner runs the handshake, and anyone with access to the
+owner's unlocked phone.
 
 ## How it stays current
 
@@ -219,9 +230,11 @@ only when the partner gets it. Each send type recovers its own way:
   status can't be silently reverted.
 - **Moments** carry a local-only `uploaded` flag and are re-sent by
   `retryPendingUploads()` — the grid badges them with a clock, and the sync
-  footer counts them ("1 waiting to send") until they're out. Pending media is
-  exempt from the cache prune, and a pending entry whose media is genuinely
-  gone is dropped (with a log) rather than falsely marked sent.
+  footer counts them ("1 waiting to send · tap to retry") until they're out;
+  tapping the footer runs the same retry at once instead of waiting for the
+  next refresh. Pending media is exempt from the cache prune, and a pending
+  entry whose media is genuinely gone is dropped (with a log) rather than
+  falsely marked sent.
 - **Nudges** are not queued — a heart is a moment-in-time gesture, so a failed
   one releases the cooldown for an immediate re-tap instead. In the app that
   comes with an alert; on the lock screen, where the intent can't alert, the
@@ -297,8 +310,15 @@ invite link, or later from the row a long press on the Settings title reveals.
 It travels as one `Anniversary` record (`anniversary`, encrypted `startsAt` +
 `timeZone`) that both sides pick up on any refresh; the owner's time zone
 rides along so the monthly mark is the same moment on both phones. Until it's
-set, the count screen says so — and offers the owner the picker. Offline edits
-recover like statuses do (`Snapshot.anniversaryPublished`).
+set, the count screen says so — and offers the owner the picker, and the
+partner an **"Ask … to set it"** button. The ask is one `AnniversaryRequest`
+record (`anniversary-request`, encrypted `requestedAt`, participant-written,
+re-asking overwrites) with no push of its own: it rides the next refresh, and
+the owner gets the same date prompt as after creating the link the next time
+they open the app, once per ask ("Not now" dismisses that ask;
+`Snapshot.anniversaryRequestDismissedAt`). Setting the date answers every
+standing ask. Offline edits and asks recover like statuses do
+(`Snapshot.anniversaryPublished`, `Snapshot.anniversaryRequestPublished`).
 
 ### Read receipts
 
@@ -439,6 +459,21 @@ rapid-fire hearts, plus reactions on a moment and a shared countdown widget.
   pairing remembers which account made it (`PairingInfo.userRecordName`);
   under a different account the home screen's sync footer says so, and
   nothing local is wiped. Sign back in and it resumes.
+- **A second device on your own iCloud account is you, not your partner.**
+  A Simulator (or a second iPhone) signed in as you shares your CloudKit user
+  and your `PairRole`, so what it sets or sends appears on your other device
+  as *your* status and *your* sends, and its writes fire your own
+  subscriptions — a push whose refresh finds nothing from the partner. The
+  notification service words those as "from another device" and delivers
+  them silently. And a Debug build (Development environment) never sees a
+  TestFlight build's data at all; both must be on the same side to share
+  anything — Settings → Diagnostics shows which.
+- **A record that can never be decrypted is eventually skipped.** Unreadable
+  records normally hold the change token so they come round again (the
+  extensions have no keys on a locked phone). If the foreground app itself
+  fails to read the same records on three separate refreshes, it gives up on
+  them and moves on; Diagnostics counts these under "gave up on". A full
+  resync (reinstall, or a token expiry) fetches them again.
 
 ## Shipping it
 
@@ -458,6 +493,9 @@ Everything below is already wired up; this is the order to do it in.
    the "when did you begin?" prompt as the owner** (the `Anniversary` record),
    so every type and field actually gets created.
 
+   As the participant, also tap **"Ask … to set it"** on the count screen once
+   (the `AnniversaryRequest` record).
+
    **Tapping "Create a link" is part of this step, not an optional extra.**
    Zone sharing needs a system record type, `cloudkit.share`, and CloudKit only
    adds it to the Development schema the first time a `CKShare` is actually
@@ -471,8 +509,8 @@ Everything below is already wired up; this is the order to do it in.
    anything, so an App Store build against an undeployed schema fails on every
    write. Re-deploy whenever you add a field. Confirm afterwards by switching
    the Console to *Production* and checking that `Status`, `StatusLog`,
-   `Nudge`, `Moment`, `Receipt`, `Anniversary` **and `cloudkit.share`** are all
-   listed under Record Types.
+   `Nudge`, `Moment`, `Receipt`, `Anniversary`, `AnniversaryRequest` **and
+   `cloudkit.share`** are all listed under Record Types.
 4. **Archive** with `make archive` (or Xcode's *Product → Archive*). The
    Release configuration already points at
    [RedString-Release.entitlements](Sources/App/Resources/RedString-Release.entitlements),

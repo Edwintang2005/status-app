@@ -45,6 +45,31 @@ extension CloudSync {
                                              savePolicy: .changedKeys)
     }
 
+    /// Participant only: asks the owner to set the date. One fixed record, so a
+    /// second ask overwrites the first; the owner's device shows it once per ask.
+    func publishAnniversaryRequest(at date: Date) async throws {
+        let pairing = try await requirePairing()
+        guard pairing.role == .participant else { throw SyncError.notParticipant }
+        let database = self.database(for: pairing)
+        let recordID = CKRecord.ID(recordName: Self.anniversaryRequestRecordName,
+                                   zoneID: zoneID(for: pairing))
+        try await withZoneRecovery(pairing) {
+            let record = try await fetchRecord(recordID, in: database)
+                ?? CKRecord(recordType: RecordType.anniversaryRequest, recordID: recordID)
+            record.encryptedValues[Field.requestedAt] = date
+            record[Field.updatedAt] = Date() as CKRecordValue
+            _ = try await database.modifyRecords(saving: [record],
+                                                 deleting: [],
+                                                 savePolicy: .allKeys)
+        }
+    }
+
+    static func anniversaryRequestDate(from record: CKRecord) -> Date? {
+        guard let date = record.encryptedValues[Field.requestedAt] as? Date else { return nil }
+        // Whole seconds, like every persisted date: compared against its own stored copy.
+        return Date(timeIntervalSince1970: date.timeIntervalSince1970.rounded(.down))
+    }
+
     static func anniversary(from record: CKRecord) -> Anniversary? {
         guard let startsAt = record.encryptedValues[Field.startsAt] as? Date else { return nil }
         let zone = record.encryptedValues[Field.timeZone] as? String

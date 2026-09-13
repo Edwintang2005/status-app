@@ -141,10 +141,17 @@ extension CloudSync {
             && id != "."
     }
 
+    /// Copy to a sibling temp name, then rename: a process killed mid-copy (a
+    /// widget past its budget, the extension on deadline) must not leave a
+    /// truncated file that `MomentStore.hasMedia` would take for the real one.
     static func copyAsset(_ asset: CKAsset?, to destination: URL?) throws {
         guard let source = asset?.fileURL, let destination else { return }
-        try? FileManager.default.removeItem(at: destination)
-        try FileManager.default.copyItem(at: source, to: destination)
+        let staging = destination.appendingPathExtension("part")
+        let fileManager = FileManager.default
+        try? fileManager.removeItem(at: staging)
+        try fileManager.copyItem(at: source, to: staging)
+        try? fileManager.removeItem(at: destination)
+        try fileManager.moveItem(at: staging, to: destination)
     }
 
     static func encodeToken(_ token: CKServerChangeToken) -> Data? {

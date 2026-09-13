@@ -67,9 +67,9 @@ struct StatusHistoryView: View {
                 .font(.system(size: 28))
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(entry.message.isEmpty ? "no message" : entry.message)
+                Text(entry.message.isEmpty ? String(localized: "no message") : entry.message)
                     .font(Theme.rounded(16, .medium))
-                    .foregroundStyle(entry.message.isEmpty ? .secondary : .primary)
+                    .foregroundStyle(entry.message.isEmpty || isPlaceholder(entry) ? .secondary : .primary)
                 Text(who(entry) + " · " + entry.at.formatted(date: .omitted, time: .shortened))
                     .font(Theme.rounded(12))
                     .foregroundStyle(.secondary)
@@ -87,13 +87,19 @@ struct StatusHistoryView: View {
         .accessibilityElement(children: .combine)
     }
 
+    /// Entries `AppModel.loadStatusHistory` moderated carry a placeholder, not words.
+    private func isPlaceholder(_ entry: StatusHistoryEntry) -> Bool {
+        !entry.fromMe && (entry.message == ContentFilter.reportedPlaceholder
+                          || entry.message == ContentFilter.hiddenPlaceholder)
+    }
+
     private func who(_ entry: StatusHistoryEntry) -> String {
-        entry.fromMe ? "You" : model.partnerName
+        entry.fromMe ? String(localized: "You") : model.partnerName
     }
 
     private func dayLabel(_ day: Date) -> String {
-        if Calendar.current.isDateInToday(day) { return "Today" }
-        if Calendar.current.isDateInYesterday(day) { return "Yesterday" }
+        if Calendar.current.isDateInToday(day) { return String(localized: "Today") }
+        if Calendar.current.isDateInYesterday(day) { return String(localized: "Yesterday") }
         return day.formatted(date: .abbreviated, time: .omitted)
     }
 }

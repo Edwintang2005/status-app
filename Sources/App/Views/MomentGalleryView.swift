@@ -126,7 +126,7 @@ struct MomentGalleryView: View {
     private var counterLabel: String {
         guard moments.count > 1,
               let index = moments.firstIndex(where: { $0.id == selection }) else { return "" }
-        return "\(index + 1) of \(moments.count)"
+        return String(localized: "\(index + 1) of \(moments.count)")
     }
 
     // MARK: - Page
@@ -169,7 +169,7 @@ struct MomentGalleryView: View {
                 if let seen = seenLine(moment) {
                     Label(seen, systemImage: "eye.fill")
                         .font(Theme.rounded(12))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -254,12 +254,11 @@ struct MomentGalleryView: View {
     }
 
     /// Shows the name attached at send time; falls back to the current partner
-    /// name only when the record carries none.
+    /// name only when the record carries none (or the filter hides it).
     private func attribution(_ moment: Moment) -> String {
-        let sender = moment.senderName.trimmingCharacters(in: .whitespacesAndNewlines)
         let who = moment.fromMe
-            ? "You"
-            : (sender.isEmpty ? model.partnerName : sender)
+            ? String(localized: "You")
+            : moment.displaySenderName(fallback: model.partnerName)
         let when = moment.sentAt.formatted(.relative(presentation: .named))
         return "\(who) · \(when)"
     }
@@ -269,8 +268,8 @@ struct MomentGalleryView: View {
     private func seenLine(_ moment: Moment) -> String? {
         guard model.readReceiptsEnabled, moment.fromMe,
               let seenAt = moment.seenByPartnerAt else { return nil }
-        guard seenAt > .distantPast else { return "Seen" }
-        return "Seen \(seenAt.formatted(.relative(presentation: .named)))"
+        guard seenAt > .distantPast else { return String(localized: "Seen") }
+        return String(localized: "Seen \(seenAt.formatted(.relative(presentation: .named)))")
     }
 
     /// Paging onto something counts as having looked at it.
@@ -348,7 +347,7 @@ struct MomentGalleryView: View {
 
         let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
         guard status == .authorized || status == .limited else {
-            if selection == saving { saveState = .failed("Allow photo access in Settings to save.") }
+            if selection == saving { saveState = .failed(String(localized: "Allow photo access in Settings to save.")) }
             return
         }
 

@@ -17,6 +17,37 @@ final class ModerationTests: XCTestCase {
         XCTAssertTrue(ContentFilter.flags("shít happens"))
     }
 
+    // MARK: Presentation (invariant 20: one rule for every surface)
+
+    func testModeratedStatusHidesReportedAndFilteredWords() {
+        let status = Fixtures.status("🖕", "fuck off", at: Fixtures.t0)
+        let reported = status.moderated(reportedAt: Fixtures.t0, filterEnabled: false)
+        XCTAssertEqual(reported.emoji, "💭", "a reported status loses its emoji too")
+        XCTAssertEqual(reported.message, ContentFilter.reportedPlaceholder)
+
+        let filtered = status.moderated(reportedAt: nil, filteredText: "Hidden", filterEnabled: true)
+        XCTAssertEqual(filtered.emoji, "🖕", "the filter is word-level; only the words go")
+        XCTAssertEqual(filtered.message, "Hidden")
+
+        let shown = status.moderated(reportedAt: Fixtures.date(1), filterEnabled: false)
+        XCTAssertEqual(shown, status, "a report is for one status; the next one shows")
+    }
+
+    func testModeratedHistoryEntryLeavesOwnEntriesAlone() {
+        let mine = StatusHistoryEntry(emoji: "😤", message: "fuck this", isCelebration: false, at: Fixtures.t0, fromMe: true)
+        XCTAssertEqual(mine.moderated(reportedAt: Fixtures.t0, filterEnabled: true), mine)
+        let theirs = StatusHistoryEntry(emoji: "😤", message: "fuck this", isCelebration: false, at: Fixtures.t0, fromMe: false)
+        XCTAssertEqual(theirs.moderated(reportedAt: nil, filterEnabled: true).message, ContentFilter.hiddenPlaceholder)
+        XCTAssertEqual(theirs.moderated(reportedAt: Fixtures.t0, filterEnabled: false).message, ContentFilter.reportedPlaceholder)
+    }
+
+    func testDisplayNameFallsBackWhenEmptyOrFiltered() {
+        XCTAssertEqual(ContentFilter.displayName("  Sam ", fallback: "Partner", enabled: true), "Sam")
+        XCTAssertEqual(ContentFilter.displayName("", fallback: "Partner", enabled: true), "Partner")
+        XCTAssertEqual(ContentFilter.displayName("cunt", fallback: "Partner", enabled: true), "Partner")
+        XCTAssertEqual(ContentFilter.displayName("cunt", fallback: "Partner", enabled: false), "cunt")
+    }
+
     func testReportMailCarriesTheEssentials() throws {
         let pairing = PairingInfo(role: .participant, zoneName: "CoupleZone",
                                   zoneOwnerName: "_owner123", pairedAt: Fixtures.t0)

@@ -9,8 +9,13 @@ struct RefreshResult: Sendable {
     var newPartnerMoments: [Moment] = []
     /// Records this pass couldn't decrypt; `CloudSync.refresh` then keeps the
     /// change token so they come round again.
-    var unreadableRecords = 0
+    var unreadableRecordNames: [String] = []
+    /// This device's own records changed on the server — written by another
+    /// device on the same iCloud account. The notification service words its
+    /// banner accordingly rather than crediting the partner.
+    var ownRecordsChanged = false
 
+    var unreadableRecords: Int { unreadableRecordNames.count }
     var newestPartnerMoment: Moment? { newPartnerMoments.last }
 
     static let empty = RefreshResult(partnerStatus: nil, newPartnerMoments: [])
@@ -42,7 +47,13 @@ protocol SyncBackend: Sendable {
     func publishReceipts(_ seen: [String: Date], statusSeen: StatusSeen?) async throws
     /// Owner only: writes the pair's anniversary, or deletes it with `nil`.
     func publishAnniversary(_ anniversary: Anniversary?) async throws
+    /// Participant only: asks the owner to set the date. Fixed record name,
+    /// so re-asking overwrites.
+    func publishAnniversaryRequest(at date: Date) async throws
     func registerSubscription() async throws
+    /// The system said the iCloud account changed; the next `readiness()` must
+    /// re-check it for real rather than trust its cache.
+    func noteAccountChanged() async
     /// Takes this device's data out of the shared space (the owner removes the space
     /// itself). Throws rather than swallowing — claiming the photos are gone when the
     /// delete never landed is the one lie this app must not tell. The caller clears
@@ -53,6 +64,24 @@ protocol SyncBackend: Sendable {
 extension SyncBackend {
     func publish(_ payload: StatusPayload) async throws {
         try await publish(payload, logged: true)
+    }
+}
+
+/// Runs `body` or gives up after `seconds`, cancelling it. For the widget and
+/// its intent: WidgetKit kills the process past its budget, and a kill mid-
+/// write leaves claims (the nudge cooldown) unreleased — a cancellation error
+/// takes the normal failure path instead.
+func withDeadline<T: Sendable>(_ seconds: TimeInterval,
+                               _ body: @escaping @Sendable () async throws -> T) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask { try await body() }
+        group.addTask {
+            try await Task.sleep(for: .seconds(seconds))
+            throw CancellationError()
+        }
+        guard let first = try await group.next() else { throw CancellationError() }
+        group.cancelAll()
+        return first
     }
 }
 
@@ -92,7 +121,9 @@ struct DemoBackend: SyncBackend {
     func fetchMedia(for moment: Moment) async throws {}
     func publishReceipts(_ seen: [String: Date], statusSeen: StatusSeen?) async throws {}
     func publishAnniversary(_ anniversary: Anniversary?) async throws {}
+    func publishAnniversaryRequest(at date: Date) async throws {}
     func registerSubscription() async throws {}
+    func noteAccountChanged() async {}
     func unpair() async throws {}
 }
 #endif

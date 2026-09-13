@@ -14,7 +14,6 @@ enum NotificationManager {
         guard settings.authorizationStatus == .notDetermined else { return }
         do {
             _ = try await center.requestAuthorization(options: [.alert, .sound, .badge])
-            SharedStore.shared.hasRequestedNotifications = true
         } catch {
             log.error("Notification authorization failed: \(error.localizedDescription)")
         }
@@ -49,9 +48,8 @@ enum NotificationManager {
         await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
     }
 
-    /// Sweeps this app's delivered notifications. Called on active and on inactive —
-    /// iOS has no "Notification Centre opened" signal, and the inactive transition
-    /// (the shade pulled over the open app) is the closest proxy.
+    /// Sweeps this app's delivered notifications. Called when the app becomes
+    /// active — everything a banner said is then on screen.
     static func clearDelivered() {
         UNUserNotificationCenter.current().removeAllDeliveredNotifications()
     }
@@ -75,9 +73,8 @@ enum NotificationManager {
     static func postMoment(_ moment: Moment, from name: String) async {
         await removeGenericBanners(body: CloudSync.GenericAlert.moment)
         let content = UNMutableNotificationContent()
-        content.title = moment.senderName.isEmpty ? name : moment.senderName
-        content.body = moment.caption.isEmpty || ContentFilter.hides(moment.caption)
-            ? moment.arrivalSummary : moment.caption
+        content.title = moment.displaySenderName(fallback: name)
+        content.body = moment.displayCaption ?? moment.arrivalSummary
         content.sound = .default
         content.categoryIdentifier = NotificationCategory.moment
 

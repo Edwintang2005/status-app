@@ -21,10 +21,11 @@ struct MomentWidgetView: View {
     @Environment(\.widgetFamily) private var family
 
     /// The picture only — a memo never displaces it. A caption the user's
-    /// filter hides is dropped, as if there were none.
+    /// filter hides is dropped, as if there were none; so is a hidden name.
     private var moment: Moment? {
         guard var moment = entry.snapshot.latestPartnerVisualMoment else { return nil }
-        if ContentFilter.hides(moment.caption) { moment.caption = "" }
+        moment.caption = moment.displayCaption ?? ""
+        moment.senderName = moment.displaySenderName(fallback: "")
         return moment
     }
     private var unheardMemos: Int { entry.snapshot.unheardVoiceMemoCount }
@@ -55,7 +56,7 @@ struct MomentWidgetView: View {
         .foregroundStyle(.white)
         .padding(.horizontal, 7)
         .padding(.vertical, 5)
-        .background(Theme.warm, in: Capsule())
+        .background(Theme.warmDeep, in: Capsule())
         .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
         .padding(9)
         .accessibilityLabel(unheardMemos == 1
@@ -151,7 +152,9 @@ struct MomentWidgetView: View {
     private var background: some View {
         if let moment, let image = MomentStore.shared.thumbnail(for: moment.id) {
             imageView(image)
-                .accessibilityLabel(String(localized: "\(moment.noun) from \(moment.senderName)"))
+                .accessibilityLabel(moment.senderName.isEmpty
+                                    ? String(localized: "\(moment.noun) from them")
+                                    : String(localized: "\(moment.noun) from \(moment.senderName)"))
                 .overlay(alignment: .bottom) {
                     // Gradient only when there's a caption to keep legible.
                     if moment.caption.isEmpty == false {

@@ -81,10 +81,6 @@ final class NotificationService: UNNotificationServiceExtension {
         // may still have applied records, and the widget must not miss them.
         defer { SharedStore.reloadWidgets() }
 
-        // What this device knew before the refresh — a status push whose emoji
-        // and message match it is a rename, and is worded as one.
-        let previousStatus = await MainActor.run { SharedStore.shared.snapshot.theirs }
-
         let result: RefreshResult
         do {
             result = try await CloudSync.shared.refresh()
@@ -93,10 +89,19 @@ final class NotificationService: UNNotificationServiceExtension {
             return content
         }
 
-        let partnerName = await MainActor.run { SharedStore.shared.snapshot.partnerDisplayName }
+        let (partnerName, reportedAt) = await MainActor.run {
+            (SharedStore.shared.snapshot.moderatedPartnerName, SharedStore.shared.hiddenPartnerStatusAt)
+        }
 
         // Dispatch by subscriptionID, never by the sync delta: whichever
-        // process refreshes first consumes the delta, so it can't classify the push.
+        // process refreshes first consumes the delta, so it can't classify the
+        // push. Each branch claims against the watermarks; an unclaimed push is
+        // either our own write from another device on this account, or an event
+        // some other process already announced — neither is news from the partner.
+        // Unless this process simply couldn't decrypt the delta (a locked phone):
+        // then the event is real and unannounced, and CloudKit's generic words
+        // must stay at full volume.
+        let couldNotRead = !result.unreadableRecordNames.isEmpty
         switch notification.subscriptionID {
         case CloudSync.SubscriptionID.moment?:
             // Picked and claimed inside one `mutate` under the cross-process lock —
@@ -112,35 +117,56 @@ final class NotificationService: UNNotificationServiceExtension {
             }
             if let moment {
                 await apply(moment, to: content, partnerName: partnerName)
+            } else {
+                applyUnclaimed(to: content, ownWrite: result.ownRecordsChanged, couldNotRead: couldNotRead,
+                               ownBody: String(localized: "You sent something from another device."))
             }
         case CloudSync.SubscriptionID.nudge?:
-            var count = result.partnerStatus?.nudgeCount
-            if count == nil {
-                count = await MainActor.run { SharedStore.shared.snapshot.theirs?.nudgeCount }
+            let count: Int? = if let known = result.partnerStatus?.nudgeCount {
+                known
+            } else {
+                await MainActor.run { SharedStore.shared.snapshot.theirs?.nudgeCount }
             }
-            if let count {
-                await applyNudge(to: content, partnerName: partnerName, nudgeCount: count)
+            let claimed = await MainActor.run { () -> Bool in
+                guard let count else { return false }
+                var claimed = false
+                _ = SharedStore.shared.mutate(reloadWidgets: false) {
+                    claimed = AnnouncementPolicy.claimNudgeBanner(count: count, in: &$0)
+                }
+                return claimed
+            }
+            if claimed {
+                applyNudge(to: content, partnerName: partnerName)
+            } else if result.ownRecordsChanged {
+                applyUnclaimed(to: content, ownWrite: true, couldNotRead: false,
+                               ownBody: String(localized: "You sent a nudge from another device."))
+            } else {
+                // Already announced by the app or a sibling instance: keep the
+                // words, drop the interruption so it doesn't read as a second tap.
+                applyNudge(to: content, partnerName: partnerName)
+                quieten(content)
             }
         case CloudSync.SubscriptionID.status?:
             // Check-and-claim in one `mutate` under the cross-process lock so
             // concurrent pushes don't both rewrite — see `AnnouncementPolicy.claimStatusBanner`.
+            var banner: AnnouncementPolicy.StatusBanner?
             if let status = result.partnerStatus {
-                let claimed = await MainActor.run { () -> Bool in
-                    var claimed = false
+                banner = await MainActor.run { () -> AnnouncementPolicy.StatusBanner? in
+                    var claimed: AnnouncementPolicy.StatusBanner?
                     _ = SharedStore.shared.mutate(reloadWidgets: false) {
                         claimed = AnnouncementPolicy.claimStatusBanner(for: status, in: &$0)
                     }
                     return claimed
                 }
-                if claimed {
-                    if let previousStatus, previousStatus.emoji == status.emoji,
-                       previousStatus.message == status.message,
-                       previousStatus.displayName != status.displayName {
-                        applyRename(status, to: content, previousName: previousStatus.displayName)
-                    } else {
-                        applyStatus(status, to: content, partnerName: partnerName)
-                    }
-                }
+            }
+            switch (banner, result.partnerStatus) {
+            case (.rename(let previousName)?, let status?):
+                applyRename(status, to: content, previousName: previousName)
+            case (.update?, let status?):
+                applyStatus(status, to: content, partnerName: partnerName, reportedAt: reportedAt)
+            default:
+                applyUnclaimed(to: content, ownWrite: result.ownRecordsChanged, couldNotRead: couldNotRead,
+                               ownBody: String(localized: "You changed your status from another device."))
             }
         default:
             // Legacy silent push or unknown subscription — the refresh already ran.
@@ -150,16 +176,42 @@ final class NotificationService: UNNotificationServiceExtension {
         return content
     }
 
+    /// Nothing claimable. Our own write from a second device on this account
+    /// says so; an event another process already announced keeps CloudKit's
+    /// generic words but stops interrupting — the push itself can't be dropped.
+    /// A delta this process couldn't decrypt is left exactly as CloudKit sent
+    /// it: the partner's event is real, and nobody else has announced it.
+    private func applyUnclaimed(to content: UNMutableNotificationContent,
+                                ownWrite: Bool,
+                                couldNotRead: Bool,
+                                ownBody: String) {
+        if ownWrite {
+            content.title = AppConfig.appName
+            content.body = ownBody
+            quieten(content)
+        } else if !couldNotRead {
+            quieten(content)
+        }
+    }
+
+    private func quieten(_ content: UNMutableNotificationContent) {
+        content.sound = nil
+        content.interruptionLevel = .passive
+    }
+
     private func applyStatus(_ status: StatusPayload,
                              to content: UNMutableNotificationContent,
-                             partnerName: String) {
+                             partnerName: String,
+                             reportedAt: Date?) {
         content.title = partnerName
-        if status.message.isEmpty {
-            content.body = status.emoji
-        } else if ContentFilter.hides(status.message) {
+        // Same rule as every screen: a reported or filtered status shows no words.
+        let shown = status.moderated(reportedAt: reportedAt)
+        if shown.message != status.message {
             content.body = String(localized: "updated their status")
+        } else if shown.message.isEmpty {
+            content.body = shown.emoji
         } else {
-            content.body = "\(status.emoji) \(status.message)"
+            content.body = "\(shown.emoji) \(shown.message)"
         }
         // Each update stays individually in Notification Centre as history.
         content.threadIdentifier = "status-updates"
@@ -170,9 +222,9 @@ final class NotificationService: UNNotificationServiceExtension {
     private func applyRename(_ status: StatusPayload,
                              to content: UNMutableNotificationContent,
                              previousName: String) {
-        let old = previousName.trimmingCharacters(in: .whitespacesAndNewlines)
-        content.title = old.isEmpty ? String(localized: "Your partner") : old
-        content.body = String(localized: "is now going by \(status.displayName)")
+        let fallback = String(localized: "Your partner")
+        content.title = ContentFilter.displayName(previousName, fallback: fallback)
+        content.body = String(localized: "is now going by \(ContentFilter.displayName(status.displayName, fallback: String(localized: "a new name")))")
         content.threadIdentifier = "status-updates"
     }
 
@@ -180,9 +232,8 @@ final class NotificationService: UNNotificationServiceExtension {
                        to content: UNMutableNotificationContent,
                        partnerName: String) async {
         // `partnerName` covers records written before the sender set a name.
-        content.title = moment.senderName.isEmpty ? partnerName : moment.senderName
-        content.body = moment.caption.isEmpty || ContentFilter.hides(moment.caption)
-            ? moment.arrivalSummary : moment.caption
+        content.title = moment.displaySenderName(fallback: partnerName)
+        content.body = moment.displayCaption ?? moment.arrivalSummary
 
         // The media may not be on disk yet (another process's download may be
         // in flight or failed), so fetch it here rather than settling for text.
@@ -196,20 +247,11 @@ final class NotificationService: UNNotificationServiceExtension {
         }
     }
 
+    /// The watermark was already advanced by the claim above, under the lock.
     private func applyNudge(to content: UNMutableNotificationContent,
-                            partnerName: String,
-                            nudgeCount: Int) async {
+                            partnerName: String) {
         content.title = partnerName
         content.body = String(localized: "is thinking of you 💭")
         content.interruptionLevel = .timeSensitive
-
-        // Awaited — the process may suspend once the handler runs. `max`, not
-        // assignment: concurrent instances can land writes out of order, and a
-        // watermark moved backwards means a duplicate announcement later.
-        await MainActor.run {
-            _ = SharedStore.shared.mutate(reloadWidgets: false) {
-                $0.lastSeenPartnerNudgeCount = max($0.lastSeenPartnerNudgeCount, nudgeCount)
-            }
-        }
     }
 }

@@ -166,6 +166,12 @@ struct PairingInfo: Codable, Hashable {
         self.pairedAt = pairedAt
         self.userRecordName = userRecordName
     }
+
+    /// The same shared space — what a mid-refresh guard should compare, since
+    /// `pairedAt` differs between an in-memory value and its decoded copy.
+    func sameZone(as other: PairingInfo) -> Bool {
+        role == other.role && zoneName == other.zoneName && zoneOwnerName == other.zoneOwnerName
+    }
 }
 
 /// A read receipt for a status: which version (`statusUpdatedAt`, the
@@ -211,6 +217,10 @@ struct Snapshot: Codable, Hashable {
     /// The last few announced moment ids, newest first — a single watermark
     /// can't dedup several moments arriving in quick succession.
     var notifiedMomentIDs: [String] = []
+    /// `sentAt` of the newest partner moment ever announced here. The banner
+    /// fallback that searches the index only looks *past* this, so a re-fetched
+    /// history (reinstall, token expiry) can't be described as new.
+    var lastAnnouncedMomentSentAt: Date?
 
     /// Newest partner photo/doodle, ignoring voice memos. The widget draws this
     /// rather than `latestPartnerMoment` so a memo doesn't blank out the picture.
@@ -227,6 +237,9 @@ struct Snapshot: Codable, Hashable {
     /// notification extension — the status twin of `lastSeenPartnerNudgeCount`.
     /// Needed because the widget often consumes the change-token delta first.
     var lastAnnouncedPartnerStatusAt: Date?
+    /// The words that banner carried, so the next push can tell a rename (same
+    /// words, new name) from a new status whichever process consumed the delta.
+    var lastAnnouncedPartnerStatus: StatusPayload?
 
     /// Whether this device's read-receipt record is behind its local seen-state.
     /// Set by `markSeen` and the Settings toggle; cleared by a successful
@@ -246,6 +259,17 @@ struct Snapshot: Codable, Hashable {
     /// Owner side: whether `anniversary` has reached CloudKit — the twin of
     /// `myStatusPublished`, republished on the next refresh.
     var anniversaryPublished: Bool = true
+
+    /// The participant asking the owner for the date: when they last asked, as
+    /// the `AnniversaryRequest` record carries it. Participant side it's the
+    /// local copy awaiting publish; owner side it's what arrived. `nil` = never.
+    var anniversaryRequestedAt: Date?
+    /// Participant side: whether the request has reached CloudKit — same
+    /// republish-on-refresh shape as `anniversaryPublished`.
+    var anniversaryRequestPublished: Bool = true
+    /// Owner side: the request this device has already answered or waved away,
+    /// so the prompt shows once per ask.
+    var anniversaryRequestDismissedAt: Date?
 
     static let empty = Snapshot(
         mine: nil,
@@ -269,6 +293,9 @@ struct Snapshot: Codable, Hashable {
         case receiptsDirty
         case partnerStatusSeen, myStatusSeenByPartner
         case anniversary, anniversaryPublished
+        case lastAnnouncedPartnerStatus
+        case anniversaryRequestedAt, anniversaryRequestPublished, anniversaryRequestDismissedAt
+        case lastAnnouncedMomentSentAt
     }
 
     /// Hand-written: synthesised `Codable` errors on missing keys, so a snapshot
@@ -312,6 +339,14 @@ struct Snapshot: Codable, Hashable {
         anniversary = try container.decodeIfPresent(Anniversary.self, forKey: .anniversary)
         anniversaryPublished = try container
             .decodeIfPresent(Bool.self, forKey: .anniversaryPublished) ?? true
+        lastAnnouncedPartnerStatus = try container
+            .decodeIfPresent(StatusPayload.self, forKey: .lastAnnouncedPartnerStatus)
+        anniversaryRequestedAt = try container.decodeIfPresent(Date.self, forKey: .anniversaryRequestedAt)
+        anniversaryRequestPublished = try container
+            .decodeIfPresent(Bool.self, forKey: .anniversaryRequestPublished) ?? true
+        anniversaryRequestDismissedAt = try container
+            .decodeIfPresent(Date.self, forKey: .anniversaryRequestDismissedAt)
+        lastAnnouncedMomentSentAt = try container.decodeIfPresent(Date.self, forKey: .lastAnnouncedMomentSentAt)
     }
 
     /// Hand-written: `latestPartnerVisualMoment`'s nil must be written as an
@@ -344,6 +379,11 @@ struct Snapshot: Codable, Hashable {
         try container.encodeIfPresent(myStatusSeenByPartner, forKey: .myStatusSeenByPartner)
         try container.encodeIfPresent(anniversary, forKey: .anniversary)
         try container.encode(anniversaryPublished, forKey: .anniversaryPublished)
+        try container.encodeIfPresent(lastAnnouncedPartnerStatus, forKey: .lastAnnouncedPartnerStatus)
+        try container.encodeIfPresent(anniversaryRequestedAt, forKey: .anniversaryRequestedAt)
+        try container.encode(anniversaryRequestPublished, forKey: .anniversaryRequestPublished)
+        try container.encodeIfPresent(anniversaryRequestDismissedAt, forKey: .anniversaryRequestDismissedAt)
+        try container.encodeIfPresent(lastAnnouncedMomentSentAt, forKey: .lastAnnouncedMomentSentAt)
     }
 
     init(mine: StatusPayload?,
@@ -389,6 +429,12 @@ struct Snapshot: Codable, Hashable {
         }
     }
 
+    /// Same, and moves the time floor the index fallback searches past.
+    mutating func recordAnnounced(_ moment: Moment) {
+        recordAnnounced(moment.id)
+        lastAnnouncedMomentSentAt = max(lastAnnouncedMomentSentAt ?? .distantPast, moment.sentAt)
+    }
+
     /// When the partner saw the status currently in `mine`, or `nil` if the
     /// receipt refers to an older one (a new status starts unseen again).
     var myStatusSeenAt: Date? {
@@ -416,6 +462,19 @@ struct Snapshot: Codable, Hashable {
     var partnerDisplayName: String {
         let synced = theirs?.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         return (synced?.isEmpty == false ? synced! : "Partner")
+    }
+
+    /// The name as it may be shown — a name the word filter hides falls back
+    /// like an unset one. Every surface that prints it uses this.
+    var moderatedPartnerName: String {
+        ContentFilter.displayName(theirs?.displayName ?? "", fallback: String(localized: "Partner"))
+    }
+
+    /// Owner side: the partner has asked for the date and this device hasn't
+    /// answered or dismissed that ask; moot once a date is set.
+    var anniversaryRequestPending: Bool {
+        guard anniversary == nil, let asked = anniversaryRequestedAt else { return false }
+        return asked > (anniversaryRequestDismissedAt ?? .distantPast)
     }
 
     /// Paired, with nothing from the other side yet.

@@ -77,4 +77,27 @@ enum AppConfig {
     /// Seen-moments carried in a read-receipt record. Covers everything a
     /// sender could still be wondering about without growing unboundedly.
     static let receiptMapLimit = 100
+
+    /// Characters, not bytes: a status is a glance, a caption a line. Enforced
+    /// in the composers and again in `AppModel`, so a banner reply obeys it too.
+    static let statusMessageMaxLength = 80
+    static let captionMaxLength = 140
+
+    /// How many foreground-app refreshes may hold the change token over the
+    /// same unreadable records before the app gives up on them and moves on.
+    /// Only the app counts — a locked device's extensions never have the keys.
+    static let unreadableHoldLimit = 3
+    /// Refreshes closer together than this count once (launch and foreground
+    /// fire back to back), so the limit means three separate looks.
+    static let unreadableHoldSpacing: TimeInterval = 60
+
+    /// "The shared zone is gone" must be seen twice, this far apart, before a
+    /// device unlinks itself and wipes: the invite-close handshake takes the
+    /// partner off the share for up to ten seconds, and one unlucky refresh
+    /// in that window must not cost them their unsent media.
+    static let zoneGoneConfirmation: TimeInterval = 120
+
+    /// Ceiling on any CloudKit call made from a widget or its intent — WidgetKit
+    /// kills the process past its budget, and a kill mid-write leaves claims unreleased.
+    static let widgetDeadline: TimeInterval = 8
 }

@@ -29,8 +29,10 @@ extension CloudSync {
         await MainActor.run {
             // A new pairing starts clean: nothing from a previous partner (an
             // unlink already wiped, but a refresh in flight at the time could
-            // have refiled some of it since).
+            // have refiled some of it since), and no cursor into the old zone.
+            for key in ["private", "shared"] { SharedStore.shared.setChangeToken(nil, for: key) }
             SharedStore.shared.eraseLocalMedia()
+            SharedStore.shared.lastPairing = nil
             SharedStore.shared.pairing = info
             // A fresh invite re-arms the auto-close.
             SharedStore.shared.inviteClosed = false
@@ -431,14 +433,26 @@ extension CloudSync {
         await MainActor.run {
             // Leftover change tokens belong to a previous pairing's zone and
             // would fail every refresh from the first; leftover media to a
-            // previous partner.
+            // previous partner — unless this is the same zone we were cut loose
+            // from, whose unsent media is about to be re-sent.
             for key in ["private", "shared"] {
                 SharedStore.shared.setChangeToken(nil, for: key)
             }
-            SharedStore.shared.eraseLocalMedia()
-            SharedStore.shared.pairing = info
+            Self.adoptPairing(info)
         }
         try await bootstrapAfterPairing(displayName: displayName)
+    }
+
+    /// Commits a participant-side pairing, keeping local media only when it is
+    /// the zone this device last left (`SharedStore.lastPairing`).
+    @MainActor
+    static func adoptPairing(_ info: PairingInfo) {
+        let store = SharedStore.shared
+        if store.lastPairing?.sameZone(as: info) != true {
+            store.eraseLocalMedia()
+        }
+        store.lastPairing = nil
+        store.pairing = info
     }
 
     /// The couple's zone as the server still knows it, when this device has no
@@ -482,7 +496,7 @@ extension CloudSync {
             for key in ["private", "shared"] {
                 SharedStore.shared.setChangeToken(nil, for: key)
             }
-            SharedStore.shared.pairing = info
+            Self.adoptPairing(info)
         }
         try await bootstrapAfterPairing(displayName: displayName, rejoining: true)
     }
@@ -510,11 +524,13 @@ extension CloudSync {
         }
         let theirs = (try? await refresh())?.partnerStatus
         // Seed watermarks from the server so pairing against existing history
-        // doesn't fire stale nudge notifications or mislabel the first push.
+        // doesn't fire stale nudge notifications or mislabel the first push —
+        // nor describe the newest of hundreds of re-fetched moments as new.
         await MainActor.run {
             _ = SharedStore.shared.mutate {
                 $0.lastSeenPartnerNudgeCount = theirs?.nudgeCount ?? 0
                 $0.lastAnnouncedPartnerStatusAt = theirs?.updatedAt
+                $0.lastAnnouncedMomentSentAt = $0.latestPartnerMoment?.sentAt
             }
         }
     }
@@ -542,24 +558,41 @@ extension CloudSync {
         do {
             return try await body()
         } catch let error as CKError where Self.isAlreadyGone(error) {
-            try await abandonMissingZone(pairing)
-            throw SyncError.linkEnded
+            throw try await zoneGoneVerdict(pairing)
         }
     }
 
-    /// Cuts this device loose from a missing zone, keeping the name. Refuses under
-    /// a *different* iCloud account — the zone only looks gone there, and wiping
-    /// would destroy an intact pairing on both phones.
-    func abandonMissingZone(_ pairing: PairingInfo) async throws {
+    /// What "the zone isn't there" means right now. Refuses under a *different*
+    /// iCloud account — the zone only looks gone there, and wiping would destroy
+    /// an intact pairing on both phones. Otherwise the first sighting is only
+    /// noted (`zoneUnreachable`): the invite-close handshake takes the partner
+    /// off the share for seconds, and a refresh landing then must not wipe
+    /// their unsent media. A second sighting `AppConfig.zoneGoneConfirmation`
+    /// later is the verdict — this device unlinks itself (`linkEnded`).
+    func zoneGoneVerdict(_ pairing: PairingInfo) async throws -> SyncError {
         guard await isPairingAccount(pairing) else {
             log.notice("Zone unreachable, but this is a different iCloud account; keeping local state.")
             throw SyncError.differentAccount
         }
-        log.notice("Shared zone is gone; unlinking this device.")
+        let now = Date()
+        let firstSeen = await MainActor.run { () -> Date? in
+            let store = SharedStore.shared
+            if let seen = store.zoneGoneSeenAt { return seen }
+            store.zoneGoneSeenAt = now
+            return nil
+        }
+        guard let firstSeen, now.timeIntervalSince(firstSeen) >= AppConfig.zoneGoneConfirmation else {
+            log.notice("Shared zone unreachable; waiting for a second look before unlinking.")
+            return .zoneUnreachable
+        }
+        log.notice("Shared zone is gone (seen twice); unlinking this device.")
         await MainActor.run {
-            SharedStore.shared.eraseLocalMedia()
+            // Unsent media survives: if this was the close handshake after all,
+            // tapping the link again rejoins the same zone and re-sends it.
+            SharedStore.shared.eraseLocalMedia(keepingPendingUploads: true)
             SharedStore.shared.clearPairing(keepingName: true)
         }
+        return .linkEnded
     }
 
     /// The zone's share, or `nil` when there isn't one. "Gone" is an answer, not a

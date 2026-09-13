@@ -21,7 +21,7 @@ final class GroupFileStore: GroupKeyValueStore {
     private let lock = NSLock()
 
     /// Keys migrated from `UserDefaults`; change tokens matched by prefix.
-    private static let migratedKeys = ["snapshot", "pairing", "notificationsRequested"]
+    private static let migratedKeys = ["snapshot", "pairing"]
     private static let migratedPrefixes = ["changeToken-"]
     private static let migrationMarker = ".migrated-from-defaults"
 

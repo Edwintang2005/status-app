@@ -51,6 +51,7 @@ extension CloudSync {
             return name == role.statusRecordName
                 || name == role.nudgeRecordName
                 || name == role.receiptRecordName
+                || (role == .participant && name == Self.anniversaryRequestRecordName)
                 || role.momentID(fromRecordName: name) != nil
                 || role.statusLogDate(fromRecordName: name) != nil
         }

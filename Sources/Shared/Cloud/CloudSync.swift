@@ -27,50 +27,52 @@ enum SyncError: LocalizedError {
     case blocked
     /// An owner-only write (the anniversary) attempted from the participant side.
     case notOwner
+    /// A participant-only write (the anniversary request) attempted by the owner.
+    case notParticipant
+    /// The zone looked gone once. Not acted on until it's seen again after
+    /// `AppConfig.zoneGoneConfirmation` — the invite-close handshake makes it
+    /// vanish for a few seconds — so this is transient, not a verdict.
+    case zoneUnreachable
 
     var errorDescription: String? {
         switch self {
         case .notPaired:
-            return "This device isn't paired yet."
+            return String(localized: "This device isn't paired yet.")
         case .iCloudUnavailable(let status):
             switch status {
             case .noAccount:
-                return "Sign in to iCloud in Settings to use \(AppConfig.appName)."
+                return String(localized: "Sign in to iCloud in Settings to use \(AppConfig.appName).")
             case .restricted:
-                return "iCloud is restricted on this device."
+                return String(localized: "iCloud is restricted on this device.")
             case .temporarilyUnavailable:
-                return "iCloud is temporarily unavailable. Try again shortly."
+                return String(localized: "iCloud is temporarily unavailable. Try again shortly.")
             default:
-                return "iCloud isn't available right now."
+                return String(localized: "iCloud isn't available right now.")
             }
         case .shareURLMissing:
-            return "CloudKit didn't return an invite link. Try again."
+            return String(localized: "CloudKit didn't return an invite link. Try again.")
         case .couldNotSecureShare(let detail):
-            return "Couldn't close the invite link safely; it was reopened. "
-                + "Your partner may have lost access — if their app unlinks, "
-                + "send them the invite link to rejoin. (\(detail))"
+            return String(localized: "Couldn't close the invite link safely; it was reopened. Your partner may have lost access — if their app unlinks, send them the invite link to rejoin. (\(detail))")
         case .shareUnavailable:
             // Mismatched CloudKit environments look identical from here and
             // are covered by "the same build".
-            return "Couldn't open the shared space. Ask them to send a fresh "
-                + "invite link, and check you're both on the same build of "
-                + "\(AppConfig.appName)."
+            return String(localized: "Couldn't open the shared space. Ask them to send a fresh invite link, and check you're both on the same build of \(AppConfig.appName).")
         case .linkEnded:
             // Doesn't assert why: an unlink and a never-reachable zone look
             // the same from here.
-            return "The shared space is no longer available. Everything shared "
-                + "has been removed from this device — pair again to start over."
+            return String(localized: "The shared space is no longer available. Everything shared has been removed from this device — pair again to start over.")
         case .differentAccount:
-            return "This device is signed into a different iCloud account than "
-                + "the one you paired with. Sign back into that account to see "
-                + "your shared space, or unlink from Settings."
+            return String(localized: "This device is signed into a different iCloud account than the one you paired with. Sign back into that account to see your shared space, or unlink from Settings.")
         case .inviteInUse:
-            return "Your partner joined through this link, so closing it here would "
-                + "remove them. Use Settings → Diagnostics → Secure invite instead."
+            return String(localized: "Your partner joined through this link, so closing it here would remove them. Closing it safely re-seats them, which needs them on standby: Settings → tap Version seven times → iCloud diagnostics → Promote partner & close invite.")
         case .blocked:
-            return "This invite is from someone you've blocked."
+            return String(localized: "This invite is from someone you've blocked.")
         case .notOwner:
-            return "Only the person who created the link can set this."
+            return String(localized: "Only the person who created the link can set this.")
+        case .notParticipant:
+            return String(localized: "Only the person who joined the link can ask for this.")
+        case .zoneUnreachable:
+            return String(localized: "Couldn't reach your shared space just now. Try again in a moment.")
         }
     }
 }
@@ -98,8 +100,10 @@ actor CloudSync: SyncBackend {
     /// Not `private`: `CloudDiagnostics.swift` extends this actor from another file.
     let container: CKContainer
     /// The signed-in account, cached so `requirePairing` can verify it on every
-    /// call without a network round trip each time. `readiness()` drops it.
+    /// call without a network round trip each time. Dropped when the system
+    /// reports an account change (`noteAccountChanged`), else after the lifetime.
     var cachedUserRecordName: (name: String, fetchedAt: Date)?
+    var accountCheckPending = false
     static let accountCacheLifetime: TimeInterval = 5 * 60
     let log = Logger(subsystem: AppConfig.appGroupID, category: "CloudSync")
 
@@ -113,11 +117,15 @@ actor CloudSync: SyncBackend {
         static let statusLog = "StatusLog"
         /// One per pair, written by the owner: when the two of them began.
         static let anniversary = "Anniversary"
+        /// One per pair, written by the participant: "please set the date".
+        static let anniversaryRequest = "AnniversaryRequest"
     }
 
     /// The pair's one `Anniversary` record. Not role-derived: there is only
     /// ever one, and only the owner writes it.
     static let anniversaryRecordName = "anniversary"
+    /// Likewise one per pair, only the participant writes it; re-asking overwrites.
+    static let anniversaryRequestRecordName = "anniversary-request"
 
     enum Field {
         // Status. The human-readable parts are encrypted.
@@ -157,6 +165,10 @@ actor CloudSync: SyncBackend {
         // through `encryptedValues`.
         static let startsAt = "startsAt"
         static let timeZone = "timeZone"
+
+        // AnniversaryRequest. Encrypted for the same reason, and it doubles as
+        // the type's readability probe.
+        static let requestedAt = "requestedAt"
     }
 
     /// One subscription per record type — each wants a different payload.
@@ -194,9 +206,18 @@ actor CloudSync: SyncBackend {
         try await container.accountStatus()
     }
 
+    func noteAccountChanged() {
+        accountCheckPending = true
+    }
+
     func readiness() async -> BackendReadiness {
-        // The app calls this on every refresh and account change: re-check for real.
-        cachedUserRecordName = nil
+        // Called on every refresh; the account lookup is a network round trip,
+        // so it's re-done only when the system said the account changed (or
+        // the cache aged out — see `currentUserRecordName`).
+        if accountCheckPending {
+            cachedUserRecordName = nil
+            accountCheckPending = false
+        }
         do {
             let status = try await accountStatus()
             guard status == .available else {

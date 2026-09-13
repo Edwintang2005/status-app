@@ -15,7 +15,11 @@ struct MomentComposerView: View {
     @State private var pickerItem: PhotosPickerItem?
     @State private var showingCamera = false
     @State private var importFailed = false
+    @State private var confirmingDiscard = false
     @FocusState private var captionFocused: Bool
+
+    /// Anything worth a second thought before it's thrown away.
+    private var hasContent: Bool { canSend || !caption.isEmpty }
 
     /// Reads `strokeCount`, not `controller.isEmpty`: the canvas is
     /// `@ObservationIgnored`, so `isEmpty` alone would never re-evaluate the view.
@@ -41,6 +45,7 @@ struct MomentComposerView: View {
                         captionField
                     }
                     .padding(20)
+                    .containerRelativeFrame(.horizontal)
                 }
                 .scrollDismissesKeyboard(.interactively)
             }
@@ -48,7 +53,9 @@ struct MomentComposerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") {
+                        if hasContent { confirmingDiscard = true } else { dismiss() }
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Send") { send() }
@@ -56,7 +63,15 @@ struct MomentComposerView: View {
                         .disabled(!canSend)
                 }
             }
+            .confirmationDialog("Discard this moment?",
+                                isPresented: $confirmingDiscard,
+                                titleVisibility: .visible) {
+                Button("Discard", role: .destructive) { dismiss() }
+                Button("Keep editing", role: .cancel) {}
+            }
         }
+        // A doodle is minutes of work; a pull-down must not throw it away.
+        .interactiveDismissDisabled(hasContent)
         .fullScreenCover(isPresented: $showingCamera) {
             CameraPicker { image in
                 photo = image.composerSized()
@@ -184,6 +199,11 @@ struct MomentComposerView: View {
             .font(Theme.rounded(16))
             .focused($captionFocused)
             .submitLabel(.done)
+            .onChange(of: caption) { _, text in
+                if text.count > AppConfig.captionMaxLength {
+                    caption = String(text.prefix(AppConfig.captionMaxLength))
+                }
+            }
             .padding(.vertical, 14)
             .padding(.horizontal, 16)
             .background(Color.primary.opacity(0.05),

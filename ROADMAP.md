@@ -5,6 +5,54 @@ addition requires re-deploying the schema to Production (README → "Shipping it
 
 ## Shipped (September 2026)
 
+- **Audit fixes (round five)** — "zone gone" needs a second sighting two
+  minutes on before a device unlinks itself, so the invite-close handshake
+  can't wipe the partner's unsent media (`zoneGoneVerdict`,
+  `SyncError.zoneUnreachable`), and when it does unlink, unsent media
+  survives and is re-sent if the same zone is accepted again
+  (`SharedStore.lastPairing`, `adoptPairing`); a change token cleared by an index rebuild
+  mid-refresh is no longer written back; media downloads copy to `.part` then
+  rename; the status-log prune is non-atomic and survives pre-cloud entries;
+  mid-refresh guards compare the pairing's zone, not its existence; every
+  moment in a burst is marked announced and a time floor
+  (`lastAnnouncedMomentSentAt`) keeps the banner fallback off re-fetched
+  history; the lock-screen intent is bounded by the same 8 s deadline as the
+  widget; the model's own refresh no longer triggers a second fetch;
+  Notification Centre is cleared only on `.active`. UI: an emoji-only status
+  shows the emoji alone instead of "Set your status"; composers block pull-to-dismiss
+  and confirm Cancel when there's a doodle, a take or a caption; a reported
+  status hides its emoji on Home like everywhere else; every sheet hosts the
+  error alert and the anniversary prompt waits for Home's sheets to close;
+  `Theme.warmDeep` for orange carrying white text and orange text on cream
+  (AA); small tertiary text promoted to secondary; headlines follow Dynamic
+  Type; the participant's "Since" card is a card, not a disabled button.
+- **Audit fixes (round four) + two small features** — moderation now goes
+  through one set of presentation helpers (`Moderation.swift`) on every
+  surface: the status widget and the notification service honour a reported
+  status, the celebration overlay, the home memo row and the status history
+  apply the word filter, and names are filtered like any other partner text.
+  A record the foreground app itself can't read on three separate refreshes
+  no longer pins the change token forever (`SharedStore.noteUnreadableRecords`;
+  Diagnostics shows "gave up on"). A stale delta from a concurrent process
+  can't regress the partner's status (`RefreshDelta` newer-wins both ways).
+  The notification service claims every banner against the watermarks and
+  words an unclaimed push honestly: a second device on the same iCloud
+  account ("from another device", silent) or an already-announced event
+  (silent), never the partner — unless the extension couldn't decrypt the
+  delta (locked phone), when the generic banner stays loud; renames are
+  judged against the last announced
+  status, so they read right whichever process consumed the delta. Settings
+  and the invite sheet no longer promise the link closes itself. Smaller:
+  status and caption character caps (`AppConfig`), a "Turn on" button for
+  never-asked notifications, distinct VoiceOver names for the drawing
+  backdrops, the account lookup runs only when the system reports a change,
+  unpinned vertical ScrollViews pinned (invariant 18), ~40 strings routed
+  through the String Catalog, the dead `hasRequestedNotifications` flag gone,
+  `AppModel` reads only its injected store. Features: the "waiting to send"
+  footer is tap-to-retry, and the participant can **ask the owner to set the
+  anniversary** from the count screen — one `AnniversaryRequest` record, no
+  push, the owner gets the date prompt on next open. **Schema: the
+  `AnniversaryRequest` record type must exist in Production before release.**
 - **Core hardening** — a unit-test target (`make test`, 56 XCTest cases over
   `Sources/Shared`: Codable fallbacks, watermarks, `MomentIndex` and
   `StatusHistoryLog` merging, `SharedStore`); `CloudSync` split into one
@@ -125,6 +173,54 @@ Let each person pick the Home Screen icon from Settings.
   shows a one-time confirmation alert that can't be suppressed.
 - Per device, not synced (widgets and the NSE are unaffected). Could ride
   `Snapshot` later if both phones should match. No schema changes.
+
+### Delete your own moment (S)
+
+The gallery menu exists only for the partner's moments. Own deletion is one
+record delete (`moment-<role>-<uuid>`) plus the local `MomentIndex.remove` +
+`MomentStore.delete` the deletion mirror already runs on the other phone; the
+snapshot's derived fields recompute via `refreshDerived`. Confirm first — it
+deletes on both phones.
+
+### Status history: report from the sheet, and live refresh (S)
+
+`StatusHistoryView` loads once (`.task`) and offers no report action; a status
+that lands while it's open doesn't appear, and reporting means backing out to
+the home card. Reload on `pairingDidChange`, add "Report…" to partner rows
+(reuses `reportPartnerStatus` for the current one; older entries need the
+report to carry the entry's `at`).
+
+### Heart back on a moment (S)
+
+The banner already offers "Send a heart back" on a moment; the same one-tap
+inside the gallery is the light version of the reactions feature that never
+felt right. No schema: it's a nudge.
+
+### Offline block should still remember the partner (S)
+
+`recordBlockedPartner` needs the share's participant list from the network,
+so an owner who blocks while offline records nobody and the blocked person's
+next invite is accepted. Cache the participant record names on each
+successful refresh (or `inviteState()`), so the block has something to write.
+
+### Library grouped by day, and search (M)
+
+`StatusHistoryView.byDay` already does the grouping; the moment library is a
+flat grid. Sections by day plus a caption/sender search field.
+
+### Smaller UX items on file
+
+- "Report a problem" in Settings is a bare `mailto:` `Link` — a silent no-op
+  without Mail; the moment/status report path falls back to the clipboard and
+  this one should too.
+- The general `noticeMessage` alert is titled "Report copied" in `RootView`
+  even though the channel is generic.
+- A visible character counter near the cap in the status and caption fields
+  (the cap itself is enforced).
+- Siri's "Send a nudge" while unpaired returns success silently
+  (`SendNudgeIntent` swallows the error); a spoken dialog would be kinder.
+- Old `StatusLog` entries logged before the cloud log existed are local-only
+  and don't survive a reinstall (documented; nothing to do unless it matters).
 
 ### Also on file (from README "Possible improvements")
 

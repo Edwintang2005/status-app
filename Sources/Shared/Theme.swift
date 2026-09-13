@@ -10,6 +10,9 @@ enum Theme {
     static let accentBright = Color(red: 0.95, green: 0.45, blue: 0.50)
     /// Fox orange.
     static let warm = Color(red: 0.92, green: 0.53, blue: 0.25)
+    /// The orange for surfaces that carry white text, or for orange text on the
+    /// cream ground — `warm` itself sits near 2.6:1 there, short of AA (4.5:1).
+    static let warmDeep = Color(red: 0.72, green: 0.35, blue: 0.10)
     /// Fish steel blue.
     static let mint = Color(red: 0.44, green: 0.66, blue: 0.86)
 

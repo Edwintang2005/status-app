@@ -24,7 +24,9 @@ struct AnniversaryEditorView: View {
                             .foregroundStyle(Theme.accent)
                             .padding(.top, 24)
 
-                        Text("When did the two of you begin?")
+                        Text(model.anniversaryRequestPending
+                             ? "\(model.partnerName) asked: when did the two of you begin?"
+                             : "When did the two of you begin?")
                             .font(Theme.rounded(24, .bold))
                             .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
@@ -61,6 +63,7 @@ struct AnniversaryEditorView: View {
                             if mode == .prompt {
                                 Button("Not now") {
                                     model.dismissAnniversaryPrompt()
+                                    model.dismissAnniversaryRequest()
                                     dismiss()
                                 }
                                 .buttonStyle(SecondaryButtonStyle())

@@ -44,11 +44,13 @@ struct RootView: View {
         .sheet(item: $model.presentedInvite) { invite in
             InviteLinkSheet(url: invite.url, partnerName: model.partnerName)
         }
-        // The one question asked of the owner after creating the link, once the
-        // link sheet is out of the way. Swiping it away counts as "not now".
+        // The one question asked of the owner: after creating the link (once the
+        // link sheet is out of the way), and again whenever the partner asks for
+        // the date. The sheet can't be swiped away; "Not now" is the way out.
         .sheet(isPresented: Binding(
-            get: { model.anniversaryPromptPending && model.canEditAnniversary && model.presentedInvite == nil },
-            set: { if !$0 { model.dismissAnniversaryPrompt() } })) {
+            get: { (model.anniversaryPromptPending || model.anniversaryRequestPending)
+                    && model.canEditAnniversary && model.presentedInvite == nil },
+            set: { if !$0 { model.dismissAnniversaryPrompt(); model.dismissAnniversaryRequest() } })) {
             AnniversaryEditorView(mode: .prompt)
                 .environment(model)
         }
@@ -66,5 +68,28 @@ struct RootView: View {
         } message: {
             Text(model.noticeMessage ?? "")
         }
+    }
+}
+
+/// Errors raised while a sheet is up can't present from `RootView` (SwiftUI
+/// allows one presentation per view), so every sheet hosts the same alert.
+private struct ModelErrorAlert: ViewModifier {
+    @Environment(AppModel.self) private var model: AppModel?
+
+    func body(content: Content) -> some View {
+        content.alert("Something went wrong",
+                      isPresented: Binding(get: { model?.errorMessage != nil },
+                                           set: { if !$0 { model?.errorMessage = nil } })) {
+            Button("OK", role: .cancel) { model?.errorMessage = nil }
+        } message: {
+            Text(model?.errorMessage ?? "")
+        }
+    }
+}
+
+extension View {
+    /// Hosts the model's error alert on a sheet's root view — see `ModelErrorAlert`.
+    func presentsModelErrors() -> some View {
+        modifier(ModelErrorAlert())
     }
 }

@@ -16,7 +16,12 @@ enum NotificationCategory {
 }
 
 extension Notification.Name {
+    /// Something outside the model changed the store (a push the extension
+    /// handled, the lock-screen intent): re-read it *and* refresh.
     static let pairingDidChange = Notification.Name("RedStringPairingDidChange")
+    /// The model's own refresh wrote the store: re-read it, nothing more — a
+    /// second fetch would find nothing.
+    static let snapshotDidChange = Notification.Name("RedStringSnapshotDidChange")
     static let pairingDidFail = Notification.Name("RedStringPairingDidFail")
     /// Object is the `CKShare.Metadata` from the tapped link.
     static let inviteDidArrive = Notification.Name("RedStringInviteDidArrive")

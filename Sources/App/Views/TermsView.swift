@@ -73,7 +73,7 @@ struct TermsView: View {
         Section(title: "What we do",
                 body: "We act on every report within 24 hours: the reported content is removed and, where the report is upheld, the person who sent it is ejected from the shared space and barred from pairing with the reporter again. Because messages are end-to-end encrypted in your iCloud, we can only see what you include in a report."),
         Section(title: "Contact",
-                body: "Questions, reports and appeals: edwintang2005@gmail.com."),
+                body: "Questions, reports and appeals: \(AppConfig.supportEmail)."),
     ]
 }
 

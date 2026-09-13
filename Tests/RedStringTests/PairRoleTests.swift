@@ -1,5 +1,21 @@
 import XCTest
 
+final class PairingInfoTests: XCTestCase {
+    func testSameZoneIgnoresPairedAtAndAccount() {
+        let a = PairingInfo(role: .participant, zoneName: "CoupleZone", zoneOwnerName: "_owner",
+                            pairedAt: Fixtures.t0, userRecordName: "_me")
+        let b = PairingInfo(role: .participant, zoneName: "CoupleZone", zoneOwnerName: "_owner",
+                            pairedAt: Fixtures.date(0.5), userRecordName: nil)
+        XCTAssertTrue(a.sameZone(as: b), "a fractional in-memory pairedAt must not break the guard")
+        var other = a
+        other.zoneOwnerName = "_someoneElse"
+        XCTAssertFalse(a.sameZone(as: other))
+        other = a
+        other.role = .owner
+        XCTAssertFalse(a.sameZone(as: other))
+    }
+}
+
 /// Record names are the whole addressing scheme — neither device knows the
 /// other's CloudKit user ID.
 final class PairRoleTests: XCTestCase {

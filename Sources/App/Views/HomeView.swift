@@ -92,6 +92,8 @@ struct HomeView: View {
             }
             .toolbarBackground(.hidden, for: .navigationBar)
         }
+        // Every sheet hosts the model's error alert (`presentsModelErrors`):
+        // an error raised while one is up can't present from the root.
         .sheet(isPresented: $showingPicker) {
             MoodPickerView(initialEmoji: model.snapshot.mine?.emoji ?? "") { emoji, message, isCelebration in
                 Task {
@@ -100,6 +102,7 @@ struct HomeView: View {
                                           isCelebration: isCelebration)
                 }
             }
+            .presentsModelErrors()
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
@@ -108,6 +111,7 @@ struct HomeView: View {
             MomentComposerView { image, kind, caption in
                 Task { await model.sendMoment(image: image, kind: kind, caption: caption) }
             }
+            .presentsModelErrors()
         }
         .sheet(isPresented: $showingVoiceComposer) {
             VoiceMemoComposerView { url, duration, waveform, caption in
@@ -118,25 +122,30 @@ struct HomeView: View {
                                               caption: caption)
                 }
             }
+            .presentsModelErrors()
         }
         .sheet(isPresented: Binding(get: { !carouselQueue.isEmpty },
                                     set: { if !$0 { carouselQueue = [] } })) {
             if let first = carouselQueue.first {
                 MomentGalleryView(moments: carouselQueue, startAt: first)
                     .environment(model)
+                    .presentsModelErrors()
             }
         }
         .sheet(isPresented: $showingLibrary) {
             MomentLibraryView()
                 .environment(model)
+                .presentsModelErrors()
         }
         .sheet(isPresented: $showingStatusHistory) {
             StatusHistoryView()
                 .environment(model)
+                .presentsModelErrors()
         }
         .sheet(isPresented: $showingAnniversary) {
             EasterEggView()
                 .environment(model)
+                .presentsModelErrors()
         }
         .onChange(of: model.pendingComposer) { _, pending in
             if pending { consumePendingComposer() }
@@ -148,6 +157,8 @@ struct HomeView: View {
         // present it once that sheet closes instead of silently dropping it.
         .onChange(of: anySheetShowing) { _, showing in
             if !showing { consumePendingComposer() }
+            // Root-level presentations (the anniversary prompt) wait on this.
+            model.homeSheetShowing = showing
         }
         // The status read receipt: their status counts as seen whenever it is
         // on this screen in the foreground — on arrival, and on every return.
@@ -259,7 +270,9 @@ struct HomeView: View {
     private var partnerCardContent: some View {
         HStack(spacing: 14) {
             if let theirs = model.snapshot.theirs {
-                Text(theirs.emoji)
+                // A reported status loses its emoji too — a custom emoji can be
+                // the offence — matching the widget and the banner.
+                Text(model.isPartnerStatusReported ? "💭" : theirs.emoji)
                     .font(.system(size: 46))
                     .contentTransition(.opacity)
                     .animation(.smooth, value: theirs.emoji)
@@ -281,7 +294,7 @@ struct HomeView: View {
                     TimelineView(.periodic(from: .now, by: 60)) { _ in
                         Text(theirs.updatedAt, format: .relative(presentation: .named))
                             .font(Theme.rounded(11))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(.secondary)
                     }
                 }
             } else {
@@ -342,7 +355,7 @@ struct HomeView: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
-                            .background(Theme.warm, in: Capsule())
+                            .background(Theme.warmDeep, in: Capsule())
                     }
                 }
                 .padding(.horizontal, 16)
@@ -382,7 +395,7 @@ struct HomeView: View {
                 // Fetches from CloudKit first when the memo isn't cached.
                 guard await model.ensureMedia(for: memo),
                       let url = MomentStore.shared.mediaURL(for: memo) else {
-                    model.errorMessage = "Couldn't fetch that voice memo from iCloud. Try again in a moment."
+                    model.errorMessage = String(localized: "Couldn't fetch that voice memo from iCloud. Try again in a moment.")
                     return
                 }
                 voicePlayer.play(url)
@@ -395,12 +408,12 @@ struct HomeView: View {
 
     private func momentLabel(_ moment: Moment) -> String {
         // A filtered caption reads as no caption; the gallery can reveal it.
-        if moment.caption.isEmpty || (!moment.fromMe && ContentFilter.hides(moment.caption)) {
+        guard let caption = moment.displayCaption else {
             return moment.fromMe
                 ? String(localized: "You sent a \(moment.noun)")
                 : String(localized: "Sent you a \(moment.noun)")
         }
-        return moment.fromMe ? String(localized: "You: \(moment.caption)") : moment.caption
+        return moment.fromMe ? String(localized: "You: \(caption)") : caption
     }
 
     // MARK: - Mine
@@ -414,9 +427,7 @@ struct HomeView: View {
                     .font(.system(size: 26))
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(model.snapshot.mine?.message.isEmpty == false
-                         ? model.snapshot.mine!.message
-                         : "Set your status")
+                    Text(myStatusText)
                         .font(Theme.rounded(17, .semibold))
                         .foregroundStyle(model.snapshot.mine?.message.isEmpty == false
                                          ? .primary
@@ -428,7 +439,7 @@ struct HomeView: View {
                             Label("Seen \(seenAt, format: .relative(presentation: .named))",
                                   systemImage: "eye.fill")
                                 .font(Theme.rounded(11))
-                                .foregroundStyle(.tertiary)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -446,6 +457,14 @@ struct HomeView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(myStatusSummary)
         .accessibilityHint("Changes your status")
+    }
+
+    /// An emoji-only status is a status: the emoji stands alone, rather than
+    /// "Set your status", which read as if nothing had been set.
+    private var myStatusText: String {
+        guard let mine = model.snapshot.mine else { return String(localized: "Set your status") }
+        if !mine.message.isEmpty { return mine.message }
+        return mine.emoji.isEmpty ? String(localized: "Set your status") : ""
     }
 
     private var myStatusSummary: String {
@@ -471,13 +490,24 @@ struct HomeView: View {
                     // problems — the pairing screen isn't mounted any more.
                     Image(systemName: "exclamationmark.icloud")
                     Text(problem)
+                } else if model.isRetryingUploads {
+                    ProgressView().controlSize(.mini)
+                    Text("Sending…")
                 } else if model.pendingUploadCount > 0 {
                     // Ahead of "Synced …", which would mislead while an upload
-                    // is still sitting on this device.
-                    Image(systemName: "icloud.and.arrow.up")
-                    Text(model.pendingUploadCount == 1
-                         ? "1 waiting to send"
-                         : "\(model.pendingUploadCount) waiting to send")
+                    // is still sitting on this device. Tapping retries now.
+                    Button {
+                        Task { await model.retryPendingNow() }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "icloud.and.arrow.up")
+                            Text(model.pendingUploadCount == 1
+                                 ? "1 waiting to send · tap to retry"
+                                 : "\(model.pendingUploadCount) waiting to send · tap to retry")
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Retries the send now")
                 } else if let synced = model.snapshot.lastSyncedAt {
                     Image(systemName: "checkmark.icloud")
                     Text("Synced \(synced, format: .relative(presentation: .named))")
@@ -487,9 +517,12 @@ struct HomeView: View {
                 }
             }
             .font(Theme.rounded(12))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(.secondary)
             .padding(.top, 4)
-            .accessibilityElement(children: .combine)
+            // Combined into one line for VoiceOver, except while the retry
+            // button is showing — combining would swallow its action.
+            .accessibilityElement(children: model.pendingUploadCount > 0 && !model.isRetryingUploads
+                                  ? .contain : .combine)
         }
     }
 }

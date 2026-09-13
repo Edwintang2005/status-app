@@ -83,6 +83,16 @@ final class MomentIndexTests: XCTestCase {
                        "a shrunken or retracted map must not un-see")
     }
 
+    func testRetainPendingUploadsKeepsOnlyUnsentOwnMoments() {
+        let (index, _) = makeIndex()
+        index.insert([Fixtures.moment("p1"),
+                      Fixtures.moment("sent", fromMe: true, uploaded: true),
+                      Fixtures.moment("pending", fromMe: true, uploaded: false)])
+        let kept = index.retainPendingUploads()
+        XCTAssertEqual(kept.map(\.id), ["pending"])
+        XCTAssertEqual(index.load().map(\.id), ["pending"])
+    }
+
     func testMarkUploadedAndRemove() {
         let (index, _) = makeIndex()
         index.insert([Fixtures.moment("o1", fromMe: true, uploaded: false)])

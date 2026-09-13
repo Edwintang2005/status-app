@@ -23,6 +23,7 @@ struct PairingView: View {
                 privacyNote
             }
             .padding(20)
+            .containerRelativeFrame(.horizontal)
         }
         .scrollDismissesKeyboard(.interactively)
         .onAppear { if name.isEmpty { name = model.myDisplayName } }
@@ -182,7 +183,7 @@ struct PairingView: View {
         } icon: {
             Image(systemName: "exclamationmark.icloud")
         }
-        .foregroundStyle(Theme.warm)
+        .foregroundStyle(Theme.warmDeep)
         .card(padding: 16)
     }
 

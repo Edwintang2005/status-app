@@ -47,6 +47,45 @@ final class RefreshDeltaTests: XCTestCase {
         XCTAssertEqual(snapshot.theirs?.message, "party")
     }
 
+    /// Two processes fetch concurrently and apply out of order: the stale copy
+    /// must not regress the status, but its nudge counter is still server truth.
+    func testOlderPartnerStatusFromAStaleDeltaKeepsTheNewerOne() {
+        var snapshot = paired
+        var stale = Fixtures.status("🎉", "party", at: Fixtures.date(10), nudges: 7)
+        stale.lastNudgeAt = Fixtures.date(40)
+        RefreshDelta(theirs: stale).fold(into: &snapshot)
+        XCTAssertEqual(snapshot.theirs?.message, "missing you")
+        XCTAssertEqual(snapshot.theirs?.updatedAt, Fixtures.date(50))
+        XCTAssertEqual(snapshot.theirs?.nudgeCount, 7)
+        XCTAssertEqual(snapshot.theirs?.lastNudgeAt, Fixtures.date(40))
+        // Same timestamp (a nudge-only delta merged into the held status) still applies.
+        RefreshDelta(theirs: Fixtures.status("🥰", "missing you", at: Fixtures.date(50), nudges: 8)).fold(into: &snapshot)
+        XCTAssertEqual(snapshot.theirs?.nudgeCount, 8)
+    }
+
+    // MARK: Anniversary request
+
+    func testAnniversaryRequestFoldsLikeTheAnniversary() {
+        var snapshot = paired
+        RefreshDelta(anniversaryRequestedAt: Fixtures.date(500)).fold(into: &snapshot)
+        XCTAssertEqual(snapshot.anniversaryRequestedAt, Fixtures.date(500))
+        XCTAssertTrue(snapshot.anniversaryRequestPending)
+        // Unreadable: neither value nor removal.
+        RefreshDelta(unreadableRecords: 1).fold(into: &snapshot)
+        XCTAssertEqual(snapshot.anniversaryRequestedAt, Fixtures.date(500))
+        RefreshDelta(anniversaryRequestErased: true).fold(into: &snapshot)
+        XCTAssertNil(snapshot.anniversaryRequestedAt)
+        XCTAssertFalse(snapshot.anniversaryRequestPending)
+    }
+
+    func testUnpublishedRequestOutranksServerCopy() {
+        var snapshot = paired
+        snapshot.anniversaryRequestedAt = Fixtures.date(900)
+        snapshot.anniversaryRequestPublished = false
+        RefreshDelta(anniversaryRequestedAt: Fixtures.date(500)).fold(into: &snapshot)
+        XCTAssertEqual(snapshot.anniversaryRequestedAt, Fixtures.date(900))
+    }
+
     // MARK: Anniversary
 
     func testUnreadableAnniversaryRecordKeepsStoredDate() {

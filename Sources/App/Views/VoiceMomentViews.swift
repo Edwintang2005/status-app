@@ -32,7 +32,7 @@ struct VoiceMomentTile: View {
             .background(.black.opacity(0.35), in: Capsule())
             .padding(6)
         }
-        .accessibilityLabel("Voice memo, \(moment.durationLabel)")
+        .accessibilityLabel(String(localized: "Voice memo, \(moment.durationLabel)"))
     }
 }
 
@@ -190,12 +190,14 @@ struct VoiceMemoRow: View {
             }
     }
 
+    /// Partner text goes through the filter like everywhere else (invariant 20).
     private var title: String {
-        if !moment.caption.isEmpty { return moment.caption }
-        let sender = moment.senderName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return moment.fromMe
-            ? "Your voice memo"
-            : (sender.isEmpty ? "Voice memo" : "\(sender) sent a voice memo")
+        if let caption = moment.displayCaption { return caption }
+        if moment.fromMe { return String(localized: "Your voice memo") }
+        let sender = moment.displaySenderName(fallback: "")
+        return sender.isEmpty
+            ? String(localized: "Voice memo")
+            : String(localized: "\(sender) sent a voice memo")
     }
 
     private func timeLabel(_ seconds: TimeInterval) -> String {

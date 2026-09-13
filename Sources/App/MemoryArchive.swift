@@ -27,7 +27,7 @@ enum MemoryArchive {
 
         var errorDescription: String? {
             switch self {
-            case .nothingToSave: return "There's nothing saved on this iPhone to archive yet."
+            case .nothingToSave: return String(localized: "There's nothing saved on this iPhone to archive yet.")
             }
         }
     }

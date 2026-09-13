@@ -11,8 +11,6 @@ struct StatusEntry: TimelineEntry {
 struct StatusProvider: TimelineProvider {
     private static let log = Logger(subsystem: AppConfig.appGroupID, category: "Widget")
 
-    /// WidgetKit gives the provider a limited budget; give up well before it.
-    private static let fetchTimeout: Duration = .seconds(8)
     /// Each tick costs a process launch + CloudKit round trip; it's a backstop,
     /// so it can afford to be lazy.
     private static let refreshInterval: TimeInterval = 60 * 60
@@ -56,15 +54,8 @@ struct StatusProvider: TimelineProvider {
     private static func refreshIfPossible() async {
         guard await MainActor.run(body: { SharedStore.shared.pairing != nil }) else { return }
         do {
-            try await withThrowingTaskGroup(of: Void.self) { group in
-                group.addTask { _ = try await Backend.current.refresh() }
-                group.addTask {
-                    try await Task.sleep(for: fetchTimeout)
-                    throw CancellationError()
-                }
-                try await group.next()
-                group.cancelAll()
-            }
+            // WidgetKit gives the provider a limited budget; give up well before it.
+            _ = try await withDeadline(AppConfig.widgetDeadline) { try await Backend.current.refresh() }
         } catch {
             log.notice("Widget refresh skipped: \(error.localizedDescription)")
         }

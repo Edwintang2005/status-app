@@ -29,11 +29,80 @@ enum ContentFilter {
     }
 
     /// The filter as the user has it set: on by default, off in Settings.
-    static func hides(_ text: String) -> Bool {
-        SharedStore.shared.contentFilterEnabled && flags(text)
+    /// `enabled` is injectable so the presentation helpers below stay testable.
+    static func hides(_ text: String, enabled: Bool = SharedStore.shared.contentFilterEnabled) -> Bool {
+        enabled && flags(text)
     }
 
     static var hiddenPlaceholder: String { String(localized: "Hidden by your content filter") }
+    static var reportedPlaceholder: String { String(localized: "Reported") }
+
+    /// A name someone chose for themselves, or `fallback` when it's empty or
+    /// the filter hides it — names are user text too.
+    static func displayName(_ name: String,
+                            fallback: String,
+                            enabled: Bool = SharedStore.shared.contentFilterEnabled) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !hides(trimmed, enabled: enabled) else { return fallback }
+        return trimmed
+    }
+}
+
+// MARK: - Presentation
+
+// Every surface that shows the partner's words goes through these — the app,
+// the widgets and the notification service alike — so a report or the filter
+// can't be bypassed by one screen forgetting (CLAUDE.md invariant 20).
+
+extension StatusPayload {
+    /// The partner's status as it may be shown. Reported (`reportedAt` is its
+    /// `updatedAt`) hides both words and emoji; filtered swaps the words for
+    /// `filteredText`. Own statuses never go through this.
+    func moderated(reportedAt: Date?,
+                   filteredText: String = ContentFilter.hiddenPlaceholder,
+                   filterEnabled: Bool = SharedStore.shared.contentFilterEnabled) -> StatusPayload {
+        var shown = self
+        if let reportedAt, updatedAt == reportedAt {
+            shown.emoji = "💭"
+            shown.message = ContentFilter.reportedPlaceholder
+        } else if ContentFilter.hides(message, enabled: filterEnabled) {
+            shown.message = filteredText
+        }
+        return shown
+    }
+}
+
+extension StatusHistoryEntry {
+    /// Same rule for the log: a reported partner status keeps its slot but not its words.
+    func moderated(reportedAt: Date?,
+                   filterEnabled: Bool = SharedStore.shared.contentFilterEnabled) -> StatusHistoryEntry {
+        guard !fromMe else { return self }
+        var shown = self
+        if let reportedAt, at == reportedAt {
+            shown.emoji = "💭"
+            shown.message = ContentFilter.reportedPlaceholder
+        } else if ContentFilter.hides(message, enabled: filterEnabled) {
+            shown.message = ContentFilter.hiddenPlaceholder
+        }
+        return shown
+    }
+}
+
+extension Moment {
+    /// The sender's name as it may be shown: own sends are never filtered, and
+    /// a partner's name the filter hides (or that was never set) becomes `fallback`.
+    func displaySenderName(fallback: String) -> String {
+        if fromMe { return senderName.trimmingCharacters(in: .whitespacesAndNewlines) }
+        return ContentFilter.displayName(senderName, fallback: fallback)
+    }
+
+    /// The caption as it may be shown, or `nil` when there is none to show — a
+    /// partner caption the filter hides reads as no caption.
+    var displayCaption: String? {
+        guard !caption.isEmpty else { return nil }
+        if !fromMe, ContentFilter.hides(caption) { return nil }
+        return caption
+    }
 }
 
 /// A report to the developer, as an email the user sends themselves — the one
