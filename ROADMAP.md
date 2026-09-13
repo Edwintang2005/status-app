@@ -203,6 +203,39 @@ so an owner who blocks while offline records nobody and the blocked person's
 next invite is accepted. Cache the participant record names on each
 successful refresh (or `inviteState()`), so the block has something to write.
 
+### Heartbeat moment (M) — feasibility only, not started
+
+Send your heart rate as a moment; the partner opens it and the phone plays a
+synthesised lub-dub at that tempo under an animating heart (Digital Touch did
+exactly this). Investigated September 2026; the shape that fits the app:
+- **No watch app needed.** The iPhone's Health store already holds the
+  watch's heart-rate samples (a few minutes old at rest, more frequent when
+  moving). A "send my heartbeat" button reads the latest `heartRate` sample
+  via HealthKit (read-only entitlement + `NSHealthShareUsageDescription`) and
+  sends it as a new `Moment.Kind` (`heartbeat`) with an encrypted `bpm` field,
+  no asset. Rides the existing offline retry, receipts, history, moderation
+  and notification paths; a stale or missing sample shows "no recent reading"
+  rather than sending nothing.
+- **Playback is foreground-only.** iOS has no background or lock-screen
+  haptic API, and Live Activities and notifications can't carry a rhythm, so
+  the receiver is a "feel" screen in the gallery driving a CoreHaptics
+  lub-dub pattern at the received tempo. Beat-by-beat data isn't available
+  from public APIs either — HealthKit gives a *rate* — so the rhythm is
+  synthesised, which is also what makes latency a non-issue.
+- **App Review risk — decide before building.** Guideline 5.1.3 says HealthKit
+  apps "may not store personal health information in iCloud"; an encrypted
+  BPM in a CloudKit record is arguably that. Defence: the field is encrypted
+  like every other user word, and the review notes describe it as a tempo for
+  a haptic pattern, not health data. If that's not acceptable, the fallback is
+  a tapped-in rhythm without HealthKit.
+- **Later:** a live session (watchOS target running a workout-style session
+  for 1 Hz readings → WatchConnectivity → an ephemeral CloudKit record,
+  deleted when the session ends) on top of the same "feel" screen; and if the
+  partner also wears a watch, an extended runtime (mindfulness) session can
+  tap the wrist with the screen off. Both need both people present at once.
+- Schema: one new `Moment` field (`bpm`); redeploy. Widget and NSE untouched
+  beyond the new kind's wording.
+
 ### Library grouped by day, and search (M)
 
 `StatusHistoryView.byDay` already does the grouping; the moment library is a
