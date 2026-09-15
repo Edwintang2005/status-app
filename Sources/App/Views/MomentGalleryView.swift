@@ -259,7 +259,7 @@ struct MomentGalleryView: View {
         let who = moment.fromMe
             ? String(localized: "You")
             : moment.displaySenderName(fallback: model.partnerName)
-        let when = moment.sentAt.formatted(.relative(presentation: .named))
+        let when = moment.sentAt.relativeWording()
         return "\(who) · \(when)"
     }
 
@@ -269,7 +269,7 @@ struct MomentGalleryView: View {
         guard model.readReceiptsEnabled, moment.fromMe,
               let seenAt = moment.seenByPartnerAt else { return nil }
         guard seenAt > .distantPast else { return String(localized: "Seen") }
-        return String(localized: "Seen \(seenAt.formatted(.relative(presentation: .named)))")
+        return String(localized: "Seen \(seenAt.relativeWording())")
     }
 
     /// Paging onto something counts as having looked at it.

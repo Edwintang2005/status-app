@@ -263,7 +263,7 @@ struct HomeView: View {
         guard let theirs = model.snapshot.theirs else {
             return String(localized: "\(model.partnerName): waiting for their first status")
         }
-        let when = theirs.updatedAt.formatted(.relative(presentation: .named))
+        let when = theirs.updatedAt.relativeWording()
         return "\(model.partnerName): \(theirs.emoji) \(partnerMessage.text), \(when)"
     }
 
@@ -289,13 +289,9 @@ struct HomeView: View {
                         // single-line ideal — see the containerRelativeFrame note.
                         .fixedSize(horizontal: false, vertical: true)
                         .foregroundStyle(partnerMessage.muted ? .secondary : .primary)
-                    // TimelineView because `.relative(presentation:)` renders
-                    // once and never ticks on its own.
-                    TimelineView(.periodic(from: .now, by: 60)) { _ in
-                        Text(theirs.updatedAt, format: .relative(presentation: .named))
-                            .font(Theme.rounded(11))
-                            .foregroundStyle(.secondary)
-                    }
+                    RelativeTime(theirs.updatedAt)
+                        .font(Theme.rounded(11))
+                        .foregroundStyle(.secondary)
                 }
             } else {
                 Text("💭").font(.system(size: 46)).opacity(0.4)
@@ -435,12 +431,11 @@ struct HomeView: View {
                         .lineLimit(1)
                     // The status read receipt — read receipts on, both sides.
                     if let seenAt = model.myStatusSeenAt {
-                        TimelineView(.periodic(from: .now, by: 60)) { _ in
-                            Label("Seen \(seenAt, format: .relative(presentation: .named))",
-                                  systemImage: "eye.fill")
-                                .font(Theme.rounded(11))
-                                .foregroundStyle(.secondary)
+                        RelativeTime(seenAt) { when in
+                            Label("Seen \(when)", systemImage: "eye.fill")
                         }
+                        .font(Theme.rounded(11))
+                        .foregroundStyle(.secondary)
                     }
                 }
 
@@ -473,57 +468,54 @@ struct HomeView: View {
         }
         var summary = String(localized: "Your status: \(mine.emoji) \(mine.message)")
         if let seenAt = model.myStatusSeenAt {
-            summary += String(localized: ". Seen \(seenAt.formatted(.relative(presentation: .named)))")
+            summary += String(localized: ". Seen \(seenAt.relativeWording())")
         }
         return summary
     }
 
     private var syncFooter: some View {
-        // TimelineView so the relative timestamp keeps ticking.
-        TimelineView(.periodic(from: .now, by: 60)) { _ in
-            HStack(spacing: 6) {
-                if model.isRefreshing {
-                    ProgressView().controlSize(.mini)
-                    Text("Syncing…")
-                } else if let problem = model.readinessMessage {
-                    // Only place a paired user hears about iCloud account
-                    // problems — the pairing screen isn't mounted any more.
-                    Image(systemName: "exclamationmark.icloud")
-                    Text(problem)
-                } else if model.isRetryingUploads {
-                    ProgressView().controlSize(.mini)
-                    Text("Sending…")
-                } else if model.pendingUploadCount > 0 {
-                    // Ahead of "Synced …", which would mislead while an upload
-                    // is still sitting on this device. Tapping retries now.
-                    Button {
-                        Task { await model.retryPendingNow() }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "icloud.and.arrow.up")
-                            Text(model.pendingUploadCount == 1
-                                 ? "1 waiting to send · tap to retry"
-                                 : "\(model.pendingUploadCount) waiting to send · tap to retry")
-                        }
+        HStack(spacing: 6) {
+            if model.isRefreshing {
+                ProgressView().controlSize(.mini)
+                Text("Syncing…")
+            } else if let problem = model.readinessMessage {
+                // Only place a paired user hears about iCloud account
+                // problems — the pairing screen isn't mounted any more.
+                Image(systemName: "exclamationmark.icloud")
+                Text(problem)
+            } else if model.isRetryingUploads {
+                ProgressView().controlSize(.mini)
+                Text("Sending…")
+            } else if model.pendingUploadCount > 0 {
+                // Ahead of "Synced …", which would mislead while an upload
+                // is still sitting on this device. Tapping retries now.
+                Button {
+                    Task { await model.retryPendingNow() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "icloud.and.arrow.up")
+                        Text(model.pendingUploadCount == 1
+                             ? "1 waiting to send · tap to retry"
+                             : "\(model.pendingUploadCount) waiting to send · tap to retry")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("Retries the send now")
-                } else if let synced = model.snapshot.lastSyncedAt {
-                    Image(systemName: "checkmark.icloud")
-                    Text("Synced \(synced, format: .relative(presentation: .named))")
-                } else {
-                    Image(systemName: "icloud.slash")
-                    Text("Not synced yet")
                 }
+                .buttonStyle(.plain)
+                .accessibilityHint("Retries the send now")
+            } else if let synced = model.snapshot.lastSyncedAt {
+                Image(systemName: "checkmark.icloud")
+                RelativeTime(synced) { Text("Synced \($0)") }
+            } else {
+                Image(systemName: "icloud.slash")
+                Text("Not synced yet")
             }
-            .font(Theme.rounded(12))
-            .foregroundStyle(.secondary)
-            .padding(.top, 4)
-            // Combined into one line for VoiceOver, except while the retry
-            // button is showing — combining would swallow its action.
-            .accessibilityElement(children: model.pendingUploadCount > 0 && !model.isRetryingUploads
-                                  ? .contain : .combine)
         }
+        .font(Theme.rounded(12))
+        .foregroundStyle(.secondary)
+        .padding(.top, 4)
+        // Combined into one line for VoiceOver, except while the retry
+        // button is showing — combining would swallow its action.
+        .accessibilityElement(children: model.pendingUploadCount > 0 && !model.isRetryingUploads
+                              ? .contain : .combine)
     }
 }
 

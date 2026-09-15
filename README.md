@@ -396,9 +396,11 @@ grows as fast as you actually send things.
 **On the phone:** bounded, and much smaller. The device keeps
 metadata for the last `AppConfig.momentHistoryLimit` (500) entries — a few
 hundred bytes each, so well under 100 KB — but image files only for the
-`momentImageCacheLimit` (60) most recent, around 16 MB. Scroll further back in
-the gallery and the image is **fetched from CloudKit on demand**, with a
-spinner while it lands.
+`momentImageCacheLimit` (60) most recent, around 16 MB. Thumbnails (about
+30 KB each) are kept for every indexed entry, so the history grid always has
+something to draw; a tile whose thumbnail is missing fetches just that as it
+scrolls into view. Scroll further back in the gallery and the full image is
+**fetched from CloudKit on demand**, with a spinner while it lands.
 
 That split is what lets the history be unlimited without the phone carrying
 every photo you've ever exchanged. The index is a JSON file in the App Group

@@ -41,6 +41,9 @@ protocol SyncBackend: Sendable {
     /// Pulls the media files for a history entry whose photo or recording
     /// isn't cached locally any more. No-op for backends that never evict.
     func fetchMedia(for moment: Moment) async throws
+    /// Pulls only the thumbnail — what a library tile needs when it scrolls into
+    /// view past the cache window. No-op for voice memos and for backends that never evict.
+    func fetchThumbnail(for moment: Moment) async throws
     /// Publishes this device's read-receipt seen-map ({momentID: seenAt}) and
     /// which partner status it has had on screen; an empty map and `nil`
     /// retract. No-op for backends without a partner.
@@ -119,6 +122,7 @@ struct DemoBackend: SyncBackend {
     }
     func send(_ moment: Moment) async throws {}
     func fetchMedia(for moment: Moment) async throws {}
+    func fetchThumbnail(for moment: Moment) async throws {}
     func publishReceipts(_ seen: [String: Date], statusSeen: StatusSeen?) async throws {}
     func publishAnniversary(_ anniversary: Anniversary?) async throws {}
     func publishAnniversaryRequest(at date: Date) async throws {}

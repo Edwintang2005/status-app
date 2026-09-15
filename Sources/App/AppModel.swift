@@ -438,6 +438,19 @@ final class AppModel {
         }
     }
 
+    /// The library grid's version of `ensureMedia`: just the thumbnail, fetched
+    /// as the tile scrolls into view. `false` when it still isn't on disk.
+    func ensureThumbnail(for moment: Moment) async -> Bool {
+        if MomentStore.shared.hasThumbnail(for: moment.id) { return true }
+        do {
+            try await Backend.current.fetchThumbnail(for: moment)
+            return MomentStore.shared.hasThumbnail(for: moment.id)
+        } catch {
+            log.error("Couldn't fetch thumbnail for \(moment.id): \(error.localizedDescription)")
+            return false
+        }
+    }
+
     // MARK: - Sync
 
     /// PairingView's iCloud warning. Re-checked on every foregrounding, not just

@@ -26,23 +26,32 @@ struct StatusHistoryView: View {
             ZStack {
                 Theme.Background()
 
-                if filtered.isEmpty {
-                    ContentUnavailableView {
-                        Label("No statuses yet", systemImage: "clock.arrow.circlepath")
-                    } description: {
-                        Text("Statuses are logged here from now on, as they happen.")
-                    }
-                } else {
-                    List {
-                        ForEach(byDay, id: \.day) { group in
-                            Section(dayLabel(group.day)) {
-                                ForEach(group.entries) { entry in
-                                    row(entry)
+                // A plain stack, not `.safeAreaInset(edge: .top)`: under a
+                // navigation bar that inset fought UIKit's own tracking of the
+                // list's offset — a layout loop the watchdog killed (TestFlight, 2026-09).
+                VStack(spacing: 0) {
+                    HistoryFilterPicker(filter: $filter, partnerName: model.partnerName)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 8)
+
+                    if filtered.isEmpty {
+                        ContentUnavailableView {
+                            Label("No statuses yet", systemImage: "clock.arrow.circlepath")
+                        } description: {
+                            Text("Statuses are logged here from now on, as they happen.")
+                        }
+                    } else {
+                        List {
+                            ForEach(byDay, id: \.day) { group in
+                                Section(dayLabel(group.day)) {
+                                    ForEach(group.entries) { entry in
+                                        row(entry)
+                                    }
                                 }
                             }
                         }
+                        .scrollContentBackground(.hidden)
                     }
-                    .scrollContentBackground(.hidden)
                 }
             }
             .navigationTitle("Status history")
@@ -51,11 +60,6 @@ struct StatusHistoryView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
-            }
-            .safeAreaInset(edge: .top) {
-                HistoryFilterPicker(filter: $filter, partnerName: model.partnerName)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
             }
         }
         .task { entries = model.loadStatusHistory() }

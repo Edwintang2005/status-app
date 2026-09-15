@@ -103,11 +103,13 @@ struct AnniversaryView: View {
                     .buttonStyle(PrimaryButtonStyle())
                     .padding(.top, 8)
                     if let asked = model.anniversaryRequestedAt {
-                        Text("Asked \(asked, format: .relative(presentation: .named)). They'll see it when they next open the app.")
-                            .font(Theme.rounded(12))
-                            .foregroundStyle(.tertiary)
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
+                        RelativeTime(asked) { when in
+                            Text("Asked \(when). They'll see it when they next open the app.")
+                        }
+                        .font(Theme.rounded(12))
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }

@@ -96,6 +96,7 @@
 		76A4C07902D2BFAD119D0BFD /* GroupState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 696A470F75571AEF47953B89 /* GroupState.swift */; };
 		76F3516782432F0BC7D01DA4 /* CloudSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30D8E86092F4D16270481EB1 /* CloudSync.swift */; };
 		771E1EFC0E178EF3BF722FC1 /* MomentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9908897AF8F96D8BAF86FB0D /* MomentIndex.swift */; };
+		779848A0FF5B65B912ABF448 /* RelativeTime.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD7B7B4A66C4C8FE0D20011 /* RelativeTime.swift */; };
 		79AD5AE8FE7CAB369D18E0A3 /* WaveformTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4070DB188B61F687F8CDB03D /* WaveformTests.swift */; };
 		7BCC03E65D89B743A208D53B /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E639AD30E2C0F3523EC9108 /* HomeView.swift */; };
 		7F1694E17F43168AD72A0CF8 /* AnniversaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BCA5FEECD892983ED73394C /* AnniversaryView.swift */; };
@@ -328,6 +329,7 @@
 		CFFD179DB35C743DF9D7E748 /* CelebrationOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CelebrationOverlay.swift; sourceTree = "<group>"; };
 		D6D8E9381A68B07E3D63B706 /* TieTheStringView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TieTheStringView.swift; sourceTree = "<group>"; };
 		D7555940C8F32AD881C18D9E /* MomentLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentLibraryView.swift; sourceTree = "<group>"; };
+		DFD7B7B4A66C4C8FE0D20011 /* RelativeTime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelativeTime.swift; sourceTree = "<group>"; };
 		E92E3390E59B9B7286EA2FCC /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		E9DB927AC93A1FEF6AD3652F /* MomentWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentWidget.swift; sourceTree = "<group>"; };
 		ECDB179145E497E1098B7204 /* StatusHistoryLogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusHistoryLogTests.swift; sourceTree = "<group>"; };
@@ -542,6 +544,7 @@
 				210847458004C670433D6EC5 /* MoodPickerView.swift */,
 				AAF80F7994B39BDEC9BA087D /* PairingView.swift */,
 				88CFEE9BF9F2D4F1C4724B57 /* PinchToZoom.swift */,
+				DFD7B7B4A66C4C8FE0D20011 /* RelativeTime.swift */,
 				7979986C14FC84136536B46B /* RootView.swift */,
 				AC155C3E136DF4423C65E036 /* ScrubbableWaveform.swift */,
 				44EDE9EF4B8224158C8BCD5F /* SettingsView.swift */,
@@ -939,6 +942,7 @@
 				AB8284D702A9CDEFA3A707AF /* RedStringApp.swift in Sources */,
 				E079F5CB660A35AB04805F96 /* RedStringShortcuts.swift in Sources */,
 				50EE6450E636D453874867D9 /* RefreshDelta.swift in Sources */,
+				779848A0FF5B65B912ABF448 /* RelativeTime.swift in Sources */,
 				545B0DA5DD884199F120B05F /* RootView.swift in Sources */,
 				BF1744649A5E036BACF57BC6 /* ScrubbableWaveform.swift in Sources */,
 				C7F4348FCB462ED6E35AE63A /* SendNudgeIntent.swift in Sources */,

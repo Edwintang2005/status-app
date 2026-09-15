@@ -8,12 +8,13 @@ struct MomentLibraryView: View {
 
     @State private var opened: Moment?
     @State private var filter: HistoryFilter = .all
+    @State private var kind: MomentKindFilter = .all
     @State private var reporting: Moment?
 
     private let columns = [GridItem(.adaptive(minimum: 104), spacing: 8)]
 
     private var filtered: [Moment] {
-        model.history.filter { filter.allows(fromMe: $0.fromMe) }
+        model.history.filter { filter.allows(fromMe: $0.fromMe) && kind.allows($0.kind) }
     }
 
     var body: some View {
@@ -21,36 +22,54 @@ struct MomentLibraryView: View {
             ZStack {
                 Theme.Background()
 
-                if filtered.isEmpty {
-                    ContentUnavailableView {
-                        Label("Nothing here yet", systemImage: "photo.on.rectangle.angled")
-                    } description: {
-                        Text(filter == .all
-                             ? "Anything you send each other shows up here."
-                             : "Nothing in this direction yet.")
-                    }
-                } else {
-                    ScrollView {
-                        LazyVGrid(columns: columns, spacing: 8) {
-                            ForEach(filtered) { moment in
-                                cell(moment)
-                            }
+                // A plain stack, not `.safeAreaInset(edge: .top)` — see `StatusHistoryView`.
+                VStack(spacing: 0) {
+                    HistoryFilterPicker(filter: $filter, partnerName: model.partnerName)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 8)
+
+                    if filtered.isEmpty {
+                        ContentUnavailableView {
+                            Label("Nothing here yet", systemImage: "photo.on.rectangle.angled")
+                        } description: {
+                            Text(filter == .all && kind == .all
+                                 ? "Anything you send each other shows up here."
+                                 : "Nothing matches these filters yet.")
                         }
-                        .padding(12)
+                    } else {
+                        ScrollView {
+                            LazyVGrid(columns: columns, spacing: 8) {
+                                ForEach(filtered) { moment in
+                                    cell(moment)
+                                }
+                            }
+                            .padding(12)
+                        }
                     }
                 }
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Menu {
+                        Picker("Type", selection: $kind) {
+                            ForEach(MomentKindFilter.allCases) { choice in
+                                Label(choice.label, systemImage: choice.symbolName).tag(choice)
+                            }
+                        }
+                        .pickerStyle(.inline)
+                    } label: {
+                        Image(systemName: kind == .all
+                              ? "line.3.horizontal.decrease.circle"
+                              : "line.3.horizontal.decrease.circle.fill")
+                    }
+                    .accessibilityLabel("Filter by type")
+                    .accessibilityValue(kind.label)
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
-            }
-            .safeAreaInset(edge: .top) {
-                HistoryFilterPicker(filter: $filter, partnerName: model.partnerName)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
             }
             .sheet(item: $opened) { moment in
                 // The filtered list, so paging stays within what was on screen.
@@ -128,7 +147,7 @@ struct MomentLibraryView: View {
             ? String(localized: "you")
             : moment.displaySenderName(fallback: model.partnerName)
         var parts = [String(localized: "\(moment.noun) from \(who)"),
-                     moment.sentAt.formatted(.relative(presentation: .named))]
+                     moment.sentAt.relativeWording()]
         if !moment.seen && !moment.fromMe { parts.append(String(localized: "new")) }
         if moment.fromMe {
             if !moment.uploaded {
@@ -146,21 +165,49 @@ struct MomentLibraryView: View {
         return "arrow.up.right"
     }
 
-    /// Entries past the media cache window are fetched on demand when opened,
-    /// never eagerly. Voice tiles draw from the indexed waveform, so they render without audio.
+    /// Voice tiles draw from the indexed waveform, so they render without audio.
     @ViewBuilder
     private func thumbnail(_ moment: Moment) -> some View {
         if moment.isVoice {
             VoiceMomentTile(moment: moment)
-        } else if let image = MomentStore.shared.thumbnail(for: moment.id) {
+        } else {
+            LibraryThumbnail(moment: moment)
+        }
+    }
+}
+
+/// A photo or drawing tile. Past the media cache window the thumbnail is
+/// fetched as the tile scrolls into view — the grid is lazy, so only what's on
+/// screen is asked for, and scrolling away cancels the task.
+private struct LibraryThumbnail: View {
+    @Environment(AppModel.self) private var model
+    let moment: Moment
+
+    @State private var image: UIImage?
+    @State private var unavailable = false
+
+    var body: some View {
+        if let image {
             Image(uiImage: image).resizable().scaledToFill()
         } else {
             Rectangle()
                 .fill(Color.primary.opacity(0.06))
                 .overlay {
-                    Image(systemName: "icloud.and.arrow.down")
-                        .font(.system(size: 18))
-                        .foregroundStyle(.tertiary)
+                    if unavailable {
+                        Image(systemName: "exclamationmark.icloud")
+                            .font(.system(size: 18))
+                            .foregroundStyle(.tertiary)
+                    } else {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+                .task(id: moment.id) {
+                    image = MomentStore.shared.thumbnail(for: moment.id)
+                    guard image == nil else { return }
+                    let fetched = await model.ensureThumbnail(for: moment)
+                    guard !Task.isCancelled else { return }
+                    image = MomentStore.shared.thumbnail(for: moment.id)
+                    unavailable = !fetched && image == nil
                 }
         }
     }

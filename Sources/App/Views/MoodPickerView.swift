@@ -18,6 +18,9 @@ struct MoodPickerView: View {
     /// Tile for the selection highlight, tracked by id: a preset tap keeps a
     /// hand-typed message, and some presets share an emoji, so neither identifies the tile.
     @State private var selectedPresetID: String?
+    /// Set once: a second tap on "Set" while the sheet is on its way out
+    /// would send the same status twice.
+    @State private var committed = false
     @FocusState private var messageFocused: Bool
 
     /// Groups with their matching presets, empty groups dropped.
@@ -252,7 +255,8 @@ struct MoodPickerView: View {
     }
 
     private func commit() {
-        guard !emoji.isEmpty else { return }
+        guard !emoji.isEmpty, !committed else { return }
+        committed = true
         onSelect(emoji, message, isCelebration)
         dismiss()
     }

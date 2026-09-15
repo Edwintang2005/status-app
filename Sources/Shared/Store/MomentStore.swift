@@ -207,19 +207,25 @@ struct MomentStore {
         }
     }
 
-    /// Drops files for moments no longer in the index. Files newer than
-    /// `graceInterval` are spared — media is written before its index entry, and
-    /// a prune in that gap would delete the only copy. Pass 0 only for a full wipe.
-    func prune(keeping ids: some Collection<String>, graceInterval: TimeInterval = 300) {
+    /// Drops files outside the cache window. Thumbnails of `thumbnailIDs` stay
+    /// whatever their age — the library grid draws from them, and at ~30 KB each
+    /// the whole index's worth is small. Files newer than `graceInterval` are
+    /// spared — media is written before its index entry, and a prune in that gap
+    /// would delete the only copy. Pass 0 only for a full wipe.
+    func prune(keeping ids: some Collection<String>,
+               thumbnailsFor thumbnailIDs: some Collection<String> = [String](),
+               graceInterval: TimeInterval = 300) {
         guard let directory else { return }
         let keep = Set(ids)
+        let keepThumbs = Set(thumbnailIDs)
         let contents = (try? FileManager.default.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
         for url in contents {
             let name = url.deletingPathExtension().lastPathComponent
-            let id = name.hasSuffix("-thumb") ? String(name.dropLast("-thumb".count)) : name
-            guard !keep.contains(id) else { continue }
+            let isThumb = name.hasSuffix("-thumb")
+            let id = isThumb ? String(name.dropLast("-thumb".count)) : name
+            guard !keep.contains(id), !(isThumb && keepThumbs.contains(id)) else { continue }
             if graceInterval > 0,
                let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey])
                    .contentModificationDate,

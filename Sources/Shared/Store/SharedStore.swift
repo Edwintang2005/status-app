@@ -260,9 +260,10 @@ final class SharedStore {
         // Index keeps every entry; only recent files stay on disk — older
         // media is re-fetched from CloudKit on demand. A send still waiting to
         // upload has no cloud copy to re-fetch, so its files stay whatever its age.
+        // Thumbnails stay for the whole index: the library grid scrolls through them.
         let keep = all.prefix(AppConfig.momentImageCacheLimit).map(\.id)
             + all.filter { $0.fromMe && !$0.uploaded }.map(\.id)
-        MomentStore.shared.prune(keeping: keep)
+        MomentStore.shared.prune(keeping: keep, thumbnailsFor: all.map(\.id))
         Self.reloadWidgets()
     }
 

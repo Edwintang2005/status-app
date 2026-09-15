@@ -83,6 +83,20 @@ extension CloudSync {
         try await downloadMedia(for: moment, pairing: pairing, in: database)
     }
 
+    /// The thumbnail alone, by `desiredKeys` so the full-size asset never
+    /// leaves the server for a tile that only needs the small one.
+    func fetchThumbnail(for moment: Moment) async throws {
+        guard !moment.isVoice else { return }
+        let pairing = try await requirePairing()
+        let database = self.database(for: pairing)
+        let role = moment.fromMe ? pairing.role : pairing.role.other
+        let recordID = CKRecord.ID(recordName: role.momentRecordName(id: moment.id),
+                                   zoneID: zoneID(for: pairing))
+        let results = try await database.records(for: [recordID], desiredKeys: [Field.thumb])
+        guard case .success(let record)? = results[recordID] else { return }
+        try Self.copyAsset(record[Field.thumb] as? CKAsset, to: MomentStore.shared.thumbURL(for: moment.id))
+    }
+
     func downloadMedia(for moment: Moment,
                                pairing: PairingInfo,
                                in database: CKDatabase) async throws {
