@@ -12,6 +12,11 @@ struct MomentGalleryView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var selection: String
+    /// Ids within `reach` pages of the selection. A page-style TabView builds
+    /// every page eagerly, so a 500-entry history meant seconds of layout on
+    /// open; pages outside this set render as an empty placeholder instead.
+    /// The list itself never changes — inserting pages shifts the selection.
+    @State private var nearIDs: Set<String>
     @State private var saveState: SaveState = .idle
     /// One player for the whole gallery, so paging never layers two voices.
     @State private var player = VoicePlayer()
@@ -28,10 +33,20 @@ struct MomentGalleryView: View {
         case failed(String)
     }
 
+    /// Pages either side of the current one that are fully built.
+    private static let reach = 2
+
     init(moments: [Moment], startAt: Moment) {
         self.moments = moments
         self.startAt = startAt
         _selection = State(initialValue: startAt.id)
+        _nearIDs = State(initialValue: Self.near(startAt.id, in: moments))
+    }
+
+    private static func near(_ id: String, in moments: [Moment]) -> Set<String> {
+        guard let index = moments.firstIndex(where: { $0.id == id }) else { return [id] }
+        let range = max(0, index - reach)...min(moments.count - 1, index + reach)
+        return Set(moments[range].map(\.id))
     }
 
     private var current: Moment? {
@@ -49,7 +64,14 @@ struct MomentGalleryView: View {
                 } else {
                     TabView(selection: $selection) {
                         ForEach(moments) { moment in
-                            page(moment).tag(moment.id)
+                            Group {
+                                if nearIDs.contains(moment.id) {
+                                    page(moment)
+                                } else {
+                                    Color.clear
+                                }
+                            }
+                            .tag(moment.id)
                         }
                     }
                     .tabViewStyle(.page(indexDisplayMode: moments.count > 1 ? .automatic : .never))
@@ -102,6 +124,7 @@ struct MomentGalleryView: View {
             }
             .task(id: selection) {
                 saveState = .idle
+                nearIDs = Self.near(selection, in: moments)
                 // Paging away from a memo stops it.
                 player.stop()
                 markCurrentSeen()

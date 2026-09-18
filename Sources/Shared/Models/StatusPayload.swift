@@ -129,8 +129,10 @@ enum PairRole: String, Codable {
 
     /// The status timestamp back out of a log record name, or `nil` if it isn't ours.
     func statusLogDate(fromRecordName name: String) -> Date? {
+        // `TimeInterval("inf")` parses; a non-finite date traps in `Int(...)` later.
         guard name.hasPrefix(statusLogRecordPrefix),
-              let seconds = TimeInterval(name.dropFirst(statusLogRecordPrefix.count)) else {
+              let seconds = TimeInterval(name.dropFirst(statusLogRecordPrefix.count)),
+              seconds.isFinite else {
             return nil
         }
         return Date(timeIntervalSince1970: seconds)

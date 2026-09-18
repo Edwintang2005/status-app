@@ -47,4 +47,11 @@ final class PairRoleTests: XCTestCase {
         XCTAssertNil(PairRole.owner.statusLogDate(fromRecordName: name))
         XCTAssertNil(PairRole.participant.statusLogDate(fromRecordName: "statuslog-participant-x"))
     }
+
+    func testStatusLogDateRejectsNonFiniteSeconds() {
+        // `Double("inf")` parses; the date would later trap in `Int(...)`.
+        for bad in ["inf", "-inf", "nan", "infinity"] {
+            XCTAssertNil(PairRole.owner.statusLogDate(fromRecordName: "statuslog-owner-\(bad)"), bad)
+        }
+    }
 }

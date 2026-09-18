@@ -14,6 +14,9 @@ struct RefreshResult: Sendable {
     /// device on the same iCloud account. The notification service words its
     /// banner accordingly rather than crediting the partner.
     var ownRecordsChanged = false
+    /// An extension took one batch of a larger delta and left the rest for the
+    /// app (`CloudSync.fetchZoneChanges`); the pushed record may not be in it.
+    var incomplete = false
 
     var unreadableRecords: Int { unreadableRecordNames.count }
     var newestPartnerMoment: Moment? { newPartnerMoments.last }
@@ -70,21 +73,42 @@ extension SyncBackend {
     }
 }
 
-/// Runs `body` or gives up after `seconds`, cancelling it. For the widget and
-/// its intent: WidgetKit kills the process past its budget, and a kill mid-
-/// write leaves claims (the nudge cooldown) unreleased — a cancellation error
-/// takes the normal failure path instead.
+/// Runs `body` or gives up after `seconds`. For the widget and its intent:
+/// WidgetKit kills the process past its budget, and a kill mid-write leaves
+/// claims (the nudge cooldown) unreleased. On the deadline `body` is cancelled
+/// and left to finish on its own — a task group would wait for it, and the
+/// auto-imported CloudKit calls ignore cancellation — so the caller returns on
+/// time while `body`'s own cancellation checks take its failure path.
 func withDeadline<T: Sendable>(_ seconds: TimeInterval,
                                _ body: @escaping @Sendable () async throws -> T) async throws -> T {
-    try await withThrowingTaskGroup(of: T.self) { group in
-        group.addTask { try await body() }
-        group.addTask {
-            try await Task.sleep(for: .seconds(seconds))
-            throw CancellationError()
+    let settled = DeadlineSettled()
+    return try await withCheckedThrowingContinuation { continuation in
+        let work = Task {
+            let result: Result<T, Error>
+            do { result = .success(try await body()) } catch { result = .failure(error) }
+            if settled.claim() { continuation.resume(with: result) }
         }
-        guard let first = try await group.next() else { throw CancellationError() }
-        group.cancelAll()
-        return first
+        Task {
+            try? await Task.sleep(for: .seconds(seconds))
+            guard settled.claim() else { return }
+            work.cancel()
+            // The body finishing first leaves this sleeper to run out; harmless.
+            continuation.resume(throwing: CancellationError())
+        }
+    }
+}
+
+/// One resume per continuation, whichever of the body and the deadline lands first.
+private final class DeadlineSettled: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !done else { return false }
+        done = true
+        return true
     }
 }
 

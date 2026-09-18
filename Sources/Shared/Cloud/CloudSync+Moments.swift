@@ -139,7 +139,8 @@ extension CloudSync {
             senderName: record.encryptedValues[Field.senderName] as? String ?? "",
             sentAt: record[Field.sentAt] as? Date ?? record.modificationDate ?? Date(),
             fromMe: fromMe,
-            duration: record[Field.duration] as? Double ?? 0,
+            // The partner's number: `Int(duration)` in the label traps on non-finite.
+            duration: (record[Field.duration] as? Double).flatMap { $0.isFinite && $0 >= 0 ? $0 : nil } ?? 0,
             waveform: record.encryptedValues[Field.waveform] as? [Double] ?? []
         )
     }

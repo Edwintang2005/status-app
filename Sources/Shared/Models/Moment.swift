@@ -124,7 +124,7 @@ extension Moment {
 
     /// `0:07`, `1:24`. Voice memos only.
     var durationLabel: String {
-        let total = Int(duration.rounded())
+        let total = duration.isFinite ? Int(min(duration.rounded(), 359_999)) : 0
         return String(format: "%d:%02d", total / 60, total % 60)
     }
 }

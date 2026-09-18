@@ -27,6 +27,8 @@ final class VoiceRecorder {
     @ObservationIgnored private(set) var fileURL: URL?
 
     @ObservationIgnored private var recorder: AVAudioRecorder?
+    /// `start()` is past its state check and awaiting the microphone permission.
+    @ObservationIgnored private var starting = false
     @ObservationIgnored private var ticker: Task<Void, Never>?
     @ObservationIgnored private let log = Logger(subsystem: AppConfig.appGroupID,
                                                  category: "VoiceRecorder")
@@ -55,7 +57,11 @@ final class VoiceRecorder {
     // MARK: - Recording
 
     func start() async {
-        guard state != .recording else { return }
+        // Claimed before the permission await: two quick taps both passed the
+        // state check and the second recorder overwrote the first.
+        guard state != .recording, !starting else { return }
+        starting = true
+        defer { starting = false }
         errorMessage = nil
 
         guard await Self.requestPermission() else {

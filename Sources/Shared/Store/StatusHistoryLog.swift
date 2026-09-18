@@ -112,10 +112,15 @@ final class StatusHistoryLog {
         defer { lock.unlock() }
 
         crossLock.withLock {
-            let targets = Set(dates.map { Int($0.timeIntervalSince1970.rounded(.down)) })
+            // `Int(exactly:)`, so a non-finite date can never trap here.
+            let targets = Set(dates.compactMap { Int(exactly: $0.timeIntervalSince1970.rounded(.down)) })
             var all = loadUnlocked()
             let before = all.count
-            all.removeAll { $0.fromMe == fromMe && targets.contains(Int($0.at.timeIntervalSince1970)) }
+            all.removeAll {
+                guard $0.fromMe == fromMe,
+                      let seconds = Int(exactly: $0.at.timeIntervalSince1970.rounded(.down)) else { return false }
+                return targets.contains(seconds)
+            }
             if all.count != before { saveUnlocked(all) }
         }
     }

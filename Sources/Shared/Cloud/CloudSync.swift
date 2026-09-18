@@ -311,8 +311,9 @@ actor CloudSync: SyncBackend {
             // Whole seconds: local persistence is ISO-8601 (no fractional
             // seconds), and equality against stored copies — the announce
             // watermark, celebration replay guard, history dedup — must hold.
-            let updated = record[Field.updatedAt] as? Date
-                ?? record.modificationDate
+            let updated = [record[Field.updatedAt] as? Date, record.modificationDate]
+                .compactMap { $0 }
+                .first { $0.timeIntervalSince1970.isFinite }
                 ?? payload.updatedAt
             payload.updatedAt = Date(timeIntervalSince1970: updated.timeIntervalSince1970.rounded(.down))
             // Fallback must be `false`, not the previous value — otherwise a

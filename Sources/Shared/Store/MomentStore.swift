@@ -69,10 +69,12 @@ struct MomentStore {
     }
 
     /// Decoded-thumbnail cache; `NSCache` self-evicts under pressure, which
-    /// matters in the widget's tight memory budget.
+    /// matters in the widget's tight memory budget. Bounded by decoded bytes,
+    /// not count: 120 thumbnails at ~1 MB each was the app's largest allocation.
     private static let thumbnailCache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
         cache.countLimit = 120
+        cache.totalCostLimit = 24 * 1_024 * 1_024
         return cache
     }()
 
@@ -81,7 +83,8 @@ struct MomentStore {
         if let cached = Self.thumbnailCache.object(forKey: id as NSString) { return cached }
         guard let url = thumbURL(for: id),
               let image = UIImage(contentsOfFile: url.path) else { return nil }
-        Self.thumbnailCache.setObject(image, forKey: id as NSString)
+        let pixels = image.size.width * image.scale * image.size.height * image.scale
+        Self.thumbnailCache.setObject(image, forKey: id as NSString, cost: Int(pixels * 4))
         return image
     }
 

@@ -19,27 +19,37 @@ extension CloudSync {
             Self.decodeToken(SharedStore.shared.changeToken(for: tokenKey))
         }
 
+        // Extensions live under a 24–30 MB ceiling: they take one batch of a
+        // large delta and leave the rest to the app, which finishes the resync.
+        let oneBatch = Self.isAppExtension
         let changes: ZoneChanges
         do {
-            changes = try await fetchZoneChanges(zone: zone, in: database, since: previous)
+            changes = try await fetchZoneChanges(zone: zone, in: database, since: previous, oneBatch: oneBatch)
         } catch let error as CKError where Self.isTokenExpired(error) {
             // Token expiry is zone-scoped, so it arrives wrapped in .partialFailure —
             // matching only the bare code left every refresh failing forever.
             log.notice("Change token expired, resyncing the whole zone.")
             previous = nil
             await MainActor.run { SharedStore.shared.setChangeToken(nil, for: tokenKey) }
-            changes = try await fetchZoneChanges(zone: zone, in: database, since: nil)
+            changes = try await fetchZoneChanges(zone: zone, in: database, since: nil, oneBatch: oneBatch)
         } catch let error as CKError where Self.isAlreadyGone(error) {
             // The other side unlinked, or the zone is briefly gone mid-handshake.
             throw try await zoneGoneVerdict(pairing)
         }
+        // A deadline landing here (the widget's) must stop before anything is
+        // applied: a half-applied delta must not be followed by its token.
+        try Task.checkCancellation()
         // The zone answered: any earlier "gone" sighting was transient.
         await MainActor.run { SharedStore.shared.zoneGoneSeenAt = nil }
+        if changes.moreComing {
+            log.notice("Took one batch of \(changes.records.count) records; the app will fetch the rest.")
+        }
 
         // Apply first, then advance the token: the other order can persist the token
         // without the records (the extension gets killed on a deadline), losing them
         // forever. Re-applying the same delta twice is tolerated everywhere here.
-        let result = await apply(changes, pairing: pairing, database: database)
+        var result = await apply(changes, pairing: pairing, database: database)
+        result.incomplete = changes.moreComing
 
         // Readable before token: a record whose encrypted fields came back empty
         // (a background process without the share's keys) carried nothing into
@@ -93,16 +103,27 @@ extension CloudSync {
         var records: [CKRecord] = []
         var deletedIDs: [CKRecord.ID] = []
         var token: CKServerChangeToken?
+        /// `oneBatch` stopped short; `token` continues from where it stopped.
+        var moreComing = false
     }
+
+    /// Records an extension takes per refresh before handing over to the app.
+    static let extensionBatchLimit = 150
+
+    /// Whether this process is the widget or the notification service.
+    static var isAppExtension: Bool { SharedStore.processLabel != "app" }
 
     /// Assets are excluded via `desiredKeys` — a first sync would otherwise pull
     /// every photo and recording ever sent. Media is fetched separately, on demand.
+    /// `oneBatch` returns after the first page with `moreComing` set; the page's
+    /// token is a valid cursor, so applying it before persisting stays safe.
     func fetchZoneChanges(zone: CKRecordZone.ID,
                                   in database: CKDatabase,
-                                  since previous: CKServerChangeToken?) async throws -> ZoneChanges {
+                                  since previous: CKServerChangeToken?,
+                                  oneBatch: Bool = false) async throws -> ZoneChanges {
         let configuration = CKFetchRecordZoneChangesOperation.ZoneConfiguration(
             previousServerChangeToken: previous,
-            resultsLimit: nil,
+            resultsLimit: oneBatch ? Self.extensionBatchLimit : nil,
             desiredKeys: [
                 Field.emoji, Field.message, Field.displayName, Field.updatedAt,
                 Field.isCelebration,
@@ -119,7 +140,7 @@ extension CloudSync {
             recordZoneIDs: [zone],
             configurationsByRecordZoneID: [zone: configuration]
         )
-        operation.fetchAllChanges = true
+        operation.fetchAllChanges = !oneBatch
 
         let changes = ZoneChanges()
         operation.recordWasChangedBlock = { _, result in
@@ -129,7 +150,10 @@ extension CloudSync {
             changes.deletedIDs.append(recordID)
         }
         operation.recordZoneFetchResultBlock = { _, result in
-            if case .success(let value) = result { changes.token = value.serverChangeToken }
+            if case .success(let value) = result {
+                changes.token = value.serverChangeToken
+                changes.moreComing = value.moreComing
+            }
         }
 
         // Without the cancellation handler the operation runs to completion regardless,
@@ -365,12 +389,20 @@ extension CloudSync {
 
     /// Only the newest few, so a first sync after reinstall doesn't pull down
     /// hundreds of photos and recordings at once. The rest arrive on demand.
+    /// The widget takes only the thumbnails it draws, and every process stops
+    /// at a cancellation — the records are already applied, so nothing is lost.
     func downloadRecentMedia(for moments: [Moment],
                                      pairing: PairingInfo,
                                      in database: CKDatabase) async {
-        let recent = moments.sorted { $0.sentAt > $1.sentAt }.prefix(10)
-        for moment in recent where !MomentStore.shared.hasMedia(for: moment) {
-            try? await downloadMedia(for: moment, pairing: pairing, in: database)
+        let thumbnailsOnly = SharedStore.isRunningInWidgetExtension
+        let recent = moments.sorted { $0.sentAt > $1.sentAt }.prefix(thumbnailsOnly ? 3 : 10)
+        for moment in recent where !Task.isCancelled {
+            if thumbnailsOnly {
+                guard !moment.isVoice, !MomentStore.shared.hasThumbnail(for: moment.id) else { continue }
+                try? await fetchThumbnail(for: moment)
+            } else if !MomentStore.shared.hasMedia(for: moment) {
+                try? await downloadMedia(for: moment, pairing: pairing, in: database)
+            }
         }
         SharedStore.reloadWidgets()
     }

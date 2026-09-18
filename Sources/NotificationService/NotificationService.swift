@@ -98,10 +98,10 @@ final class NotificationService: UNNotificationServiceExtension {
         // push. Each branch claims against the watermarks; an unclaimed push is
         // either our own write from another device on this account, or an event
         // some other process already announced — neither is news from the partner.
-        // Unless this process simply couldn't decrypt the delta (a locked phone):
-        // then the event is real and unannounced, and CloudKit's generic words
-        // must stay at full volume.
-        let couldNotRead = !result.unreadableRecordNames.isEmpty
+        // Unless this process simply couldn't decrypt the delta (a locked phone),
+        // or only took the first batch of a large one: then the event is real
+        // and unannounced, and CloudKit's generic words must stay at full volume.
+        let couldNotRead = !result.unreadableRecordNames.isEmpty || result.incomplete
         switch notification.subscriptionID {
         case CloudSync.SubscriptionID.moment?:
             // Picked and claimed inside one `mutate` under the cross-process lock —

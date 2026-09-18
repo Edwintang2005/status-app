@@ -79,10 +79,11 @@ enum NotificationManager {
         content.categoryIdentifier = NotificationCategory.moment
 
         // If the refresh's best-effort media download failed, fetch here rather
-        // than announcing a photo with no photo.
+        // than announcing a photo with no photo. Bounded: this can run inside a
+        // background-fetch budget, which iOS ends silently when overrun.
         var attachment = MomentAttachment.make(for: moment, suffix: "notify")
         if attachment == nil {
-            try? await Backend.current.fetchMedia(for: moment)
+            try? await withDeadline(AppConfig.widgetDeadline) { try await Backend.current.fetchMedia(for: moment) }
             attachment = MomentAttachment.make(for: moment, suffix: "notify")
         }
         if let attachment {

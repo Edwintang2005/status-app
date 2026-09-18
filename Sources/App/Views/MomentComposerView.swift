@@ -74,8 +74,14 @@ struct MomentComposerView: View {
         .interactiveDismissDisabled(hasContent)
         .fullScreenCover(isPresented: $showingCamera) {
             CameraPicker { image in
-                photo = image.composerSized()
-                isDrawing = false
+                // Off the main thread, like the library path: a full camera
+                // frame decodes to hundreds of MB while the camera is still up.
+                Task {
+                    photo = await Task.detached(priority: .userInitiated) {
+                        image.composerSized()
+                    }.value
+                    isDrawing = false
+                }
             }
             .ignoresSafeArea()
         }

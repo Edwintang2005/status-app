@@ -83,6 +83,9 @@ extension CloudSync {
                            at now: Date) async throws -> Int {
         let record = try await fetchRecord(recordID, in: database)
             ?? CKRecord(recordType: RecordType.nudge, recordID: recordID)
+        // The intent's deadline cancels rather than waits; the failure path
+        // below must get to release the cooldown before WidgetKit suspends us.
+        try Task.checkCancellation()
         let next = (record[Field.count] as? Int ?? 0) + 1
         record[Field.count] = next as CKRecordValue
         record[Field.sentAt] = now as CKRecordValue
