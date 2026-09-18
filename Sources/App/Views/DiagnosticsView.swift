@@ -6,7 +6,12 @@ import UniformTypeIdentifiers
 /// failures (Dev-vs-Prod database mismatch, a pairing to a zone never actually
 /// joined) are invisible from the normal UI.
 struct DiagnosticsView: View {
+    @Environment(AppModel.self) private var model
+
     @State private var diagnostics: CloudDiagnostics?
+    @State private var resyncing = false
+    /// Outcome line for the history re-check, shown under its button.
+    @State private var resyncResult: String?
     @State private var copied = false
     @State private var securing = false
     /// Outcome line for the manual promote-and-close, shown under its button.
@@ -116,6 +121,34 @@ struct DiagnosticsView: View {
                     }
                 }
 
+                if model.isPaired {
+                    Section {
+                        Button {
+                            Task { await resyncNow() }
+                        } label: {
+                            if resyncing {
+                                HStack {
+                                    ProgressView().controlSize(.small)
+                                    Text("Checking…")
+                                }
+                            } else {
+                                Label("Re-check sent moments", systemImage: "arrow.triangle.2.circlepath.icloud")
+                            }
+                        }
+                        .disabled(resyncing)
+                        if let resyncResult {
+                            Text(resyncResult)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    } footer: {
+                        Text("Fetches the whole shared history again and compares it with what this "
+                             + "phone believes it sent. Anything marked sent that iCloud never "
+                             + "received is sent again — a photo saved during patchy signal can "
+                             + "look delivered here without ever having left the phone.")
+                    }
+                }
+
                 list("Push subscriptions", diagnostics.subscriptions,
                      empty: "None registered yet.")
 
@@ -172,6 +205,25 @@ struct DiagnosticsView: View {
         let problem = await CloudSync.shared.secureInviteIfPartnerJoined()
         secureResult = problem
             ?? String(localized: "Done — the link is closed. If your partner shows as \u{201C}invited\u{201D} or \u{201C}pending\u{201D} above, they confirm by tapping the invite link once.")
+        await reload()
+    }
+
+    private func resyncNow() async {
+        resyncing = true
+        defer { resyncing = false }
+        guard let found = await model.resyncHistory() else {
+            resyncResult = String(localized: "Couldn't fetch the history from iCloud. Try again on a better connection.")
+            await reload()
+            return
+        }
+        let stillPending = model.pendingUploadCount
+        if found == 0 {
+            resyncResult = String(localized: "Everything this phone sent is in iCloud.")
+        } else if stillPending == 0 {
+            resyncResult = String(localized: "\(found) moment(s) were missing from iCloud and have now been sent.")
+        } else {
+            resyncResult = String(localized: "\(found) moment(s) were missing from iCloud; \(stillPending) still waiting — the home screen retries them.")
+        }
         await reload()
     }
 

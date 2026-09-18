@@ -60,7 +60,12 @@ extension CloudSync {
         // Batched: hundreds of deletions in one modify is a `limitExceeded`.
         for start in stride(from: 0, to: mine.count, by: 200) {
             let batch = Array(mine[start..<min(start + 200, mine.count)])
-            _ = try await database.modifyRecords(saving: [], deleting: batch)
+            let result = try await database.modifyRecords(saving: [], deleting: batch)
+            // Leaving one behind sits in the ex's iCloud; "already gone" is fine.
+            for id in batch {
+                do { try Self.confirmDeleted(result, id) }
+                catch let error as CKError where Self.isUnknownItem(error) {}
+            }
         }
         log.notice("Deleted \(mine.count) of our own records before leaving the share.")
     }
@@ -75,7 +80,7 @@ extension CloudSync {
             _ = try await database.modifyRecordZones(saving: [], deleting: [zone])
             return
         }
-        _ = try await database.modifyRecords(saving: [], deleting: [shareID])
+        try Self.confirmDeleted(try await database.modifyRecords(saving: [], deleting: [shareID]), shareID)
     }
 
     /// Whether an error means "it isn't there any more". Partial failures are

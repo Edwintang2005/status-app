@@ -52,9 +52,10 @@ extension CloudSync {
         record.encryptedValues[Field.message] = payload.message
         record.encryptedValues[Field.isCelebration] = payload.isCelebration ? 1 : 0
         record[Field.updatedAt] = payload.updatedAt as CKRecordValue
-        _ = try await database.modifyRecords(saving: [record],
-                                             deleting: [],
-                                             savePolicy: .allKeys)
+        let result = try await database.modifyRecords(saving: [record],
+                                                      deleting: [],
+                                                      savePolicy: .allKeys)
+        try Self.confirmSaved(result, recordID)
     }
 
     /// Deletes this side's log records past `AppConfig.statusLogLimit`, oldest
@@ -116,8 +117,9 @@ extension CloudSync {
         record.encryptedValues[Field.displayName] = payload.displayName
         record.encryptedValues[Field.isCelebration] = payload.isCelebration ? 1 : 0
         record[Field.updatedAt] = payload.updatedAt as CKRecordValue
-        _ = try await database.modifyRecords(saving: [record],
-                                             deleting: [],
-                                             savePolicy: .changedKeys)
+        let result = try await database.modifyRecords(saving: [record],
+                                                      deleting: [],
+                                                      savePolicy: .changedKeys)
+        try Self.confirmSaved(result, recordID)
     }
 }

@@ -51,6 +51,23 @@ extension CloudSync {
         var result = await apply(changes, pairing: pairing, database: database)
         result.incomplete = changes.moreComing
 
+        // A complete fetch of the whole zone is the one moment "not returned"
+        // means "not on the server": own sends marked delivered that it didn't
+        // return go back in the retry queue (`requeueMissingUploads`). Judged by
+        // record name, so a copy this process couldn't decrypt still counts as
+        // present. App only — an extension's batch is never the whole zone.
+        if previous == nil, !changes.moreComing, !Self.isAppExtension {
+            let delivered = Set(changes.records.compactMap {
+                pairing.role.momentID(fromRecordName: $0.recordID.recordName)
+            })
+            let requeued = MomentIndex.shared.requeueMissingUploads(
+                delivered: delivered, hasMedia: MomentStore.shared.hasMedia)
+            if !requeued.isEmpty {
+                log.error("\(requeued.count) own moment(s) marked sent were missing from the zone; re-queued for upload.")
+                result.requeuedUploads = requeued.count
+            }
+        }
+
         // Readable before token: a record whose encrypted fields came back empty
         // (a background process without the share's keys) carried nothing into
         // local state, and advancing past it would lose its words for good. The

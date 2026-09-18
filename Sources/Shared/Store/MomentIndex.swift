@@ -161,6 +161,31 @@ final class MomentIndex {
         }
     }
 
+    /// After a full-zone fetch: own moments marked uploaded that the zone did
+    /// not return were never stored (a save whose failure went unnoticed) and
+    /// go back in the retry queue. Only those whose media is still here — a
+    /// pending entry without media is dropped by the retry as a ghost, and the
+    /// local copy is all that's left of these. Returns what was re-queued.
+    @discardableResult
+    func requeueMissingUploads(delivered: Set<String>,
+                               hasMedia: (Moment) -> Bool) -> [Moment] {
+        lock.lock()
+        defer { lock.unlock() }
+
+        return crossLock.withLock {
+            var all = loadUnlocked()
+            var requeued: [Moment] = []
+            for index in all.indices
+            where all[index].fromMe && all[index].uploaded
+                && !delivered.contains(all[index].id) && hasMedia(all[index]) {
+                all[index].uploaded = false
+                requeued.append(all[index])
+            }
+            if !requeued.isEmpty { saveUnlocked(all) }
+            return requeued
+        }
+    }
+
     func remove(id: String) {
         lock.lock()
         defer { lock.unlock() }

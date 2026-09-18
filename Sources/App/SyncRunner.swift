@@ -14,7 +14,7 @@ enum SyncRunner {
         let store = SharedStore.shared
         let previousStatus = store.snapshot.theirs
 
-        let result = try await Backend.current.refresh()
+        let result = try await withDeadline(AppConfig.refreshDeadline) { try await Backend.current.refresh() }
 
         // Check and claim inside one `mutate`, under the cross-process lock: the service
         // extension advances the same watermarks, and check-then-act outside it double-announced.

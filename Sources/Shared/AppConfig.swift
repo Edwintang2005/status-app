@@ -100,4 +100,13 @@ enum AppConfig {
     /// Ceiling on any CloudKit call made from a widget or its intent — WidgetKit
     /// kills the process past its budget, and a kill mid-write leaves claims unreleased.
     static let widgetDeadline: TimeInterval = 8
+
+    /// Ceilings on the app's uploads and refreshes. CloudKit's own resource
+    /// timeout is seven days, so on bad signal an operation can sit for hours —
+    /// and while it does, the re-entrancy guards block every retry behind it.
+    /// A timed-out send stays pending and is retried; a timed-out refresh is
+    /// abandoned and finishes or fails on its own (its apply-before-token order
+    /// makes that safe).
+    static let uploadDeadline: TimeInterval = 180
+    static let refreshDeadline: TimeInterval = 120
 }

@@ -17,7 +17,8 @@ extension CloudSync {
         try await withZoneRecovery(pairing) {
             guard let anniversary else {
                 do {
-                    _ = try await database.modifyRecords(saving: [], deleting: [recordID])
+                    let result = try await database.modifyRecords(saving: [], deleting: [recordID])
+                    try Self.confirmDeleted(result, recordID)
                 } catch let error as CKError where Self.isUnknownItem(error) {
                     // Never set, or already cleared: the outcome is the same.
                 }
@@ -40,9 +41,10 @@ extension CloudSync {
         record.encryptedValues[Field.startsAt] = anniversary.startsAt
         record.encryptedValues[Field.timeZone] = anniversary.timeZoneID
         record[Field.updatedAt] = Date() as CKRecordValue
-        _ = try await database.modifyRecords(saving: [record],
-                                             deleting: [],
-                                             savePolicy: .changedKeys)
+        let result = try await database.modifyRecords(saving: [record],
+                                                      deleting: [],
+                                                      savePolicy: .changedKeys)
+        try Self.confirmSaved(result, recordID)
     }
 
     /// Participant only: asks the owner to set the date. One fixed record, so a
@@ -58,9 +60,10 @@ extension CloudSync {
                 ?? CKRecord(recordType: RecordType.anniversaryRequest, recordID: recordID)
             record.encryptedValues[Field.requestedAt] = date
             record[Field.updatedAt] = Date() as CKRecordValue
-            _ = try await database.modifyRecords(saving: [record],
-                                                 deleting: [],
-                                                 savePolicy: .allKeys)
+            let result = try await database.modifyRecords(saving: [record],
+                                                          deleting: [],
+                                                          savePolicy: .allKeys)
+            try Self.confirmSaved(result, recordID)
         }
     }
 

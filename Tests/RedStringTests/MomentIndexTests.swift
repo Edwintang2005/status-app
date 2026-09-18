@@ -23,6 +23,29 @@ final class MomentIndexTests: XCTestCase {
         XCTAssertEqual(index.load().last?.caption, "edited")
     }
 
+    /// A full-zone fetch is the one time "not returned" means "not on the
+    /// server": own sends marked uploaded that it didn't return go back in the
+    /// retry queue, unless their media is gone (nothing left to send).
+    func testRequeueMissingUploadsAfterFullFetch() {
+        let (index, _) = makeIndex()
+        index.insert([Fixtures.moment("kept", fromMe: true, uploaded: true),
+                      Fixtures.moment("lost", fromMe: true, uploaded: true),
+                      Fixtures.moment("lostNoMedia", fromMe: true, uploaded: true),
+                      Fixtures.moment("pending", fromMe: true, uploaded: false),
+                      Fixtures.moment("theirs", fromMe: false)])
+
+        let requeued = index.requeueMissingUploads(delivered: ["kept"]) { $0.id != "lostNoMedia" }
+
+        XCTAssertEqual(requeued.map(\.id), ["lost"])
+        let byID = Dictionary(uniqueKeysWithValues: index.load().map { ($0.id, $0) })
+        XCTAssertEqual(byID["lost"]?.uploaded, false)
+        XCTAssertEqual(byID["kept"]?.uploaded, true)
+        XCTAssertEqual(byID["lostNoMedia"]?.uploaded, true, "no media left to send; leave it be")
+        XCTAssertEqual(byID["pending"]?.uploaded, false)
+        XCTAssertEqual(byID["theirs"]?.uploaded, true, "the partner's moments are never ours to send")
+        XCTAssertEqual(index.load().count, 5)
+    }
+
     func testEncryptedTextSurvivesUnreadableRedelivery() {
         let (index, _) = makeIndex()
         var sent = Fixtures.moment("v1", kind: .voice)

@@ -33,6 +33,9 @@ enum SyncError: LocalizedError {
     /// `AppConfig.zoneGoneConfirmation` — the invite-close handshake makes it
     /// vanish for a few seconds — so this is transient, not a verdict.
     case zoneUnreachable
+    /// A save returned without a result for the record it was asked to save.
+    /// Treated as a failure: a send marked delivered on a guess is lost for good.
+    case saveUnconfirmed
 
     var errorDescription: String? {
         switch self {
@@ -73,6 +76,8 @@ enum SyncError: LocalizedError {
             return String(localized: "Only the person who joined the link can ask for this.")
         case .zoneUnreachable:
             return String(localized: "Couldn't reach your shared space just now. Try again in a moment.")
+        case .saveUnconfirmed:
+            return String(localized: "iCloud didn't confirm the save. It will be retried.")
         }
     }
 }
@@ -328,6 +333,25 @@ actor CloudSync: SyncBackend {
         }
 
         return payload
+    }
+
+    typealias ModifyResult = (saveResults: [CKRecord.ID: Result<CKRecord, Error>],
+                              deleteResults: [CKRecord.ID: Result<Void, Error>])
+
+    /// The saved record, or the error CloudKit filed against it. Every save goes
+    /// through this: the async API throws for the operation as a whole, but a
+    /// zone without the atomic capability reports a failed record *inside* the
+    /// result — and a participant who marks that "sent" has lost it (2026-09).
+    @discardableResult
+    static func confirmSaved(_ result: ModifyResult, _ id: CKRecord.ID) throws -> CKRecord {
+        guard let saved = result.saveResults[id] else { throw SyncError.saveUnconfirmed }
+        return try saved.get()
+    }
+
+    /// Same for a deletion; "never existed" is a success the callers decide on.
+    static func confirmDeleted(_ result: ModifyResult, _ id: CKRecord.ID) throws {
+        guard let deleted = result.deleteResults[id] else { throw SyncError.saveUnconfirmed }
+        try deleted.get()
     }
 
     static func firstSavedRecord(

@@ -643,7 +643,7 @@ final class AppModel {
         guard isPaired else { return }
         do {
             try await withUploadProtection("moment-upload") {
-                try await Backend.current.send(moment)
+                try await withDeadline(AppConfig.uploadDeadline) { try await Backend.current.send(moment) }
                 markUploaded(moment)
             }
         } catch {
@@ -700,12 +700,35 @@ final class AppModel {
         guard isPaired else { return }
         do {
             try await withUploadProtection("voice-memo-upload") {
-                try await Backend.current.send(moment)
+                try await withDeadline(AppConfig.uploadDeadline) { try await Backend.current.send(moment) }
                 markUploaded(moment)
             }
         } catch {
             presentSendFailure(error, noun: moment.noun)
         }
+    }
+
+    /// Diagnostics: fetches the whole zone again and re-queues own moments it
+    /// turns out never to have held (`MomentIndex.requeueMissingUploads`), then
+    /// sends them. Returns how many were found missing, or `nil` when the
+    /// fetch itself failed — "nothing missing" must never be a guess.
+    func resyncHistory() async -> Int? {
+        guard isPaired, !isRefreshing else { return nil }
+        isRefreshing = true
+        defer { isRefreshing = false }
+        for key in ["private", "shared"] { store.setChangeToken(nil, for: key) }
+        do {
+            try await SyncRunner.refresh(announce: false)
+        } catch {
+            reload()
+            log.error("History resync failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        reload()
+        let found = pendingUploadCount
+        await retryPendingUploads()
+        reload()
+        return found
     }
 
     /// Flips the pending flag once the record is confirmed on the server.
@@ -893,7 +916,7 @@ final class AppModel {
             }
             do {
                 try await withUploadProtection("moment-retry") {
-                    try await Backend.current.send(moment)
+                    try await withDeadline(AppConfig.uploadDeadline) { try await Backend.current.send(moment) }
                     markUploaded(moment)
                 }
                 log.info("Retried upload of \(moment.id, privacy: .public) successfully")

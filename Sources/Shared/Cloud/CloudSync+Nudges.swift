@@ -89,9 +89,10 @@ extension CloudSync {
         let next = (record[Field.count] as? Int ?? 0) + 1
         record[Field.count] = next as CKRecordValue
         record[Field.sentAt] = now as CKRecordValue
-        _ = try await database.modifyRecords(saving: [record],
-                                             deleting: [],
-                                             savePolicy: .changedKeys)
+        let result = try await database.modifyRecords(saving: [record],
+                                                      deleting: [],
+                                                      savePolicy: .changedKeys)
+        try Self.confirmSaved(result, recordID)
         return next
     }
 }

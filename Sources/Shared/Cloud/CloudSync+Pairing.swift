@@ -159,7 +159,7 @@ extension CloudSync {
             let invited = try await privateParticipants(matching: publics)
 
             share.publicPermission = .none
-            _ = try await database.modifyRecords(saving: [share], deleting: [])
+            try Self.confirmSaved(try await database.modifyRecords(saving: [share], deleting: []), share.recordID)
 
             if !invited.isEmpty {
                 // From here the partner is off the share until the private seat is
@@ -190,7 +190,7 @@ extension CloudSync {
             participant.permission = .readWrite
             closed.addParticipant(participant)
         }
-        _ = try await database.modifyRecords(saving: [closed], deleting: [])
+        try Self.confirmSaved(try await database.modifyRecords(saving: [closed], deleting: []), closed.recordID)
 
         // Verify the invitation landed; pending is success here — the
         // partner's link tap is what flips it to accepted. Polled, since
@@ -227,7 +227,7 @@ extension CloudSync {
         }
         share.publicPermission = .readWrite
         do {
-            _ = try await database.modifyRecords(saving: [share], deleting: [])
+            try Self.confirmSaved(try await database.modifyRecords(saving: [share], deleting: []), share.recordID)
         } catch {
             log.error("Couldn't reopen the invite link: \(error.localizedDescription, privacy: .public)")
         }
@@ -341,7 +341,7 @@ extension CloudSync {
         }
         if share.publicPermission != .none {
             share.publicPermission = .none
-            _ = try await database.modifyRecords(saving: [share], deleting: [])
+            try Self.confirmSaved(try await database.modifyRecords(saving: [share], deleting: []), share.recordID)
         }
         await MainActor.run { SharedStore.shared.inviteClosed = true }
     }
@@ -378,13 +378,13 @@ extension CloudSync {
             }
             let publicCount = share.participants.filter { $0.role == .publicUser }.count
             share.publicPermission = .none
-            _ = try await database.modifyRecords(saving: [share], deleting: [])
+            try Self.confirmSaved(try await database.modifyRecords(saving: [share], deleting: []), share.recordID)
 
             guard let closed = try await existingZoneShare(in: database, zoneID: zoneID) else {
                 return "Share unreadable after the sweep — check Diagnostics before sharing the link."
             }
             closed.publicPermission = .readWrite
-            _ = try await database.modifyRecords(saving: [closed], deleting: [])
+            try Self.confirmSaved(try await database.modifyRecords(saving: [closed], deleting: []), closed.recordID)
             await MainActor.run { SharedStore.shared.inviteClosed = false }
             return "Swept \(publicCount) public joiner(s); link reopened. "
                 + "Participants now: \(closed.participants.count)."

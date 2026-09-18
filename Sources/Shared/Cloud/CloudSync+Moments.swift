@@ -40,9 +40,10 @@ extension CloudSync {
         }
 
         try await withZoneRecovery(pairing) {
-            _ = try await database.modifyRecords(saving: [record],
-                                                 deleting: [],
-                                                 savePolicy: .allKeys)
+            let result = try await database.modifyRecords(saving: [record],
+                                                          deleting: [],
+                                                          savePolicy: .allKeys)
+            try Self.confirmSaved(result, recordID)
         }
     }
 

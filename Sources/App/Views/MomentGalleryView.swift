@@ -12,11 +12,6 @@ struct MomentGalleryView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var selection: String
-    /// Ids within `reach` pages of the selection. A page-style TabView builds
-    /// every page eagerly, so a 500-entry history meant seconds of layout on
-    /// open; pages outside this set render as an empty placeholder instead.
-    /// The list itself never changes — inserting pages shifts the selection.
-    @State private var nearIDs: Set<String>
     @State private var saveState: SaveState = .idle
     /// One player for the whole gallery, so paging never layers two voices.
     @State private var player = VoicePlayer()
@@ -33,24 +28,20 @@ struct MomentGalleryView: View {
         case failed(String)
     }
 
-    /// Pages either side of the current one that are fully built.
-    private static let reach = 2
-
     init(moments: [Moment], startAt: Moment) {
         self.moments = moments
         self.startAt = startAt
         _selection = State(initialValue: startAt.id)
-        _nearIDs = State(initialValue: Self.near(startAt.id, in: moments))
-    }
-
-    private static func near(_ id: String, in moments: [Moment]) -> Set<String> {
-        guard let index = moments.firstIndex(where: { $0.id == id }) else { return [id] }
-        let range = max(0, index - reach)...min(moments.count - 1, index + reach)
-        return Set(moments[range].map(\.id))
     }
 
     private var current: Moment? {
         moments.first { $0.id == selection }
+    }
+
+    /// `scrollPosition(id:)` wants an optional; the pager never reports `nil`
+    /// for a settled page, and `selection` must never become one.
+    private var scrolledID: Binding<String?> {
+        Binding(get: { selection }, set: { if let id = $0 { selection = id } })
     }
 
     var body: some View {
@@ -62,20 +53,26 @@ struct MomentGalleryView: View {
                     ContentUnavailableView("Nothing here yet",
                                            systemImage: "photo.on.rectangle.angled")
                 } else {
-                    TabView(selection: $selection) {
-                        ForEach(moments) { moment in
-                            Group {
-                                if nearIDs.contains(moment.id) {
-                                    page(moment)
-                                } else {
-                                    Color.clear
-                                }
+                    // A horizontal paging ScrollView, not a page-style TabView: the
+                    // TabView builds every page up front (seconds of layout for a
+                    // long history) and halts halfway between pages when any page's
+                    // content changes mid-swipe — which a photo finishing its decode
+                    // does. UIKit paging targets come from the viewport, not the
+                    // pages, and the lazy stack builds only what is on screen.
+                    ScrollView(.horizontal) {
+                        LazyHStack(spacing: 0) {
+                            ForEach(moments) { moment in
+                                page(moment)
+                                    .containerRelativeFrame(.horizontal)
+                                    .id(moment.id)
                             }
-                            .tag(moment.id)
                         }
+                        .scrollTargetLayout()
                     }
-                    .tabViewStyle(.page(indexDisplayMode: moments.count > 1 ? .automatic : .never))
-                    .indexViewStyle(.page(backgroundDisplayMode: .interactive))
+                    .scrollTargetBehavior(.paging)
+                    .scrollPosition(id: scrolledID)
+                    .scrollIndicators(.hidden)
+                    .overlay(alignment: .bottom) { pageDots }
                 }
             }
             .navigationTitle(counterLabel)
@@ -124,7 +121,6 @@ struct MomentGalleryView: View {
             }
             .task(id: selection) {
                 saveState = .idle
-                nearIDs = Self.near(selection, in: moments)
                 // Paging away from a memo stops it.
                 player.stop()
                 markCurrentSeen()
@@ -144,6 +140,23 @@ struct MomentGalleryView: View {
             get: { if case .failed = saveState { return true } else { return false } },
             set: { if !$0 { saveState = .idle } }
         )
+    }
+
+    /// The TabView's dots, drawn by hand; the title already counts, so a long
+    /// history gets no row of fifty dots.
+    @ViewBuilder
+    private var pageDots: some View {
+        if (2...12).contains(moments.count) {
+            HStack(spacing: 8) {
+                ForEach(moments) { moment in
+                    Circle()
+                        .fill(moment.id == selection ? Color.primary : Color.primary.opacity(0.25))
+                        .frame(width: 7, height: 7)
+                }
+            }
+            .padding(.bottom, 8)
+            .accessibilityHidden(true)
+        }
     }
 
     private var counterLabel: String {
@@ -167,8 +180,7 @@ struct MomentGalleryView: View {
                     fetchStatus(for: moment)
                 }
             } else {
-                // Own view with its own load: a page-style TabView builds every
-                // page eagerly, so decoding here would decode all cached photos at open.
+                // Own view with its own load, so a page decodes only when it appears.
                 GalleryImageView(momentID: moment.id,
                                  isLoading: loading.contains(moment.id),
                                  isUnavailable: unavailable.contains(moment.id))
@@ -204,7 +216,9 @@ struct MomentGalleryView: View {
     }
 
     /// One gallery page's photo. Loads (and re-checks after a CloudKit fetch
-    /// finishes) on appearance, decoding off the main thread.
+    /// finishes) on appearance, decoding off the main thread, and releases the
+    /// decode off-screen — the lazy stack keeps pages it has built, and holding
+    /// every decoded photo of a long history risks a jetsam.
     private struct GalleryImageView: View {
         let momentID: String
         let isLoading: Bool
@@ -220,8 +234,6 @@ struct MomentGalleryView: View {
                     .shadow(color: .black.opacity(0.12), radius: 24, y: 12)
                     // Two-finger, so it never fights the one-finger page swipe.
                     .pinchToZoom()
-                    // Released off-screen: the paged TabView keeps every page alive,
-                    // and holding all decoded images risks a jetsam. `.task` reloads on return.
                     .onDisappear { self.image = nil }
             } else {
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
