@@ -2,7 +2,8 @@ import PhotosUI
 import SwiftUI
 
 /// Compose a photo, a doodle, or a doodle over a photo, and send it to the
-/// other person's widget. Square frame matches the widget, so nothing crops later.
+/// other person's widget. Square, like the small widget and the in-app tiles; the
+/// medium widget shows a centre band of it.
 struct MomentComposerView: View {
     var onSend: (UIImage, Moment.Kind, String) -> Void
 
@@ -118,9 +119,12 @@ struct MomentComposerView: View {
                 Rectangle().fill(controller.backdrop.color)
 
                 if let photo {
-                    Image(uiImage: photo)
-                        .resizable()
-                        .scaledToFill()
+                    // Sized by the square, not the photo: a bare `scaledToFill`
+                    // image reports its overflow, the ZStack grows to it, and the
+                    // canvas underneath rasterises strokes from a non-square bounds.
+                    Color.clear
+                        .overlay { Image(uiImage: photo).resizable().scaledToFill() }
+                        .clipped()
                 } else if !isDrawing && controller.strokeCount == 0 {
                     // Only on a genuinely blank square, so the placeholder
                     // never draws over a finished doodle.

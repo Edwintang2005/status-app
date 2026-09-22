@@ -112,7 +112,9 @@ final class DrawingController {
     /// Flattens photo (if any) and strokes into one square image.
     func render(size: CGFloat = 1024, over photo: UIImage?) -> UIImage {
         let rect = CGRect(x: 0, y: 0, width: size, height: size)
-        let bounds = canvas.bounds
+        // The composer shows the centred square of the canvas; should the canvas
+        // ever be laid out wider or taller, export that square, not a stretch of the whole.
+        let bounds = Self.centredSquare(in: canvas.bounds)
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
         format.opaque = true
@@ -131,6 +133,11 @@ final class DrawingController {
                     .draw(in: rect)
             }
         }
+    }
+
+    static func centredSquare(in bounds: CGRect) -> CGRect {
+        let side = min(bounds.width, bounds.height)
+        return CGRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
     }
 }
 
