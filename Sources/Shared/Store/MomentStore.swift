@@ -13,10 +13,12 @@ struct MomentStore {
 
     private let log = Logger(subsystem: AppConfig.appGroupID, category: "MomentStore")
 
-    /// Longest edge, in pixels.
-    private static let fullMaxDimension: CGFloat = 1280
+    /// Longest edge, in pixels. The full copy is sized for viewing and pinch-zoom
+    /// on the phone; the composer and doodle export key off it so nothing upstream
+    /// bins first. Thumbnails stay small for the widget's memory ceiling.
+    static let fullMaxDimension: CGFloat = 2048
     private static let thumbMaxDimension: CGFloat = 512
-    private static let fullQuality: CGFloat = 0.75
+    private static let fullQuality: CGFloat = 0.85
     private static let thumbQuality: CGFloat = 0.7
 
     var directory: URL? {

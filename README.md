@@ -15,7 +15,7 @@ with the text fields end-to-end encrypted.
 | **Status** | An emoji plus a short message — `🥰 missing you`, `😴 sleeping`. Two taps from a preset, or type your own. |
 | **Nudge** | A heart on your lock screen. Tapping it makes their phone show *"Sam is thinking of you 💭"*. |
 | **Photos & doodles** | Snap a photo, draw a doodle, or scribble over a photo, and it lands on their home screen widget. Pick the paper colour for a doodle. |
-| **Voice memos** | Up to 3 minutes (`AppConfig.voiceMemoMaxDuration`), with a live waveform while recording. Playable from the expanded notification without opening the app; a badge on the photo widget says one is waiting. Swipe across any playback waveform to scrub. |
+| **Voice memos** | Up to 4 minutes (`AppConfig.voiceMemoMaxDuration`), with a live waveform while recording. Playable from the expanded notification without opening the app; a badge on the photo widget says one is waiting. Swipe across any playback waveform to scrub. |
 | **History** | Every photo, doodle and memo is kept. Browse the lot in the library — filterable by *from them* / *from me* — save any to Photos, and get it all back on a new phone. |
 | **Status history** | A log of both sides' statuses, grouped by day, behind a tap on the partner card. Every change is its own CloudKit record, so it comes back on a new phone — see "Status history" below. |
 | **Read receipts** | On by default, with a per-side switch in Settings. Each side shares which moments it has seen; your own sends wear an eye badge in the library and a "Seen …" line in the gallery. Your own status gets the same line once they've had it on screen. |
@@ -388,15 +388,15 @@ token rather than fetching known record names. Three things fall out of that:
 
 ### What it costs
 
-**In iCloud:** roughly **270 KB per moment** (a 1280px copy plus a 512px
-thumbnail), and it accumulates. A thousand moments is around 270 MB against
-your iCloud quota — real, but comfortable inside the free 5 GB, and it only
+**In iCloud:** roughly **750 KB per moment** (a 2048px copy at JPEG quality
+0.85 plus a 512px thumbnail), and it accumulates. A thousand moments is around
+750 MB against your iCloud quota — real, but inside the free 5 GB, and it only
 grows as fast as you actually send things.
 
 **On the phone:** bounded, and much smaller. The device keeps
 metadata for the last `AppConfig.momentHistoryLimit` (500) entries — a few
 hundred bytes each, so well under 100 KB — but image files only for the
-`momentImageCacheLimit` (60) most recent, around 16 MB. Thumbnails (about
+`momentImageCacheLimit` (60) most recent, around 45 MB. Thumbnails (about
 30 KB each) are kept for every indexed entry, so the history grid always has
 something to draw; a tile whose thumbnail is missing fetches just that as it
 scrolls into view. Scroll further back in the gallery and the full image is

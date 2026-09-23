@@ -109,8 +109,8 @@ final class DrawingController {
         strokeCount = 0
     }
 
-    /// Flattens photo (if any) and strokes into one square image.
-    func render(size: CGFloat = 1024, over photo: UIImage?) -> UIImage {
+    /// Flattens photo (if any) and strokes into one square image at the stored full size.
+    func render(size: CGFloat = MomentStore.fullMaxDimension, over photo: UIImage?) -> UIImage {
         let rect = CGRect(x: 0, y: 0, width: size, height: size)
         // The composer shows the centred square of the canvas; should the canvas
         // ever be laid out wider or taller, export that square, not a stretch of the whole.

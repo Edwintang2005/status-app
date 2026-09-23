@@ -92,7 +92,7 @@ struct MomentComposerView: View {
                 if let data = try? await item.loadTransferable(type: Data.self),
                    let image = UIImage(data: data) {
                     // Downscale off the main thread: a 48 MP original decodes
-                    // to ~190 MB, and downstream caps at 1280 px anyway.
+                    // to ~190 MB, and `MomentStore` caps the longest edge anyway.
                     photo = await Task.detached(priority: .userInitiated) {
                         image.composerSized()
                     }.value
@@ -228,9 +228,9 @@ struct MomentComposerView: View {
 }
 
 private extension UIImage {
-    /// Big enough that the 1024 px export never upscales, small enough that
-    /// holding and rendering it in the composer costs megabytes, not hundreds.
-    func composerSized(maxDimension: CGFloat = 2048) -> UIImage {
+    /// Matches the stored full size so the export never upscales, and holding
+    /// it in the composer costs megabytes, not hundreds.
+    func composerSized(maxDimension: CGFloat = MomentStore.fullMaxDimension) -> UIImage {
         let longest = max(size.width, size.height)
         guard longest > maxDimension, size.width > 0, size.height > 0 else { return self }
         let scale = maxDimension / longest

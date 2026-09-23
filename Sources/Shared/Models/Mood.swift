@@ -37,6 +37,7 @@ enum MoodGroup: String, CaseIterable, Identifiable {
                 Mood(emoji: "💗", label: "thinking about you"),
                 Mood(emoji: "💭", label: "dreamt of you"),
                 Mood(emoji: "💞", label: "love you"),
+                Mood(emoji: "🧊", label: "I love cubed you"),
                 // A pair: the lemon sets up the lemonade.
                 Mood(emoji: "🍋", label: "miss you"),
                 Mood(emoji: "🍹", label: "can't wait to make lemonade"),
