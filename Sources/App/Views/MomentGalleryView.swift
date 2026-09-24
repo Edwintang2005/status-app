@@ -227,9 +227,8 @@ struct MomentGalleryView: View {
 
         var body: some View {
             if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
+                // Always the centred square, whatever frame the file keeps.
+                SquareFill { Image(uiImage: image).resizable().scaledToFill() }
                     .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
                     .shadow(color: .black.opacity(0.12), radius: 24, y: 12)
                     // Two-finger, so it never fights the one-finger page swipe.

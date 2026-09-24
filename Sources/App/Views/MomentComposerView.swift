@@ -222,7 +222,11 @@ struct MomentComposerView: View {
 
     private func send() {
         guard canSend else { return }
-        onSend(controller.render(over: photo), kind, caption)
+        // An undrawn photo travels in its own frame: every surface shows the
+        // centred square regardless, and "Save to Photos" returns the whole shot.
+        // Strokes were laid over that square, so a doodle flattens to it.
+        let image = controller.strokeCount == 0 ? photo : nil
+        onSend(image ?? controller.render(over: photo), kind, caption)
         dismiss()
     }
 }

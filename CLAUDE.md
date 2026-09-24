@@ -27,7 +27,7 @@ SharedStore (App Group, file-backed KV via GroupFileStore)  ← app / widget / N
   └─ change tokens   per-database CKServerChangeToken
 
 MomentIndex   moments-index.json in App Group — full history metadata (cap 500)
-MomentStore   media files in App Group /Moments — JPEG full+thumb, .m4a (full media capped to the 60 newest, thumbnails kept for the whole index;
+MomentStore   media files in App Group /Moments — JPEG full (photo's own frame) + square thumb, .m4a (full media capped to the 60 newest, thumbnails kept for the whole index;
               pending-upload media is never pruned)
 StatusHistoryLog  status-history.json — local rolling log of both sides' statuses (cap 100)
 SyncRunner    refresh → decide what to announce → NotificationManager (local notifications)

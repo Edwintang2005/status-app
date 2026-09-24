@@ -6,8 +6,8 @@ import UIKit
 #endif
 
 /// Moment media files in the App Group container. Visual moments get a full-size
-/// copy plus a widget thumbnail (widgets have a hard memory ceiling and must not
-/// decode full-resolution photos); a voice memo is a single `.m4a`.
+/// copy plus a square widget thumbnail (widgets have a hard memory ceiling and
+/// must not decode full-resolution photos); a voice memo is a single `.m4a`.
 struct MomentStore {
     static let shared = MomentStore()
 
@@ -50,15 +50,17 @@ struct MomentStore {
 
     #if canImport(UIKit)
     /// Writes both sizes; returns the JPEG data so callers can upload to
-    /// CloudKit without re-reading from disk.
+    /// CloudKit without re-reading from disk. The full copy keeps the photo's
+    /// own frame (it's what "Save to Photos" hands back); the thumbnail is the
+    /// centred square every tile shows, so a non-square photo costs it nothing.
     @discardableResult
     func write(_ image: UIImage, id: String) throws -> (full: Data, thumb: Data) {
         guard let full = Self.jpeg(image,
                                    maxDimension: Self.fullMaxDimension,
                                    quality: Self.fullQuality),
-              let thumb = Self.jpeg(image,
-                                    maxDimension: Self.thumbMaxDimension,
-                                    quality: Self.thumbQuality) else {
+              let thumb = Self.squareJPEG(image,
+                                          side: Self.thumbMaxDimension,
+                                          quality: Self.thumbQuality) else {
             throw MomentStoreError.encodingFailed
         }
         try write(full: full, thumb: thumb, id: id)
@@ -123,6 +125,27 @@ struct MomentStore {
             image.draw(in: CGRect(origin: .zero, size: target))
         }
         return resized.jpegData(compressionQuality: quality)
+    }
+
+    /// Aspect-fills the image into a square of at most `side` px, cropping the
+    /// long axis — the same framing as `scaledToFill()` inside a square clip.
+    private static func squareJPEG(_ image: UIImage,
+                                   side: CGFloat,
+                                   quality: CGFloat) -> Data? {
+        let size = image.size
+        guard size.width > 0, size.height > 0 else { return nil }
+        let target = min(side, min(size.width, size.height)).rounded()
+        let scale = target / min(size.width, size.height)
+        let scaled = CGSize(width: size.width * scale, height: size.height * scale)
+        let origin = CGPoint(x: (target - scaled.width) / 2, y: (target - scaled.height) / 2)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        let square = CGSize(width: target, height: target)
+        let cropped = UIGraphicsImageRenderer(size: square, format: format).image { _ in
+            image.draw(in: CGRect(origin: origin, size: scaled))
+        }
+        return cropped.jpegData(compressionQuality: quality)
     }
     #endif
 

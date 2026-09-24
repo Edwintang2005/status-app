@@ -389,7 +389,8 @@ token rather than fetching known record names. Three things fall out of that:
 ### What it costs
 
 **In iCloud:** roughly **750 KB per moment** (a 2048px copy at JPEG quality
-0.85 plus a 512px thumbnail), and it accumulates. A thousand moments is around
+0.85 in the photo's own frame, plus a 512px square thumbnail), and it
+accumulates. A thousand moments is around
 750 MB against your iCloud quota — real, but inside the free 5 GB, and it only
 grows as fast as you actually send things.
 
@@ -419,7 +420,7 @@ Images travel as `CKAsset`s, which **CloudKit encrypts by default** — they mus
 sender name are explicitly encrypted alongside.
 
 Anywhere a photo is shown in a square — the composer, the home card, the
-library grid — it goes through `SquareFill`. `Image.resizable().scaledToFill()`
+library grid, the gallery pager — it goes through `SquareFill`. `Image.resizable().scaledToFill()`
 reports the size it needs *in order to fill*, so as a plain child it drags its
 parent out to that size and a later `.aspectRatio(1, contentMode: .fit)` can't
 pull it back. `SquareFill` sizes from a `Color.clear` (no intrinsic size) and
@@ -433,7 +434,10 @@ the dark one flips black ink to white so you can't end up drawing
 black-on-black. The canvas is square because the widget is square — composing
 in the destination's shape means nothing gets unexpectedly cropped later.
 Strokes are rasterised at export resolution, not upscaled from the on-screen
-canvas.
+canvas. A photo with no strokes is stored in its **own frame**, though: every
+surface still shows the centred square (the thumbnail *is* that square), but
+"Save to Photos" and the archive hand back the whole shot. A doodled photo
+flattens to the square the strokes were drawn over.
 
 ## Possible improvements
 
