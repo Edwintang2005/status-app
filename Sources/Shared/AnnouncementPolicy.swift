@@ -45,8 +45,12 @@ enum AnnouncementPolicy {
     /// "did *my* refresh see the change" — the widget often consumes the delta
     /// first. The rename check compares against the last *announced* status for
     /// the same reason: a pre-refresh snapshot is already current in that case.
-    static func claimStatusBanner(for status: StatusPayload, in snapshot: inout Snapshot) -> StatusBanner? {
-        let announced = snapshot.lastAnnouncedPartnerStatusAt ?? .distantPast
+    static func claimStatusBanner(for status: StatusPayload,
+                                  in snapshot: inout Snapshot,
+                                  now: Date = Date()) -> StatusBanner? {
+        // A mark left in the future by a skewed clock would silence every later status.
+        let announced = snapshot.lastAnnouncedPartnerStatusAt
+            .flatMap { TrustedTime.isFuture($0, now: now) ? nil : $0 } ?? .distantPast
         guard status.updatedAt > announced else { return nil }
         let previous = snapshot.lastAnnouncedPartnerStatus
         snapshot.lastAnnouncedPartnerStatusAt = status.updatedAt
@@ -77,14 +81,40 @@ enum AnnouncementPolicy {
     /// concurrent extension instances and must not claim the same one.
     static func claimMomentBanner(delta: [Moment],
                                   index: [Moment],
-                                  in snapshot: inout Snapshot) -> Moment? {
-        let floor = snapshot.lastAnnouncedMomentSentAt ?? .distantPast
+                                  in snapshot: inout Snapshot,
+                                  now: Date = Date()) -> Moment? {
+        let floor = snapshot.lastAnnouncedMomentSentAt
+            .flatMap { TrustedTime.isFuture($0, now: now) ? nil : $0 } ?? .distantPast
         let fromDelta = delta.sorted { $0.sentAt > $1.sentAt }
         let fromIndex = index.filter { !$0.fromMe && $0.sentAt > floor }
         let chosen = fromDelta.first { !snapshot.hasAnnounced($0.id) }
             ?? fromIndex.first { !snapshot.hasAnnounced($0.id) }
         if let chosen { snapshot.recordAnnounced(chosen) }
         return chosen
+    }
+
+    /// How loudly a nudge may interrupt. Fresh (sent within
+    /// `AppConfig.nudgeStaleAfter`) and the first in `nudgeBreakthroughInterval`:
+    /// time-sensitive, through Focus. Otherwise an ordinary alert — a partner
+    /// tapping repeatedly, or a push delivered hours late, can't keep piercing
+    /// Focus. Claims the breakthrough inside the caller's `mutate`.
+    struct NudgeInterruption: Equatable, Sendable {
+        var stale: Bool
+        var breaksThroughFocus: Bool
+    }
+
+    static func nudgeInterruption(sentAt: Date?,
+                                  in snapshot: inout Snapshot,
+                                  now: Date = Date()) -> NudgeInterruption {
+        let stale = sentAt.map { now.timeIntervalSince($0) > AppConfig.nudgeStaleAfter } ?? false
+        guard !stale else { return NudgeInterruption(stale: true, breaksThroughFocus: false) }
+        if let last = snapshot.lastBreakthroughNudgeAt,
+           !TrustedTime.isFuture(last, now: now),
+           now.timeIntervalSince(last) < AppConfig.nudgeBreakthroughInterval {
+            return NudgeInterruption(stale: false, breaksThroughFocus: false)
+        }
+        snapshot.lastBreakthroughNudgeAt = Date(timeIntervalSince1970: now.timeIntervalSince1970.rounded(.down))
+        return NudgeInterruption(stale: false, breaksThroughFocus: true)
     }
 
     /// A locked phone's moment banner body, from what travels unencrypted: the

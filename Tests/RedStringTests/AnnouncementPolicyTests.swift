@@ -145,4 +145,33 @@ final class AnnouncementPolicyTests: XCTestCase {
         XCTAssertNotEqual(mixed, Moment.Kind.photo.arrivalSummary, "can't tell which one this push was for")
         XCTAssertNotEqual(mixed, Moment.Kind.voice.arrivalSummary)
     }
+
+    // MARK: Nudge interruption
+
+    func testNudgeBreaksThroughFocusOncePerInterval() {
+        var snapshot = Snapshot.empty
+        let now = Fixtures.t0
+        let first = AnnouncementPolicy.nudgeInterruption(sentAt: now, in: &snapshot, now: now)
+        XCTAssertEqual(first, .init(stale: false, breaksThroughFocus: true))
+        let repeatTap = AnnouncementPolicy.nudgeInterruption(sentAt: now.addingTimeInterval(20), in: &snapshot,
+                                                             now: now.addingTimeInterval(20))
+        XCTAssertEqual(repeatTap, .init(stale: false, breaksThroughFocus: false), "a burst can't keep piercing Focus")
+        let later = now.addingTimeInterval(AppConfig.nudgeBreakthroughInterval + 1)
+        XCTAssertTrue(AnnouncementPolicy.nudgeInterruption(sentAt: later, in: &snapshot, now: later).breaksThroughFocus)
+    }
+
+    func testLateNudgeIsStaleAndQuiet() {
+        var snapshot = Snapshot.empty
+        let now = Fixtures.t0
+        let late = AnnouncementPolicy.nudgeInterruption(sentAt: now.addingTimeInterval(-3600), in: &snapshot, now: now)
+        XCTAssertEqual(late, .init(stale: true, breaksThroughFocus: false))
+        XCTAssertNil(snapshot.lastBreakthroughNudgeAt, "a stale one doesn't use up the breakthrough")
+    }
+
+    func testFutureWatermarkDoesNotSilenceStatuses() {
+        var snapshot = Snapshot.empty
+        snapshot.lastAnnouncedPartnerStatusAt = Date().addingTimeInterval(86_400)
+        let status = Fixtures.status("☕️", "coffee?", at: Date().addingTimeInterval(-60))
+        XCTAssertEqual(AnnouncementPolicy.claimStatusBanner(for: status, in: &snapshot), .update)
+    }
 }

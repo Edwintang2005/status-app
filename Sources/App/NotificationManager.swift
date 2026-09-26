@@ -27,10 +27,11 @@ enum NotificationManager {
             title: String(localized: "Send a heart back"),
             options: [],
             icon: UNNotificationActionIcon(systemImageName: "heart.fill"))
+        // Face ID first: from a locked phone, anyone holding it could post as you.
         let reply = UNTextInputNotificationAction(
             identifier: NotificationCategory.Action.replyStatus,
             title: String(localized: "Reply with a status"),
-            options: [],
+            options: [.authenticationRequired],
             icon: UNNotificationActionIcon(systemImageName: "text.bubble"),
             textInputButtonTitle: String(localized: "Set"),
             textInputPlaceholder: String(localized: "Say anything"))
@@ -59,7 +60,8 @@ enum NotificationManager {
     /// be posted supersedes them, and leaving both is a duplicate. Matched on the
     /// *body* (or stamp), not just the app-name title: sweeping every generic
     /// banner deleted unenriched status notes nothing was ever going to re-state.
-    private static func removeGenericBanners(body: String, category: String) async {
+    @discardableResult
+    private static func removeGenericBanners(body: String, category: String) async -> Bool {
         let center = UNUserNotificationCenter.current()
         let generic = await center.deliveredNotifications()
             .filter {
@@ -68,16 +70,24 @@ enum NotificationManager {
                     || content.userInfo[NotificationCategory.heldBannerKey] as? String == category
             }
             .map(\.request.identifier)
-        guard !generic.isEmpty else { return }
+        guard !generic.isEmpty else { return false }
         center.removeDeliveredNotifications(withIdentifiers: generic)
+        return true
     }
 
     static func postMoment(_ moment: Moment, from name: String) async {
-        await removeGenericBanners(body: CloudSync.GenericAlert.moment, category: NotificationCategory.moment)
+        let superseded = await removeGenericBanners(body: CloudSync.GenericAlert.moment,
+                                                    category: NotificationCategory.moment)
         let content = UNMutableNotificationContent()
         content.title = moment.displaySenderName(fallback: name)
         content.body = moment.displayCaption ?? moment.arrivalSummary
-        content.sound = .default
+        // Replacing a banner that already alerted (generic or locked-phone
+        // wording): the words get better, the phone doesn't buzz twice.
+        if superseded {
+            content.interruptionLevel = .passive
+        } else {
+            content.sound = .default
+        }
         content.categoryIdentifier = NotificationCategory.moment
 
         // If the refresh's best-effort media download failed, fetch here rather
@@ -106,17 +116,20 @@ enum NotificationManager {
     /// and the wording must not claim a stale nudge is happening now.
     static func postNudge(from name: String, sentAt: Date?) async {
         await removeGenericBanners(body: CloudSync.GenericAlert.nudge, category: NotificationCategory.nudge)
-        let stale = sentAt.map { Date().timeIntervalSince($0) > 5 * 60 } ?? false
+        var interruption = AnnouncementPolicy.NudgeInterruption(stale: false, breaksThroughFocus: false)
+        _ = SharedStore.shared.mutate(reloadWidgets: false) {
+            interruption = AnnouncementPolicy.nudgeInterruption(sentAt: sentAt, in: &$0)
+        }
 
         let content = UNMutableNotificationContent()
         content.title = name
-        content.body = stale
+        content.body = interruption.stale
             ? String(localized: "was thinking of you earlier 💭")
             : String(localized: "is thinking of you 💭")
         content.sound = .default
         content.categoryIdentifier = NotificationCategory.nudge
-        // Old news doesn't get to break through Focus the way a live tap does.
-        if !stale { content.interruptionLevel = .timeSensitive }
+        // Old news, or a repeat within the interval, doesn't get to break through Focus.
+        content.interruptionLevel = interruption.breaksThroughFocus ? .timeSensitive : .active
 
         let request = UNNotificationRequest(identifier: "nudge-\(UUID().uuidString)",
                                             content: content,

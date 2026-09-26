@@ -21,8 +21,11 @@ enum SyncError: LocalizedError {
     /// but wiping local state would destroy an intact pairing.
     case differentAccount
     /// Settings' plain close refused: someone has joined through the link, so
-    /// closing here would evict them (that's the Diagnostics handshake).
+    /// closing here would evict them (that's the confirmed re-seat handshake).
     case inviteInUse
+    /// A close failed and the link couldn't be reopened: the partner is off the
+    /// share until the owner reopens it from Settings.
+    case inviteLeftClosed(String)
     /// The invite comes from someone this device has blocked.
     case blocked
     /// An owner-only write (the anniversary) attempted from the participant side.
@@ -55,7 +58,9 @@ enum SyncError: LocalizedError {
         case .shareURLMissing:
             return String(localized: "CloudKit didn't return an invite link. Try again.")
         case .couldNotSecureShare(let detail):
-            return String(localized: "Couldn't close the invite link safely; it was reopened. Your partner may have lost access — if their app unlinks, send them the invite link to rejoin. (\(detail))")
+            return String(localized: "Couldn't close the invite link safely, so it's open and your partner keeps access. Try again with them ready to tap the link. (\(detail))")
+        case .inviteLeftClosed(let detail):
+            return String(localized: "Couldn't finish closing the invite link, and it couldn't be reopened. Until it is, your partner can't reach your shared space: Settings → Invite link → Reopen the invite link. (\(detail))")
         case .shareUnavailable:
             // Mismatched CloudKit environments look identical from here and
             // are covered by "the same build".
@@ -67,7 +72,7 @@ enum SyncError: LocalizedError {
         case .differentAccount:
             return String(localized: "This device is signed into a different iCloud account than the one you paired with. Sign back into that account to see your shared space, or unlink from Settings.")
         case .inviteInUse:
-            return String(localized: "Your partner joined through this link, so closing it here would remove them. Closing it safely re-seats them, which needs them on standby: Settings → tap Version seven times → iCloud diagnostics → Promote partner & close invite.")
+            return String(localized: "Your partner joined through this link, so closing it re-seats them: they're briefly taken off and need to tap the link once more to get back in.")
         case .blocked:
             return String(localized: "This invite is from someone you've blocked.")
         case .notOwner:
@@ -310,26 +315,46 @@ actor CloudSync: SyncBackend {
                                                 lastNudgeAt: nil)
 
         if let record {
-            payload.emoji = record.encryptedValues[Field.emoji] as? String ?? payload.emoji
-            payload.message = record.encryptedValues[Field.message] as? String ?? payload.message
-            payload.displayName = record.encryptedValues[Field.displayName] as? String ?? payload.displayName
-            // Whole seconds: local persistence is ISO-8601 (no fractional
-            // seconds), and equality against stored copies — the announce
+            // Capped on the way in: text a modified client (or an older build)
+            // wrote has no length limit of its own.
+            if let emoji = record.encryptedValues[Field.emoji] as? String {
+                payload.emoji = String(emoji.prefix(AppConfig.statusEmojiMaxLength))
+            }
+            if let message = record.encryptedValues[Field.message] as? String {
+                payload.message = String(message.prefix(AppConfig.statusMessageMaxLength))
+            }
+            if let name = record.encryptedValues[Field.displayName] as? String {
+                payload.displayName = String(name.prefix(AppConfig.displayNameMaxLength))
+            }
+            // Whole seconds (`TrustedTime` truncates): local persistence is
+            // ISO-8601, and equality against stored copies — the announce
             // watermark, celebration replay guard, history dedup — must hold.
+            // Capped to the server's save time: a clock that ran ahead must
+            // not pin this status as "newest" for good.
             let updated = [record[Field.updatedAt] as? Date, record.modificationDate]
                 .compactMap { $0 }
                 .first { $0.timeIntervalSince1970.isFinite }
                 ?? payload.updatedAt
-            payload.updatedAt = Date(timeIntervalSince1970: updated.timeIntervalSince1970.rounded(.down))
+            payload.updatedAt = TrustedTime.plausible(updated, serverTime: record.modificationDate)
             // Fallback must be `false`, not the previous value — otherwise a
             // celebration would stick to the next status.
             payload.isCelebration =
                 (record.encryptedValues[Field.isCelebration] as? Int).map { $0 != 0 } ?? false
+            // A rename restamps the record without new words; keep when they began.
+            if let existing, existing.sameWords(as: payload) {
+                payload.wordsSince = existing.wordsAt
+            } else {
+                payload.wordsSince = nil
+            }
         }
 
         if let nudge {
-            payload.nudgeCount = nudge[Field.count] as? Int ?? payload.nudgeCount
-            payload.lastNudgeAt = nudge[Field.sentAt] as? Date ?? payload.lastNudgeAt
+            if let count = nudge[Field.count] as? Int {
+                payload.nudgeCount = min(max(count, 0), AppConfig.nudgeCountCeiling)
+            }
+            if let sentAt = nudge[Field.sentAt] as? Date, sentAt.timeIntervalSince1970.isFinite {
+                payload.lastNudgeAt = TrustedTime.plausible(sentAt, serverTime: nudge.modificationDate)
+            }
         }
 
         return payload

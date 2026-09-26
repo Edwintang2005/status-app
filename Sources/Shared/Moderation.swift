@@ -62,7 +62,8 @@ extension StatusPayload {
                    filteredText: String = ContentFilter.hiddenPlaceholder,
                    filterEnabled: Bool = SharedStore.shared.contentFilterEnabled) -> StatusPayload {
         var shown = self
-        if let reportedAt, updatedAt == reportedAt {
+        // Either stamp: reports now key on `wordsAt`, older ones on `updatedAt`.
+        if let reportedAt, wordsAt == reportedAt || updatedAt == reportedAt {
             shown.emoji = "💭"
             shown.message = ContentFilter.reportedPlaceholder
         } else if ContentFilter.hides(message, enabled: filterEnabled) {

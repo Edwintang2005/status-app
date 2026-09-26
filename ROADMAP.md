@@ -5,6 +5,30 @@ addition requires re-deploying the schema to Production (README → "Shipping it
 
 ## Shipped (September 2026)
 
+- **Audit fixes (round six)** — from a full-codebase audit. Invite link:
+  Settings' close now re-seats a joined partner behind a confirmation (the
+  handshake was Diagnostics-only), a failed close retries its reopen and says
+  honestly whether it worked (`SyncError.inviteLeftClosed`), and Settings can
+  reopen the link. Renames no longer restamp what the words mean
+  (`StatusPayload.wordsSince`, local only): reports, celebrations, receipts,
+  history and the card's time key on `wordsAt`; the log records exactly the
+  statuses it's missing (`Snapshot.myStatusLoggedAt`). Status, nudge and
+  anniversary saves are change-tag checked, so the conflict retries run.
+  Everything ingested is bounded (invariant 23: `TrustedTime` caps dates to
+  the server's clock, text/waveform/count caps), stored future marks heal,
+  the moment cap never drops a pending send, and an unreadable index is
+  neither overwritten nor pruned against. Locked-phone status pushes no longer
+  announce the previous status; the NSE claims nothing once out of time; a
+  late or repeated nudge can't break through Focus; "Reply with a status"
+  needs Face ID; a moment re-posted over a generic banner is silent. The
+  give-up rule counts only unlocked app refreshes; the latest thumbnail is
+  re-fetched if its download failed; images decode with a size cap; the
+  gallery marks photos seen when shown and memos when played; the anniversary
+  prompt waits for open sheets and counts days across daylight saving;
+  bootstrap watermarks only move forward; a lock-screen heart that times out
+  shows as failed; the widget's backoff returns to hourly after two hours and
+  kinds share a fetch. No schema changes.
+
 - **Audit fixes (round five)** — "zone gone" needs a second sighting two
   minutes on before a device unlinks itself, so the invite-close handshake
   can't wipe the partner's unsent media (`zoneGoneVerdict`,
@@ -265,6 +289,49 @@ roughly in order of value:
 
 Checked September 2026: strokes already reach the partner pixel-aligned with
 the photo (the export is the only transform; media travels byte-for-byte).
+
+### Known issues on file (September 2026 audit, not yet fixed)
+
+Found by the audit and deliberately left for now; numbers are the audit's.
+- **#1 Creating an invite on an account that already has a shared space**
+  reuses it: the current partner is removed from the share and whoever joins
+  the new link gets the whole previous history. Reachable from any device on
+  the owner's account that isn't paired locally (second device, new phone,
+  "Remove from this iPhone only"). Fix: refuse and route to Rejoin, or delete
+  and recreate the zone after an explicit confirm. (M) — highest of these.
+- #5/#6 A modified partner client can delete or take over your moments on your
+  phone (deletions under either role's name; index keyed by id alone), and
+  record names are trusted for authorship. Needs a creator check. (M)
+- #7 Owner-side block isn't enforced: an offline block leaves the share up,
+  Rejoin reconnects to the blocked person, and a blocked ex can join the next
+  link. (M)
+- #14 A failed account lookup at pairing leaves `userRecordName` nil, which
+  disables the different-account guard for good. (S)
+- #24 A join that half-fails leaves the join screen over a paired app; #25
+  re-accepting the same zone posts "👋 just joined"; #26 the owner's
+  `sameZone` check is always true; #27 zone-recovery edge cases (token-expired
+  retry skips the second-sighting rule; `unknownItem` counts as zone gone;
+  unpair ignores the per-zone result); #42 Rejoin picks the first shared zone.
+- #32 The share title carries the owner's name in plaintext
+  (`"Red String — <name>"`), contradicting "the names you set are
+  encrypted". One line. (S)
+- #33 The word filter misses plurals, spaced letters, homoglyphs, leetspeak.
+- #34 The memories archive uses raw partner text and writes plaintext to
+  iCloud Drive; long names fail as "unrecovered".
+- #36 Plaintext metadata: memo durations, nudge counts, send times, receipt
+  times (`kind` must stay plaintext for locked-phone banners).
+- #37 Diagnostics' "Copy report" puts participant names/emails on the clipboard.
+- #38 A playing memo bleeds into a new recording; closing the composer stops
+  other audio; after granting the microphone the sheet must be reopened.
+- #40 `Anniversary` and `StatusSeen` use synthesised Codable — adding a field
+  would fail the whole snapshot decode (invariant 5).
+- #41 Privacy manifest: reading the App Group's UserDefaults suite (the
+  one-time migration) needs reason `1C8F.1`; only `CA92.1` is declared. (S)
+- #43 remainder: in the hours before the start's time of day, the count's
+  full-day number is one behind the date-based "months and days" (by design:
+  the counter ticks over at the start time).
+- #21 remainder: an own second device writing while this phone is locked is
+  worded as the partner's (the held record can't be told apart).
 
 ### Library grouped by day, and search (M)
 

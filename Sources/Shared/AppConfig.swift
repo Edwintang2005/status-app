@@ -29,6 +29,13 @@ enum AppConfig {
     /// double-tap sending twice while the first write is still in flight, not
     /// to ration affection. Sending a few hearts in a row is the point.
     static let nudgeCooldown: TimeInterval = 3
+    /// How far a sender's clock may run ahead of the server's save time before
+    /// its dates are capped (`TrustedTime`).
+    static let clockSkewAllowance: TimeInterval = 5 * 60
+    /// A nudge older than this on arrival is worded "earlier" and never breaks
+    /// through Focus; at most one nudge per interval does.
+    static let nudgeStaleAfter: TimeInterval = 5 * 60
+    static let nudgeBreakthroughInterval: TimeInterval = 10 * 60
 
     /// How long the lock-screen heart admits a failed nudge (a slashed heart)
     /// before quietly offering itself again. Long enough to still be there at
@@ -81,6 +88,13 @@ enum AppConfig {
     /// Characters, not bytes: a status is a glance, a caption a line. Enforced
     /// in the composers and again in `AppModel`, so a banner reply obeys it too.
     static let statusMessageMaxLength = 80
+    /// Received-side caps for fields the composers don't limit themselves: an
+    /// emoji is one or two graphemes, a name is a name.
+    static let statusEmojiMaxLength = 2
+    static let displayNameMaxLength = 40
+    /// Received nudge counts are clamped here, far past any real use, so a
+    /// crafted `Int.max` can't trap the increment.
+    static let nudgeCountCeiling = 1_000_000_000
     static let captionMaxLength = 140
 
     /// How many foreground-app refreshes may hold the change token over the

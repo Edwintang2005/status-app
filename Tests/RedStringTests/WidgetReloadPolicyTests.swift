@@ -23,8 +23,9 @@ final class WidgetReloadPolicyTests: XCTestCase {
         XCTAssertEqual(delay(heldFor: 0), 5 * 60)
         XCTAssertEqual(delay(heldFor: 29 * 60), 5 * 60)
         XCTAssertEqual(delay(heldFor: 30 * 60), 15 * 60)
-        XCTAssertEqual(delay(heldFor: 2 * 60 * 60), 30 * 60)
-        XCTAssertEqual(delay(heldFor: 3 * 24 * 60 * 60), 30 * 60, "never gives up while held")
+        XCTAssertEqual(delay(heldFor: 2 * 60 * 60), WidgetReloadPolicy.settled,
+                       "past two hours the retries stop costing more than the backstop")
+        XCTAssertEqual(delay(heldFor: 3 * 24 * 60 * 60), WidgetReloadPolicy.settled)
     }
 
     /// A phone locked for eight hours after a push stays well inside WidgetKit's
@@ -37,10 +38,18 @@ final class WidgetReloadPolicyTests: XCTestCase {
             clock = WidgetReloadPolicy.nextReload(heldSince: start, incomplete: false, now: clock)
             reloads += 1
         }
-        XCTAssertLessThanOrEqual(reloads, 25)
+        XCTAssertLessThanOrEqual(reloads, 20)
+    }
+
+    func testRecentFetchIsShared() {
+        XCTAssertTrue(WidgetReloadPolicy.shouldFetch(lastSyncedAt: nil, now: now))
+        XCTAssertFalse(WidgetReloadPolicy.shouldFetch(lastSyncedAt: now.addingTimeInterval(-10), now: now))
+        XCTAssertTrue(WidgetReloadPolicy.shouldFetch(lastSyncedAt: now.addingTimeInterval(-61), now: now))
+        XCTAssertTrue(WidgetReloadPolicy.shouldFetch(lastSyncedAt: now.addingTimeInterval(3600), now: now),
+                      "a future stamp is a skewed clock, not a fresh fetch")
     }
 
     func testHeldBeatsIncomplete() {
-        XCTAssertEqual(delay(heldFor: 3 * 60 * 60, incomplete: true), 30 * 60)
+        XCTAssertEqual(delay(heldFor: 60 * 60, incomplete: true), 15 * 60)
     }
 }

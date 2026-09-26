@@ -48,8 +48,11 @@ struct RootView: View {
         // link sheet is out of the way), and again whenever the partner asks for
         // the date. The sheet can't be swiped away; "Not now" is the way out.
         .sheet(isPresented: Binding(
+            // Waits out HomeView's sheets: one presentation per view, so a second
+            // sheet requested over Settings (say) would be dropped, ask and all.
             get: { (model.anniversaryPromptPending || model.anniversaryRequestPending)
-                    && model.canEditAnniversary && model.presentedInvite == nil },
+                    && model.canEditAnniversary && model.presentedInvite == nil
+                    && !model.homeSheetShowing },
             set: { if !$0 { model.dismissAnniversaryPrompt(); model.dismissAnniversaryRequest() } })) {
             AnniversaryEditorView(mode: .prompt)
                 .environment(model)

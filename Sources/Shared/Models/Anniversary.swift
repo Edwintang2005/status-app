@@ -69,6 +69,16 @@ struct Anniversary: Codable, Hashable, Sendable {
         return (max(0, parts.month ?? 0), max(0, parts.day ?? 0))
     }
 
+    /// Full days and the seconds past the last whole day since `startsAt`, on
+    /// the owner's calendar: a daylight-saving day of 23 or 25 hours still
+    /// counts as one day (dividing by 86,400 read a day short across it).
+    func elapsed(at now: Date) -> (days: Int, seconds: Int) {
+        guard now > startsAt else { return (0, 0) }
+        let parts = calendar.dateComponents([.day, .hour, .minute, .second], from: startsAt, to: now)
+        let seconds = (parts.hour ?? 0) * 3600 + (parts.minute ?? 0) * 60 + (parts.second ?? 0)
+        return (max(0, parts.day ?? 0), max(0, seconds))
+    }
+
     /// Whole days from today to `date`, both taken as calendar days.
     func daysUntil(_ date: Date, from now: Date) -> Int {
         calendar.dateComponents([.day],

@@ -255,6 +255,9 @@ final class SharedStore {
     func record(_ moments: [Moment]) {
         guard !moments.isEmpty else { return }
         let all = MomentIndex.shared.insert(moments)
+        // An unreadable index returned only this delta: pruning against it
+        // would delete the media of everything else.
+        guard !MomentIndex.shared.readFailed else { return }
         refreshDerived(reloadWidgets: false)
 
         // Index keeps every entry; only recent files stay on disk — older
@@ -277,7 +280,10 @@ final class SharedStore {
     /// the widget would regress to an older moment.
     func refreshDerived(reloadWidgets: Bool = true) {
         mutate(reloadWidgets: reloadWidgets) { snapshot in
-            Self.fillDerived(&snapshot, from: MomentIndex.shared.load())
+            let all = MomentIndex.shared.load()
+            // Unreadable reads as empty; the widget keeps what it last showed.
+            guard !MomentIndex.shared.readFailed else { return }
+            Self.fillDerived(&snapshot, from: all)
         }
     }
 
@@ -355,9 +361,9 @@ final class SharedStore {
     /// change token should advance past them anyway. Holding is right while
     /// the process simply lacks the keys (a locked device's extensions), but a
     /// record nobody can ever read would pin the token — and the whole delta
-    /// behind it — forever. So only the *foreground app*, which has the keys
-    /// when unlocked, counts; after `AppConfig.unreadableHoldLimit` separate
-    /// looks at the same names it gives up on them. Returns `true` to advance.
+    /// behind it — forever. So only the *app with the phone unlocked*, which has
+    /// the keys, counts; after `AppConfig.unreadableHoldLimit` separate looks at
+    /// the same names it gives up on them. Returns `true` to advance.
     @discardableResult
     func noteUnreadableRecords(_ names: [String], now: Date = Date()) -> Bool {
         guard !names.isEmpty else { return false }
@@ -367,7 +373,7 @@ final class SharedStore {
             tally.lastAt = now
 
             var advance = false
-            if Self.processLabel == "app" {
+            if Self.processLabel == "app", Self.protectedDataAvailable {
                 let sameRecords = Set(names).isSubset(of: tally.heldNames)
                 if !sameRecords {
                     tally.heldStreak = 1
@@ -410,6 +416,11 @@ final class SharedStore {
             encode(tally, forKey: Key.unreadable)
         }
     }
+
+    /// Kept current by the app from the protected-data notifications; a locked
+    /// phone's background refresh must not count toward giving up. Extensions
+    /// never give up regardless.
+    nonisolated(unsafe) static var protectedDataAvailable = true
 
     /// Which of the three processes this is, for the tally above.
     static let processLabel: String = {

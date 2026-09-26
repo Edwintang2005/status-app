@@ -160,4 +160,35 @@ final class MomentIndexTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
         XCTAssertEqual(index.load(), [])
     }
+
+    // MARK: Cap, clocks, unreadable file
+
+    func testCapNeverDropsAPendingSend() {
+        let (index, _) = makeIndex()
+        let pending = Fixtures.moment("pending", at: Fixtures.date(-10_000), fromMe: true, uploaded: false)
+        let flood = (0..<AppConfig.momentHistoryLimit).map { Fixtures.moment("p\($0)", at: Fixtures.date(Double($0))) }
+        index.insert([pending] + flood)
+        let saved = index.load()
+        XCTAssertTrue(saved.contains { $0.id == "pending" }, "no cloud copy: leaving the index loses it")
+        XCTAssertEqual(saved.count, AppConfig.momentHistoryLimit + 1)
+    }
+
+    func testFutureDatesAreHealed() {
+        let (index, _) = makeIndex()
+        index.insert([Fixtures.moment("ahead", at: Date().addingTimeInterval(86_400))])
+        XCTAssertFalse(TrustedTime.isFuture(index.load()[0].sentAt))
+    }
+
+    /// Before first unlock (or on an I/O error) the file can't be read; the
+    /// delta must not replace the history, nor callers prune against it.
+    func testUnreadableFileIsLeftUntouched() throws {
+        let (index, url) = makeIndex()
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        index.insert([Fixtures.moment("p1")])
+        XCTAssertTrue(index.readFailed)
+        var isDirectory: ObjCBool = false
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory))
+        XCTAssertTrue(isDirectory.boolValue, "nothing was written over it")
+        XCTAssertEqual(corruptHits, 0, "unreadable isn't corrupt: no sidecar, no resync")
+    }
 }

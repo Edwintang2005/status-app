@@ -344,7 +344,7 @@ final class AppModel {
     /// The current partner status has been reported: its text stays hidden.
     var isPartnerStatusReported: Bool {
         guard let theirs = snapshot.theirs, let hidden = hiddenPartnerStatusAt else { return false }
-        return theirs.updatedAt == hidden
+        return theirs.wordsAt == hidden || theirs.updatedAt == hidden
     }
 
     /// Removes the moment from this device for good and mails the report.
@@ -369,8 +369,9 @@ final class AppModel {
     /// Hides the partner's current status text (until they set another) and mails the report.
     func reportPartnerStatus() {
         guard let theirs = snapshot.theirs else { return }
-        store.hiddenPartnerStatusAt = theirs.updatedAt
-        hiddenPartnerStatusAt = theirs.updatedAt
+        // The words' date, so the partner renaming themselves doesn't unhide them.
+        store.hiddenPartnerStatusAt = theirs.wordsAt
+        hiddenPartnerStatusAt = theirs.wordsAt
         SharedStore.reloadWidgets()
         sendReport(Report.Details(kind: "status",
                                   identifier: "status at \(theirs.updatedAt.formatted(.iso8601))",
@@ -435,6 +436,18 @@ final class AppModel {
         } catch {
             log.error("Couldn't fetch media for \(moment.id): \(error.localizedDescription)")
             return false
+        }
+    }
+
+    /// The home card and photo widget only ever read the thumbnail; the one
+    /// download attempt inside a refresh can fail (a widget deadline, a killed
+    /// extension), and nothing else would fetch it again.
+    private func restoreLatestThumbnailIfMissing() async {
+        guard let latest = store.snapshot.latestPartnerVisualMoment,
+              !MomentStore.shared.hasThumbnail(for: latest.id) else { return }
+        if await ensureThumbnail(for: latest) {
+            SharedStore.reloadWidgets()
+            reload()
         }
     }
 
@@ -504,6 +517,7 @@ final class AppModel {
             await republishAnniversaryRequestIfNeeded()
             await retryPendingUploads()
             await flushReceiptsIfNeeded()
+            await restoreLatestThumbnailIfMissing()
         } catch {
             // The backend may have unlinked us (a vanished zone means the other
             // person ended things), so re-read local state either way.
@@ -573,6 +587,8 @@ final class AppModel {
         let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
         var payload = snapshot.mine ?? .initial(displayName: trimmed)
         payload.displayName = trimmed
+        // The words keep their own date; only the record's stamp moves.
+        payload.wordsSince = payload.wordsAt
         // Fresh stamp: the resync revert-guard orders by `updatedAt`, and a stale one would lose.
         payload.updatedAt = statusTimestamp()
         let paired = isPaired
@@ -583,10 +599,12 @@ final class AppModel {
         reload()
 
         guard paired else { return }
+        // Not logged: the status didn't change, only the name on it — unless the
+        // status itself never made it into the log (set offline, then renamed).
+        let logged = store.snapshot.myStatusLoggedAt != payload.wordsAt
         Task { [payload] in
             do {
-                // Not logged: the status didn't change, only the name on it.
-                try await Backend.current.publish(payload, logged: false)
+                try await Backend.current.publish(payload, logged: logged)
                 markStatusPublished(payload)
             } catch {
                 // Quiet: the name is right locally, and `republishStatusIfNeeded` carries it over.
@@ -747,7 +765,9 @@ final class AppModel {
         defer { isRepublishingStatus = false }
 
         do {
-            try await Backend.current.publish(mine)
+            // Logged only if this status's log record isn't confirmed yet: a
+            // retried rename must not log its old words as a new status.
+            try await Backend.current.publish(mine, logged: snapshot.myStatusLoggedAt != mine.wordsAt)
             markStatusPublished(mine)
             reload()
             log.info("Republished the offline status update")
@@ -1077,18 +1097,64 @@ final class AppModel {
         store.inviteURL = url
     }
 
-    /// Settings' close. Refuses (with an explanation) once someone has joined
-    /// through the link — that case is the Diagnostics handshake.
+    /// Settings asks before the re-seat handshake: set when a plain close found
+    /// someone on the share (or the partner is known to be in).
+    var confirmingInviteReseat = false
+    /// Settings' result line after a close or reopen.
+    var inviteNotice: String?
+
+    /// Settings' close. With the partner in, closing re-seats them, which only
+    /// ever runs after the owner confirms (invariant 9).
     func closeInvite() async {
+        if snapshot.theirs != nil {
+            confirmingInviteReseat = true
+            return
+        }
         isBusy = true
         defer { isBusy = false }
         do {
             try await CloudSync.shared.closeUnusedInvite()
             // The URL is kept — a closed link still re-admits the existing partner.
             setInviteClosed(true)
+        } catch SyncError.inviteInUse {
+            confirmingInviteReseat = true
         } catch {
             present(error)
         }
+    }
+
+    /// The confirmed re-seat: close the link, re-add the partner privately.
+    func closeInviteReseatingPartner() async {
+        guard let pairing = store.pairing, pairing.role == .owner else { return }
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            switch try await CloudSync.shared.lockIfPartnerOnShare(pairing) {
+            case .locked:
+                inviteNotice = String(localized: "The link is closed. Ask \(partnerName) to tap the invite link once more to get back in.")
+            case .nobodyJoined:
+                try await CloudSync.shared.closeUnusedInvite()
+                inviteNotice = String(localized: "Nobody had joined yet, so the link is simply closed.")
+            }
+        } catch {
+            present(error)
+        }
+        reload()
+        await refreshInviteURL()
+    }
+
+    /// Settings' reopen, behind a confirmation: anyone with the link can join again.
+    func reopenInvite() async {
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            try await CloudSync.shared.reopenInvite()
+            inviteNotice = String(localized: "The link is open again. Anyone who has it can join, so send it only to \(partnerName).")
+        } catch {
+            present(error)
+        }
+        reload()
+        await refreshInviteURL()
     }
 
     // MARK: - Memories

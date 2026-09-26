@@ -52,6 +52,7 @@ struct StatusProvider: TimelineProvider {
     /// Best effort — a failure here just means the cached snapshot is served.
     private static func refreshIfPossible() async -> RefreshResult? {
         guard await MainActor.run(body: { SharedStore.shared.pairing != nil }) else { return nil }
+        guard WidgetReloadPolicy.shouldFetch(lastSyncedAt: SharedStore.shared.snapshot.lastSyncedAt) else { return nil }
         do {
             // WidgetKit gives the provider a limited budget; give up well before it.
             return try await withDeadline(AppConfig.widgetDeadline) { try await Backend.current.refresh() }

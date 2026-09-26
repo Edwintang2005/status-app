@@ -67,4 +67,20 @@ final class AnniversaryTests: XCTestCase {
         let data = try JSONEncoder.shared.encode(began)
         XCTAssertEqual(try JSONDecoder.shared.decode(Anniversary.self, from: data), began)
     }
+
+    /// US clocks spring forward on 8 March 2026: the 47 hours from noon on
+    /// the 7th to noon on the 9th are still two whole days on the wall.
+    func testElapsedCountsCalendarDaysAcrossDaylightSaving() throws {
+        let zone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = zone
+        let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 7, hour: 12)))
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 9, hour: 12, minute: 30)))
+        let anniversary = Anniversary(startsAt: start, timeZoneID: zone.identifier)
+        XCTAssertEqual(now.timeIntervalSince(start), 47.5 * 3600, "the fixture really spans the change")
+        let elapsed = anniversary.elapsed(at: now)
+        XCTAssertEqual(elapsed.days, 2)
+        XCTAssertEqual(elapsed.seconds, 30 * 60)
+        XCTAssertEqual(anniversary.elapsed(at: start.addingTimeInterval(-60)).days, 0, "before it began")
+    }
 }

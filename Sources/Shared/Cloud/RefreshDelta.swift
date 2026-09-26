@@ -27,31 +27,38 @@ struct RefreshDelta: Sendable, Equatable {
     /// not in this delta, so the change token must not advance past them.
     var unreadableRecords = 0
 
-    func fold(into snapshot: inout Snapshot) {
+    func fold(into snapshot: inout Snapshot, now: Date = Date()) {
         if let mine {
             // A status set offline is newer than the server copy; adopting the
             // server's silently reverted it. Keep the newer local text and take
-            // only the server-owned nudge counter.
-            if mine.updatedAt >= (snapshot.mine?.updatedAt ?? .distantPast) {
-                snapshot.mine = mine
+            // only the server-owned nudge counter. A held copy stamped in the
+            // future (a clock that ran ahead) is stale, not newer.
+            if var held = snapshot.mine, mine.updatedAt < held.updatedAt,
+               !TrustedTime.isFuture(held.updatedAt, now: now) {
+                held.nudgeCount = max(held.nudgeCount, mine.nudgeCount)
+                held.lastNudgeAt = Self.later(held.lastNudgeAt, mine.lastNudgeAt)
+                snapshot.mine = held
             } else {
-                snapshot.mine?.nudgeCount = mine.nudgeCount
-                snapshot.mine?.lastNudgeAt = mine.lastNudgeAt
+                snapshot.mine = Self.keepingNudges(of: snapshot.mine, in: mine)
             }
         }
 
         if partnerErased {
             snapshot.theirs = nil
+            // A participant who unlinks and rejoins restarts their count at 1;
+            // a stale watermark would swallow their next nudges.
+            snapshot.lastSeenPartnerNudgeCount = 0
         } else if let theirs {
             // Deltas from concurrent processes can land out of order; an older
             // copy must not regress the status, but its nudge counter is server
-            // state and is taken either way.
-            if var held = snapshot.theirs, theirs.updatedAt < held.updatedAt {
+            // state and is taken either way — and never backwards.
+            if var held = snapshot.theirs, theirs.updatedAt < held.updatedAt,
+               !TrustedTime.isFuture(held.updatedAt, now: now) {
                 held.nudgeCount = max(held.nudgeCount, theirs.nudgeCount)
-                held.lastNudgeAt = theirs.lastNudgeAt ?? held.lastNudgeAt
+                held.lastNudgeAt = Self.later(held.lastNudgeAt, theirs.lastNudgeAt)
                 snapshot.theirs = held
             } else {
-                snapshot.theirs = theirs
+                snapshot.theirs = Self.keepingNudges(of: snapshot.theirs, in: theirs)
             }
         }
 
@@ -78,6 +85,23 @@ struct RefreshDelta: Sendable, Equatable {
             } else if let anniversaryRequestedAt {
                 snapshot.anniversaryRequestedAt = anniversaryRequestedAt
             }
+        }
+    }
+
+    /// `incoming`, but with a nudge count and time no lower than `held`'s: a
+    /// delta built from a pre-lock snapshot must not undo another process's write.
+    private static func keepingNudges(of held: StatusPayload?, in incoming: StatusPayload) -> StatusPayload {
+        guard let held else { return incoming }
+        var merged = incoming
+        merged.nudgeCount = max(held.nudgeCount, incoming.nudgeCount)
+        merged.lastNudgeAt = later(held.lastNudgeAt, incoming.lastNudgeAt)
+        return merged
+    }
+
+    private static func later(_ a: Date?, _ b: Date?) -> Date? {
+        switch (a, b) {
+        case let (a?, b?): return max(a, b)
+        default: return a ?? b
         }
     }
 }

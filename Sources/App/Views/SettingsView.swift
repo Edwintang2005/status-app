@@ -14,6 +14,7 @@ struct SettingsView: View {
     @State private var confirmingUnlink = false
     @State private var confirmingWipe = false
     @State private var confirmingBlock = false
+    @State private var confirmingReopen = false
     /// Set when the iCloud side of an unlink failed, so a local-only reset can
     /// be offered explicitly rather than silently taken.
     @State private var offeringLocalOnly: Ending?
@@ -210,6 +211,8 @@ struct SettingsView: View {
             // The cached link can be closed from another device — confirm it
             // against CloudKit rather than trusting the cached copy.
             .task { await model.refreshInviteURL() }
+            // Here, not on the invite section: presentations inside a Form's rows don't reliably show.
+            .modifier(InviteDialogs(confirmingReopen: $confirmingReopen))
             .confirmationDialog(unlinkTitle,
                                 isPresented: $confirmingUnlink,
                                 titleVisibility: .visible) {
@@ -325,6 +328,8 @@ struct SettingsView: View {
                     }
                     CopyLinkButton(url: url, prominent: false)
                 }
+                // The way back if a close strands the partner (`inviteLeftClosed`).
+                Button("Reopen the invite link") { confirmingReopen = true }
             } else {
                 // Absent only until `refreshInviteURL()` returns — a loading
                 // state, not an empty one.
@@ -365,9 +370,9 @@ struct SettingsView: View {
         // `theirs` is only a hint that they're in (they may have joined and not
         // posted yet), so neither branch claims to know for certain.
         if model.snapshot.theirs != nil {
-            return String(localized: "\(model.partnerName) is in, and the link still admits anyone holding it. Closing it now would also remove them: to close it safely, have them on standby and use iCloud diagnostics (tap Version seven times) → Promote partner & close invite. They confirm by tapping the link once.")
+            return String(localized: "\(model.partnerName) is in, and the link still admits anyone holding it. Closing it re-seats them privately — have them ready to tap the link once more.")
         }
-        return String(localized: "Anyone holding the link can join. If \(model.partnerName) hasn't joined yet, you can close it now and create a fresh one — once they're in, closing is done from iCloud diagnostics with them on standby.")
+        return String(localized: "Anyone holding the link can join. If \(model.partnerName) hasn't joined yet, closing it simply shuts it; once they're in, closing asks them to tap the link once more.")
     }
 
     private var safetyFooter: String {
@@ -514,3 +519,39 @@ struct SettingsView: View {
         .tint(Theme.accent)
 }
 #endif
+
+/// The invite section's confirmations and result, hosted at the Form level.
+/// Its own modifier: inline in `body` it timed out the type-checker.
+private struct InviteDialogs: ViewModifier {
+    @Environment(AppModel.self) private var model
+    @Binding var confirmingReopen: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .confirmationDialog("Close the invite link?",
+                                isPresented: Binding(get: { model.confirmingInviteReseat },
+                                                     set: { model.confirmingInviteReseat = $0 }),
+                                titleVisibility: .visible) {
+                Button("Close and re-seat \(model.partnerName)", role: .destructive) {
+                    Task { await model.closeInviteReseatingPartner() }
+                }
+                Button("Not now", role: .cancel) {}
+            } message: {
+                Text("\(model.partnerName) joined through this link, so closing it briefly takes them off your shared space and re-adds them privately. Have them ready: they tap the invite link once more to get back in. If anything fails, the link is reopened.")
+            }
+            .confirmationDialog("Reopen the invite link?",
+                                isPresented: $confirmingReopen,
+                                titleVisibility: .visible) {
+                Button("Reopen") { Task { await model.reopenInvite() } }
+                Button("Not now", role: .cancel) {}
+            } message: {
+                Text("Anyone who has the link will be able to join again. Reopen it if \(model.partnerName) can't get back in.")
+            }
+            .alert("Invite link", isPresented: Binding(get: { model.inviteNotice != nil },
+                                                       set: { if !$0 { model.inviteNotice = nil } })) {
+                Button("OK", role: .cancel) { model.inviteNotice = nil }
+            } message: {
+                Text(model.inviteNotice ?? "")
+            }
+    }
+}

@@ -12,6 +12,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
         NotificationManager.registerCategories()
+        // Background app refreshes on a locked phone lack the keys just like the
+        // extensions; only an unlocked look may count toward giving up (invariant 2).
+        SharedStore.protectedDataAvailable = application.isProtectedDataAvailable
+        let center = NotificationCenter.default
+        center.addObserver(forName: UIApplication.protectedDataDidBecomeAvailableNotification,
+                           object: nil, queue: .main) { _ in SharedStore.protectedDataAvailable = true }
+        center.addObserver(forName: UIApplication.protectedDataWillBecomeUnavailableNotification,
+                           object: nil, queue: .main) { _ in SharedStore.protectedDataAvailable = false }
         // Required for CloudKit database subscriptions to reach us at all.
         application.registerForRemoteNotifications()
         return true

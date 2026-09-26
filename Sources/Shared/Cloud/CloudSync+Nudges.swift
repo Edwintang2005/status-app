@@ -86,12 +86,17 @@ extension CloudSync {
         // The intent's deadline cancels rather than waits; the failure path
         // below must get to release the cooldown before WidgetKit suspends us.
         try Task.checkCancellation()
-        let next = (record[Field.count] as? Int ?? 0) + 1
+        // Clamped: the share lets the partner write this record too, and a
+        // planted `Int.max` would trap the increment on every tap.
+        let current = min(max(record[Field.count] as? Int ?? 0, 0), AppConfig.nudgeCountCeiling)
+        let next = current + 1
         record[Field.count] = next as CKRecordValue
         record[Field.sentAt] = now as CKRecordValue
+        // Change-tag checked: two taps racing on slow signal would otherwise both
+        // write the same count, and the second heart would arrive silent.
         let result = try await database.modifyRecords(saving: [record],
                                                       deleting: [],
-                                                      savePolicy: .changedKeys)
+                                                      savePolicy: .ifServerRecordUnchanged)
         try Self.confirmSaved(result, recordID)
         return next
     }

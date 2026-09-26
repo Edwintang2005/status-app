@@ -17,6 +17,10 @@ final class MomentIndex {
     /// Runs when the file is found corrupt; the default clears the CloudKit
     /// change tokens so the next refresh rebuilds the index from the zone.
     private let onCorrupt: () -> Void
+    /// The file exists but couldn't be read (data protection before first
+    /// unlock, an I/O error). Writing then would replace the whole history with
+    /// one delta, and pruning against it would delete media, so both wait.
+    private(set) var readFailed = false
 
     /// `fileURL` defaults to the App Group file; tests pass a temporary one.
     init(fileURL: URL? = nil, onCorrupt: (() -> Void)? = nil) {
@@ -36,7 +40,19 @@ final class MomentIndex {
     }
 
     private func loadUnlocked() -> [Moment] {
-        guard let fileURL, let data = try? Data(contentsOf: fileURL) else { return [] }
+        guard let fileURL else { return [] }
+        let data: Data
+        do {
+            data = try Data(contentsOf: fileURL)
+            readFailed = false
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            readFailed = false
+            return []
+        } catch {
+            readFailed = true
+            log.error("Moment index unreadable, leaving it untouched: \(error.localizedDescription, privacy: .public)")
+            return []
+        }
         do {
             return try JSONDecoder.shared.decode([Moment].self, from: data)
         } catch {
@@ -53,9 +69,13 @@ final class MomentIndex {
     }
 
     private func saveUnlocked(_ moments: [Moment]) {
-        guard let fileURL else { return }
+        guard let fileURL, !readFailed else { return }
         do {
-            let trimmed = Array(moments.prefix(AppConfig.momentHistoryLimit))
+            // The cap never drops a send still waiting to upload: it has no
+            // cloud copy, and leaving the index takes it out of the retry queue.
+            let pendingBeyondCap = moments.dropFirst(AppConfig.momentHistoryLimit)
+                .filter { $0.fromMe && !$0.uploaded }
+            let trimmed = Array(moments.prefix(AppConfig.momentHistoryLimit)) + pendingBeyondCap
             try JSONEncoder.shared.encode(trimmed).write(to: fileURL, options: .atomic)
         } catch {
             log.error("Failed to write moment index: \(error.localizedDescription)")
@@ -91,6 +111,12 @@ final class MomentIndex {
                 }
                 all.removeAll { $0.id == moment.id }
                 all.append(moment)
+            }
+            // A date a skewed clock stamped in the future would pin that entry
+            // as newest for good; healed to now, which keeps it in place today.
+            let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+            for index in all.indices where TrustedTime.isFuture(all[index].sentAt, now: now) {
+                all[index].sentAt = now
             }
             all.sort { $0.sentAt > $1.sentAt }
             saveUnlocked(all)

@@ -124,9 +124,7 @@ struct AnniversaryView: View {
     private func content(_ anniversary: Anniversary,
                          now: Date,
                          celebrating: Anniversary.Milestone?) -> some View {
-        let elapsed = max(0, now.timeIntervalSince(anniversary.startsAt))
-        let days = Int(elapsed / 86_400)
-        let clock = Int(elapsed) % 86_400
+        let (days, clock) = anniversary.elapsed(at: now)
 
         return ScrollView {
             VStack(spacing: 0) {

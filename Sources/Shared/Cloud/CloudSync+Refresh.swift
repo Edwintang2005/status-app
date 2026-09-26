@@ -355,9 +355,10 @@ extension CloudSync {
                                    && $0.isCelebration == theirs.isCelebration } ?? false) {
             StatusHistoryLog.shared.record(theirs, fromMe: false)
         }
-        if let mine, myStatus != nil {
+        if let mine, myStatus != nil, !(previousMine.map { $0.sameWords(as: mine) } ?? false) {
             // Own statuses set on this device are logged at set time; this
-            // catches ones written by another device on the same account.
+            // catches ones written by another device on the same account. Not
+            // the echo of a rename: same words, new stamp, would log twice.
             StatusHistoryLog.shared.record(mine, fromMe: true)
         }
         // The durable log: one entry per `StatusLog` record. Same dedup key as

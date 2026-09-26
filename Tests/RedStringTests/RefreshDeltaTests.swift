@@ -140,4 +140,32 @@ final class RefreshDeltaTests: XCTestCase {
         RefreshDelta(receiptReadable: true, statusSeen: seen).fold(into: &snapshot)
         XCTAssertEqual(snapshot.myStatusSeenByPartner, seen)
     }
+
+    // MARK: Skewed clocks and nudge counters
+
+    /// A held status stamped in the future (a clock that once ran ahead) is
+    /// stale: the capped, genuinely newer copy replaces it.
+    func testFutureStampedHeldStatusYields() {
+        var snapshot = paired
+        snapshot.theirs = Fixtures.status("🕰️", "from the future", at: Date().addingTimeInterval(86_400))
+        let now = Fixtures.status("☕️", "coffee?", at: Date().addingTimeInterval(-60))
+        RefreshDelta(theirs: now).fold(into: &snapshot)
+        XCTAssertEqual(snapshot.theirs?.message, "coffee?")
+    }
+
+    func testNudgeCountNeverMovesBackwards() {
+        var snapshot = paired
+        snapshot.theirs = Fixtures.status("🥰", "missing you", at: Fixtures.date(50), nudges: 9)
+        // Newer status built from a snapshot read before another process wrote 9.
+        RefreshDelta(theirs: Fixtures.status("🥰", "missing you", at: Fixtures.date(60), nudges: 7)).fold(into: &snapshot)
+        XCTAssertEqual(snapshot.theirs?.nudgeCount, 9)
+    }
+
+    func testPartnerErasedResetsNudgeWatermark() {
+        var snapshot = paired
+        snapshot.lastSeenPartnerNudgeCount = 12
+        RefreshDelta(partnerErased: true).fold(into: &snapshot)
+        XCTAssertEqual(snapshot.lastSeenPartnerNudgeCount, 0,
+                       "a rejoining participant restarts at 1; a stale mark would swallow their nudges")
+    }
 }

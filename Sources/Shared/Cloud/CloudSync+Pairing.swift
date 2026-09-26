@@ -159,19 +159,22 @@ extension CloudSync {
             let invited = try await privateParticipants(matching: publics)
 
             share.publicPermission = .none
-            try Self.confirmSaved(try await database.modifyRecords(saving: [share], deleting: []), share.recordID)
+            do {
+                try Self.confirmSaved(try await database.modifyRecords(saving: [share], deleting: []), share.recordID)
+            } catch {
+                // The close may have landed despite the error: put the link back first.
+                throw await restoreAfterFailedClose(error, zoneID: zoneID, in: database)
+            }
 
             if !invited.isEmpty {
                 // From here the partner is off the share until the private seat is
-                // confirmed. Any failure reopens the link: left closed, a retry would
-                // see "already closed", report success, and the partner's next
-                // refresh would wipe their history over a vanished zone.
+                // confirmed. Any failure reopens the link: left closed, the partner's
+                // next refreshes would wipe their history over a vanished zone.
                 do {
                     try await promoteToPrivate(invited, zoneID: zoneID, in: database)
                 } catch {
                     log.error("Promote failed after the close; reopening the invite link.")
-                    await reopenInvite(zoneID: zoneID, in: database)
-                    throw error
+                    throw await restoreAfterFailedClose(error, zoneID: zoneID, in: database)
                 }
             }
         }
@@ -213,24 +216,54 @@ extension CloudSync {
                 .joined(separator: ", ")
             throw SyncError.couldNotSecureShare(
                 "the private invitation didn't stick — the server kept: "
-                + ((survivors?.isEmpty ?? true) ? "no one but you" : survivors!)
-                + "; the link was reopened")
+                + ((survivors?.isEmpty ?? true) ? "no one but you" : survivors!))
         }
         log.notice("Invite closed; partner re-added as a private participant. Participants now: \(confirmed?.participants.count ?? 0).")
     }
 
-    /// Best effort: puts the link back the way it was before a failed promote.
-    func reopenInvite(zoneID: CKRecordZone.ID, in database: CKDatabase) async {
-        guard let share = try? await existingZoneShare(in: database, zoneID: zoneID) else {
-            log.error("Couldn't read the share to reopen the invite link.")
-            return
+    /// Reopens the link after a failed close, and says honestly whether it
+    /// worked: the error the caller surfaces depends on it (`inviteLeftClosed`
+    /// tells the owner their partner is locked out and how to reopen).
+    func restoreAfterFailedClose(_ error: Error,
+                                 zoneID: CKRecordZone.ID,
+                                 in database: CKDatabase) async -> Error {
+        let detail: String
+        switch error {
+        case SyncError.couldNotSecureShare(let step): detail = step
+        default: detail = error.localizedDescription
         }
-        share.publicPermission = .readWrite
-        do {
+        for attempt in 1...3 {
+            do {
+                try await reopenInvite(zoneID: zoneID, in: database)
+                return SyncError.couldNotSecureShare(detail)
+            } catch {
+                log.error("Reopen attempt \(attempt) of 3 failed: \(error.localizedDescription, privacy: .public)")
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+        await MainActor.run { SharedStore.shared.inviteClosed = true }
+        return SyncError.inviteLeftClosed(detail)
+    }
+
+    /// Puts link-based joining back on. Also Settings' "Reopen the invite link",
+    /// the way back from `inviteLeftClosed`.
+    func reopenInvite(zoneID: CKRecordZone.ID, in database: CKDatabase) async throws {
+        guard let share = try await existingZoneShare(in: database, zoneID: zoneID) else {
+            throw SyncError.shareUnavailable
+        }
+        if share.publicPermission != .readWrite {
+            share.publicPermission = .readWrite
             try Self.confirmSaved(try await database.modifyRecords(saving: [share], deleting: []), share.recordID)
-        } catch {
-            log.error("Couldn't reopen the invite link: \(error.localizedDescription, privacy: .public)")
         }
+        await MainActor.run { SharedStore.shared.inviteClosed = false }
+    }
+
+    /// Owner side, from Settings behind a confirmation.
+    func reopenInvite() async throws {
+        guard let pairing = await MainActor.run(body: { SharedStore.shared.pairing }),
+              pairing.role == .owner else { throw SyncError.notPaired }
+        try await requireAvailableAccount()
+        try await reopenInvite(zoneID: zoneID(for: pairing), in: container.privateCloudDatabase)
     }
 
     /// Re-accepting our own share — how a partner who is `pending` after the
@@ -328,7 +361,7 @@ extension CloudSync {
 
     /// Settings' plain close: shuts the link only while nobody has come through
     /// it. With a link-joined partner on the share, closing evicts them — that is
-    /// the promote handshake, which runs from Diagnostics only (invariant 9).
+    /// the promote handshake, which needs the owner's explicit go-ahead (invariant 9).
     func closeUnusedInvite() async throws {
         guard let pairing = await MainActor.run(body: { SharedStore.shared.pairing }),
               pairing.role == .owner else { throw SyncError.notPaired }
@@ -346,21 +379,37 @@ extension CloudSync {
         await MainActor.run { SharedStore.shared.inviteClosed = true }
     }
 
+    /// What an explicit close attempt found.
+    enum LockOutcome: Sendable {
+        case locked
+        /// Nobody accepted on the share and the link is open: nothing to secure.
+        case nobodyJoined
+    }
+
     /// Confirms a real person is on the share, then promote-and-close. The status
     /// record alone can be a leftover from a previous pairing — only the share's
     /// own participant list is proof, or a fresh invite gets killed unused.
-    func lockIfPartnerOnShare(_ pairing: PairingInfo) async throws {
+    @discardableResult
+    func lockIfPartnerOnShare(_ pairing: PairingInfo) async throws -> LockOutcome {
         let database = container.privateCloudDatabase
-        guard let share = try await existingZoneShare(in: database,
-                                                      zoneID: zoneID(for: pairing)),
-              share.participants.contains(where: {
-                  $0.role != .owner && $0.acceptanceStatus == .accepted
-              }) else {
+        guard let share = try await existingZoneShare(in: database, zoneID: zoneID(for: pairing)) else {
+            throw SyncError.shareUnavailable
+        }
+        guard share.participants.contains(where: {
+            $0.role != .owner && $0.acceptanceStatus == .accepted
+        }) else {
+            // Closed with nobody accepted is the stranded state a failed reopen
+            // leaves — never report it as done.
+            if share.publicPermission == .none,
+               !share.participants.contains(where: { $0.role != .owner && $0.acceptanceStatus == .pending }) {
+                throw SyncError.inviteLeftClosed("the link is closed and nobody is on the share")
+            }
             log.notice("Nobody on the share yet; leaving the invite open.")
-            return
+            return .nobodyJoined
         }
         try await lockPairing()
         log.notice("Partner is on the share — invite link closed.")
+        return .locked
     }
 
     /// Diagnostics maintenance: ejects link-joined (public) participants by
@@ -400,7 +449,9 @@ extension CloudSync {
               pairing.role == .owner,
               await MainActor.run(body: { !SharedStore.shared.inviteClosed }) else { return nil }
         do {
-            try await lockIfPartnerOnShare(pairing)
+            if try await lockIfPartnerOnShare(pairing) == .nobodyJoined {
+                return "Nobody has joined through the link yet, so it was left open."
+            }
             return nil
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -516,6 +567,7 @@ extension CloudSync {
         if var renamed = existing {
             if renamed.displayName != displayName {
                 renamed.displayName = displayName
+                renamed.wordsSince = renamed.wordsAt
                 renamed.updatedAt = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
                 try await publish(renamed, logged: false)
             }
@@ -526,11 +578,18 @@ extension CloudSync {
         // Seed watermarks from the server so pairing against existing history
         // doesn't fire stale nudge notifications or mislabel the first push —
         // nor describe the newest of hundreds of re-fetched moments as new.
+        // Forward only: an NSE claim can land mid-bootstrap, and a failed
+        // refresh (nil) must not reset the count to 0 and re-announce a nudge.
         await MainActor.run {
             _ = SharedStore.shared.mutate {
-                $0.lastSeenPartnerNudgeCount = theirs?.nudgeCount ?? 0
-                $0.lastAnnouncedPartnerStatusAt = theirs?.updatedAt
-                $0.lastAnnouncedMomentSentAt = $0.latestPartnerMoment?.sentAt
+                if let known = theirs ?? $0.theirs {
+                    $0.lastSeenPartnerNudgeCount = max($0.lastSeenPartnerNudgeCount, known.nudgeCount)
+                    $0.lastAnnouncedPartnerStatusAt = max($0.lastAnnouncedPartnerStatusAt ?? .distantPast,
+                                                          known.updatedAt)
+                }
+                if let newest = $0.latestPartnerMoment?.sentAt {
+                    $0.lastAnnouncedMomentSentAt = max($0.lastAnnouncedMomentSentAt ?? .distantPast, newest)
+                }
             }
         }
     }

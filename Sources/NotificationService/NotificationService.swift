@@ -102,6 +102,9 @@ final class NotificationService: UNNotificationServiceExtension {
         // or only took the first batch of a large one: then the event is real
         // and unannounced, and CloudKit's generic words must stay at full volume.
         let couldNotRead = !result.unreadableRecordNames.isEmpty || result.incomplete
+        // Out of time: the expiry fallback is (or is about to be) delivered, and
+        // a claim now would mark announced an event whose rich banner never shows.
+        if Task.isCancelled { return content }
         switch notification.subscriptionID {
         case CloudSync.SubscriptionID.moment?:
             // Picked and claimed inside one `mutate` under the cross-process lock —
@@ -129,30 +132,39 @@ final class NotificationService: UNNotificationServiceExtension {
             } else {
                 await MainActor.run { SharedStore.shared.snapshot.theirs?.nudgeCount }
             }
-            let claimed = await MainActor.run { () -> Bool in
-                guard let count else { return false }
-                var claimed = false
-                _ = SharedStore.shared.mutate(reloadWidgets: false) {
-                    claimed = AnnouncementPolicy.claimNudgeBanner(count: count, in: &$0)
-                }
-                return claimed
+            let sentAt: Date? = if let known = result.partnerStatus?.lastNudgeAt {
+                known
+            } else {
+                await MainActor.run { SharedStore.shared.snapshot.theirs?.lastNudgeAt }
             }
-            if claimed {
-                applyNudge(to: content, partnerName: partnerName)
+            let claim = await MainActor.run { () -> AnnouncementPolicy.NudgeInterruption? in
+                guard let count else { return nil }
+                var interruption: AnnouncementPolicy.NudgeInterruption?
+                _ = SharedStore.shared.mutate(reloadWidgets: false) {
+                    guard AnnouncementPolicy.claimNudgeBanner(count: count, in: &$0) else { return }
+                    interruption = AnnouncementPolicy.nudgeInterruption(sentAt: sentAt, in: &$0)
+                }
+                return interruption
+            }
+            if let claim {
+                applyNudge(to: content, partnerName: partnerName, interruption: claim)
             } else if result.ownRecordsChanged {
                 applyUnclaimed(to: content, ownWrite: true, couldNotRead: false,
                                ownBody: String(localized: "You sent a nudge from another device."))
             } else {
                 // Already announced by the app or a sibling instance: keep the
                 // words, drop the interruption so it doesn't read as a second tap.
-                applyNudge(to: content, partnerName: partnerName)
+                applyNudge(to: content, partnerName: partnerName,
+                           interruption: .init(stale: false, breaksThroughFocus: false))
                 quieten(content)
             }
         case CloudSync.SubscriptionID.status?:
             // Check-and-claim in one `mutate` under the cross-process lock so
             // concurrent pushes don't both rewrite — see `AnnouncementPolicy.claimStatusBanner`.
             var banner: AnnouncementPolicy.StatusBanner?
-            if let status = result.partnerStatus {
+            // An unreadable status record leaves `partnerStatus` at the *previous*
+            // status; claiming that would announce old words as news.
+            if let status = result.partnerStatus, !result.heldPartnerStatus {
                 banner = await MainActor.run { () -> AnnouncementPolicy.StatusBanner? in
                     var claimed: AnnouncementPolicy.StatusBanner?
                     _ = SharedStore.shared.mutate(reloadWidgets: false) {
@@ -268,10 +280,14 @@ final class NotificationService: UNNotificationServiceExtension {
     }
 
     /// The watermark was already advanced by the claim above, under the lock.
+    /// Same wording rules as `NotificationManager.postNudge`.
     private func applyNudge(to content: UNMutableNotificationContent,
-                            partnerName: String) {
+                            partnerName: String,
+                            interruption: AnnouncementPolicy.NudgeInterruption) {
         content.title = partnerName
-        content.body = String(localized: "is thinking of you 💭")
-        content.interruptionLevel = .timeSensitive
+        content.body = interruption.stale
+            ? String(localized: "was thinking of you earlier 💭")
+            : String(localized: "is thinking of you 💭")
+        content.interruptionLevel = interruption.breaksThroughFocus ? .timeSensitive : .active
     }
 }

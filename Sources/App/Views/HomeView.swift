@@ -263,8 +263,10 @@ struct HomeView: View {
         guard let theirs = model.snapshot.theirs else {
             return String(localized: "\(model.partnerName): waiting for their first status")
         }
-        let when = theirs.updatedAt.relativeWording()
-        return "\(model.partnerName): \(theirs.emoji) \(partnerMessage.text), \(when)"
+        let when = theirs.wordsAt.relativeWording()
+        // Same as the card: a reported status reads 💭 here too.
+        let emoji = model.isPartnerStatusReported ? "💭" : theirs.emoji
+        return "\(model.partnerName): \(emoji) \(partnerMessage.text), \(when)"
     }
 
     private var partnerCardContent: some View {
@@ -289,7 +291,7 @@ struct HomeView: View {
                         // single-line ideal — see the containerRelativeFrame note.
                         .fixedSize(horizontal: false, vertical: true)
                         .foregroundStyle(partnerMessage.muted ? .secondary : .primary)
-                    RelativeTime(theirs.updatedAt)
+                    RelativeTime(theirs.wordsAt)
                         .font(Theme.rounded(11))
                         .foregroundStyle(.secondary)
                 }

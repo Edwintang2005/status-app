@@ -30,6 +30,7 @@ extension CloudSync {
 
         await MainActor.run {
             _ = SharedStore.shared.mutate {
+                if logged { $0.myStatusLoggedAt = payload.wordsAt }
                 // A publish finishing late must not revert a newer local status —
                 // it would also pass `markStatusPublished`'s currency check for it.
                 guard payload.updatedAt >= ($0.mine?.updatedAt ?? .distantPast) else { return }
@@ -39,19 +40,19 @@ extension CloudSync {
         await pruneStatusLog(pairing, in: database)
     }
 
-    /// The per-change history record. Named by the status's own timestamp, so
-    /// republishing the same status lands on the same record.
+    /// The per-change history record. Named by when the words were set (not a
+    /// later rename's stamp), so republishing the same status lands on the same record.
     func saveStatusLog(_ payload: StatusPayload,
                                role: PairRole,
                                zone: CKRecordZone.ID,
                                in database: CKDatabase) async throws {
-        let recordID = CKRecord.ID(recordName: role.statusLogRecordName(at: payload.updatedAt),
+        let recordID = CKRecord.ID(recordName: role.statusLogRecordName(at: payload.wordsAt),
                                    zoneID: zone)
         let record = CKRecord(recordType: RecordType.statusLog, recordID: recordID)
         record.encryptedValues[Field.emoji] = payload.emoji
         record.encryptedValues[Field.message] = payload.message
         record.encryptedValues[Field.isCelebration] = payload.isCelebration ? 1 : 0
-        record[Field.updatedAt] = payload.updatedAt as CKRecordValue
+        record[Field.updatedAt] = payload.wordsAt as CKRecordValue
         let result = try await database.modifyRecords(saving: [record],
                                                       deleting: [],
                                                       savePolicy: .allKeys)
@@ -108,7 +109,10 @@ extension CloudSync {
             ?? CKRecord(recordType: RecordType.status, recordID: recordID)
         // Never regress the server copy: a slow publish (or a republish from a
         // second device on the account) must lose to a newer status already there.
-        if let current = record[Field.updatedAt] as? Date, current > payload.updatedAt {
+        // Judged against the server's save time too, so a copy a fast clock
+        // stamped in the future doesn't block every later status.
+        if let current = record[Field.updatedAt] as? Date,
+           TrustedTime.plausible(current, serverTime: record.modificationDate) > payload.updatedAt {
             log.notice("Status save skipped: the server already has a newer status.")
             return
         }
@@ -117,9 +121,11 @@ extension CloudSync {
         record.encryptedValues[Field.displayName] = payload.displayName
         record.encryptedValues[Field.isCelebration] = payload.isCelebration ? 1 : 0
         record[Field.updatedAt] = payload.updatedAt as CKRecordValue
+        // Change-tag checked, so a write that raced ours surfaces as
+        // `serverRecordChanged` and `publish` retries on the fresh copy.
         let result = try await database.modifyRecords(saving: [record],
                                                       deleting: [],
-                                                      savePolicy: .changedKeys)
+                                                      savePolicy: .ifServerRecordUnchanged)
         try Self.confirmSaved(result, recordID)
     }
 }

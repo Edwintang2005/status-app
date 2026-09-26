@@ -113,25 +113,28 @@ service. So `lockPairing` closes the link first (which sweeps the public
 joiner off the share), then re-invites them by `userRecordID` as a *pending*
 private participant; they confirm by tapping the same invite link once. While
 they're pending they have no zone access, and a failure between the two steps
-reopens the link rather than leaving them evicted. Their own app is defended
+reopens the link rather than leaving them evicted — retried, and reported
+honestly: if the reopen itself fails, the error says the partner is locked out
+and **Settings → Invite link → Reopen the invite link** puts it back. Their own app is defended
 too: a refresh that finds the zone missing only *notes* it, and the device
 unlinks itself (and wipes) only if the zone is still missing on a second look
 two minutes or more later — so a refresh landing inside the handshake window
 costs nothing. Even then, anything they sent that never reached CloudKit is
 kept, and tapping the same link again re-sends it. Because the partner has to
-be on standby for that, the app never does it on its own: it lives behind
-**Settings → Diagnostics (tap Version seven times) → Promote partner & close
-invite**, and the Settings footer says so.
+be on standby for that, the app never does it on its own: **Settings → Close
+the invite link** runs it only after a confirmation that says so (Diagnostics
+keeps its own button), and the Settings footer describes it.
 
-**Settings → Close the invite link** is for closing it *early*, before anyone
-joins, if you sent it to the wrong person; it refuses once someone is on the
-share, so it can never evict. Once closed the row reads "Invite link — Closed".
+With nobody on the share yet, the same button simply closes the link — for
+closing it *early* if you sent it to the wrong person. Once closed the row
+reads "Invite link — Closed", with **Reopen the invite link** behind a
+confirmation.
 The local `inviteClosed` flag only stops a settled pairing re-checking the
 server; the share's own permission is the truth. Creating a genuinely new
 invite reopens the share.
 
 Two things this deliberately does **not** claim to protect against: the link
-staying open until the owner runs the handshake, and anyone with access to the
+staying open until the owner closes it, and anyone with access to the
 owner's unlocked phone.
 
 ## How it stays current
@@ -201,7 +204,11 @@ failed mid-refresh — the app catches up on its next refresh, whatever triggere
 it. A nudge found that way can be hours old, and announcing it as *"is thinking
 of you"* during, say, a status update reads as a mislabelled notification. So
 the catch-up checks `lastNudgeAt`: a nudge more than five minutes old is worded
-*"was thinking of you earlier 💭"* and loses its time-sensitive priority.
+*"was thinking of you earlier 💭"* and loses its time-sensitive priority. The
+same rule runs in the service extension, and on both paths at most one nudge
+per ten minutes breaks through Focus (`AnnouncementPolicy.nudgeInterruption`):
+the rest still alert, just not through Focus, so repeated taps can't keep
+piercing it.
 
 ### The remaining paths
 
@@ -217,8 +224,9 @@ delivery path. The widget and the open app still rely on:
    in the widget: one process launch and one CloudKit round trip per widget
    kind per tick (the status, photo and heart widgets each run the provider).
    Hourly when caught up; while a locked phone's pushes sit undecrypted it
-   retries every 5 minutes, then 15 after half an hour and 30 after two
-   (`WidgetReloadPolicy`). iOS never
+   retries every 5 minutes, then every 15 after half an hour, and back to
+   hourly after two (`WidgetReloadPolicy`); a widget kind that finds another
+   fetched in the last minute uses that result instead of fetching again. iOS never
    reloads a widget on unlock, so this is what catches it up after one.
 4. **An `NWPathMonitor` in `AppModel`**, which fires one refresh on the
    offline→online edge — so a phone that regains signal recovers without
@@ -255,7 +263,8 @@ practice status tends to ride along with them.
 
 Every enriched banner carries actions: **Send a heart back** on all three
 kinds, and **Reply with a status** on a status alert, which sets your own
-status (💬 plus your words) without opening the app. The service extension
+status (💬 plus your words) without opening the app — after Face ID, so
+nobody holding a locked phone can post as you. The service extension
 stamps the category; the app registers the actions at launch and handles taps
 in `AppDelegate`, going through `AppModel` so the usual publish path (and its
 offline recovery) runs. The lock-screen heart's intent is also an App
@@ -465,7 +474,7 @@ rapid-fire hearts; reactions and a shared countdown widget are on file.
   record's name) and a moment's kind: *"Sam — sent you a drawing ✏️"*, *"Sam —
   updated their status"* — never the caption or status words (nudges carry no
   words and read in full). The widget keeps its old picture until its next
-  retry after unlock — up to 5 minutes, 15 after half an hour locked, 30 after two. Opening the
+  retry after unlock — up to 5 minutes, 15 after half an hour locked, an hour after two. Opening the
   app catches up at once.
 - **The first sync after a reinstall pulls the whole zone.** Metadata only, so
   it's quick, but the images arrive gradually — the ten newest immediately and

@@ -11,8 +11,25 @@ struct SendNudgeIntent: AppIntent {
     func perform() async throws -> some IntentResult {
         // Never surface an error dialog on the lock screen; the next tap retries.
         // Bounded: a WidgetKit kill mid-save would leave the cooldown claimed with
-        // no failure stamp — a timeout takes `sendNudge`'s failure path instead.
-        _ = try? await withDeadline(AppConfig.widgetDeadline) { try await Backend.current.sendNudge() }
+        // no failure stamp.
+        let started = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+        do {
+            _ = try await withDeadline(AppConfig.widgetDeadline) { try await Backend.current.sendNudge() }
+        } catch is CancellationError {
+            // The deadline abandons the send rather than waiting for it, so its own
+            // failure path may never run before WidgetKit suspends us. Stamp it
+            // here — only for our own claim, and only if it never landed.
+            await MainActor.run {
+                _ = SharedStore.shared.mutate { snapshot in
+                    guard let claim = snapshot.lastNudgeSentAt, claim >= started,
+                          snapshot.mine?.lastNudgeAt != claim else { return }
+                    snapshot.lastNudgeSentAt = nil
+                    snapshot.lastNudgeFailedAt = Date()
+                }
+            }
+        } catch {
+            // `sendNudge`'s own failure path released the cooldown and stamped it.
+        }
         // In-app (Siri) the model holds its own snapshot copy; a no-op in the widget.
         await MainActor.run {
             NotificationCenter.default.post(name: .pairingDidChange, object: nil)

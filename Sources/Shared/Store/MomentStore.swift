@@ -2,6 +2,7 @@ import Foundation
 import os
 
 #if canImport(UIKit)
+import ImageIO
 import UIKit
 #endif
 
@@ -69,7 +70,29 @@ struct MomentStore {
 
     func image(for id: String) -> UIImage? {
         guard let url = imageURL(for: id) else { return nil }
-        return UIImage(contentsOfFile: url.path)
+        return Self.decoded(url, maxPixel: Self.fullMaxDimension)
+    }
+
+    /// Decodes to at most `maxPixel` on the long edge, and decodes *now* rather
+    /// than at first draw. The caps are the sizes this app writes, so its own
+    /// files come back unchanged; a crafted asset — tiny on disk, hundreds of MB
+    /// decoded — can't take the widget's memory ceiling or the main thread down.
+    private static func decoded(_ url: URL, maxPixel: CGFloat) -> UIImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL,
+                                                      [kCGImageSourceShouldCache: false] as CFDictionary) else {
+            return nil
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            // Honours EXIF orientation: an undoodled photo keeps its camera frame.
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+        return UIImage(cgImage: image)
     }
 
     /// Decoded-thumbnail cache; `NSCache` self-evicts under pressure, which
@@ -86,7 +109,7 @@ struct MomentStore {
     func thumbnail(for id: String) -> UIImage? {
         if let cached = Self.thumbnailCache.object(forKey: id as NSString) { return cached }
         guard let url = thumbURL(for: id),
-              let image = UIImage(contentsOfFile: url.path) else { return nil }
+              let image = Self.decoded(url, maxPixel: Self.thumbMaxDimension) else { return nil }
         let pixels = image.size.width * image.scale * image.size.height * image.scale
         Self.thumbnailCache.setObject(image, forKey: id as NSString, cost: Int(pixels * 4))
         return image

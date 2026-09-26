@@ -123,8 +123,17 @@ struct MomentGalleryView: View {
                 saveState = .idle
                 // Paging away from a memo stops it.
                 player.stop()
-                markCurrentSeen()
                 await loadIfNeeded()
+                guard !Task.isCancelled else { return }
+                markCurrentPhotoSeen()
+            }
+            // A memo counts as heard once it plays, not when its page shows —
+            // the same rule as the home screen's memo row.
+            .onChange(of: player.isPlaying) { _, playing in
+                guard playing, let moment = current, moment.isVoice,
+                      let url = MomentStore.shared.mediaURL(for: moment),
+                      player.currentURL == url else { return }
+                model.markSeen(moment)
             }
             .onDisappear { player.stop() }
             .alert("Couldn't save", isPresented: saveFailedBinding) {
@@ -306,9 +315,11 @@ struct MomentGalleryView: View {
         return String(localized: "Seen \(seenAt.relativeWording())")
     }
 
-    /// Paging onto something counts as having looked at it.
-    private func markCurrentSeen() {
-        guard let moment = current else { return }
+    /// A picture counts as looked at once it's on screen: its file is here
+    /// after the load, so "Couldn't load this one" never sends a "Seen".
+    private func markCurrentPhotoSeen() {
+        guard let moment = current, !moment.isVoice,
+              MomentStore.shared.hasImage(for: moment.id) else { return }
         model.markSeen(moment)
     }
 

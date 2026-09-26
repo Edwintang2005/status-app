@@ -19,9 +19,14 @@ struct StatusPayload: Codable, Hashable {
     /// celebration still renders like any other status.
     var isCelebration: Bool = false
 
+    /// Local only, never on the record: when these *words* began, if a rename
+    /// has since restamped `updatedAt`. `nil` means the words are as new as the
+    /// stamp. Reports, celebrations, receipts and history key on `wordsAt`.
+    var wordsSince: Date?
+
     private enum CodingKeys: String, CodingKey {
         case emoji, message, displayName, updatedAt, nudgeCount, lastNudgeAt
-        case isCelebration
+        case isCelebration, wordsSince
     }
 
     init(emoji: String,
@@ -51,6 +56,16 @@ struct StatusPayload: Codable, Hashable {
         nudgeCount = try container.decodeIfPresent(Int.self, forKey: .nudgeCount) ?? 0
         lastNudgeAt = try container.decodeIfPresent(Date.self, forKey: .lastNudgeAt)
         isCelebration = try container.decodeIfPresent(Bool.self, forKey: .isCelebration) ?? false
+        // Absent for pre-field payloads: their words date from `updatedAt`.
+        wordsSince = try container.decodeIfPresent(Date.self, forKey: .wordsSince)
+    }
+
+    /// When the words shown were set — `updatedAt` minus any later renames.
+    var wordsAt: Date { wordsSince ?? updatedAt }
+
+    /// Same status, whatever the name on it: a rename changes neither.
+    func sameWords(as other: StatusPayload) -> Bool {
+        emoji == other.emoji && message == other.message && isCelebration == other.isCelebration
     }
 
     static let placeholder = StatusPayload(
@@ -208,6 +223,11 @@ struct Snapshot: Codable, Hashable {
     /// Whether `mine` has reached CloudKit; stays `false` offline and is
     /// republished on the next refresh — the status twin of `Moment.uploaded`.
     var myStatusPublished: Bool = true
+    /// `wordsAt` of the own status whose `StatusLog` record is confirmed saved,
+    /// so a republish logs exactly when that record is missing (invariant 16).
+    var myStatusLoggedAt: Date?
+    /// The last nudge allowed to break through Focus — see `AnnouncementPolicy.nudgeInterruption`.
+    var lastBreakthroughNudgeAt: Date?
 
     /// Only the newest in each direction; the full history lives in `MomentIndex`
     /// so widget renders stay small.
@@ -298,6 +318,7 @@ struct Snapshot: Codable, Hashable {
         case lastAnnouncedPartnerStatus
         case anniversaryRequestedAt, anniversaryRequestPublished, anniversaryRequestDismissedAt
         case lastAnnouncedMomentSentAt
+        case myStatusLoggedAt, lastBreakthroughNudgeAt
     }
 
     /// Hand-written: synthesised `Codable` errors on missing keys, so a snapshot
@@ -343,6 +364,9 @@ struct Snapshot: Codable, Hashable {
             .decodeIfPresent(Bool.self, forKey: .anniversaryPublished) ?? true
         lastAnnouncedPartnerStatus = try container
             .decodeIfPresent(StatusPayload.self, forKey: .lastAnnouncedPartnerStatus)
+        // Pre-field: unknown, so a pending republish logs (idempotent by record name).
+        myStatusLoggedAt = try container.decodeIfPresent(Date.self, forKey: .myStatusLoggedAt)
+        lastBreakthroughNudgeAt = try container.decodeIfPresent(Date.self, forKey: .lastBreakthroughNudgeAt)
         anniversaryRequestedAt = try container.decodeIfPresent(Date.self, forKey: .anniversaryRequestedAt)
         anniversaryRequestPublished = try container
             .decodeIfPresent(Bool.self, forKey: .anniversaryRequestPublished) ?? true
@@ -386,6 +410,8 @@ struct Snapshot: Codable, Hashable {
         try container.encode(anniversaryRequestPublished, forKey: .anniversaryRequestPublished)
         try container.encodeIfPresent(anniversaryRequestDismissedAt, forKey: .anniversaryRequestDismissedAt)
         try container.encodeIfPresent(lastAnnouncedMomentSentAt, forKey: .lastAnnouncedMomentSentAt)
+        try container.encodeIfPresent(myStatusLoggedAt, forKey: .myStatusLoggedAt)
+        try container.encodeIfPresent(lastBreakthroughNudgeAt, forKey: .lastBreakthroughNudgeAt)
     }
 
     init(mine: StatusPayload?,
@@ -440,8 +466,9 @@ struct Snapshot: Codable, Hashable {
     /// When the partner saw the status currently in `mine`, or `nil` if the
     /// receipt refers to an older one (a new status starts unseen again).
     var myStatusSeenAt: Date? {
+        // Either stamp: a receipt taken before a rename still means these words were seen.
         guard let mine, let seen = myStatusSeenByPartner,
-              seen.statusUpdatedAt == mine.updatedAt else { return nil }
+              seen.statusUpdatedAt == mine.updatedAt || seen.statusUpdatedAt == mine.wordsAt else { return nil }
         return seen.seenAt
     }
 
@@ -449,7 +476,10 @@ struct Snapshot: Codable, Hashable {
     /// shown, and always `nil` for your own celebration.
     var pendingCelebration: StatusPayload? {
         guard let theirs, theirs.isCelebration else { return nil }
-        if let lastCelebratedAt, theirs.updatedAt <= lastCelebratedAt { return nil }
+        // By the words' own date, so a rename doesn't replay it; a mark stuck in
+        // the future (a skewed clock) no longer blocks every later celebration.
+        if let lastCelebratedAt, !TrustedTime.isFuture(lastCelebratedAt),
+           theirs.wordsAt <= lastCelebratedAt { return nil }
         return theirs
     }
 
@@ -540,4 +570,21 @@ extension Moment {
                                      senderName: "Sam",
                                      sentAt: Date().addingTimeInterval(-5_400),
                                      fromMe: false)
+}
+
+/// Dates a sender's clock wrote (`updatedAt`, `sentAt`) can run ahead, or be
+/// crafted; the server's own save time can't. Everything ingested is capped to
+/// it, and a stored mark that is still in the future is treated as stale.
+enum TrustedTime {
+    /// At most the server's save time plus the skew allowance, never before
+    /// 1970 (ISO-8601 can't read a negative year back), in whole seconds.
+    static func plausible(_ date: Date, serverTime: Date?, now: Date = Date()) -> Date {
+        let ceiling = (serverTime ?? now).addingTimeInterval(AppConfig.clockSkewAllowance)
+        let bounded = max(min(date, ceiling), Date(timeIntervalSince1970: 0))
+        return Date(timeIntervalSince1970: bounded.timeIntervalSince1970.rounded(.down))
+    }
+
+    static func isFuture(_ date: Date, now: Date = Date()) -> Bool {
+        date > now.addingTimeInterval(AppConfig.clockSkewAllowance)
+    }
 }

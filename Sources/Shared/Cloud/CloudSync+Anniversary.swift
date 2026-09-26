@@ -41,9 +41,10 @@ extension CloudSync {
         record.encryptedValues[Field.startsAt] = anniversary.startsAt
         record.encryptedValues[Field.timeZone] = anniversary.timeZoneID
         record[Field.updatedAt] = Date() as CKRecordValue
+        // Change-tag checked, so the conflict retry in `publishAnniversary` can fire.
         let result = try await database.modifyRecords(saving: [record],
                                                       deleting: [],
-                                                      savePolicy: .changedKeys)
+                                                      savePolicy: .ifServerRecordUnchanged)
         try Self.confirmSaved(result, recordID)
     }
 

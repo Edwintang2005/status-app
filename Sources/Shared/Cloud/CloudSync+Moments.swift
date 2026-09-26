@@ -67,11 +67,12 @@ extension CloudSync {
         guard let emoji = record.encryptedValues[Field.emoji] as? String else { return nil }
         // Dated from the *name*, not the field: the name is what dedups against
         // the `Status` record's own entry, and the field carries the same value.
+        // Capped the same way as that entry, so a skewed clock can't pin it.
         return StatusHistoryEntry(
-            emoji: emoji,
-            message: record.encryptedValues[Field.message] as? String ?? "",
+            emoji: String(emoji.prefix(AppConfig.statusEmojiMaxLength)),
+            message: String((record.encryptedValues[Field.message] as? String ?? "").prefix(AppConfig.statusMessageMaxLength)),
             isCelebration: (record.encryptedValues[Field.isCelebration] as? Int).map { $0 != 0 } ?? false,
-            at: named,
+            at: TrustedTime.plausible(named, serverTime: record.modificationDate),
             fromMe: fromMe
         )
     }
@@ -133,16 +134,23 @@ extension CloudSync {
               let kindRaw = record[Field.kind] as? String,
               let kind = Moment.Kind(rawValue: kindRaw) else { return nil }
 
+        // Everything below is sanitised on the way in: a NaN in the waveform
+        // made the whole index unsavable, a negative-year date unloadable.
+        let sentAt = (record[Field.sentAt] as? Date).flatMap { $0.timeIntervalSince1970.isFinite ? $0 : nil }
+            ?? record.modificationDate ?? Date()
+        let waveform = (record.encryptedValues[Field.waveform] as? [Double] ?? [])
+            .prefix(AppConfig.voiceWaveformSampleCount * 4)
+            .map { $0.isFinite ? min(max($0, 0), 1) : 0 }
         return Moment(
             id: id,
             kind: kind,
-            caption: record.encryptedValues[Field.caption] as? String ?? "",
-            senderName: record.encryptedValues[Field.senderName] as? String ?? "",
-            sentAt: record[Field.sentAt] as? Date ?? record.modificationDate ?? Date(),
+            caption: String((record.encryptedValues[Field.caption] as? String ?? "").prefix(AppConfig.captionMaxLength)),
+            senderName: String((record.encryptedValues[Field.senderName] as? String ?? "").prefix(AppConfig.displayNameMaxLength)),
+            sentAt: TrustedTime.plausible(sentAt, serverTime: record.modificationDate),
             fromMe: fromMe,
             // The partner's number: `Int(duration)` in the label traps on non-finite.
-            duration: (record[Field.duration] as? Double).flatMap { $0.isFinite && $0 >= 0 ? $0 : nil } ?? 0,
-            waveform: record.encryptedValues[Field.waveform] as? [Double] ?? []
+            duration: (record[Field.duration] as? Double).flatMap { $0.isFinite && $0 >= 0 ? min($0, 24 * 60 * 60) : nil } ?? 0,
+            waveform: Array(waveform)
         )
     }
 

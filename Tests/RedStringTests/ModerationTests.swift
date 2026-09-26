@@ -97,4 +97,30 @@ final class ModerationTests: XCTestCase {
         XCTAssertEqual(store.blockedOwnerRecordNames, ["_owner123"])
         XCTAssertNil(store.hiddenPartnerStatusAt, "the next partner's status must not inherit a hide")
     }
+
+    // MARK: Renames (StatusPayload.wordsSince)
+
+    /// A report keys on when the words were set, so the partner renaming
+    /// themselves (which restamps `updatedAt`) doesn't bring them back.
+    func testReportSurvivesARename() {
+        var renamed = Fixtures.status("🖕", "fuck off", at: Fixtures.date(100))
+        renamed.wordsSince = Fixtures.t0
+        let shown = renamed.moderated(reportedAt: Fixtures.t0, filterEnabled: false)
+        XCTAssertEqual(shown.message, ContentFilter.reportedPlaceholder)
+    }
+
+    func testCelebrationAndReceiptKeyOnTheWords() {
+        var snapshot = Snapshot.empty
+        var party = Fixtures.status("🎉", "a year!", at: Fixtures.date(100), celebration: true)
+        party.wordsSince = Fixtures.t0
+        snapshot.theirs = party
+        snapshot.lastCelebratedAt = Fixtures.t0
+        XCTAssertNil(snapshot.pendingCelebration, "a rename doesn't replay the celebration")
+
+        var mine = Fixtures.status("💼", "working", at: Fixtures.date(100))
+        mine.wordsSince = Fixtures.t0
+        snapshot.mine = mine
+        snapshot.myStatusSeenByPartner = StatusSeen(statusUpdatedAt: Fixtures.t0, seenAt: Fixtures.date(50))
+        XCTAssertEqual(snapshot.myStatusSeenAt, Fixtures.date(50), "seen before my rename still counts")
+    }
 }

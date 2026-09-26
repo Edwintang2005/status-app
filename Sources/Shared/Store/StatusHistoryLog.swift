@@ -28,7 +28,8 @@ struct StatusHistoryEntry: Codable, Hashable, Identifiable {
         self.init(emoji: payload.emoji,
                   message: payload.message,
                   isCelebration: payload.isCelebration,
-                  at: payload.updatedAt,
+                  // When the words were set, like the `StatusLog` record's name.
+                  at: payload.wordsAt,
                   fromMe: fromMe)
     }
 
