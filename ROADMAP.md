@@ -27,7 +27,15 @@ addition requires re-deploying the schema to Production (README → "Shipping it
   prompt waits for open sheets and counts days across daylight saving;
   bootstrap watermarks only move forward; a lock-screen heart that times out
   shows as failed; the widget's backoff returns to hourly after two hours and
-  kinds share a fetch. No schema changes.
+  kinds share a fetch. No schema changes. A review of the round fixed its own
+  regressions: re-picking the same status no longer reads as a rename; the
+  clock allowance is a day, not five minutes (clocks set ahead split history
+  and receipts); own records aren't text-capped; the first rename after
+  upgrading doesn't log; conflicts retry up to three times, wrapped or bare;
+  one extension batch no longer suppresses the widget's next fetch; the
+  anniversary prompt's sheet flag can't stick; the invite-close error says the
+  partner may need to re-tap; widget retries are 10/20 min for budget; a stuck
+  moment floor still blocks old moments.
 
 - **Audit fixes (round five)** — "zone gone" needs a second sighting two
   minutes on before a device unlinks itself, so the invite-close handshake
@@ -332,6 +340,14 @@ Found by the audit and deliberately left for now; numbers are the audit's.
   the counter ticks over at the start time).
 - #21 remainder: an own second device writing while this phone is locked is
   worded as the partner's (the held record can't be told apart).
+- Review notes (September 2026): a new moment found by a background refresh
+  goes out passive if an *older* generic/held moment banner is still in
+  Notification Centre (stamp the moment id to match exactly); a lock-screen
+  heart whose save lands after the 8 s deadline shows as failed although it
+  sent (the trade for never showing a failed one as sent); receipt,
+  anniversary and request dates from the zone aren't yet run through
+  `TrustedTime` (the anniversary can legitimately predate 1970, so it needs
+  its own bounds).
 
 ### Library grouped by day, and search (M)
 

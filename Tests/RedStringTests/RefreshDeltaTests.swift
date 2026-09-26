@@ -147,7 +147,7 @@ final class RefreshDeltaTests: XCTestCase {
     /// stale: the capped, genuinely newer copy replaces it.
     func testFutureStampedHeldStatusYields() {
         var snapshot = paired
-        snapshot.theirs = Fixtures.status("🕰️", "from the future", at: Date().addingTimeInterval(86_400))
+        snapshot.theirs = Fixtures.status("🕰️", "from the future", at: Date().addingTimeInterval(3 * 86_400))
         let now = Fixtures.status("☕️", "coffee?", at: Date().addingTimeInterval(-60))
         RefreshDelta(theirs: now).fold(into: &snapshot)
         XCTAssertEqual(snapshot.theirs?.message, "coffee?")

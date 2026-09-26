@@ -151,6 +151,9 @@ final class NotificationService: UNNotificationServiceExtension {
             } else if result.ownRecordsChanged {
                 applyUnclaimed(to: content, ownWrite: true, couldNotRead: false,
                                ownBody: String(localized: "You sent a nudge from another device."))
+            } else if couldNotRead {
+                // The nudge record wasn't in what this process could read (one
+                // batch of a large delta): real and unannounced, so full volume.
             } else {
                 // Already announced by the app or a sibling instance: keep the
                 // words, drop the interruption so it doesn't read as a second tap.

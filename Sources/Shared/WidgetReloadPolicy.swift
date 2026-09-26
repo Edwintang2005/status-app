@@ -13,8 +13,10 @@ enum WidgetReloadPolicy {
         if let heldSince {
             let waited = now.timeIntervalSince(heldSince)
             let delay: TimeInterval = switch waited {
-            case ..<(30 * 60): 5 * 60
-            case ..<(2 * 60 * 60): 15 * 60
+            // Each tick is spent per widget kind from WidgetKit's daily budget
+            // (roughly 40–70), on top of the hourly backstop and every push's reload.
+            case ..<(30 * 60): 10 * 60
+            case ..<(2 * 60 * 60): 20 * 60
             default: settled
             }
             return now.addingTimeInterval(delay)

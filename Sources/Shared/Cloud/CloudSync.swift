@@ -58,9 +58,9 @@ enum SyncError: LocalizedError {
         case .shareURLMissing:
             return String(localized: "CloudKit didn't return an invite link. Try again.")
         case .couldNotSecureShare(let detail):
-            return String(localized: "Couldn't close the invite link safely, so it's open and your partner keeps access. Try again with them ready to tap the link. (\(detail))")
+            return String(localized: "Couldn't close the invite link safely, so it's open again. Your partner may have been taken off your shared space: ask them to tap the invite link now to get back in, before their app unlinks. (\(detail))")
         case .inviteLeftClosed(let detail):
-            return String(localized: "Couldn't finish closing the invite link, and it couldn't be reopened. Until it is, your partner can't reach your shared space: Settings → Invite link → Reopen the invite link. (\(detail))")
+            return String(localized: "Couldn't finish closing the invite link, and couldn't confirm it reopened. If your partner can't get back in, reopen it — Settings → Invite link → Reopen the invite link — and ask them to tap the link. (\(detail))")
         case .shareUnavailable:
             // Mismatched CloudKit environments look identical from here and
             // are covered by "the same build".
@@ -302,9 +302,12 @@ actor CloudSync: SyncBackend {
 
     /// Merges whichever record changed into what we knew — the status record
     /// and its nudge counter often arrive separately.
+    /// `fromPartner: false` for our own records (our devices wrote them): their
+    /// text isn't capped, or a long name would be truncated on its own phone.
     static func payload(from record: CKRecord?,
                                 nudge: CKRecord?,
-                                existing: StatusPayload?) -> StatusPayload? {
+                                existing: StatusPayload?,
+                                fromPartner: Bool = true) -> StatusPayload? {
         guard record != nil || nudge != nil else { return nil }
 
         var payload = existing ?? StatusPayload(emoji: "💭",
@@ -318,13 +321,13 @@ actor CloudSync: SyncBackend {
             // Capped on the way in: text a modified client (or an older build)
             // wrote has no length limit of its own.
             if let emoji = record.encryptedValues[Field.emoji] as? String {
-                payload.emoji = String(emoji.prefix(AppConfig.statusEmojiMaxLength))
+                payload.emoji = fromPartner ? String(emoji.prefix(AppConfig.statusEmojiMaxLength)) : emoji
             }
             if let message = record.encryptedValues[Field.message] as? String {
-                payload.message = String(message.prefix(AppConfig.statusMessageMaxLength))
+                payload.message = fromPartner ? String(message.prefix(AppConfig.statusMessageMaxLength)) : message
             }
             if let name = record.encryptedValues[Field.displayName] as? String {
-                payload.displayName = String(name.prefix(AppConfig.displayNameMaxLength))
+                payload.displayName = fromPartner ? String(name.prefix(AppConfig.displayNameMaxLength)) : name
             }
             // Whole seconds (`TrustedTime` truncates): local persistence is
             // ISO-8601, and equality against stored copies — the announce
@@ -341,7 +344,9 @@ actor CloudSync: SyncBackend {
             payload.isCelebration =
                 (record.encryptedValues[Field.isCelebration] as? Int).map { $0 != 0 } ?? false
             // A rename restamps the record without new words; keep when they began.
-            if let existing, existing.sameWords(as: payload) {
+            // Same words *and* a new name: re-picking the same status is a new
+            // status (a fresh "3 min ago", a celebration that plays again).
+            if let existing, existing.sameWords(as: payload), existing.displayName != payload.displayName {
                 payload.wordsSince = existing.wordsAt
             } else {
                 payload.wordsSince = nil

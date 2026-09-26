@@ -29,12 +29,16 @@ enum AppConfig {
     /// double-tap sending twice while the first write is still in flight, not
     /// to ration affection. Sending a few hearts in a row is the point.
     static let nudgeCooldown: TimeInterval = 3
-    /// How far a sender's clock may run ahead of the server's save time before
-    /// its dates are capped (`TrustedTime`).
-    static let clockSkewAllowance: TimeInterval = 5 * 60
+    /// How far a date may run ahead of the server's save time before it's
+    /// capped, and how far ahead of this phone's clock a stored mark may sit
+    /// before it counts as stale (`TrustedTime`). A day, not minutes: people set
+    /// clocks ahead on purpose, and a cap that trips on them splits history
+    /// entries and receipts that key on the exact stamp. It's for absurd dates.
+    static let clockSkewAllowance: TimeInterval = 24 * 60 * 60
     /// A nudge older than this on arrival is worded "earlier" and never breaks
-    /// through Focus; at most one nudge per interval does.
-    static let nudgeStaleAfter: TimeInterval = 5 * 60
+    /// through Focus; at most one nudge per interval does. Generous, because the
+    /// age is judged on the sender's clock against this phone's.
+    static let nudgeStaleAfter: TimeInterval = 15 * 60
     static let nudgeBreakthroughInterval: TimeInterval = 10 * 60
 
     /// How long the lock-screen heart admits a failed nudge (a slashed heart)

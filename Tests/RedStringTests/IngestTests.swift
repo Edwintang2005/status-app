@@ -22,8 +22,11 @@ final class IngestTests: XCTestCase {
 
     func testPlausibleCapsFutureAndPreEpochDates() {
         let server = Fixtures.t0
-        XCTAssertEqual(TrustedTime.plausible(server.addingTimeInterval(86_400), serverTime: server),
+        XCTAssertEqual(TrustedTime.plausible(server.addingTimeInterval(10 * 86_400), serverTime: server),
                        server.addingTimeInterval(AppConfig.clockSkewAllowance))
+        XCTAssertEqual(TrustedTime.plausible(server.addingTimeInterval(20 * 60), serverTime: server),
+                       server.addingTimeInterval(20 * 60),
+                       "a clock set a few minutes fast is left alone: history and receipts key on the exact stamp")
         XCTAssertEqual(TrustedTime.plausible(Date(timeIntervalSince1970: -99_999_999_999), serverTime: server),
                        Date(timeIntervalSince1970: 0), "ISO-8601 can't read a negative year back")
         XCTAssertEqual(TrustedTime.plausible(Fixtures.t0.addingTimeInterval(-10.7), serverTime: server),
@@ -91,5 +94,25 @@ final class IngestTests: XCTestCase {
         let index = MomentIndex(fileURL: temporaryFile("moments-index.json"), onCorrupt: {})
         index.insert([moment])
         XCTAssertEqual(index.load().map(\.id), ["m1"], "saved and read back")
+    }
+
+    // MARK: Review fixes
+
+    /// Re-picking the same status (same words, same name) is a new status:
+    /// only a changed name makes it a rename.
+    func testRepickingTheSameStatusIsNew() {
+        let before = Fixtures.status("💤", "sleeping", at: Fixtures.t0)
+        let again = statusRecord(emoji: "💤", message: "sleeping", name: before.displayName, at: Fixtures.date(86_400))
+        let payload = CloudSync.payload(from: again, nudge: nil, existing: before)
+        XCTAssertNil(payload?.wordsSince)
+        XCTAssertEqual(payload?.wordsAt, Fixtures.date(86_400), "the card says just now, not a day ago")
+    }
+
+    /// Our own records aren't capped: a long name must survive its own echo.
+    func testOwnRecordTextIsNotCapped() {
+        let longName = String(repeating: "n", count: 60)
+        let record = statusRecord(emoji: "💼", message: "working", name: longName, at: Fixtures.t0)
+        XCTAssertEqual(CloudSync.payload(from: record, nudge: nil, existing: nil, fromPartner: false)?.displayName,
+                       longName)
     }
 }

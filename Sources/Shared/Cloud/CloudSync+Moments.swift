@@ -69,12 +69,16 @@ extension CloudSync {
         // the `Status` record's own entry, and the field carries the same value.
         // Capped the same way as that entry, so a skewed clock can't pin it.
         return StatusHistoryEntry(
-            emoji: String(emoji.prefix(AppConfig.statusEmojiMaxLength)),
-            message: String((record.encryptedValues[Field.message] as? String ?? "").prefix(AppConfig.statusMessageMaxLength)),
+            emoji: capped(emoji, AppConfig.statusEmojiMaxLength, fromMe),
+            message: capped(record.encryptedValues[Field.message] as? String ?? "", AppConfig.statusMessageMaxLength, fromMe),
             isCelebration: (record.encryptedValues[Field.isCelebration] as? Int).map { $0 != 0 } ?? false,
             at: TrustedTime.plausible(named, serverTime: record.modificationDate),
             fromMe: fromMe
         )
+    }
+
+    private static func capped(_ text: String, _ limit: Int, _ fromMe: Bool) -> String {
+        fromMe ? text : String(text.prefix(limit))
     }
 
     /// Pulls the media file(s) for one history entry that isn't cached locally.
@@ -144,8 +148,9 @@ extension CloudSync {
         return Moment(
             id: id,
             kind: kind,
-            caption: String((record.encryptedValues[Field.caption] as? String ?? "").prefix(AppConfig.captionMaxLength)),
-            senderName: String((record.encryptedValues[Field.senderName] as? String ?? "").prefix(AppConfig.displayNameMaxLength)),
+            // Text caps are for the partner's records; our own devices wrote ours.
+            caption: capped(record.encryptedValues[Field.caption] as? String ?? "", AppConfig.captionMaxLength, fromMe),
+            senderName: capped(record.encryptedValues[Field.senderName] as? String ?? "", AppConfig.displayNameMaxLength, fromMe),
             sentAt: TrustedTime.plausible(sentAt, serverTime: record.modificationDate),
             fromMe: fromMe,
             // The partner's number: `Int(duration)` in the label traps on non-finite.

@@ -24,10 +24,7 @@ extension CloudSync {
                 }
                 return
             }
-            do {
-                try await saveAnniversary(anniversary, to: recordID, in: database)
-            } catch let error as CKError where error.code == .serverRecordChanged {
-                log.notice("Anniversary conflict, retrying against server record.")
+            try await retryingConflicts("Anniversary") {
                 try await saveAnniversary(anniversary, to: recordID, in: database)
             }
         }

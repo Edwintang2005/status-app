@@ -175,7 +175,7 @@ final class MomentIndexTests: XCTestCase {
 
     func testFutureDatesAreHealed() {
         let (index, _) = makeIndex()
-        index.insert([Fixtures.moment("ahead", at: Date().addingTimeInterval(86_400))])
+        index.insert([Fixtures.moment("ahead", at: Date().addingTimeInterval(3 * 86_400))])
         XCTAssertFalse(TrustedTime.isFuture(index.load()[0].sentAt))
     }
 

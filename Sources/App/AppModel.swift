@@ -1133,8 +1133,10 @@ final class AppModel {
             case .locked:
                 inviteNotice = String(localized: "The link is closed. Ask \(partnerName) to tap the invite link once more to get back in.")
             case .nobodyJoined:
-                try await CloudSync.shared.closeUnusedInvite()
-                inviteNotice = String(localized: "Nobody had joined yet, so the link is simply closed.")
+                // Nobody *accepted*; a pending private partner survives a close,
+                // which `closeUnusedInvite` would refuse. The full lock handles both.
+                try await CloudSync.shared.lockPairing()
+                inviteNotice = String(localized: "The link is closed.")
             }
         } catch {
             present(error)
@@ -1149,7 +1151,7 @@ final class AppModel {
         defer { isBusy = false }
         do {
             try await CloudSync.shared.reopenInvite()
-            inviteNotice = String(localized: "The link is open again. Anyone who has it can join, so send it only to \(partnerName).")
+            inviteNotice = String(localized: "The link is open again. Anyone who has it can join, so send it only to \(partnerName) — if they lost access, they tap it to get back in.")
         } catch {
             present(error)
         }

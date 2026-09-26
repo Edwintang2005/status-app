@@ -364,8 +364,11 @@ struct Snapshot: Codable, Hashable {
             .decodeIfPresent(Bool.self, forKey: .anniversaryPublished) ?? true
         lastAnnouncedPartnerStatus = try container
             .decodeIfPresent(StatusPayload.self, forKey: .lastAnnouncedPartnerStatus)
-        // Pre-field: unknown, so a pending republish logs (idempotent by record name).
+        // Pre-field: a published status was logged by the old build (or was a
+        // rename it deliberately didn't log) — either way, don't log it again.
+        // Unpublished, it's still owed, and the republish logs it.
         myStatusLoggedAt = try container.decodeIfPresent(Date.self, forKey: .myStatusLoggedAt)
+            ?? (myStatusPublished ? mine?.wordsAt : nil)
         lastBreakthroughNudgeAt = try container.decodeIfPresent(Date.self, forKey: .lastBreakthroughNudgeAt)
         anniversaryRequestedAt = try container.decodeIfPresent(Date.self, forKey: .anniversaryRequestedAt)
         anniversaryRequestPublished = try container
@@ -460,7 +463,9 @@ struct Snapshot: Codable, Hashable {
     /// Same, and moves the time floor the index fallback searches past.
     mutating func recordAnnounced(_ moment: Moment) {
         recordAnnounced(moment.id)
-        lastAnnouncedMomentSentAt = max(lastAnnouncedMomentSentAt ?? .distantPast, moment.sentAt)
+        // A floor stuck in the future (a skewed clock) is replaced, not kept by `max`.
+        let floor = lastAnnouncedMomentSentAt.flatMap { TrustedTime.isFuture($0) ? nil : $0 }
+        lastAnnouncedMomentSentAt = max(floor ?? .distantPast, moment.sentAt)
     }
 
     /// When the partner saw the status currently in `mine`, or `nil` if the

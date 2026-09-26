@@ -241,7 +241,8 @@ extension CloudSync {
                 try? await Task.sleep(for: .seconds(2))
             }
         }
-        await MainActor.run { SharedStore.shared.inviteClosed = true }
+        // The local flag is left alone: the reopen may have failed only because
+        // we're offline, and Settings reconciles with the server when it opens.
         return SyncError.inviteLeftClosed(detail)
     }
 

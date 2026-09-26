@@ -160,6 +160,10 @@ struct HomeView: View {
             // Root-level presentations (the anniversary prompt) wait on this.
             model.homeSheetShowing = showing
         }
+        // Torn down with a sheet up (an unlink, a block) never fires the change
+        // above; a flag left true would hold the anniversary prompt back for good.
+        .onAppear { model.homeSheetShowing = anySheetShowing }
+        .onDisappear { model.homeSheetShowing = false }
         // The status read receipt: their status counts as seen whenever it is
         // on this screen in the foreground — on arrival, and on every return.
         .onAppear { model.markPartnerStatusSeen() }

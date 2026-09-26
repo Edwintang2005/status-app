@@ -152,4 +152,15 @@ final class SnapshotCodableTests: XCTestCase {
         XCTAssertEqual(snapshot.partnerDisplayName, "Sam")
         XCTAssertEqual(snapshot.latestMoment?.id, "o")
     }
+
+    /// Upgrading: a published status was already logged (or was a rename the
+    /// old build didn't log), so the first rename must not log it again; an
+    /// unpublished one is still owed to the log.
+    func testLoggedMarkIsSeededOnUpgrade() throws {
+        let published = try decode(Snapshot.self, #"{"isPaired":true,"mine":\#(legacyTheirs)}"#)
+        XCTAssertEqual(published.myStatusLoggedAt, published.mine?.wordsAt)
+        let pending = try decode(Snapshot.self,
+                                 #"{"isPaired":true,"myStatusPublished":false,"mine":\#(legacyTheirs)}"#)
+        XCTAssertNil(pending.myStatusLoggedAt)
+    }
 }

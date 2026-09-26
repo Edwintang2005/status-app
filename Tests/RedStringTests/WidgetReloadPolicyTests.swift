@@ -20,9 +20,9 @@ final class WidgetReloadPolicyTests: XCTestCase {
     }
 
     func testHeldRecordsBackOff() {
-        XCTAssertEqual(delay(heldFor: 0), 5 * 60)
-        XCTAssertEqual(delay(heldFor: 29 * 60), 5 * 60)
-        XCTAssertEqual(delay(heldFor: 30 * 60), 15 * 60)
+        XCTAssertEqual(delay(heldFor: 0), 10 * 60)
+        XCTAssertEqual(delay(heldFor: 29 * 60), 10 * 60)
+        XCTAssertEqual(delay(heldFor: 30 * 60), 20 * 60)
         XCTAssertEqual(delay(heldFor: 2 * 60 * 60), WidgetReloadPolicy.settled,
                        "past two hours the retries stop costing more than the backstop")
         XCTAssertEqual(delay(heldFor: 3 * 24 * 60 * 60), WidgetReloadPolicy.settled)
@@ -38,7 +38,7 @@ final class WidgetReloadPolicyTests: XCTestCase {
             clock = WidgetReloadPolicy.nextReload(heldSince: start, incomplete: false, now: clock)
             reloads += 1
         }
-        XCTAssertLessThanOrEqual(reloads, 20)
+        XCTAssertLessThanOrEqual(reloads, 14)
     }
 
     func testRecentFetchIsShared() {
@@ -50,6 +50,6 @@ final class WidgetReloadPolicyTests: XCTestCase {
     }
 
     func testHeldBeatsIncomplete() {
-        XCTAssertEqual(delay(heldFor: 60 * 60, incomplete: true), 15 * 60)
+        XCTAssertEqual(delay(heldFor: 60 * 60, incomplete: true), 20 * 60)
     }
 }

@@ -170,8 +170,21 @@ final class AnnouncementPolicyTests: XCTestCase {
 
     func testFutureWatermarkDoesNotSilenceStatuses() {
         var snapshot = Snapshot.empty
-        snapshot.lastAnnouncedPartnerStatusAt = Date().addingTimeInterval(86_400)
+        snapshot.lastAnnouncedPartnerStatusAt = Date().addingTimeInterval(3 * 86_400)
         let status = Fixtures.status("☕️", "coffee?", at: Date().addingTimeInterval(-60))
         XCTAssertEqual(AnnouncementPolicy.claimStatusBanner(for: status, in: &snapshot), .update)
+    }
+
+    /// A moment floor stuck in the future reads as *now*: the index fallback
+    /// still never re-describes an old moment as new.
+    func testFutureMomentFloorStillBlocksOldMoments() {
+        var snapshot = Snapshot.empty
+        snapshot.lastAnnouncedMomentSentAt = Date().addingTimeInterval(3 * 86_400)
+        let old = Fixtures.moment("old", at: Date().addingTimeInterval(-3600))
+        XCTAssertNil(AnnouncementPolicy.claimMomentBanner(delta: [], index: [old], in: &snapshot))
+        let fresh = Fixtures.moment("fresh", at: Date().addingTimeInterval(-10))
+        XCTAssertEqual(AnnouncementPolicy.claimMomentBanner(delta: [fresh], index: [], in: &snapshot)?.id, "fresh")
+        XCTAssertFalse(TrustedTime.isFuture(snapshot.lastAnnouncedMomentSentAt ?? .distantPast),
+                       "recording the fresh one replaces the stuck floor")
     }
 }

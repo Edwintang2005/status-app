@@ -105,6 +105,30 @@ extension CloudSync {
         return !codes.isEmpty && codes.allSatisfy { $0 == .unknownItem }
     }
 
+    /// A change-tag conflict, bare or per-item inside `.partialFailure`.
+    static func isServerRecordChanged(_ error: Error) -> Bool {
+        guard let error = error as? CKError else { return false }
+        if error.code == .serverRecordChanged { return true }
+        guard error.code == .partialFailure,
+              let partials = error.partialErrorsByItemID?.values else { return false }
+        return partials.contains { ($0 as? CKError)?.code == .serverRecordChanged }
+    }
+
+    /// Runs a fetch-modify-save until it lands without a change-tag conflict:
+    /// each attempt refetches, so it saves on top of whatever raced it. Three
+    /// covers overlapping publishes and a second heart tap on slow signal.
+    func retryingConflicts<T>(_ what: String, _ save: () async throws -> T) async throws -> T {
+        for attempt in 1..<3 {
+            do {
+                return try await save()
+            } catch where Self.isServerRecordChanged(error) {
+                log.notice("\(what, privacy: .public) conflict (attempt \(attempt)); retrying on the server copy.")
+                try? await Task.sleep(for: .milliseconds(300 * attempt))
+            }
+        }
+        return try await save()
+    }
+
     /// Token expiry arrives either bare or wrapped in `.partialFailure` (zone-scoped).
     static func isTokenExpired(_ error: CKError) -> Bool {
         if error.code == .changeTokenExpired { return true }

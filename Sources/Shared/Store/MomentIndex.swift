@@ -39,6 +39,14 @@ final class MomentIndex {
         return loadUnlocked()
     }
 
+    /// `nil` when the file exists but couldn't be read, judged under the lock.
+    func loadReadable() -> [Moment]? {
+        lock.lock()
+        defer { lock.unlock() }
+        let all = loadUnlocked()
+        return readFailed ? nil : all
+    }
+
     private func loadUnlocked() -> [Moment] {
         guard let fileURL else { return [] }
         let data: Data
@@ -85,6 +93,12 @@ final class MomentIndex {
     /// Inserts or replaces by id, keeping the list ordered newest first.
     @discardableResult
     func insert(_ moments: [Moment]) -> [Moment] {
+        insertReadable(moments) ?? moments
+    }
+
+    /// The same, but `nil` when the file couldn't be read — judged under the
+    /// lock, so a caller never prunes media against a delta-only list.
+    func insertReadable(_ moments: [Moment]) -> [Moment]? {
         lock.lock()
         defer { lock.unlock() }
 
@@ -120,7 +134,7 @@ final class MomentIndex {
             }
             all.sort { $0.sentAt > $1.sentAt }
             saveUnlocked(all)
-            return all
+            return readFailed ? nil : all
         }
     }
 

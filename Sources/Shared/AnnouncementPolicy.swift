@@ -83,8 +83,10 @@ enum AnnouncementPolicy {
                                   index: [Moment],
                                   in snapshot: inout Snapshot,
                                   now: Date = Date()) -> Moment? {
+        // A floor stuck in the future is read as *now*, not as no floor: the
+        // index fallback must still never re-describe an old moment as new.
         let floor = snapshot.lastAnnouncedMomentSentAt
-            .flatMap { TrustedTime.isFuture($0, now: now) ? nil : $0 } ?? .distantPast
+            .map { TrustedTime.isFuture($0, now: now) ? now : $0 } ?? .distantPast
         let fromDelta = delta.sorted { $0.sentAt > $1.sentAt }
         let fromIndex = index.filter { !$0.fromMe && $0.sentAt > floor }
         let chosen = fromDelta.first { !snapshot.hasAnnounced($0.id) }

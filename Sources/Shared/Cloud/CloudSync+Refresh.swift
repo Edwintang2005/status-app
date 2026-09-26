@@ -304,7 +304,7 @@ extension CloudSync {
 
         // A status record and its nudge counter arrive independently; fold
         // each into what was already known.
-        let mine = Self.payload(from: myStatus, nudge: myNudge, existing: previousMine)
+        let mine = Self.payload(from: myStatus, nudge: myNudge, existing: previousMine, fromPartner: false)
         // Our own records moved on the server — another device on this iCloud
         // account did it. Judged against what was held, not "arrived": a full
         // resync re-delivers everything and changes nothing. An unpublished
@@ -329,6 +329,7 @@ extension CloudSync {
             unreadableRecords: unreadable.count
         )
         let erased = partnerErased
+        let complete = !changes.moreComing
 
         await MainActor.run {
             _ = store.mutate(reloadWidgets: false) {
@@ -338,7 +339,9 @@ extension CloudSync {
                 guard store.pairing?.sameZone(as: pairing) == true else { return }
                 delta.fold(into: &$0)
                 $0.isPaired = true
-                $0.lastSyncedAt = Date()
+                // Only a complete fetch counts as synced: the widget skips its own
+                // fetch after a recent sync, and one batch of a large delta isn't one.
+                if complete { $0.lastSyncedAt = Date() }
             }
         }
 

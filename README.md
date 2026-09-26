@@ -203,7 +203,7 @@ When that marking *didn't* happen — the push was dropped, or the extension
 failed mid-refresh — the app catches up on its next refresh, whatever triggered
 it. A nudge found that way can be hours old, and announcing it as *"is thinking
 of you"* during, say, a status update reads as a mislabelled notification. So
-the catch-up checks `lastNudgeAt`: a nudge more than five minutes old is worded
+the catch-up checks `lastNudgeAt`: a nudge more than fifteen minutes old is worded
 *"was thinking of you earlier 💭"* and loses its time-sensitive priority. The
 same rule runs in the service extension, and on both paths at most one nudge
 per ten minutes breaks through Focus (`AnnouncementPolicy.nudgeInterruption`):
@@ -224,7 +224,7 @@ delivery path. The widget and the open app still rely on:
    in the widget: one process launch and one CloudKit round trip per widget
    kind per tick (the status, photo and heart widgets each run the provider).
    Hourly when caught up; while a locked phone's pushes sit undecrypted it
-   retries every 5 minutes, then every 15 after half an hour, and back to
+   retries every 10 minutes, then every 20 after half an hour, and back to
    hourly after two (`WidgetReloadPolicy`); a widget kind that finds another
    fetched in the last minute uses that result instead of fetching again. iOS never
    reloads a widget on unlock, so this is what catches it up after one.
@@ -474,7 +474,7 @@ rapid-fire hearts; reactions and a shared countdown widget are on file.
   record's name) and a moment's kind: *"Sam — sent you a drawing ✏️"*, *"Sam —
   updated their status"* — never the caption or status words (nudges carry no
   words and read in full). The widget keeps its old picture until its next
-  retry after unlock — up to 5 minutes, 15 after half an hour locked, an hour after two. Opening the
+  retry after unlock — up to 10 minutes, 20 after half an hour locked, an hour after two. Opening the
   app catches up at once.
 - **The first sync after a reinstall pulls the whole zone.** Metadata only, so
   it's quick, but the images arrive gradually — the ten newest immediately and

@@ -13,11 +13,8 @@ extension CloudSync {
                                    zoneID: zoneID(for: pairing))
 
         try await withZoneRecovery(pairing) {
-            do {
-                try await saveStatus(payload, to: recordID, in: database)
-            } catch let error as CKError where error.code == .serverRecordChanged {
-                // Another device of ours wrote first; reapply on the server copy.
-                log.notice("Status conflict, retrying against server record.")
+            // Another device of ours, or an overlapping publish, may write first.
+            try await retryingConflicts("Status") {
                 try await saveStatus(payload, to: recordID, in: database)
             }
             // Separate save: the log wants overwrite semantics (`allKeys`), the

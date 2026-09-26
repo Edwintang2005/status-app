@@ -42,13 +42,10 @@ extension CloudSync {
                                        zoneID: zoneID(for: pairing))
 
             return try await withZoneRecovery(pairing) {
-                let next: Int
-                do {
-                    next = try await saveNudge(to: recordID, in: database, at: now)
-                } catch let error as CKError where error.code == .serverRecordChanged {
-                    // Another device of ours wrote first; refetch and increment on top.
-                    log.notice("Nudge conflict, retrying against server record.")
-                    next = try await saveNudge(to: recordID, in: database, at: now)
+                // Another device of ours, or a tap still in flight, may write first;
+                // each attempt refetches and increments on top.
+                let next = try await retryingConflicts("Nudge") {
+                    try await saveNudge(to: recordID, in: database, at: now)
                 }
 
                 await MainActor.run {

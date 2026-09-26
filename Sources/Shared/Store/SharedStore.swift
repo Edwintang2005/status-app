@@ -254,10 +254,9 @@ final class SharedStore {
     /// and trims cached media.
     func record(_ moments: [Moment]) {
         guard !moments.isEmpty else { return }
-        let all = MomentIndex.shared.insert(moments)
-        // An unreadable index returned only this delta: pruning against it
-        // would delete the media of everything else.
-        guard !MomentIndex.shared.readFailed else { return }
+        // `nil` for an unreadable index: pruning against just this delta would
+        // delete the media of everything else.
+        guard let all = MomentIndex.shared.insertReadable(moments) else { return }
         refreshDerived(reloadWidgets: false)
 
         // Index keeps every entry; only recent files stay on disk — older
@@ -280,9 +279,8 @@ final class SharedStore {
     /// the widget would regress to an older moment.
     func refreshDerived(reloadWidgets: Bool = true) {
         mutate(reloadWidgets: reloadWidgets) { snapshot in
-            let all = MomentIndex.shared.load()
-            // Unreadable reads as empty; the widget keeps what it last showed.
-            guard !MomentIndex.shared.readFailed else { return }
+            // Unreadable isn't empty; the widget keeps what it last showed.
+            guard let all = MomentIndex.shared.loadReadable() else { return }
             Self.fillDerived(&snapshot, from: all)
         }
     }
