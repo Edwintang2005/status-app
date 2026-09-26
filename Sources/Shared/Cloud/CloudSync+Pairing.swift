@@ -7,7 +7,7 @@ import os
 extension CloudSync {
     /// Owner side. Creates and shares the zone, returning the invite link.
     /// `publicPermission = .readWrite` lets the partner join from the link alone;
-    /// `closeInviteIfPartnerJoined()` revokes that the moment they're in.
+    /// it stays open until closed by hand (invariant 9).
     func createPairInvite(displayName: String) async throws -> URL {
         try await requireAvailableAccount()
 
@@ -34,7 +34,7 @@ extension CloudSync {
             SharedStore.shared.eraseLocalMedia()
             SharedStore.shared.lastPairing = nil
             SharedStore.shared.pairing = info
-            // A fresh invite re-arms the auto-close.
+            // A fresh invite is open until closed by hand.
             SharedStore.shared.inviteClosed = false
         }
         try await bootstrapAfterPairing(displayName: displayName)

@@ -48,7 +48,7 @@ run: project
 ## This is the ONLY way to reach the CloudKit *Development* environment: the
 ## environment is chosen by how the build is signed, so a TestFlight or
 ## archived build always talks to Production, where nothing is auto-created.
-## Run this, tap "Create a link" once, and CloudKit adds `cloudkit.share` to
+## Run this, tap "Create invite link" once, and CloudKit adds `cloudkit.share` to
 ## the Development schema — which is what "Deploy Schema Changes" then has to
 ## promote. See "Shipping it" in README.md.
 ##

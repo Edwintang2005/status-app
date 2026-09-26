@@ -477,7 +477,7 @@ struct SettingsView: View {
     /// other person is a guest in it — so each hears exactly what leaves and stays.
     private var unlinkFooter: String {
         if model.role == .owner {
-            return String(localized: "Deletes the shared space from your iCloud: both your statuses, and every photo, drawing and voice memo either of you sent. \(model.partnerName)'s app unlinks itself the next time it opens. Your name stays on this iPhone, so you can pair again.")
+            return String(localized: "Deletes the shared space from your iCloud: both your statuses, and every photo, drawing and voice memo either of you sent. \(model.partnerName)'s app unlinks itself within a few minutes of next opening. Your name stays on this iPhone, so you can pair again.")
         }
         return String(localized: "Deletes everything you sent — your status, your photos, drawings and voice memos — out of the shared space, then leaves it. Anything \(model.partnerName) sent stays in their own iCloud, which is theirs to delete. Your name stays on this iPhone, so you can pair again.")
     }

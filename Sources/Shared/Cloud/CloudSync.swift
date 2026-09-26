@@ -8,9 +8,9 @@ enum SyncError: LocalizedError {
     case notPaired
     case iCloudUnavailable(CKAccountStatus)
     case shareURLMissing
-    /// Refused to close the invite link because a participant was still
-    /// public after promotion — closing then would have removed them. Carries
-    /// which step refused, so the diagnostics report can say.
+    /// The invite-close handshake couldn't finish: the share was unreadable
+    /// after the close, or the partner couldn't be re-added as a private
+    /// participant. Carries which step failed, so the diagnostics report can say.
     case couldNotSecureShare(String)
     /// Accepted an invite, but the shared zone never appeared.
     case shareUnavailable

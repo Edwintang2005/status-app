@@ -147,14 +147,17 @@ them ticks. Worth knowing for future changes though: `Text(date, style:
 .relative)` in a widget is drawn by the system's rendering layer and does *not*
 re-run the timeline — it looks like a per-second update but costs no process
 launches. The only thing that actually spends battery is the timeline policy
-below, which is why it's an hour rather than a minute.
+below, which is why it's an hour rather than a minute when caught up (it only
+shortens while a locked phone's pushes wait to be decrypted — see "The remaining
+paths").
 
 In the app, the nudge cooldown owns a one-second countdown that runs **only
 while the cooldown is live** (`AppConfig.nudgeCooldown`), scoped to the button
-so it doesn't invalidate the screen. The one exception to "nothing scheduled":
+so it doesn't invalidate the screen. The exceptions to "nothing scheduled":
 right after a nudge, the timeline carries a second entry at cooldown expiry so
-the lock-screen heart flips back from a checkmark — a pre-rendered entry, not
-an extra process launch.
+the lock-screen heart flips back from a checkmark, and after a failed nudge one
+at the end of the slashed-heart notice — pre-rendered entries, not extra
+process launches.
 
 ### Three subscriptions, deliberately different
 
@@ -209,10 +212,14 @@ delivery path. The widget and the open app still rely on:
    posts `.pairingDidChange`, so the home screen re-reads the store the
    extension just updated instead of going stale under the banner.
 2. **Foreground refresh**, whenever the app becomes active.
-3. **The widget's own fetch**, on its hourly timeline refresh, with an 8s
+3. **The widget's own fetch**, on its timeline refresh, with an 8s
    timeout and the cached snapshot as fallback. This is the only battery cost
-   in the widget: one process launch and one CloudKit round trip per tick.
-   `StatusProvider.refreshInterval` if you want it keener.
+   in the widget: one process launch and one CloudKit round trip per widget
+   kind per tick (the status, photo and heart widgets each run the provider).
+   Hourly when caught up; while a locked phone's pushes sit undecrypted it
+   retries every 5 minutes, then 15 after half an hour and 30 after two
+   (`WidgetReloadPolicy`). iOS never
+   reloads a widget on unlock, so this is what catches it up after one.
 4. **An `NWPathMonitor` in `AppModel`**, which fires one refresh on the
    offline→online edge — so a phone that regains signal recovers without
    waiting to be re-opened. It reacts only to that edge, never to path churn
@@ -410,7 +417,7 @@ every render and has no business parsing hundreds of history entries.
 
 ### Mechanics
 
-Change fetches use `desiredKeys` to exclude the two `CKAsset` fields, so a
+Change fetches use `desiredKeys` to exclude the `CKAsset` fields (`image`, `thumb`, `audio`), so a
 sync — including the big first one after a reinstall — moves only metadata.
 Images for the ten newest arrivals are pulled straight after; everything older
 waits until you look at it.
@@ -442,7 +449,7 @@ flattens to the square the strokes were drawn over.
 ## Possible improvements
 
 See [ROADMAP.md](ROADMAP.md) — next up is the "super nudge" escalation for
-rapid-fire hearts, plus reactions on a moment and a shared countdown widget.
+rapid-fire hearts; reactions and a shared countdown widget are on file.
 
 ## Known limitations
 
@@ -452,6 +459,14 @@ rapid-fire hearts, plus reactions on a moment and a shared countdown widget.
 - **A dropped push can lag the widget.** Statuses, nudges and photos all
   arrive as real alerts now and survive a force-quit, but if APNs drops one
   the widget waits for its hourly fetch — that's the backstop.
+- **A locked phone's banners are vaguer, and the widget can trail it.** A push
+  that lands while the phone is locked arrives, but the extensions can't
+  decrypt it. The banner says what travels unencrypted — who sent it (the
+  record's name) and a moment's kind: *"Sam — sent you a drawing ✏️"*, *"Sam —
+  updated their status"* — never the caption or status words (nudges carry no
+  words and read in full). The widget keeps its old picture until its next
+  retry after unlock — up to 5 minutes, 15 after half an hour locked, 30 after two. Opening the
+  app catches up at once.
 - **The first sync after a reinstall pulls the whole zone.** Metadata only, so
   it's quick, but the images arrive gradually — the ten newest immediately and
   the rest as you scroll back. Expect placeholders in the gallery for a while
@@ -502,7 +517,7 @@ Everything below is already wired up; this is the order to do it in.
    As the participant, also tap **"Ask … to set it"** on the count screen once
    (the `AnniversaryRequest` record).
 
-   **Tapping "Create a link" is part of this step, not an optional extra.**
+   **Tapping "Create invite link" is part of this step, not an optional extra.**
    Zone sharing needs a system record type, `cloudkit.share`, and CloudKit only
    adds it to the Development schema the first time a `CKShare` is actually
    saved. Deploy before you have ever created an invite and Production is left
@@ -547,8 +562,12 @@ Sources/
     AppConfig.swift              the IDs that must match the entitlements
     Theme.swift                  colours, cards, buttons
     Waveform.swift               condenses recorder levels into memo waveforms
+    Moderation.swift             word filter + the helpers every surface shows
+                                 partner text through; report mail
+    AnnouncementPolicy.swift     check-and-claim behind every notification
+    WidgetReloadPolicy.swift     when the widget refreshes next
     Models/                      Mood, StatusPayload, PairingInfo, Snapshot,
-                                 Moment, MomentAttachment
+                                 Moment, MomentAttachment, Anniversary
     Store/SharedStore.swift      App Group cache — the app↔widget channel
     Store/GroupState.swift       file-backed key-value store (see its header
                                  for why UserDefaults couldn't be trusted)
@@ -562,8 +581,11 @@ Sources/
                                  DEBUG-only demo backend
     Cloud/CloudSync.swift        the CloudKit actor's core; one extension file
     Cloud/CloudSync+*.swift      per concern: Pairing, Status, Refresh, Nudges,
-                                 Moments, Receipts, Subscriptions, Unpairing
-    Cloud/CloudDiagnostics.swift the report behind the Debug-only Settings row
+                                 Moments, Receipts, Anniversary, Subscriptions,
+                                 Unpairing
+    Cloud/RefreshDelta.swift     the pure fold of a delta into the snapshot
+    Cloud/CloudDiagnostics.swift the report behind Settings → Diagnostics
+                                 (tap Version seven times in Release)
     Notifications.swift          banner category/action IDs, Notification.Names
   App/
     RedStringApp.swift, AppDelegate.swift  push registration, share acceptance,
@@ -576,10 +598,10 @@ Sources/
     DemoSeeder.swift                       DEBUG-only screenshot content
     Audio/VoiceRecorder.swift, VoicePlayer.swift
     Views/
-      HomeView, RootView, WelcomeView, PairingView, SettingsView
+      HomeView, RootView, WelcomeView, PairingView, SettingsView, TermsView
       MoodPickerView, CelebrationOverlay   statuses and celebrations
       TieTheStringView, LogoView,          easter egg: long-press the home title, tie the
-      AnniversaryView                      string, hold the logo
+      AnniversaryView, AnniversaryEditorView string, hold the logo; the owner's date
       MomentComposerView                   photo + doodle composer
       VoiceMemoComposerView, VoiceMomentViews
       ScrubbableWaveform                   swipe-to-seek wrapper over WaveformBars
@@ -587,7 +609,7 @@ Sources/
       HistoryFilter, StatusHistoryView     direction filter + the status log sheet
       DrawingCanvas.swift                  PencilKit canvas and palette
       CameraPicker.swift                   UIImagePickerController wrapper
-      InviteLinkView, ShareSheet, PinchToZoom, DiagnosticsView
+      InviteLinkView, ShareSheet, PinchToZoom, DiagnosticsView, RelativeTime
   Widget/
     RedStringWidgetBundle.swift
     StatusWidget.swift, WidgetViews.swift, StatusProvider.swift

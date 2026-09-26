@@ -65,8 +65,9 @@ struct DiagnosticsView: View {
                     Text("Once paired, both people should be listed as accepted "
                          + "with the link closed. A partner shown as \u{201C}public\u{201D} "
                          + "while the link is open hasn't been locked in yet — closing "
-                         + "the link removes public participants, so the app promotes "
-                         + "them to private first.")
+                         + "the link removes public participants, so the button below "
+                         + "closes it and re-adds them as private — they then tap the "
+                         + "link once to confirm.")
                 }
 
                 if SharedStore.shared.pairing?.role == .owner {

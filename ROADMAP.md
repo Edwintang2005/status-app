@@ -53,7 +53,7 @@ addition requires re-deploying the schema to Production (README → "Shipping it
   anniversary** from the count screen — one `AnniversaryRequest` record, no
   push, the owner gets the date prompt on next open. **Schema: the
   `AnniversaryRequest` record type must exist in Production before release.**
-- **Core hardening** — a unit-test target (`make test`, 56 XCTest cases over
+- **Core hardening** — a unit-test target (`make test`, 56 XCTest cases at the time, over
   `Sources/Shared`: Codable fallbacks, watermarks, `MomentIndex` and
   `StatusHistoryLog` merging, `SharedStore`); `CloudSync` split into one
   extension file per concern; banner actions (heart back on every alert, text
@@ -129,6 +129,8 @@ addition requires re-deploying the schema to Production (README → "Shipping it
   `AppConfig.statusHistoryLimit`, 100) written from `AppModel.setStatus` and
   `CloudSync.apply`, shown by `StatusHistoryView` (tap the partner card).
   Local-only: no CloudKit record, gaps possible, doesn't survive reinstall.
+  (Superseded by the September durable status history: `StatusLog` records,
+  cap now 300.)
 - **Read receipts** — toggle in Settings, on by default, gates both
   sending and display. One `Receipt` record per side (`receipt-<role>`) carrying
   an encrypted seen-map; receiver publishes via `flushReceiptsIfNeeded`, sender
@@ -235,6 +237,34 @@ exactly this). Investigated September 2026; the shape that fits the app:
   tap the wrist with the screen off. Both need both people present at once.
 - Schema: one new `Moment` field (`bpm`); redeploy. Widget and NSE untouched
   beyond the new kind's wording.
+
+### Finer detail in doodles (S–M per option)
+
+A fingertip covers too much of a 362 pt canvas for small writing or detail,
+and a thinner brush doesn't help when the finger is the problem. Options,
+roughly in order of value:
+- **Pinch to zoom while drawing** (recommended first). `PKCanvasView` is a
+  scroll view with zoom built in: two fingers zoom/pan, one draws; the 2048 px
+  export has ~5.7× headroom. Two traps: the photo must move *inside* the
+  canvas's content so it zooms with the strokes, and `DrawingController.render`
+  exports `canvas.bounds` — under zoom that's the visible region, so export
+  the fixed content square instead or strokes land misaligned. Replaces the
+  `SheetDragBlocker` (the canvas's own two-finger gestures then win). After,
+  trace strokes over a grid photo and measure the sent JPEG in the App Group's
+  `Moments/` — that file is exactly what the partner downloads.
+- **Writing strip** — a magnified strip along the bottom: write large, it lands
+  small on the canvas and auto-advances (GoodNotes' zoom box). Best for words.
+- **Offset cursor** — ink appears a fixed distance above the fingertip, so the
+  finger never hides the line.
+- **Precision mode** — finger movement scaled down (e.g. 3:1) around the
+  touch-down point; needs strokes synthesised from `PKStrokePoint`s.
+- **Move/resize after drawing** — lasso-select strokes and transform them
+  (`PKStroke.transform`); draw big, then shrink.
+- **Text tool** — typed words in a handwriting-style font, since tiny
+  handwriting is the usual fight.
+
+Checked September 2026: strokes already reach the partner pixel-aligned with
+the photo (the export is the only transform; media travels byte-for-byte).
 
 ### Library grouped by day, and search (M)
 

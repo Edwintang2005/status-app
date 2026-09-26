@@ -125,7 +125,7 @@ targets:
         INFOPLIST_FILE: Sources/Widget/Resources/Info.plist
         CODE_SIGN_ENTITLEMENTS: Sources/Widget/Resources/RedStringWidget.entitlements
 
-  # Runs when CloudKit delivers a nudge or moment push, including when the app
+  # Runs when CloudKit delivers a status, nudge or moment push, including when the app
   # has been force-quit. See Sources/NotificationService/NotificationService.swift.
   RedStringNotificationService:
     type: app-extension

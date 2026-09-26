@@ -520,7 +520,7 @@ struct HomeView: View {
 }
 
 /// Owns its countdown so ticking is scoped to this button and no timer runs
-/// outside the sixty seconds after a nudge.
+/// outside the cooldown after a nudge (`AppConfig.nudgeCooldown`).
 private struct NudgeButton: View {
     let lastSentAt: Date?
     let action: () async -> Void

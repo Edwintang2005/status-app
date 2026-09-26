@@ -243,6 +243,8 @@
         <li><strong>In your own iCloud</strong> (Apple's CloudKit service), in a private
         space shared with exactly one person: the partner you paired with.</li>
       </ul>
+      <p>If you use <em>Archive memories</em>, the app also saves a copy of your history as
+      ordinary files in your iCloud Drive, which you can see and delete in the Files app.</p>
       <p>Status text, captions, the names you set and voice-memo waveforms are stored using
       CloudKit's end-to-end encrypted fields, which Apple's servers cannot read. Photos,
       doodles and voice recordings are stored as CloudKit assets, which Apple encrypts on
@@ -262,8 +264,9 @@
       <h3>Who can see what you share</h3>
       <ul>
         <li><strong>Your partner</strong> — the one person who accepted your invite link.
-        Pairing uses an Apple CloudKit share; the link stops working automatically the
-        moment your partner joins, so a forwarded link can't add a third person.</li>
+        Pairing uses an Apple CloudKit share. While the invite link is open, anyone who
+        has it can join, so send it only to your partner; an unused link can be closed
+        from Settings.</li>
         <li><strong>Apple</strong> — as the operator of iCloud, Apple processes and stores
         this data on your behalf under its own
         <a href="https://www.apple.com/legal/privacy/" rel="noopener">privacy policy</a> and
@@ -281,8 +284,9 @@
           <tr><td>Notifications</td><td>Showing statuses, nudges and moments from your partner. The push itself carries only generic wording; the real content is decrypted on your device.</td></tr>
         </table>
       </div>
-      <p>Every permission is optional, asked for the first time the feature is used, and
-      changeable any time in iOS Settings.</p>
+      <p>Every permission is optional and changeable any time in iOS Settings. Camera,
+      microphone and photo saving are asked for the first time you use them;
+      notifications are asked when you pair.</p>
 
       <h3>How long data is kept, and how to delete it</h3>
       <p>What you share stays in the two places above until one of you deletes it. You are
@@ -336,13 +340,15 @@
       <h3>Reporting and filtering</h3>
       <p>Any status, photo, drawing or voice memo your partner sends can be reported from
       inside the app — long-press the status card, or open a photo's menu. Reporting removes
-      it from your iPhone immediately and sends the details to us. A word filter, on by
+      it from your iPhone immediately and opens a pre-filled email to us with the
+      details, ready for you to send. A word filter, on by
       default, hides strong language in your partner's messages; it can be turned off in
       Settings.</p>
 
       <h3>Blocking</h3>
       <p>Settings → Block ends the link, removes everything your partner sent from your
-      iPhone instantly, refuses any future invite from them, and notifies us.</p>
+      iPhone instantly, refuses future invites they send you, and opens a pre-filled
+      email so you can tell us.</p>
 
       <h3>What we do</h3>
       <p>We act on every report within 24 hours: the reported content is removed and, where
@@ -361,8 +367,8 @@
       <h3>Common questions</h3>
       <p><strong>How do I pair with my partner?</strong> One of you taps
       <em>Create invite link</em> and sends the link over any messaging app. The other
-      taps it, enters their name, and you're linked. The link stops working once it has
-      been used.</p>
+      taps it, enters their name, and you're linked. Anyone who has the link can join while
+      it's open, so send it only to your partner.</p>
       <p><strong>Notifications aren't arriving.</strong> Check that notifications are
       allowed for Red String in iOS Settings, that both phones are signed into iCloud,
       and that neither phone is in a Focus that silences the app. Opening the app always

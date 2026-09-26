@@ -38,7 +38,7 @@ struct StatusHistoryView: View {
                         ContentUnavailableView {
                             Label("No statuses yet", systemImage: "clock.arrow.circlepath")
                         } description: {
-                            Text("Statuses are logged here from now on, as they happen.")
+                            Text("Statuses show up here as they're set, including ones from before this phone.")
                         }
                     } else {
                         List {
