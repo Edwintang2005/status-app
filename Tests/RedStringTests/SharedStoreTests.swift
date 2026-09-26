@@ -60,11 +60,32 @@ final class SharedStoreTests: XCTestCase {
         XCTAssertEqual(store.unreadableTally.counts["app"], 5, "clearing the hold keeps the evidence")
     }
 
+    /// `heldSince` drives the widget's retry backoff: it marks the start of a
+    /// hold, survives later sightings, and goes with the hold however it ends.
+    func testHeldSinceSpansTheWholeHold() {
+        let (store, _) = makeStore()
+        let t0 = Fixtures.t0
+        let gap = AppConfig.unreadableHoldSpacing
+        XCTAssertNil(store.unreadableTally.heldSince)
+        store.noteUnreadableRecords(["a"], now: t0)
+        store.noteUnreadableRecords(["a", "b"], now: t0.addingTimeInterval(gap))
+        XCTAssertEqual(store.unreadableTally.heldSince, t0, "a changed set is still the same stale stretch")
+
+        store.clearUnreadableHold()
+        XCTAssertNil(store.unreadableTally.heldSince)
+
+        store.noteUnreadableRecords(["c"], now: t0.addingTimeInterval(10 * gap))
+        store.noteUnreadableRecords(["c"], now: t0.addingTimeInterval(11 * gap))
+        XCTAssertTrue(store.noteUnreadableRecords(["c"], now: t0.addingTimeInterval(12 * gap)))
+        XCTAssertNil(store.unreadableTally.heldSince, "giving up ends the hold too")
+    }
+
     func testLegacyTallyDecodes() throws {
         let tally = try decode(SharedStore.UnreadableTally.self, #"{"counts":{"widget":3}}"#)
         XCTAssertEqual(tally.counts["widget"], 3)
         XCTAssertEqual(tally.heldStreak, 0)
         XCTAssertEqual(tally.abandoned, 0)
+        XCTAssertNil(tally.heldSince)
     }
 
     func testReadReceiptsToggleRoundTrips() {

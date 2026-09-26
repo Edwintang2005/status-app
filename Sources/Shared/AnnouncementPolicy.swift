@@ -87,6 +87,16 @@ enum AnnouncementPolicy {
         return chosen
     }
 
+    /// A locked phone's moment banner body, from what travels unencrypted: the
+    /// kinds of the partner's undecryptable new moments. Several can't be matched
+    /// to this one push, so the kind is named only when they all agree. `nil`
+    /// when none are the partner's — CloudKit's generic wording stays.
+    static func heldMomentBody(kinds: [Moment.Kind]) -> String? {
+        guard let first = kinds.first else { return nil }
+        guard kinds.allSatisfy({ $0 == first }) else { return String(localized: "sent you something 📷") }
+        return first.arrivalSummary
+    }
+
     /// Whether the refresh changed anything the user would notice.
     static func changed(_ result: RefreshResult, previousStatus: StatusPayload?) -> Bool {
         previousStatus != result.partnerStatus || !result.newPartnerMoments.isEmpty

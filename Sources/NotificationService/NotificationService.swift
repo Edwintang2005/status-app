@@ -117,6 +117,8 @@ final class NotificationService: UNNotificationServiceExtension {
             }
             if let moment {
                 await apply(moment, to: content, partnerName: partnerName)
+            } else if let body = AnnouncementPolicy.heldMomentBody(kinds: result.heldPartnerMomentKinds) {
+                applyHeld(body, category: NotificationCategory.moment, to: content, partnerName: partnerName)
             } else {
                 applyUnclaimed(to: content, ownWrite: result.ownRecordsChanged, couldNotRead: couldNotRead,
                                ownBody: String(localized: "You sent something from another device."))
@@ -165,8 +167,14 @@ final class NotificationService: UNNotificationServiceExtension {
             case (.update?, let status?):
                 applyStatus(status, to: content, partnerName: partnerName, reportedAt: reportedAt)
             default:
-                applyUnclaimed(to: content, ownWrite: result.ownRecordsChanged, couldNotRead: couldNotRead,
-                               ownBody: String(localized: "You changed your status from another device."))
+                if result.heldPartnerStatus {
+                    applyHeld(String(localized: "updated their status"), category: NotificationCategory.status,
+                              to: content, partnerName: partnerName)
+                    content.threadIdentifier = "status-updates"
+                } else {
+                    applyUnclaimed(to: content, ownWrite: result.ownRecordsChanged, couldNotRead: couldNotRead,
+                                   ownBody: String(localized: "You changed your status from another device."))
+                }
             }
         default:
             // Legacy silent push or unknown subscription — the refresh already ran.
@@ -192,6 +200,18 @@ final class NotificationService: UNNotificationServiceExtension {
         } else if !couldNotRead {
             quieten(content)
         }
+    }
+
+    /// Couldn't decrypt, but the record's name says it's the partner's: their
+    /// name and what the unencrypted fields allow, at full volume — nobody else
+    /// can have announced it. Stamped so the app's sweep supersedes it later.
+    private func applyHeld(_ body: String,
+                           category: String,
+                           to content: UNMutableNotificationContent,
+                           partnerName: String) {
+        content.title = partnerName
+        content.body = body
+        content.userInfo[NotificationCategory.heldBannerKey] = category
     }
 
     private func quieten(_ content: UNMutableNotificationContent) {

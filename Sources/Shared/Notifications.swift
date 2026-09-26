@@ -7,6 +7,10 @@ enum NotificationCategory {
     static let nudge = "nudge"
     static let moment = "moment"
 
+    /// userInfo key the notification service stamps (value: the category) on a
+    /// banner worded from unencrypted fields alone, so the app's sweep supersedes it.
+    static let heldBannerKey = "held-banner"
+
     enum Action {
         /// One-tap heart back, offered on every category.
         static let heartBack = "heart-back"

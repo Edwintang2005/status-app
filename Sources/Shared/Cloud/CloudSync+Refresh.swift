@@ -207,6 +207,9 @@ extension CloudSync {
         var moments: [Moment] = []
         var logEntries: [StatusHistoryEntry] = []
         var unreadable: [String] = []
+        // Parsed from plaintext fields only (captions come back empty), for the
+        // banner's wording — never filed into the index.
+        var heldMoments: [Moment] = []
 
         for record in changes.records {
             let name = record.recordID.recordName
@@ -214,6 +217,11 @@ extension CloudSync {
             // the process couldn't decrypt, and the record is left for a later fetch.
             guard Self.isReadable(record) else {
                 unreadable.append(name)
+                if record.recordType == RecordType.moment,
+                   let moment = Self.moment(from: record, mineRole: mineRole, theirsRole: theirsRole),
+                   !moment.fromMe {
+                    heldMoments.append(moment)
+                }
                 continue
             }
             switch record.recordType {
@@ -378,10 +386,17 @@ extension CloudSync {
         }
 
         let newFromPartner = arrived.filter { !$0.fromMe && !alreadyKnown.contains($0.id) }
+        // Same "new" test as above: a resync re-delivering history unreadable is not news.
+        let heldKinds = heldMoments
+            .filter { !alreadyKnown.contains($0.id) && !hidden.contains($0.id) }
+            .sorted { $0.sentAt < $1.sentAt }
+            .map(\.kind)
         return RefreshResult(partnerStatus: erased ? nil : (theirs ?? previousStatus),
                              newPartnerMoments: newFromPartner,
                              unreadableRecordNames: unreadable,
-                             ownRecordsChanged: ownRecordsChanged)
+                             ownRecordsChanged: ownRecordsChanged,
+                             heldPartnerMomentKinds: heldKinds,
+                             heldPartnerStatus: unreadable.contains(theirsRole.statusRecordName))
     }
 
     /// Whether the process could decrypt this record. Each type is probed on a

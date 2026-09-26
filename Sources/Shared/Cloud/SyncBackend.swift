@@ -19,6 +19,11 @@ struct RefreshResult: Sendable {
     var incomplete = false
     /// Own moments a full-zone fetch found missing and put back in the retry queue.
     var requeuedUploads = 0
+    /// New partner moments this pass couldn't decrypt, oldest first. Only the
+    /// kind travels unencrypted — all a locked phone's banner may say.
+    var heldPartnerMomentKinds: [Moment.Kind] = []
+    /// The partner's status record arrived unreadable.
+    var heldPartnerStatus = false
 
     var unreadableRecords: Int { unreadableRecordNames.count }
     var newestPartnerMoment: Moment? { newPartnerMoments.last }

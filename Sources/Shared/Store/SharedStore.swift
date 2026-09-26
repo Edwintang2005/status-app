@@ -311,13 +311,16 @@ final class SharedStore {
         /// Separate app refreshes that found the same names unreadable.
         var heldStreak = 0
         var heldAt: Date?
+        /// When the current hold began, by any process — how long the widget has
+        /// been showing a stale snapshot (`WidgetReloadPolicy`).
+        var heldSince: Date?
         /// Records the app gave up on and advanced past — gone until a full resync.
         var abandoned = 0
 
         init() {}
 
         private enum CodingKeys: String, CodingKey {
-            case counts, lastAt, heldNames, heldStreak, heldAt, abandoned
+            case counts, lastAt, heldNames, heldStreak, heldAt, heldSince, abandoned
         }
 
         /// Hand-written: fields added after the first release fall back (invariant 5).
@@ -328,6 +331,7 @@ final class SharedStore {
             heldNames = try container.decodeIfPresent([String].self, forKey: .heldNames) ?? []
             heldStreak = try container.decodeIfPresent(Int.self, forKey: .heldStreak) ?? 0
             heldAt = try container.decodeIfPresent(Date.self, forKey: .heldAt)
+            heldSince = try container.decodeIfPresent(Date.self, forKey: .heldSince)
             abandoned = try container.decodeIfPresent(Int.self, forKey: .abandoned) ?? 0
         }
 
@@ -378,6 +382,7 @@ final class SharedStore {
                     tally.abandoned += names.count
                     tally.heldStreak = 0
                     tally.heldAt = nil
+                    tally.heldSince = nil
                     tally.heldNames = []
                     log.error("Giving up on \(names.count) record(s) that stayed unreadable across \(AppConfig.unreadableHoldLimit) refreshes; advancing the change token.")
                 }
@@ -386,6 +391,7 @@ final class SharedStore {
                 // Every process notes what it saw; a superset from an extension
                 // keeps the app's next (smaller) set counting as the same records.
                 tally.heldNames = names
+                if tally.heldSince == nil { tally.heldSince = now }
             }
             encode(tally, forKey: Key.unreadable)
             return advance
@@ -400,6 +406,7 @@ final class SharedStore {
             tally.heldNames = []
             tally.heldStreak = 0
             tally.heldAt = nil
+            tally.heldSince = nil
             encode(tally, forKey: Key.unreadable)
         }
     }

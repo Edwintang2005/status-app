@@ -11,10 +11,6 @@ struct StatusEntry: TimelineEntry {
 struct StatusProvider: TimelineProvider {
     private static let log = Logger(subsystem: AppConfig.appGroupID, category: "Widget")
 
-    /// Each tick costs a process launch + CloudKit round trip; it's a backstop,
-    /// so it can afford to be lazy.
-    private static let refreshInterval: TimeInterval = 60 * 60
-
     func placeholder(in context: Context) -> StatusEntry {
         StatusEntry(date: Date(), snapshot: .preview)
     }
@@ -27,10 +23,10 @@ struct StatusProvider: TimelineProvider {
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<StatusEntry>) -> Void) {
         Task {
-            await Self.refreshIfPossible()
+            let result = await Self.refreshIfPossible()
             let snapshot = SharedStore.shared.snapshot
             var entries = [StatusEntry(date: Date(), snapshot: snapshot)]
-            // Nothing else re-renders for up to an hour, so schedule the entry
+            // Nothing else may re-render for a while, so schedule the entry
             // that flips the heart back after the cooldown.
             if let sent = snapshot.lastNudgeSentAt {
                 let expiry = sent.addingTimeInterval(AppConfig.nudgeCooldown)
@@ -45,19 +41,23 @@ struct StatusProvider: TimelineProvider {
                     entries.append(StatusEntry(date: expiry, snapshot: snapshot))
                 }
             }
-            let next = Date().addingTimeInterval(Self.refreshInterval)
+            // The tally, not this refresh's result: a push the NSE couldn't read
+            // is still held even when this refresh failed outright.
+            let next = WidgetReloadPolicy.nextReload(heldSince: SharedStore.shared.unreadableTally.heldSince,
+                                                     incomplete: result?.incomplete ?? false)
             completion(Timeline(entries: entries, policy: .after(next)))
         }
     }
 
     /// Best effort — a failure here just means the cached snapshot is served.
-    private static func refreshIfPossible() async {
-        guard await MainActor.run(body: { SharedStore.shared.pairing != nil }) else { return }
+    private static func refreshIfPossible() async -> RefreshResult? {
+        guard await MainActor.run(body: { SharedStore.shared.pairing != nil }) else { return nil }
         do {
             // WidgetKit gives the provider a limited budget; give up well before it.
-            _ = try await withDeadline(AppConfig.widgetDeadline) { try await Backend.current.refresh() }
+            return try await withDeadline(AppConfig.widgetDeadline) { try await Backend.current.refresh() }
         } catch {
             log.notice("Widget refresh skipped: \(error.localizedDescription)")
+            return nil
         }
     }
 }

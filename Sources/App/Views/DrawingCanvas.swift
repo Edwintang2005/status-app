@@ -8,6 +8,7 @@ import SwiftUI
 @Observable
 final class DrawingController {
     @ObservationIgnored let canvas = PKCanvasView()
+    @ObservationIgnored private let sheetDragBlocker = SheetDragBlocker()
 
     static let palette: [Color] = [
         .black,
@@ -87,6 +88,10 @@ final class DrawingController {
         canvas.drawingPolicy = .anyInput
         canvas.alwaysBounceVertical = false
         canvas.alwaysBounceHorizontal = false
+        // PKCanvasView is a scroll view: a safe-area or keyboard inset would
+        // shift the strokes off the photo underneath, and off the export.
+        canvas.contentInsetAdjustmentBehavior = .never
+        canvas.addGestureRecognizer(sheetDragBlocker.recognizer)
         // PencilKit inks invert near-black/white in dark mode; the backdrop is an
         // explicit swatch and `Backdrop.isDark` flips ink by hand, so take colours literally.
         canvas.overrideUserInterfaceStyle = .light
@@ -138,6 +143,34 @@ final class DrawingController {
     static func centredSquare(in bounds: CGRect) -> CGRect {
         let side = min(bounds.width, bounds.height)
         return CGRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
+    }
+}
+
+/// A two-finger drag on the canvas otherwise grabs the sheet (and the page's
+/// scroll view): outside recognizers wait for this one, which never acts.
+@MainActor
+private final class SheetDragBlocker: NSObject, UIGestureRecognizerDelegate {
+    let recognizer = UIPanGestureRecognizer()
+
+    override init() {
+        super.init()
+        recognizer.minimumNumberOfTouches = 2
+        recognizer.cancelsTouchesInView = false
+        recognizer.delaysTouchesEnded = false
+        recognizer.delegate = self
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+        // PencilKit's own recognizers live on the canvas and must never wait.
+        guard let view = other.view, let canvas = recognizer.view else { return false }
+        return !view.isDescendant(of: canvas)
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        guard let view = other.view, let canvas = recognizer.view else { return false }
+        return view.isDescendant(of: canvas)
     }
 }
 

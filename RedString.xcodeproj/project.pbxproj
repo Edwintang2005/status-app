@@ -16,6 +16,7 @@
 		0CA0BF1B91D25C8690CAFE2F /* Waveform.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B642C800ACD0FE5CC306C9C /* Waveform.swift */; };
 		0CE1F2AFF227C7F108DFF76A /* CloudSync+Nudges.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15A99D777CB54E1D2965B72F /* CloudSync+Nudges.swift */; };
 		0D89E0F44D9EE1787120B12B /* MomentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9908897AF8F96D8BAF86FB0D /* MomentIndex.swift */; };
+		0DCFF4F40F45B9DE541564A8 /* WidgetReloadPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E73BF08B6971385C71653A2D /* WidgetReloadPolicy.swift */; };
 		0F6B4AC2ED66FF7140E8DC27 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 1F79104FD98AAD694DD9EAD4 /* Localizable.xcstrings */; };
 		0FE3E7AFADBD02CEF113168E /* MomentAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = C513794F944B58BC26B42ED2 /* MomentAttachment.swift */; };
 		1086B9DD795A0468D7181622 /* CloudSync+Refresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 454E5380DC54A9F8544890BC /* CloudSync+Refresh.swift */; };
@@ -69,6 +70,7 @@
 		4A5EE8033541F7BD632AFEB4 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68217B2049E1E37F4824759E /* Theme.swift */; };
 		4B8268C9595A3398F72B373D /* CloudSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30D8E86092F4D16270481EB1 /* CloudSync.swift */; };
 		4DF53AF528D0DF7C9C4921DC /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 6E23A358C70DAF7AF20FB864 /* PrivacyInfo.xcprivacy */; };
+		5072B8192B462B335F941B40 /* WidgetReloadPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E73BF08B6971385C71653A2D /* WidgetReloadPolicy.swift */; };
 		50EE6450E636D453874867D9 /* RefreshDelta.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29F12D897F3E160F3E1473C5 /* RefreshDelta.swift */; };
 		5269346ABA17D6BB0C575885 /* StatusWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 534E6813B345A235562938A6 /* StatusWidget.swift */; };
 		545B0DA5DD884199F120B05F /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7979986C14FC84136536B46B /* RootView.swift */; };
@@ -160,6 +162,7 @@
 		CB80FEFB3AD61E6C6180E327 /* MomentGalleryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 652B3CE8C44B5FDA32C9E0F1 /* MomentGalleryView.swift */; };
 		CC3292933259B5E3083F0A93 /* StatusHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 847AF10E5065B62CDA9C5D89 /* StatusHistoryView.swift */; };
 		CDE41656D5548893F3A93EA7 /* ShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB81BD9590AB73959572A67 /* ShareSheet.swift */; };
+		D0E3F5B0E8CD7FC875EC051C /* WidgetReloadPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B247D41D258F4B247AB150E /* WidgetReloadPolicyTests.swift */; };
 		D21CF8F30BF04932B7CB37D8 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 40FB4DA9062749721CD09501 /* PrivacyInfo.xcprivacy */; };
 		D3BF43D40DB3834A36FED1D4 /* Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7B72EE6C19F670FF1A8BC39 /* Notifications.swift */; };
 		D436063819EA97A6D3EAC7FD /* CloudSync+Refresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 454E5380DC54A9F8544890BC /* CloudSync+Refresh.swift */; };
@@ -176,7 +179,9 @@
 		E108C281D4DC9B873BBC8D3F /* MomentWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9DB927AC93A1FEF6AD3652F /* MomentWidget.swift */; };
 		E1D3B6CE0A3B5263CFC06009 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68217B2049E1E37F4824759E /* Theme.swift */; };
 		E447968BC1B5D75988B10939 /* Anniversary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7561BA90FD6BA87B3BD03EB9 /* Anniversary.swift */; };
+		E4D3732F713DB805B0D8B4C9 /* WidgetReloadPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E73BF08B6971385C71653A2D /* WidgetReloadPolicy.swift */; };
 		E5AC15A2ABF2B2EA77896795 /* CloudSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30D8E86092F4D16270481EB1 /* CloudSync.swift */; };
+		E6706F2363799A84A4665C98 /* WidgetReloadPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E73BF08B6971385C71653A2D /* WidgetReloadPolicy.swift */; };
 		E696A1C2A7A8CDF08713D020 /* MomentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 337B972E15547CDA25869529 /* MomentStore.swift */; };
 		E8C0CAA41E458B801F0E70D0 /* CloudSync+Status.swift in Sources */ = {isa = PBXBuildFile; fileRef = 414E946C57D183FF60F4DF33 /* CloudSync+Status.swift */; };
 		EB42609B49AAAB10B43F93ED /* DiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9DF84C71D3758781306F1A2 /* DiagnosticsView.swift */; };
@@ -263,6 +268,7 @@
 		33ABA1C95A999EB2373B05EF /* RedStringShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedStringShortcuts.swift; sourceTree = "<group>"; };
 		34BCEF784AA8E17FAB64AAE7 /* MomentComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentComposerView.swift; sourceTree = "<group>"; };
 		34F3D813228830FD69F5F5E5 /* CloudSync+Pairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSync+Pairing.swift"; sourceTree = "<group>"; };
+		3B247D41D258F4B247AB150E /* WidgetReloadPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetReloadPolicyTests.swift; sourceTree = "<group>"; };
 		3B642C800ACD0FE5CC306C9C /* Waveform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Waveform.swift; sourceTree = "<group>"; };
 		3CC659D2468D19E1EC8CC267 /* StatusPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusPayload.swift; sourceTree = "<group>"; };
 		3E639AD30E2C0F3523EC9108 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
@@ -334,6 +340,7 @@
 		D6D8E9381A68B07E3D63B706 /* TieTheStringView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TieTheStringView.swift; sourceTree = "<group>"; };
 		D7555940C8F32AD881C18D9E /* MomentLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentLibraryView.swift; sourceTree = "<group>"; };
 		DFD7B7B4A66C4C8FE0D20011 /* RelativeTime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelativeTime.swift; sourceTree = "<group>"; };
+		E73BF08B6971385C71653A2D /* WidgetReloadPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetReloadPolicy.swift; sourceTree = "<group>"; };
 		E92E3390E59B9B7286EA2FCC /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		E9DB927AC93A1FEF6AD3652F /* MomentWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentWidget.swift; sourceTree = "<group>"; };
 		ECDB179145E497E1098B7204 /* StatusHistoryLogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusHistoryLogTests.swift; sourceTree = "<group>"; };
@@ -393,6 +400,7 @@
 				ECDB179145E497E1098B7204 /* StatusHistoryLogTests.swift */,
 				2C975F4AB3B2F7C241B1F83F /* TestSupport.swift */,
 				4070DB188B61F687F8CDB03D /* WaveformTests.swift */,
+				3B247D41D258F4B247AB150E /* WidgetReloadPolicyTests.swift */,
 			);
 			path = RedStringTests;
 			sourceTree = "<group>";
@@ -503,6 +511,7 @@
 				B7B72EE6C19F670FF1A8BC39 /* Notifications.swift */,
 				68217B2049E1E37F4824759E /* Theme.swift */,
 				3B642C800ACD0FE5CC306C9C /* Waveform.swift */,
+				E73BF08B6971385C71653A2D /* WidgetReloadPolicy.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -816,6 +825,8 @@
 				AAEDB5472BA6D57121D2B92E /* Theme.swift in Sources */,
 				0CA0BF1B91D25C8690CAFE2F /* Waveform.swift in Sources */,
 				79AD5AE8FE7CAB369D18E0A3 /* WaveformTests.swift in Sources */,
+				E6706F2363799A84A4665C98 /* WidgetReloadPolicy.swift in Sources */,
+				D0E3F5B0E8CD7FC875EC051C /* WidgetReloadPolicyTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -854,6 +865,7 @@
 				C98895535EBAED51DB5FDE79 /* SyncBackend.swift in Sources */,
 				01E737544D6AC1DF7D7B81FC /* Theme.swift in Sources */,
 				F508E978D5AE6B4ABD2C5238 /* Waveform.swift in Sources */,
+				E4D3732F713DB805B0D8B4C9 /* WidgetReloadPolicy.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -896,6 +908,7 @@
 				3152657AB5665312130C371B /* SyncBackend.swift in Sources */,
 				4A5EE8033541F7BD632AFEB4 /* Theme.swift in Sources */,
 				D74C66A40E973E4378714CC5 /* Waveform.swift in Sources */,
+				5072B8192B462B335F941B40 /* WidgetReloadPolicy.swift in Sources */,
 				C6E9096802FA499440DB449E /* WidgetViews.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -971,6 +984,7 @@
 				333DF0333E02B3FBF5CE442C /* VoiceRecorder.swift in Sources */,
 				EB482D68C23CA51B2F6D0C52 /* Waveform.swift in Sources */,
 				CA2DF31574A3688EB5138FF7 /* WelcomeView.swift in Sources */,
+				0DCFF4F40F45B9DE541564A8 /* WidgetReloadPolicy.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

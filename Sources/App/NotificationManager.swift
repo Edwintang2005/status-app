@@ -54,16 +54,18 @@ enum NotificationManager {
         UNUserNotificationCenter.current().removeAllDeliveredNotifications()
     }
 
-    /// Removes delivered banners still wearing CloudKit's generic wording — the local
-    /// notification about to be posted supersedes them, and leaving both is a duplicate.
-    /// Matched on the *body*, not just the app-name title: sweeping every generic
+    /// Removes delivered banners still wearing CloudKit's generic wording, or the
+    /// locked-phone wording the service stamps — the local notification about to
+    /// be posted supersedes them, and leaving both is a duplicate. Matched on the
+    /// *body* (or stamp), not just the app-name title: sweeping every generic
     /// banner deleted unenriched status notes nothing was ever going to re-state.
-    private static func removeGenericBanners(body: String) async {
+    private static func removeGenericBanners(body: String, category: String) async {
         let center = UNUserNotificationCenter.current()
         let generic = await center.deliveredNotifications()
             .filter {
-                $0.request.content.title == AppConfig.appName
-                    && $0.request.content.body == body
+                let content = $0.request.content
+                return (content.title == AppConfig.appName && content.body == body)
+                    || content.userInfo[NotificationCategory.heldBannerKey] as? String == category
             }
             .map(\.request.identifier)
         guard !generic.isEmpty else { return }
@@ -71,7 +73,7 @@ enum NotificationManager {
     }
 
     static func postMoment(_ moment: Moment, from name: String) async {
-        await removeGenericBanners(body: CloudSync.GenericAlert.moment)
+        await removeGenericBanners(body: CloudSync.GenericAlert.moment, category: NotificationCategory.moment)
         let content = UNMutableNotificationContent()
         content.title = moment.displaySenderName(fallback: name)
         content.body = moment.displayCaption ?? moment.arrivalSummary
@@ -103,7 +105,7 @@ enum NotificationManager {
     /// `sentAt` is when the nudge actually happened. This path can run hours late,
     /// and the wording must not claim a stale nudge is happening now.
     static func postNudge(from name: String, sentAt: Date?) async {
-        await removeGenericBanners(body: CloudSync.GenericAlert.nudge)
+        await removeGenericBanners(body: CloudSync.GenericAlert.nudge, category: NotificationCategory.nudge)
         let stale = sentAt.map { Date().timeIntervalSince($0) > 5 * 60 } ?? false
 
         let content = UNMutableNotificationContent()

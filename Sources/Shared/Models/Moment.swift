@@ -114,17 +114,22 @@ extension Moment {
     }
 
     /// The notification body when there's no caption to show instead.
-    var arrivalSummary: String {
-        switch kind {
-        case .photo: return String(localized: "sent you a photo 📷")
-        case .drawing: return String(localized: "sent you a drawing ✏️")
-        case .voice: return String(localized: "sent you a voice memo 🎙️")
-        }
-    }
+    var arrivalSummary: String { kind.arrivalSummary }
 
     /// `0:07`, `1:24`. Voice memos only.
     var durationLabel: String {
         let total = duration.isFinite ? Int(min(duration.rounded(), 359_999)) : 0
         return String(format: "%d:%02d", total / 60, total % 60)
+    }
+}
+
+extension Moment.Kind {
+    /// Kind-level so a locked phone's banner can use it: `kind` is plaintext.
+    var arrivalSummary: String {
+        switch self {
+        case .photo: return String(localized: "sent you a photo 📷")
+        case .drawing: return String(localized: "sent you a drawing ✏️")
+        case .voice: return String(localized: "sent you a voice memo 🎙️")
+        }
     }
 }

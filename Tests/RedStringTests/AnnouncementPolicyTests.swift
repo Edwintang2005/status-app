@@ -133,4 +133,16 @@ final class AnnouncementPolicyTests: XCTestCase {
         XCTAssertNil(AnnouncementPolicy.claimMomentBanner(delta: [], index: [mine, indexed], in: &snapshot))
         XCTAssertNil(AnnouncementPolicy.claimMomentBanner(delta: [], index: [mine], in: &snapshot))
     }
+
+    // MARK: Locked-phone wording (invariant 10's unreadable exception)
+
+    func testHeldMomentBodyNamesTheKindOnlyWhenTheyAgree() {
+        XCTAssertNil(AnnouncementPolicy.heldMomentBody(kinds: []), "nothing of the partner's: generic words stay")
+        XCTAssertEqual(AnnouncementPolicy.heldMomentBody(kinds: [.drawing]), Moment.Kind.drawing.arrivalSummary)
+        XCTAssertEqual(AnnouncementPolicy.heldMomentBody(kinds: [.photo, .photo]), Moment.Kind.photo.arrivalSummary)
+        let mixed = AnnouncementPolicy.heldMomentBody(kinds: [.photo, .voice])
+        XCTAssertNotNil(mixed)
+        XCTAssertNotEqual(mixed, Moment.Kind.photo.arrivalSummary, "can't tell which one this push was for")
+        XCTAssertNotEqual(mixed, Moment.Kind.voice.arrivalSummary)
+    }
 }
