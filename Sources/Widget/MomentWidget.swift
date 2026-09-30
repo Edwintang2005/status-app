@@ -12,6 +12,8 @@ struct MomentWidget: Widget {
         .configurationDisplayName("Their photo")
         .description("The last photo or doodle they sent you, and a badge when a voice memo is waiting.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
+        // Overlay pieces sit close to the edges, placed per family in `Placement`.
+        .contentMarginsDisabled()
     }
 }
 
@@ -36,10 +38,15 @@ struct MomentWidgetView: View {
                 content(for: moment)
             } else {
                 empty
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .overlay(alignment: .topTrailing) {
+                        if unheardMemos > 0 {
+                            memoBadge
+                                .padding(.top, Placement.of(family).badgeTop)
+                                .padding(.trailing, Placement.of(family).badgeTrailing)
+                        }
+                    }
             }
-        }
-        .overlay(alignment: .topTrailing) {
-            if unheardMemos > 0 { memoBadge }
         }
         .containerBackground(for: .widget) { background }
     }
@@ -48,9 +55,7 @@ struct MomentWidgetView: View {
     private var memoBadge: some View {
         HStack(spacing: 3) {
             Image(systemName: "mic.fill")
-            if unheardMemos > 1 {
-                Text("\(unheardMemos)").monospacedDigit()
-            }
+            Text("\(unheardMemos)").monospacedDigit()
         }
         .font(.system(size: 11, weight: .bold, design: .rounded))
         .foregroundStyle(.white)
@@ -58,10 +63,30 @@ struct MomentWidgetView: View {
         .padding(.vertical, 5)
         .background(Theme.warmDeep, in: Capsule())
         .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
-        .padding(9)
         .accessibilityLabel(unheardMemos == 1
                             ? String(localized: "1 voice memo waiting")
                             : String(localized: "\(unheardMemos) voice memos waiting"))
+    }
+
+    /// Distances from the widget's own edges (content margins are off), in points.
+    private struct Placement {
+        var badgeTop: CGFloat, badgeTrailing: CGFloat
+        var captionLeading: CGFloat, captionBottom: CGFloat, captionWidth: CGFloat
+        var composeTrailing: CGFloat, composeBottom: CGFloat
+
+        static func of(_ family: WidgetFamily) -> Placement {
+            switch family {
+            case .systemMedium:
+                Placement(badgeTop: 6, badgeTrailing: 16, captionLeading: 18, captionBottom: 11,
+                          captionWidth: 240, composeTrailing: 16, composeBottom: 6)
+            case .systemLarge:
+                Placement(badgeTop: 13, badgeTrailing: 17, captionLeading: 28, captionBottom: 14,
+                          captionWidth: 240, composeTrailing: 15, composeBottom: 12)
+            default:
+                Placement(badgeTop: 8, badgeTrailing: 10, captionLeading: 15, captionBottom: 10,
+                          captionWidth: 108, composeTrailing: 0, composeBottom: 0)
+            }
+        }
     }
 
     // MARK: - Content
@@ -71,40 +96,47 @@ struct MomentWidgetView: View {
         // Until the photo downloads, the background is the pale accent fill —
         // white-on-pale text is invisible, so style for whichever is showing.
         let onPhoto = MomentStore.shared.thumbnail(for: moment.id) != nil
+        let place = Placement.of(family)
 
-        VStack(alignment: .leading, spacing: 0) {
-            Spacer(minLength: 0)
-
-            HStack(alignment: .bottom, spacing: 8) {
-                if !moment.caption.isEmpty {
-                    Text(moment.caption)
-                        .font(.system(size: family == .systemSmall ? 13 : 15,
-                                      weight: .semibold, design: .rounded))
-                        .lineLimit(2)
-                        .foregroundStyle(onPhoto ? AnyShapeStyle(.white)
-                                                 : AnyShapeStyle(.primary))
-                        .shadow(color: .black.opacity(onPhoto ? 0.55 : 0), radius: 4, y: 1)
-                }
-
-                Spacer(minLength: 0)
-
-                // systemSmall allows only one tap target (widgetURL), so no Link there.
-                if family != .systemSmall {
-                    Link(destination: URL(string: "redstring://compose")!) {
-                        Image(systemName: "square.and.pencil")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(onPhoto ? AnyShapeStyle(.white)
-                                                     : AnyShapeStyle(.secondary))
-                            .padding(9)
-                            .background(onPhoto ? AnyShapeStyle(.black.opacity(0.35))
-                                                : AnyShapeStyle(.primary.opacity(0.08)),
-                                        in: Circle())
-                    }
-                    .accessibilityLabel("Send a moment")
-                }
+        ZStack {
+            if !moment.caption.isEmpty {
+                Text(moment.caption)
+                    .font(.system(size: family == .systemSmall ? 13 : 15,
+                                  weight: .semibold, design: .rounded))
+                    .lineLimit(2)
+                    .foregroundStyle(onPhoto ? AnyShapeStyle(.white)
+                                             : AnyShapeStyle(.primary))
+                    .shadow(color: .black.opacity(onPhoto ? 0.55 : 0), radius: 4, y: 1)
+                    .frame(width: place.captionWidth, alignment: .leading)
+                    .padding(.leading, place.captionLeading)
+                    .padding(.bottom, place.captionBottom)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 10)
+
+            // systemSmall allows only one tap target (widgetURL), so no Link there.
+            if family != .systemSmall {
+                Link(destination: URL(string: "redstring://compose")!) {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(onPhoto ? AnyShapeStyle(.white)
+                                                 : AnyShapeStyle(.secondary))
+                        .frame(width: 35, height: 35)
+                        .background(onPhoto ? AnyShapeStyle(.black.opacity(0.35))
+                                            : AnyShapeStyle(.primary.opacity(0.08)),
+                                    in: Circle())
+                }
+                .accessibilityLabel("Send a moment")
+                .padding(.trailing, place.composeTrailing)
+                .padding(.bottom, place.composeBottom)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            }
+
+            if unheardMemos > 0 {
+                memoBadge
+                    .padding(.top, place.badgeTop)
+                    .padding(.trailing, place.badgeTrailing)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            }
         }
         .widgetURL(URL(string: "redstring://open"))
     }
@@ -124,6 +156,7 @@ struct MomentWidgetView: View {
                     .multilineTextAlignment(.center)
             }
         }
+        .padding(16)
         // Unpaired or memo-waiting opens the app; never deep-link an unpaired
         // user into the composer.
         .widgetURL(URL(string: entry.snapshot.isPaired && unheardMemos == 0
@@ -156,10 +189,12 @@ struct MomentWidgetView: View {
                                     ? String(localized: "\(moment.noun) from them")
                                     : String(localized: "\(moment.noun) from \(moment.senderName)"))
                 .overlay(alignment: .bottom) {
-                    // Gradient only when there's a caption to keep legible.
+                    // Gradient only when there's a caption to keep legible; the small
+                    // tile's is light and starts higher.
                     if moment.caption.isEmpty == false {
-                        LinearGradient(colors: [.clear, .black.opacity(0.5)],
-                                       startPoint: UnitPoint(x: 0.5, y: 0.68),
+                        let small = family == .systemSmall
+                        LinearGradient(colors: [.clear, .black.opacity(small ? 0.2 : 0.5)],
+                                       startPoint: UnitPoint(x: 0.5, y: small ? 0.58 : 0.68),
                                        endPoint: .bottom)
                     }
                 }
