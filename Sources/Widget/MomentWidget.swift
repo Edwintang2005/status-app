@@ -97,6 +97,7 @@ struct MomentWidgetView: View {
         // white-on-pale text is invisible, so style for whichever is showing.
         let onPhoto = MomentStore.shared.thumbnail(for: moment.id) != nil
         let place = Placement.of(family)
+        let centred = family == .systemSmall
 
         ZStack {
             if !moment.caption.isEmpty {
@@ -107,10 +108,14 @@ struct MomentWidgetView: View {
                     .foregroundStyle(onPhoto ? AnyShapeStyle(.white)
                                              : AnyShapeStyle(.primary))
                     .shadow(color: .black.opacity(onPhoto ? 0.55 : 0), radius: 4, y: 1)
-                    .frame(width: place.captionWidth, alignment: .leading)
-                    .padding(.leading, place.captionLeading)
+                    .multilineTextAlignment(centred ? .center : .leading)
+                    .frame(width: centred ? nil : place.captionWidth, alignment: centred ? .center : .leading)
+                    .frame(maxWidth: centred ? .infinity : nil)
+                    .padding(.horizontal, centred ? place.captionLeading : 0)
+                    .padding(.leading, centred ? 0 : place.captionLeading)
                     .padding(.bottom, place.captionBottom)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity,
+                           alignment: centred ? .bottom : .bottomLeading)
             }
 
             // systemSmall allows only one tap target (widgetURL), so no Link there.
