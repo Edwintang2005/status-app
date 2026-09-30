@@ -139,6 +139,16 @@ final class SharedStoreTests: XCTestCase {
         XCTAssertNil(store.zoneGoneSeenAt, "a new pairing starts with no stale sighting")
     }
 
+    /// The close-link card is per pairing (a new link is open again); the widget tip is per device.
+    func testHomeCardDismissalsScope() {
+        let (store, _) = makeStore()
+        store.closeLinkPromptDismissed = true
+        store.widgetTipDismissed = true
+        store.clearPairing(keepingName: true)
+        XCTAssertFalse(store.closeLinkPromptDismissed)
+        XCTAssertTrue(store.widgetTipDismissed)
+    }
+
     func testInviteURLRoundTrips() {
         let (store, _) = makeStore()
         let url = URL(string: "https://www.icloud.com/share/abc#RedString")!

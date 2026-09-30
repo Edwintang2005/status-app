@@ -114,7 +114,7 @@ struct MomentLibraryView: View {
             }
             .overlay(alignment: .bottomLeading) {
                 if moment.fromMe {
-                    // Un-uploaded sends wear a clock (cleared by retryPendingUploads);
+                    // Un-uploaded sends wear a clock (cleared by `Outbox.retryPendingUploads`);
                     // seen-by-partner (read receipts on, both sides) wears an eye.
                     Image(systemName: sentBadgeSymbol(moment))
                         .font(.system(size: 9, weight: .bold))

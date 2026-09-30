@@ -210,7 +210,7 @@ struct AnniversaryView: View {
             }
         }
         .font(Theme.rounded(14, .semibold))
-        .foregroundStyle(Theme.accent)
+        .foregroundStyle(Theme.accentText)
         .padding(.horizontal, 14)
         .padding(.vertical, 7)
         .background(Theme.accent.opacity(0.12), in: Capsule())

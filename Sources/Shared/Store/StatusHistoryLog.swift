@@ -52,12 +52,13 @@ struct StatusHistoryEntry: Codable, Hashable, Identifiable {
 /// it changes, and the per-change `StatusLog` records, which is what makes the
 /// log come back on a reinstall. Written from every process that notices a
 /// status change, hence the cross-process lock; dedup is by `(fromMe, at)`.
-final class StatusHistoryLog {
+/// `@unchecked`: the file is only touched under `lock`.
+final class StatusHistoryLog: @unchecked Sendable {
     static let shared = StatusHistoryLog()
 
     private let log = Logger(subsystem: AppConfig.appGroupID, category: "StatusHistoryLog")
     private let lock = NSLock()
-    private let crossLock = CrossProcessLock(name: "status-history.lock")
+    private let crossLock: CrossProcessLock
     private let fileURL: URL?
 
     /// `fileURL` defaults to the App Group file; tests pass a temporary one.
@@ -65,6 +66,9 @@ final class StatusHistoryLog {
         self.fileURL = fileURL ?? FileManager.default
             .containerURL(forSecurityApplicationGroupIdentifier: AppConfig.appGroupID)?
             .appendingPathComponent("status-history.json")
+        // Beside the file: the container root in production, a test's own directory in tests.
+        self.crossLock = CrossProcessLock(name: "status-history.lock",
+                                          directory: self.fileURL?.deletingLastPathComponent())
     }
 
     /// Newest first.

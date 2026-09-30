@@ -5,6 +5,47 @@ addition requires re-deploying the schema to Production (README → "Shipping it
 
 ## Shipped (September 2026)
 
+- **Arena review fixes** — from a ten-critic review. A new invite no longer
+  reuses a zone with someone on its share (known issue #1): `createPairInvite`
+  refuses with `existingPairing`, the pairing screen demotes "Create" under
+  Rejoin, and replacing deletes the old space only after a confirmation. A full
+  iCloud is named (whose storage — the owner's holds both people's sends) and
+  slows automatic retries (`SendFailure`). The owner gets a one-time "\<partner\>'s
+  in — close the link?" card into the confirmed re-seat, a warning when more
+  than one person is on the share, and the close refuses to re-seat a stranger
+  (`tooManyOnShare`). `refresh()` holds its guard for the fetch only, a
+  mid-fetch request re-runs instead of being dropped, and the status, receipt,
+  anniversary and subscription writes have a deadline. Home: the nav bar keeps the system scroll-edge treatment (the
+  title no longer draws over content), AA-safe `Theme.accentText` and a deeper
+  `warmDeep`, a Lock Screen widget tip (retired once a Lock Screen widget is installed; the
+  steps also live in Settings), and the status receipt isn't stamped under a
+  sheet. Tooling: CI (drift check, tests, Debug + Release with warnings as
+  errors), Pages deploys only on `docs/**`, strict concurrency `complete` at
+  zero warnings.
+- **Testability** — `CloudSync.apply`'s decisions moved into a pure
+  `ParsedDelta` (tested with real `CKRecord` fixtures, `isReadable` included);
+  the zone-gone rule into `ZoneGonePolicy` (a future-dated sighting now
+  restamps instead of holding off the verdict); `AppModel`'s offline-send loops
+  into `Outbox`, tested against a recording `FakeBackend`; the refresh
+  coalescing into `RefreshGate`; `GroupFileStore` and `CrossProcessLock` take a
+  directory and are tested for real, contention included. `AppModel` takes an
+  injectable backend.
+- **Notification-extension media** — downloads moved out of `apply` to after
+  the token persist (`prefetchMedia` executing a pure `MediaPrefetchPlan`). The
+  NSE does no bulk prefetch: only the widget's picture (one thumbnail) and its
+  banner's attachment, never a full photo, each bounded. The widget takes the
+  partner's three newest photos and doodles, so newer memos can't crowd out the
+  picture it draws; the app plans over the index's newest ten (a push's moments
+  are usually filed by the NSE first), on its own task so nothing waits on it.
+- **Change review fixes** — ten reviewers, two per change group. The new-invite
+  refusal fails closed and also covers a leftover zone that only holds records;
+  owner share calls check the iCloud account; Rejoin is not offered into a share
+  with a blocked person on it (an unreadable share only when nobody is blocked); member counts skip leavers; the close handshake
+  refuses a second tap, and Home's prompt waits for the server's word on the
+  link; recovery passes coalesce; launch re-sends a receipt retraction; the
+  widget tip counts Lock Screen widgets only; text colours are AA-safe in dark
+  mode too; CI pins Xcode 26, gates test-target warnings and checks untracked
+  project files.
 - **Audit fixes (round six)** — from a full-codebase audit. Invite link:
   Settings' close now re-seats a joined partner behind a confirmation (the
   handshake was Diagnostics-only), a failed close retries its reopen and says
@@ -298,15 +339,102 @@ roughly in order of value:
 Checked September 2026: strokes already reach the partner pixel-aligned with
 the photo (the export is the only transform; media travels byte-for-byte).
 
+### From the September 2026 arena review (not picked yet)
+
+Verified in code by the review; ordered by value over cost within each group.
+
+**Copy that promises more than the design does (S, one pass)**
+- Terms/site say the developer removes content and "ejects" the sender
+  (`TermsView.swift:67-74`, `docs/index.html:354-357`) — no server can. Word it
+  as what happens: hidden here at once, Block ends the link, we reply in 24 h.
+- `PairingView.privacyNote` says photos are end-to-end encrypted (assets are
+  Apple-encrypted; E2E only with Advanced Data Protection). "Your own iCloud"
+  is wrong for the joiner (`WelcomeView`, Settings' version footer, `TermsView`,
+  site). "Details go to us" / "we're notified" is a `mailto:` draft to send.
+- README "complete and recoverable"/"unlimited" history vs the 500-entry index,
+  which "Save memories" also stops at. Fix the copy; separately decide on
+  lifting the cap or archiving from a zone enumeration (M).
+
+**Re-seat and zone-gone (S)**
+- The 120 s zone-gone window is justified by "ten seconds", but a re-seated
+  partner is off the share until they re-tap. Show "tap the link once more"
+  while `zoneGoneSeenAt` is set; reword `linkEnded` when `lastPairing` is kept;
+  pass `rejoining: true` in `acceptShare` for the same zone (#25); clear the
+  change tokens *before* erasing media in the wipe; let extensions only stamp
+  the sighting.
+
+**Coverage still missing (M)** — `SyncRunner`'s announce path and the NSE's
+branch table (both need a seam over `UNUserNotificationCenter`); `SharedStore`'s
+static locks still resolve the real container in tests (lock files only; inject
+a lock directory).
+
+**Left from the change review (S each)**
+- A replaced zone keeps its zone ID, so a partner rejoining it skips the media
+  wipe (`adoptPairing`'s `lastPairing.sameZone`) and re-sends unsent media from
+  the old space. Same after an owner unlink and re-invite.
+- An anniversary save or delete abandoned at its deadline can land after a
+  newer edit (a late delete removes the new date on both phones).
+- A successful status publish clears the full-iCloud back-off even if a photo
+  still can't fit.
+- CI: checksum the downloaded XcodeGen zip; the simulator picker sorts runtime
+  names as strings.
+
+**Robustness (S each)**
+- Per-record fetch failures are dropped while the token advances
+  (`CloudSync+Refresh.swift:163-165`) — fold them into the unreadable hold.
+- `GroupFileStore` reads unreadable as absent, so `mutate` could write
+  `.empty` over the snapshot after a transient read error.
+- Store I/O and `flock` waits run on the main actor from `CloudSync`; now that
+  the stores are `Sendable`, drop the `MainActor.run` hops (profile a resync).
+- Home footer reads "1 waiting to send · tap to retry" during the *first*
+  upload; one shared `isBusy` spans nine overlapping operations.
+
+**UI/UX (S each unless noted)**
+- The default-on word filter hides ordinary names ("Dick" → "Partner"): exempt
+  names or check them against slurs only.
+- Dynamic Type: the 1.35× cap also limits prose (Terms, Welcome, the partner's
+  message); mood tiles are fixed-height (M).
+- iCloud account problems only show in the 12 pt footer; a top banner instead.
+- `.secondary` 11 pt captions ("Seen …", timestamps) are ~3.3:1; `mint` on
+  cream is 2.2:1 for the "Saved" check.
+- Voice Control: "Thinking of you" is labelled "Send a nudge".
+- `willPresent` plays banner + sound for every category, `.passive` included.
+- Settings: "Report a problem" and "Save memories…" look like the destructive rows.
+- Mood picker "Set" is disabled with no hint when the emoji is empty.
+- The anniversary prompt stacks on the invite sheet before anyone has joined.
+- Partner card is fourth on Home (design call: put it first?).
+- Receiver-side "quiet nudges for a while" via the NSE's existing `quieten`.
+- Localisation readiness (M): ~100 mood labels bypass the catalog and key
+  `Mood.id` on English; ". Seen %@" fragment; "a \(noun)"; ternary plurals;
+  locale-insensitive `uppercased()`; English `alertBody` (needs new
+  subscription IDs); stale catalogs (last committed 2026-09-13).
+
+**Safety and privacy**
+- Reports carry no evidence: `report()` deletes the media before the mail, and
+  `mailto:` can't attach. In-app composer with the thumbnail snapshotted first (M).
+- An owner's unlink wipes the joiner's copies of their *own* sends; offer "save
+  what you sent" first — changes invariant 8's wipe scope, needs a decision (M).
+- Support is a personal Gmail compiled into the binary: a domain alias.
+- The privacy page loads Google Fonts; self-host them.
+- Decrypted JSON and media sit in device backups; exclude the re-downloadable
+  `Moments/` cache and say so in the policy.
+- Optional "hide when locked" (`.privacySensitive()`) for the photo widget.
+
+**Docs and tooling (S)**
+- README "Shipping it" step 5 still calls the icon the old two-ring artwork;
+  CLAUDE.md lists `LogoView` as its own file (it's in `TieTheStringView.swift`).
+- Each invariant: one-line rule + "guarded by: `TestName`" or "unguarded";
+  move the Shipped narrative to a CHANGELOG.
+- A CI step checking the `AppConfig` IDs against the four entitlements files,
+  `project.yml` and `Info.plist` (invariant 12), and a grep for
+  `.safeAreaInset(edge: .top)` in `Views/` (invariant 21).
+- `make test`/`make build` regenerate the committed project as a side effect.
+- Dead code: `PairingView.inviteReady` (unreachable, hosts an unconfirmed
+  unlink), `closeInviteIfPartnerJoined`, the receipts' `.serverRecordChanged` catch.
+
 ### Known issues on file (September 2026 audit, not yet fixed)
 
 Found by the audit and deliberately left for now; numbers are the audit's.
-- **#1 Creating an invite on an account that already has a shared space**
-  reuses it: the current partner is removed from the share and whoever joins
-  the new link gets the whole previous history. Reachable from any device on
-  the owner's account that isn't paired locally (second device, new phone,
-  "Remove from this iPhone only"). Fix: refuse and route to Rejoin, or delete
-  and recreate the zone after an explicit confirm. (M) — highest of these.
 - #5/#6 A modified partner client can delete or take over your moments on your
   phone (deletions under either role's name; index keyed by id alone), and
   record names are trusted for authorship. Needs a creator check. (M)

@@ -19,7 +19,7 @@ extension CloudSync {
             }
             // Separate save: the log wants overwrite semantics (`allKeys`), the
             // status a conflict check. A failure here still fails the publish,
-            // so `republishStatusIfNeeded` retries both — each is idempotent.
+            // so `Outbox.republishStatus` retries both — each is idempotent.
             if logged {
                 try await saveStatusLog(payload, role: pairing.role, zone: recordID.zoneID, in: database)
             }

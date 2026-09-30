@@ -8,13 +8,19 @@ final class CrossProcessLock: @unchecked Sendable {
     private let log = Logger(subsystem: AppConfig.appGroupID, category: "CrossProcessLock")
     private let url: URL?
 
-    /// `name` is the lock file's name in the group container root. Never
-    /// re-acquire the same name while already held — it self-deadlocks.
-    init(name: String) {
-        url = FileManager.default
-            .containerURL(forSecurityApplicationGroupIdentifier: AppConfig.appGroupID)?
-            .appendingPathComponent(name)
+    /// `name` is the lock file's name in `directory` — the group container root
+    /// unless a test passes its own. Never re-acquire the same name while already
+    /// held — it self-deadlocks.
+    init(name: String, directory: URL? = CrossProcessLock.groupDirectory) {
+        url = directory?.appendingPathComponent(name)
     }
+
+    static var groupDirectory: URL? {
+        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: AppConfig.appGroupID)
+    }
+
+    /// Whether `withLock` really takes a file lock (`false`: no container, body runs bare).
+    var isFileBacked: Bool { url != nil }
 
     func withLock<T>(_ body: () throws -> T) rethrows -> T {
         // No group container means no second process can see the files either;

@@ -39,6 +39,13 @@ enum SyncError: LocalizedError {
     /// A save returned without a result for the record it was asked to save.
     /// Treated as a failure: a send marked delivered on a guess is lost for good.
     case saveUnconfirmed
+    /// A new invite was asked for, but this account's zone is still there —
+    /// with someone on it, or at least with records: reusing it would evict them,
+    /// or hand the next joiner the history. Confirmed replacement deletes it.
+    case existingPairing(someoneOnIt: Bool)
+    /// More than one person joined through the link. The close handshake would
+    /// re-seat them all, so it refuses rather than lock a stranger in.
+    case tooManyOnShare(Int)
 
     var errorDescription: String? {
         switch self {
@@ -83,6 +90,10 @@ enum SyncError: LocalizedError {
             return String(localized: "Couldn't reach your shared space just now. Try again in a moment.")
         case .saveUnconfirmed:
             return String(localized: "iCloud didn't confirm the save. It will be retried.")
+        case .existingPairing:
+            return String(localized: "This iCloud account still has an earlier shared space. Rejoin it to carry on, or start a new one — which deletes the old one.")
+        case .tooManyOnShare(let count):
+            return String(localized: "\(count) people besides you are on your shared space, so closing the invite link would keep all of them in. To be sure only your partner has access, unlink in Settings — which deletes the shared space for both of you — and send them a new link.")
         }
     }
 }

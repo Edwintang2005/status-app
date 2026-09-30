@@ -63,7 +63,7 @@ struct RefreshDelta: Sendable, Equatable {
         }
 
         // The owner's own unpublished edit outranks the server copy —
-        // `republishAnniversaryIfNeeded` carries it over. A record that arrived
+        // `Outbox.republishAnniversary` carries it over. A record that arrived
         // unreadable is neither value nor removal: only a deletion clears the date.
         if snapshot.anniversaryPublished {
             if anniversaryErased {

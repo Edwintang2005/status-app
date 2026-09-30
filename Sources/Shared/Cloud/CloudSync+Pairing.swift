@@ -8,12 +8,25 @@ extension CloudSync {
     /// Owner side. Creates and shares the zone, returning the invite link.
     /// `publicPermission = .readWrite` lets the partner join from the link alone;
     /// it stays open until closed by hand (invariant 9).
-    func createPairInvite(displayName: String) async throws -> URL {
+    /// A leftover zone (a new phone, "Remove from this iPhone only") that has
+    /// someone on its share or any records in it is refused with `existingPairing`
+    /// — reusing it would evict them and hand the next joiner the whole history.
+    /// `replacingExisting`, after the user confirms, deletes that zone first.
+    func createPairInvite(displayName: String, replacingExisting: Bool = false) async throws -> URL {
         try await requireAvailableAccount()
 
         let database = container.privateCloudDatabase
         let zoneID = CKRecordZone.ID(zoneName: AppConfig.coupleZoneName,
                                      ownerName: CKCurrentUserDefaultName)
+
+        if let leftover = try await leftoverZone(zoneID, in: database) {
+            let someoneOnIt = leftover.share.map(Self.memberCount(of:)) ?? 0 > 0
+            // Confirmed, any leftover goes: a share read as empty may be a stale view.
+            if someoneOnIt || leftover.hasRecords || replacingExisting {
+                guard replacingExisting else { throw SyncError.existingPairing(someoneOnIt: someoneOnIt) }
+                try await deleteLeftoverZone(zoneID, in: database)
+            }
+        }
 
         _ = try await database.modifyRecordZones(saving: [CKRecordZone(zoneID: zoneID)],
                                                  deleting: [])
@@ -36,9 +49,79 @@ extension CloudSync {
             SharedStore.shared.pairing = info
             // A fresh invite is open until closed by hand.
             SharedStore.shared.inviteClosed = false
+            SharedStore.shared.closeLinkPromptDismissed = false
         }
         try await bootstrapAfterPairing(displayName: displayName)
         return url
+    }
+
+    /// What this account's couple zone already holds, or `nil` when there is no
+    /// zone. Fails closed: a lookup that can't answer throws, never reads as empty.
+    /// "Gone" arrives thrown (bare or per-item in `.partialFailure`) or per item.
+    func leftoverZone(_ zoneID: CKRecordZone.ID,
+                      in database: CKDatabase) async throws -> (share: CKShare?, hasRecords: Bool)? {
+        // Only the zone's own lookup (and the change fetch) may say "no zone":
+        // a share read as gone still leaves the records to be counted.
+        let zone: CKRecordZone
+        do {
+            switch try await database.recordZones(for: [zoneID])[zoneID] {
+            case .success(let found)?: zone = found
+            case .failure(let error)?: throw error
+            case nil: throw CKError(.serverResponseLost)
+            }
+        } catch let error as CKError where Self.isAlreadyGone(error) {
+            return nil
+        }
+        var share: CKShare?
+        if let shareID = zone.share?.recordID {
+            do {
+                switch try await database.records(for: [shareID])[shareID] {
+                case .success(let record)?: share = record as? CKShare
+                case .failure(let error)?: throw error
+                case nil: throw CKError(.serverResponseLost)
+                }
+            } catch let error as CKError where Self.isAlreadyGone(error) {}
+        }
+        // One batch tells empty from not (more to come is not empty); the share is a record too.
+        let changes: ZoneChanges
+        do {
+            changes = try await fetchZoneChanges(zone: zoneID, in: database, since: nil, oneBatch: true)
+        } catch let error as CKError where Self.isAlreadyGone(error) {
+            return nil
+        }
+        let hasRecords = changes.moreComing
+            || changes.records.contains { $0.recordType != CKRecord.SystemType.share }
+        return (share, hasRecords)
+    }
+
+    /// The confirmed replace. The server's view trails a deletion, so it waits
+    /// until the old share reads as gone — or `reopened` would see it and refuse.
+    func deleteLeftoverZone(_ zoneID: CKRecordZone.ID, in database: CKDatabase) async throws {
+        log.notice("Deleting the previous shared zone before a new invite, as confirmed.")
+        do {
+            let result = try await database.modifyRecordZones(saving: [], deleting: [zoneID])
+            switch result.deleteResults[zoneID] {
+            case .success?: break
+            case .failure(let error)?: throw error
+            case nil: throw SyncError.saveUnconfirmed
+            }
+        } catch let error as CKError where Self.isAlreadyGone(error) {}
+        for attempt in 1...5 {
+            if attempt > 1 { try? await Task.sleep(for: .seconds(1)) }
+            // A read error isn't "gone": only a clean nil ends the wait.
+            do {
+                if try await existingZoneShare(in: database, zoneID: zoneID) == nil { return }
+            } catch {}
+        }
+        throw SyncError.zoneUnreachable
+    }
+
+    /// People besides the owner on the share, each counted once, leavers not at
+    /// all — every "is someone else here" judgement goes through this.
+    static func memberCount(of share: CKShare) -> Int {
+        let others = share.participants.filter { $0.role != .owner && $0.acceptanceStatus != .removed }
+        let named = Set(others.compactMap { $0.userIdentity.userRecordID?.recordName })
+        return named.count + others.filter { $0.userIdentity.userRecordID == nil }.count
     }
 
     /// Gets the zone into a shared, joinable state. A reset deletes the zone and
@@ -87,31 +170,11 @@ extension CloudSync {
     }
 
     /// Reopens a share closed to link-based joining (a local-only reset leaves the
-    /// zone and its closed share behind). The previous pairing's participants are
-    /// removed first — they'd otherwise keep read/write access to the new couple's data.
-    /// Only reachable from `createPairInvite`, never while paired, so a live partner can't be swept up.
+    /// zone and its closed share behind). Only reached after `createPairInvite`'s
+    /// leftover check, so anyone on it here is a lookup that raced that check:
+    /// refused, never evicted — an eviction handed the next joiner the history.
     func reopened(_ share: CKShare, in database: CKDatabase) async throws -> CKShare {
-        var share = share
-
-        if share.participants.contains(where: { $0.role != .owner }) {
-            // Participants can only be edited while link-joining is closed, so
-            // close first. (This save also drops stale *public* joiners.)
-            if share.publicPermission != .none {
-                share.publicPermission = .none
-                let result = try await database.modifyRecords(saving: [share], deleting: [])
-                share = try Self.firstSavedRecord(from: result) as? CKShare ?? share
-            }
-            let stale = share.participants.filter { $0.role != .owner }
-            if !stale.isEmpty {
-                log.notice("Removing \(stale.count) participant(s) from a previous pairing before re-inviting.")
-                for participant in stale {
-                    share.removeParticipant(participant)
-                }
-                let result = try await database.modifyRecords(saving: [share], deleting: [])
-                share = try Self.firstSavedRecord(from: result) as? CKShare ?? share
-            }
-        }
-
+        guard Self.memberCount(of: share) == 0 else { throw SyncError.existingPairing(someoneOnIt: true) }
         guard share.publicPermission != .readWrite else { return share }
         share.publicPermission = .readWrite
         let result = try await database.modifyRecords(saving: [share], deleting: [])
@@ -124,6 +187,8 @@ extension CloudSync {
         guard let pairing = await MainActor.run(body: { SharedStore.shared.pairing }),
               pairing.role == .owner else { return .missing }
         try await requireAvailableAccount()
+        // The owner's zone ID names whoever is signed in: another account's share otherwise.
+        guard await isPairingAccount(pairing) else { throw SyncError.differentAccount }
 
         let database = container.privateCloudDatabase
         guard let share = try await existingZoneShare(in: database,
@@ -134,6 +199,19 @@ extension CloudSync {
             return .closed(share.url)
         }
         return .open(url)
+    }
+
+    /// Owner side: how many people besides the owner are on the share
+    /// (`memberCount`). More than one means someone besides the partner joined
+    /// through the link. `nil` when there's no share to look at.
+    func shareMemberCount() async throws -> Int? {
+        guard let pairing = await MainActor.run(body: { SharedStore.shared.pairing }),
+              pairing.role == .owner else { return nil }
+        try await requireAvailableAccount()
+        guard await isPairingAccount(pairing) else { throw SyncError.differentAccount }
+        guard let share = try await existingZoneShare(in: container.privateCloudDatabase,
+                                                      zoneID: zoneID(for: pairing)) else { return nil }
+        return Self.memberCount(of: share)
     }
 
     /// Owner side. Revokes link-based joining once the partner is in, so a forwarded
@@ -147,13 +225,19 @@ extension CloudSync {
     func lockPairing() async throws {
         guard let pairing = await MainActor.run(body: { SharedStore.shared.pairing }),
               pairing.role == .owner else { throw SyncError.notPaired }
+        guard await isPairingAccount(pairing) else { throw SyncError.differentAccount }
 
         let database = container.privateCloudDatabase
         let zoneID = self.zoneID(for: pairing)
         guard let share = try await existingZoneShare(in: database, zoneID: zoneID) else { return }
 
         if share.publicPermission != .none {
-            let publics = share.participants.filter { $0.role == .publicUser }
+            let publics = share.participants.filter { $0.role == .publicUser && $0.acceptanceStatus != .removed }
+            // Every public joiner would be re-seated, so with anyone beyond the
+            // one partner on the share a stranger would be locked in with them.
+            // Refused before anything is written.
+            let members = Self.memberCount(of: share)
+            guard members <= 1 else { throw SyncError.tooManyOnShare(members) }
             // Resolve invite handles before anything is written — a failure
             // here must abort while the partner is still untouched.
             let invited = try await privateParticipants(matching: publics)
@@ -264,6 +348,7 @@ extension CloudSync {
         guard let pairing = await MainActor.run(body: { SharedStore.shared.pairing }),
               pairing.role == .owner else { throw SyncError.notPaired }
         try await requireAvailableAccount()
+        guard await isPairingAccount(pairing) else { throw SyncError.differentAccount }
         try await reopenInvite(zoneID: zoneID(for: pairing), in: container.privateCloudDatabase)
     }
 
@@ -366,11 +451,12 @@ extension CloudSync {
     func closeUnusedInvite() async throws {
         guard let pairing = await MainActor.run(body: { SharedStore.shared.pairing }),
               pairing.role == .owner else { throw SyncError.notPaired }
+        guard await isPairingAccount(pairing) else { throw SyncError.differentAccount }
         let database = container.privateCloudDatabase
         guard let share = try await existingZoneShare(in: database, zoneID: zoneID(for: pairing)) else {
             return
         }
-        guard !share.participants.contains(where: { $0.role != .owner }) else {
+        guard Self.memberCount(of: share) == 0 else {
             throw SyncError.inviteInUse
         }
         if share.publicPermission != .none {
@@ -392,6 +478,7 @@ extension CloudSync {
     /// own participant list is proof, or a fresh invite gets killed unused.
     @discardableResult
     func lockIfPartnerOnShare(_ pairing: PairingInfo) async throws -> LockOutcome {
+        guard await isPairingAccount(pairing) else { throw SyncError.differentAccount }
         let database = container.privateCloudDatabase
         guard let share = try await existingZoneShare(in: database, zoneID: zoneID(for: pairing)) else {
             throw SyncError.shareUnavailable
@@ -523,10 +610,26 @@ extension CloudSync {
             return (.participant, zone.zoneID)
         }
         if let zone = try? await container.privateCloudDatabase.allRecordZones()
-            .first(where: { $0.zoneID.zoneName == AppConfig.coupleZoneName && $0.share != nil }) {
+            .first(where: { $0.zoneID.zoneName == AppConfig.coupleZoneName && $0.share != nil }),
+           await ownerShareIsRejoinable(zone.zoneID, blocked: blocked) {
             return (.owner, zone.zoneID)
         }
         return nil
+    }
+
+    /// A block whose cloud unlink failed leaves the share up, and Rejoin must not
+    /// reconnect to that person. A share that couldn't be read is offered only
+    /// with nobody blocked — else deleting an intact space would be the only way on.
+    func ownerShareIsRejoinable(_ zoneID: CKRecordZone.ID, blocked: Set<String>) async -> Bool {
+        let share: CKShare?
+        do {
+            share = try await existingZoneShare(in: container.privateCloudDatabase, zoneID: zoneID)
+        } catch {
+            return blocked.isEmpty
+        }
+        return !(share?.participants.contains {
+            $0.userIdentity.userRecordID.map { blocked.contains($0.recordName) } ?? false
+        } ?? false)
     }
 
     /// Recommits a pairing found by `discoverExistingPairing` — the account is
@@ -537,6 +640,10 @@ extension CloudSync {
         try await requireAvailableAccount()
         if role == .participant {
             try await waitForSharedZone(zoneID)
+        } else {
+            // Checked again here, not just at discovery: the tap can come much later.
+            let blocked = await MainActor.run { SharedStore.shared.blockedOwnerRecordNames }
+            guard await ownerShareIsRejoinable(zoneID, blocked: blocked) else { throw SyncError.blocked }
         }
 
         let info = PairingInfo(role: role,
@@ -635,13 +742,13 @@ extension CloudSync {
             throw SyncError.differentAccount
         }
         let now = Date()
-        let firstSeen = await MainActor.run { () -> Date? in
+        let decision = await MainActor.run { () -> ZoneGonePolicy.Decision in
             let store = SharedStore.shared
-            if let seen = store.zoneGoneSeenAt { return seen }
-            store.zoneGoneSeenAt = now
-            return nil
+            let decision = ZoneGonePolicy.decide(firstSeen: store.zoneGoneSeenAt, now: now)
+            if decision == .firstSighting { store.zoneGoneSeenAt = now }
+            return decision
         }
-        guard let firstSeen, now.timeIntervalSince(firstSeen) >= AppConfig.zoneGoneConfirmation else {
+        guard decision == .gone else {
             log.notice("Shared zone unreachable; waiting for a second look before unlinking.")
             return .zoneUnreachable
         }

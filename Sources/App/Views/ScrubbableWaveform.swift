@@ -108,6 +108,7 @@ struct HorizontalScrub: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
+    @MainActor
     final class Coordinator: NSObject {
         var parent: HorizontalScrub
         init(parent: HorizontalScrub) { self.parent = parent }

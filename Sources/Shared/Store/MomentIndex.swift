@@ -4,7 +4,9 @@ import os
 /// The full moment history, as a JSON file in the App Group. Kept out of
 /// `Snapshot` so widget renders stay small. Entries are metadata only; media
 /// files live in `MomentStore` and may not be on this device.
-final class MomentIndex {
+/// `@unchecked`: the file and `readFailed` are only written under `lock` (the
+/// getter is for tests).
+final class MomentIndex: @unchecked Sendable {
     static let shared = MomentIndex()
 
     private let log = Logger(subsystem: AppConfig.appGroupID, category: "MomentIndex")
@@ -12,7 +14,7 @@ final class MomentIndex {
     /// `crossLock` stops a concurrent cross-process load→modify→save from
     /// dropping the other side's insert for good.
     private let lock = NSLock()
-    private let crossLock = CrossProcessLock(name: "moments-index.lock")
+    private let crossLock: CrossProcessLock
     private let fileURL: URL?
     /// Runs when the file is found corrupt; the default clears the CloudKit
     /// change tokens so the next refresh rebuilds the index from the zone.
@@ -27,6 +29,9 @@ final class MomentIndex {
         self.fileURL = fileURL ?? FileManager.default
             .containerURL(forSecurityApplicationGroupIdentifier: AppConfig.appGroupID)?
             .appendingPathComponent("moments-index.json")
+        // Beside the file: the container root in production, a test's own directory in tests.
+        self.crossLock = CrossProcessLock(name: "moments-index.lock",
+                                          directory: self.fileURL?.deletingLastPathComponent())
         self.onCorrupt = onCorrupt ?? {
             for key in ["private", "shared"] { SharedStore.shared.setChangeToken(nil, for: key) }
         }

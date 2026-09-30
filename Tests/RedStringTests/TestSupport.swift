@@ -55,7 +55,8 @@ extension XCTestCase {
     func temporaryDefaults() -> UserDefaults {
         let name = "RedStringTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!
-        addTeardownBlock { defaults.removePersistentDomain(forName: name) }
+        // By name: `UserDefaults` isn't `Sendable`, and the teardown block is.
+        addTeardownBlock { UserDefaults(suiteName: name)?.removePersistentDomain(forName: name) }
         return defaults
     }
 

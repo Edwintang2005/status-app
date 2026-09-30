@@ -25,8 +25,9 @@ final class VoicePlayer {
     private static weak var active: VoicePlayer?
 
     /// Held so `deinit` can unregister them — unremoved block observers
-    /// accumulate for the life of the process.
-    @ObservationIgnored private var observers: [NSObjectProtocol] = []
+    /// accumulate for the life of the process. Unsafe only for `deinit`, which
+    /// runs after the last reference is gone.
+    @ObservationIgnored nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
 
     init() {
         // A call or unplugged AirPods stops `AVAudioPlayer` underneath us;

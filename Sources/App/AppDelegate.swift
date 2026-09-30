@@ -68,7 +68,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
 extension AppDelegate: UNUserNotificationCenterDelegate {
     /// Nudges are the whole point, so show them even with the app open.
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
@@ -85,7 +85,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
     /// so the work goes through the model (created in `RedStringApp.init`, ahead
     /// of any delegate callback) and is awaited — returning early would suspend
     /// the process mid-publish.
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {

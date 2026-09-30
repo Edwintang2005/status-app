@@ -143,7 +143,7 @@ struct MoodPickerView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Turn off the celebration")
         }
-        .foregroundStyle(Theme.warmDeep)
+        .foregroundStyle(Theme.warmText)
         .padding(.vertical, 10)
         .padding(.horizontal, 14)
         .background(Theme.warm.opacity(0.12),

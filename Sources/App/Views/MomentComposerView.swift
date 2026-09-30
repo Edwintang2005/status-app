@@ -188,7 +188,7 @@ struct MomentComposerView: View {
         }
     }
 
-    private func sourceLabel(_ text: String,
+    nonisolated private func sourceLabel(_ text: String,
                              systemImage: String,
                              active: Bool = false) -> some View {
         VStack(spacing: 5) {

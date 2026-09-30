@@ -9,7 +9,9 @@ import WidgetKit
 /// Handles CloudKit's visible pushes (which survive force-quit) in the ~30s
 /// mutable-content window: fetch, decrypt on-device, update the App Group and
 /// widget, and replace the generic wording — CloudKit can't read the encrypted fields.
-final class NotificationService: UNNotificationServiceExtension {
+/// `@unchecked`: the expiry callback and the enrich task race on delivery,
+/// which `deliveryLock` serialises; the other state is set before the task starts.
+final class NotificationService: UNNotificationServiceExtension, @unchecked Sendable {
     private let log = Logger(subsystem: AppConfig.appGroupID, category: "NotificationService")
 
     private var contentHandler: ((UNNotificationContent) -> Void)?
@@ -29,13 +31,15 @@ final class NotificationService: UNNotificationServiceExtension {
         let fallback = request.content.mutableCopy() as? UNMutableNotificationContent
         fallback?.categoryIdentifier = category
         self.fallback = fallback
-        let mutable = request.content.mutableCopy() as? UNMutableNotificationContent
+        // Handed to the task; only the category is set on it here first.
+        nonisolated(unsafe) let original = request.content
+        nonisolated(unsafe) let mutable = original.mutableCopy() as? UNMutableNotificationContent
         mutable?.categoryIdentifier = category
 
         work = Task { [weak self] in
             guard let self else { return }
-            let enriched = await self.enrich(mutable, userInfo: request.content.userInfo)
-            self.deliver(enriched ?? request.content)
+            let enriched = await self.enrich(mutable, userInfo: original.userInfo)
+            self.deliver(enriched ?? original)
         }
     }
 
@@ -270,11 +274,12 @@ final class NotificationService: UNNotificationServiceExtension {
         content.title = moment.displaySenderName(fallback: partnerName)
         content.body = moment.displayCaption ?? moment.arrivalSummary
 
-        // The media may not be on disk yet (another process's download may be
-        // in flight or failed), so fetch it here rather than settling for text.
+        // The refresh above fetched at most the widget's thumbnail; pull only
+        // what the banner attaches — the thumbnail, or a memo's recording — never
+        // the full photo, which would eat the 30 s window for nothing shown.
         var attachment = MomentAttachment.make(for: moment, suffix: "push")
         if attachment == nil {
-            try? await CloudSync.shared.fetchMedia(for: moment)
+            try? await CloudSync.shared.fetchAttachment(for: moment)
             attachment = MomentAttachment.make(for: moment, suffix: "push")
         }
         if let attachment {

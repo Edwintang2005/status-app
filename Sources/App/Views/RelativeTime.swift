@@ -39,7 +39,8 @@ extension Date {
 
 /// Truncates ("1 minute ago" until the second boundary), unlike
 /// `.relative(presentation:)`, which rounds and so disagrees with the ticks.
-private let relativeTimeFormatter: RelativeDateTimeFormatter = {
+/// Formatting is thread-safe; the type just isn't marked `Sendable`.
+nonisolated(unsafe) private let relativeTimeFormatter: RelativeDateTimeFormatter = {
     let formatter = RelativeDateTimeFormatter()
     formatter.dateTimeStyle = .named
     formatter.unitsStyle = .full

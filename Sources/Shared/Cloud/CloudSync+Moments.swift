@@ -94,7 +94,31 @@ extension CloudSync {
     func fetchThumbnail(for moment: Moment) async throws {
         guard !moment.isVoice else { return }
         let pairing = try await requirePairing()
-        let database = self.database(for: pairing)
+        try await downloadThumbnail(for: moment, pairing: pairing, in: database(for: pairing))
+    }
+
+    /// Only the file a push banner attaches (`MediaPrefetchPlan.attachment`) —
+    /// the notification service's one media fetch.
+    func fetchAttachment(for moment: Moment) async throws {
+        let pairing = try await requirePairing()
+        try await download(MediaPrefetchPlan.attachment(for: moment), for: moment,
+                           pairing: pairing, in: database(for: pairing))
+    }
+
+    func download(_ fetch: MediaPrefetchPlan.Fetch,
+                  for moment: Moment,
+                  pairing: PairingInfo,
+                  in database: CKDatabase) async throws {
+        switch fetch {
+        case .thumbnail: try await downloadThumbnail(for: moment, pairing: pairing, in: database)
+        case .full: try await downloadMedia(for: moment, pairing: pairing, in: database)
+        }
+    }
+
+    func downloadThumbnail(for moment: Moment,
+                           pairing: PairingInfo,
+                           in database: CKDatabase) async throws {
+        guard !moment.isVoice else { return }
         let role = moment.fromMe ? pairing.role : pairing.role.other
         let recordID = CKRecord.ID(recordName: role.momentRecordName(id: moment.id),
                                    zoneID: zoneID(for: pairing))
@@ -175,9 +199,9 @@ extension CloudSync {
     /// truncated file that `MomentStore.hasMedia` would take for the real one.
     static func copyAsset(_ asset: CKAsset?, to destination: URL?) throws {
         guard let source = asset?.fileURL, let destination else { return }
-        let staging = destination.appendingPathExtension("part")
+        // Unique: two processes (or an abandoned refresh) can fetch the same file at once.
+        let staging = destination.appendingPathExtension("\(UUID().uuidString).part")
         let fileManager = FileManager.default
-        try? fileManager.removeItem(at: staging)
         try fileManager.copyItem(at: source, to: staging)
         try? fileManager.removeItem(at: destination)
         try fileManager.moveItem(at: staging, to: destination)

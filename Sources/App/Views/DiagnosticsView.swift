@@ -158,7 +158,7 @@ struct DiagnosticsView: View {
                         ForEach(diagnostics.problems, id: \.self) { problem in
                             Text(problem)
                                 .font(.system(.footnote, design: .monospaced))
-                                .foregroundStyle(Theme.warmDeep)
+                                .foregroundStyle(Theme.warmText)
                         }
                     }
                 }
@@ -203,7 +203,7 @@ struct DiagnosticsView: View {
     private func secureNow() async {
         securing = true
         defer { securing = false }
-        let problem = await CloudSync.shared.secureInviteIfPartnerJoined()
+        let problem = await model.secureInviteFromDiagnostics()
         secureResult = problem
             ?? String(localized: "Done — the link is closed. If your partner shows as \u{201C}invited\u{201D} or \u{201C}pending\u{201D} above, they confirm by tapping the invite link once.")
         await reload()

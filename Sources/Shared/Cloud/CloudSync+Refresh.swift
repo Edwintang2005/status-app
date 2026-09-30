@@ -48,7 +48,8 @@ extension CloudSync {
         // Apply first, then advance the token: the other order can persist the token
         // without the records (the extension gets killed on a deadline), losing them
         // forever. Re-applying the same delta twice is tolerated everywhere here.
-        var result = await apply(changes, pairing: pairing, database: database)
+        let applied = await apply(changes, pairing: pairing)
+        var result = applied.result
         result.incomplete = changes.moreComing
 
         // A complete fetch of the whole zone is the one moment "not returned"
@@ -101,6 +102,17 @@ extension CloudSync {
                 }
                 store.setChangeToken(encoded, for: tokenKey)
             }
+        }
+
+        // Media last, after the token: the records are filed, so a kill here
+        // loses nothing, and the notification service's banner no longer waits
+        // behind a backlog of full-size photos. The app's full downloads run on
+        // their own, so announcing and the recovery pass don't wait on them.
+        if Self.prefetchProcess == .app {
+            let arrived = applied.arrived
+            Task { await self.prefetchMedia(for: arrived, pairing: pairing) }
+        } else {
+            await prefetchMedia(for: applied.arrived, pairing: pairing)
         }
 
         // Automatic promote-and-close is OFF: promoting a link-joined (public)
@@ -190,145 +202,44 @@ extension CloudSync {
         }
     }
 
-    /// Folds a batch of changed records into local state.
+    /// Files a batch of changed records into local state. The decisions are
+    /// `ParsedDelta`'s (pure, tested); this performs its writes, in this order.
+    /// `arrived` is every new moment, own and partner's, for `prefetchMedia`.
     func apply(_ changes: ZoneChanges,
-                       pairing: PairingInfo,
-                       database: CKDatabase) async -> RefreshResult {
-        let mineRole = pairing.role
-        let theirsRole = pairing.role.other
-
-        var myStatus: CKRecord?
-        var theirStatus: CKRecord?
-        var myNudge: CKRecord?
-        var theirNudge: CKRecord?
-        var theirReceipts: CKRecord?
-        var anniversaryRecord: CKRecord?
-        var requestRecord: CKRecord?
-        var moments: [Moment] = []
-        var logEntries: [StatusHistoryEntry] = []
-        var unreadable: [String] = []
-        // Parsed from plaintext fields only (captions come back empty), for the
-        // banner's wording — never filed into the index.
-        var heldMoments: [Moment] = []
-
-        for record in changes.records {
-            let name = record.recordID.recordName
-            // Every type below always carries its probe field; an empty one means
-            // the process couldn't decrypt, and the record is left for a later fetch.
-            guard Self.isReadable(record) else {
-                unreadable.append(name)
-                if record.recordType == RecordType.moment,
-                   let moment = Self.moment(from: record, mineRole: mineRole, theirsRole: theirsRole),
-                   !moment.fromMe {
-                    heldMoments.append(moment)
-                }
-                continue
-            }
-            switch record.recordType {
-            case RecordType.status:
-                if name == mineRole.statusRecordName { myStatus = record }
-                if name == theirsRole.statusRecordName { theirStatus = record }
-            case RecordType.nudge:
-                if name == mineRole.nudgeRecordName { myNudge = record }
-                if name == theirsRole.nudgeRecordName { theirNudge = record }
-            case RecordType.receipt:
-                if name == theirsRole.receiptRecordName { theirReceipts = record }
-            case RecordType.anniversary:
-                if name == Self.anniversaryRecordName { anniversaryRecord = record }
-            case RecordType.anniversaryRequest:
-                if name == Self.anniversaryRequestRecordName { requestRecord = record }
-            case RecordType.moment:
-                if let moment = Self.moment(from: record, mineRole: mineRole, theirsRole: theirsRole) {
-                    moments.append(moment)
-                }
-            case RecordType.statusLog:
-                if let entry = Self.logEntry(from: record, mineRole: mineRole, theirsRole: theirsRole) {
-                    logEntries.append(entry)
-                }
-            default:
-                break
-            }
-        }
-        if !unreadable.isEmpty {
-            log.notice("\(unreadable.count) records in this delta had unreadable encrypted fields.")
-        }
-
-        // Reported moments stay reported: the record lives on in the sender's
-        // iCloud and every full resync re-delivers it.
+               pairing: PairingInfo) async -> (result: RefreshResult, arrived: [Moment]) {
         let hidden = await MainActor.run { SharedStore.shared.hiddenMomentIDs }
-        moments.removeAll { hidden.contains($0.id) }
+        let parsed = ParsedDelta.parse(records: changes.records,
+                                       deletedIDs: changes.deletedIDs,
+                                       mineRole: pairing.role,
+                                       hidden: hidden)
+        if !parsed.unreadable.isEmpty {
+            log.notice("\(parsed.unreadable.count) records in this delta had unreadable encrypted fields.")
+        }
 
-        // Captured before the insert below, so "new" can mean "not already
-        // stored" — a full resync re-delivers the entire history, and reporting
-        // it all as new re-announced already-seen moments.
+        // Captured before the deletions and the insert below, so "new" can mean
+        // "not already stored".
         let alreadyKnown = MomentIndex.shared.knownIDs()
 
-        // The partner deleting their own status record is how a participant
-        // unlinks (they can't delete the owner's zone). Must not be ignored.
-        var partnerErased = false
-        var anniversaryErased = false
-        var requestErased = false
-        var removedMoments = false
-        var removedMyLogs: [Date] = []
-        var removedTheirLogs: [Date] = []
-        for recordID in changes.deletedIDs {
-            let name = recordID.recordName
-            if name == theirsRole.statusRecordName { partnerErased = true }
-            if name == Self.anniversaryRecordName { anniversaryErased = true }
-            if name == Self.anniversaryRequestRecordName { requestErased = true }
-            if let id = mineRole.momentID(fromRecordName: name)
-                ?? theirsRole.momentID(fromRecordName: name),
-               Self.isSafeMomentID(id) {
-                MomentIndex.shared.remove(id: id)
-                MomentStore.shared.delete(id: id)
-                removedMoments = true
-            }
-            if let date = mineRole.statusLogDate(fromRecordName: name) {
-                removedMyLogs.append(date)
-            } else if let date = theirsRole.statusLogDate(fromRecordName: name) {
-                removedTheirLogs.append(date)
-            }
+        for id in parsed.removedMomentIDs {
+            MomentIndex.shared.remove(id: id)
+            MomentStore.shared.delete(id: id)
         }
         // The cloud cap pruning the oldest entries, mirrored locally.
-        StatusHistoryLog.shared.remove(fromMe: true, at: removedMyLogs)
-        StatusHistoryLog.shared.remove(fromMe: false, at: removedTheirLogs)
-        // A delete and a recreation can share one delta; the record that exists now wins.
-        if theirStatus != nil { partnerErased = false }
-        if anniversaryRecord != nil { anniversaryErased = false }
-        if requestRecord != nil { requestErased = false }
+        StatusHistoryLog.shared.remove(fromMe: true, at: parsed.removedMyLogs)
+        StatusHistoryLog.shared.remove(fromMe: false, at: parsed.removedTheirLogs)
 
         let store = SharedStore.shared
-        let (previousStatus, previousMine, minePublished) = await MainActor.run {
+        let (previousTheirs, previousMine, minePublished) = await MainActor.run {
             (store.snapshot.theirs, store.snapshot.mine, store.snapshot.myStatusPublished)
         }
-
-        // A status record and its nudge counter arrive independently; fold
-        // each into what was already known.
-        let mine = Self.payload(from: myStatus, nudge: myNudge, existing: previousMine, fromPartner: false)
-        // Our own records moved on the server — another device on this iCloud
-        // account did it. Judged against what was held, not "arrived": a full
-        // resync re-delivers everything and changes nothing. An unpublished
-        // local edit legitimately differs from the server copy, so it doesn't count.
-        let ownRecordsChanged = (myStatus != nil && minePublished && mine?.updatedAt != previousMine?.updatedAt)
-            || (myNudge != nil && mine?.nudgeCount != previousMine?.nudgeCount)
-            || moments.contains { $0.fromMe && !alreadyKnown.contains($0.id) }
-        let theirs = partnerErased ? nil : Self.payload(from: theirStatus, nudge: theirNudge,
-                                                        existing: previousStatus)
-        // Bound to a `let` before crossing actors: capturing the mutable locals
-        // is a data race under strict concurrency.
-        let delta = RefreshDelta(
-            mine: mine,
-            theirs: theirs,
-            partnerErased: partnerErased,
-            anniversary: anniversaryRecord.flatMap(Self.anniversary(from:)),
-            anniversaryErased: anniversaryErased,
-            receiptReadable: theirReceipts != nil,
-            statusSeen: theirReceipts.flatMap(Self.statusSeen(from:)),
-            anniversaryRequestedAt: requestRecord.flatMap(Self.anniversaryRequestDate(from:)),
-            anniversaryRequestErased: requestErased,
-            unreadableRecords: unreadable.count
-        )
-        let erased = partnerErased
+        let outcome = parsed.outcome(mineRole: pairing.role,
+                                     previousMine: previousMine,
+                                     previousTheirs: previousTheirs,
+                                     minePublished: minePublished,
+                                     alreadyKnown: alreadyKnown,
+                                     hidden: hidden)
+        // Bound to `let`s before crossing actors.
+        let fold = outcome.fold
         let complete = !changes.moreComing
 
         await MainActor.run {
@@ -337,7 +248,7 @@ extension CloudSync {
                 // — or an unlink and a new pairing — can land mid-refresh, and
                 // writing this delta would file the ex's records onto the wrong snapshot.
                 guard store.pairing?.sameZone(as: pairing) == true else { return }
-                delta.fold(into: &$0)
+                fold.fold(into: &$0)
                 $0.isPaired = true
                 // Only a complete fetch counts as synced: the widget skips its own
                 // fetch after a recent sync, and one batch of a large delta isn't one.
@@ -347,31 +258,17 @@ extension CloudSync {
 
         // An unlink can land mid-refresh (the status write above checks under the
         // lock); past this point nothing from the ex's zone may be filed either.
-        guard await MainActor.run(body: { store.pairing?.sameZone(as: pairing) == true }) else { return .empty }
+        guard await MainActor.run(body: { store.pairing?.sameZone(as: pairing) == true }) else { return (.empty, []) }
 
-        // Status history rides the refresh, gated on the status *record* changing
-        // (not a nudge-only delta); the log itself dedups by (fromMe, updatedAt).
-        // A rename restamps the record without changing the status; the
-        // sender writes no `StatusLog` for it, and neither does this side.
-        if let theirs, theirStatus != nil, !erased,
-           !(previousStatus.map { $0.emoji == theirs.emoji && $0.message == theirs.message
-                                   && $0.isCelebration == theirs.isCelebration } ?? false) {
-            StatusHistoryLog.shared.record(theirs, fromMe: false)
-        }
-        if let mine, myStatus != nil, !(previousMine.map { $0.sameWords(as: mine) } ?? false) {
-            // Own statuses set on this device are logged at set time; this
-            // catches ones written by another device on the same account. Not
-            // the echo of a rename: same words, new stamp, would log twice.
-            StatusHistoryLog.shared.record(mine, fromMe: true)
-        }
-        // The durable log: one entry per `StatusLog` record. Same dedup key as
-        // the two lines above, so a status and its log record collapse into one.
-        StatusHistoryLog.shared.record(logEntries)
+        if let theirs = outcome.partnerStatusToLog { StatusHistoryLog.shared.record(theirs, fromMe: false) }
+        if let mine = outcome.myStatusToLog { StatusHistoryLog.shared.record(mine, fromMe: true) }
+        // The durable log: one entry per `StatusLog` record, same dedup key as the
+        // two lines above, so a status and its log record collapse into one.
+        StatusHistoryLog.shared.record(parsed.logEntries)
 
-        // Bound to a `let` before crossing actors: capturing the mutable array is a data race.
-        let arrived = moments.sorted { $0.sentAt < $1.sentAt }
+        let arrived = outcome.arrived
         if arrived.isEmpty {
-            if removedMoments {
+            if !parsed.removedMomentIDs.isEmpty {
                 // A deletions-only delta still invalidates snapshot fields derived from
                 // the index — otherwise the photo widget points at deleted files.
                 await MainActor.run { store.refreshDerived() }
@@ -380,27 +277,14 @@ extension CloudSync {
             }
         } else {
             await MainActor.run { store.record(arrived) }
-            await downloadRecentMedia(for: arrived, pairing: pairing, in: database)
         }
 
         // After the moments above are in the index — a receipt arriving in the
         // same delta (a full resync) must find the entries it refers to.
-        if let theirReceipts {
-            MomentIndex.shared.applyPartnerReceipts(Self.receiptMap(from: theirReceipts))
+        if let receipts = parsed.theirReceipts {
+            MomentIndex.shared.applyPartnerReceipts(Self.receiptMap(from: receipts))
         }
-
-        let newFromPartner = arrived.filter { !$0.fromMe && !alreadyKnown.contains($0.id) }
-        // Same "new" test as above: a resync re-delivering history unreadable is not news.
-        let heldKinds = heldMoments
-            .filter { !alreadyKnown.contains($0.id) && !hidden.contains($0.id) }
-            .sorted { $0.sentAt < $1.sentAt }
-            .map(\.kind)
-        return RefreshResult(partnerStatus: erased ? nil : (theirs ?? previousStatus),
-                             newPartnerMoments: newFromPartner,
-                             unreadableRecordNames: unreadable,
-                             ownRecordsChanged: ownRecordsChanged,
-                             heldPartnerMomentKinds: heldKinds,
-                             heldPartnerStatus: unreadable.contains(theirsRole.statusRecordName))
+        return (outcome.result, arrived)
     }
 
     /// Whether the process could decrypt this record. Each type is probed on a
@@ -423,21 +307,42 @@ extension CloudSync {
         }
     }
 
-    /// Only the newest few, so a first sync after reinstall doesn't pull down
-    /// hundreds of photos and recordings at once. The rest arrive on demand.
-    /// The widget takes only the thumbnails it draws, and every process stops
-    /// at a cancellation — the records are already applied, so nothing is lost.
-    func downloadRecentMedia(for moments: [Moment],
-                                     pairing: PairingInfo,
-                                     in database: CKDatabase) async {
-        let thumbnailsOnly = SharedStore.isRunningInWidgetExtension
-        let recent = moments.sorted { $0.sentAt > $1.sentAt }.prefix(thumbnailsOnly ? 3 : 10)
-        for moment in recent where !Task.isCancelled {
-            if thumbnailsOnly {
-                guard !moment.isVoice, !MomentStore.shared.hasThumbnail(for: moment.id) else { continue }
-                try? await fetchThumbnail(for: moment)
-            } else if !MomentStore.shared.hasMedia(for: moment) {
-                try? await downloadMedia(for: moment, pairing: pairing, in: database)
+    static var prefetchProcess: MediaPrefetchPlan.Process {
+        if SharedStore.isRunningInWidgetExtension { return .widget }
+        return isAppExtension ? .notificationService : .app
+    }
+
+    /// Runs this process's `MediaPrefetchPlan` after a refresh (the app's also
+    /// covers the index's newest). Stops at a cancellation, or when the pairing
+    /// changed underneath (the ex's photos must not land in the new pairing's
+    /// store) — the records are already applied and the token saved, so nothing is lost.
+    func prefetchMedia(for arrived: [Moment], pairing: PairingInfo) async {
+        let database = self.database(for: pairing)
+        let store = MomentStore.shared
+        let process = Self.prefetchProcess
+        let recent = process == .app ? Array(MomentIndex.shared.load().prefix(MediaPrefetchPlan.appLimit)) : []
+        let items = MediaPrefetchPlan.items(for: arrived, recent: recent, in: process,
+                                            hasMedia: store.hasMedia,
+                                            hasThumbnail: { store.hasThumbnail(for: $0.id) })
+        guard !items.isEmpty else { return }
+        let samePairing = { await MainActor.run { SharedStore.shared.pairing?.sameZone(as: pairing) == true } }
+        for item in items {
+            // Per item: ten photos can outlast an unlink.
+            guard !Task.isCancelled, await samePairing() else { break }
+            if process == .app {
+                try? await download(item.fetch, for: item.moment, pairing: pairing, in: database)
+            } else {
+                // Extensions are inside a budget (the banner's, the timeline's):
+                // a stalled thumbnail gives up rather than eat it.
+                let fetch = item.fetch, moment = item.moment
+                try? await withDeadline(AppConfig.widgetDeadline) {
+                    try await self.download(fetch, for: moment, pairing: pairing, in: self.database(for: pairing))
+                }
+            }
+            // Landed after an unlink's wipe: not this pairing's any more.
+            if await !samePairing() {
+                store.delete(id: item.moment.id)
+                break
             }
         }
         SharedStore.reloadWidgets()

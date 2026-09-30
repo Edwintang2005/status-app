@@ -25,21 +25,32 @@ final class GroupFileStore: GroupKeyValueStore {
     private static let migratedPrefixes = ["changeToken-"]
     private static let migrationMarker = ".migrated-from-defaults"
 
-    init(groupID: String = AppConfig.appGroupID, legacy: UserDefaults? = nil) {
+    /// Whether this process may declare a no-op migration done (see `migrateIfNeeded`).
+    private let isAppExtension: Bool
+
+    convenience init(groupID: String = AppConfig.appGroupID, legacy: UserDefaults? = nil) {
         let container = FileManager.default
             .containerURL(forSecurityApplicationGroupIdentifier: groupID)?
             .appendingPathComponent("State", isDirectory: true)
-
-        if let container {
-            try? FileManager.default.createDirectory(at: container,
-                                                     withIntermediateDirectories: true)
-        } else {
+        if container == nil {
             // App Group entitlement missing or ID misspelled; app stays usable
             // single-device.
             assertionFailure("App Group \(groupID) unavailable — check entitlements.")
         }
-        self.containerURL = container
-        self.legacy = legacy ?? UserDefaults(suiteName: groupID)
+        self.init(directory: container,
+                  legacy: legacy ?? UserDefaults(suiteName: groupID),
+                  isAppExtension: Bundle.main.bundleURL.pathExtension == "appex")
+    }
+
+    /// Tests pass a temporary `directory` and their own legacy suite.
+    init(directory: URL?, legacy: UserDefaults?, isAppExtension: Bool) {
+        if let directory {
+            try? FileManager.default.createDirectory(at: directory,
+                                                     withIntermediateDirectories: true)
+        }
+        self.containerURL = directory
+        self.legacy = legacy
+        self.isAppExtension = isAppExtension
         migrateIfNeeded()
     }
 
@@ -115,15 +126,13 @@ final class GroupFileStore: GroupKeyValueStore {
         if copied > 0 {
             log.notice("Migrated \(copied) key(s) out of UserDefaults into the group container.")
             try? Data().write(to: marker, options: .atomic)
-        } else if !Self.isAppExtension {
+        } else if !isAppExtension {
             // The main app's view of the suite is authoritative (an extension's
             // can be empty), so it alone may declare a no-op migration done —
             // otherwise fresh installs re-scan the legacy suite on every init.
             try? Data().write(to: marker, options: .atomic)
         }
     }
-
-    private static let isAppExtension = Bundle.main.bundleURL.pathExtension == "appex"
 }
 
 /// Previews/tests inject a throwaway suite instead of the real group container.

@@ -127,4 +127,16 @@ enum AppConfig {
     /// makes that safe).
     static let uploadDeadline: TimeInterval = 180
     static let refreshDeadline: TimeInterval = 120
+    /// Status, receipt, anniversary and subscription writes: small records, so
+    /// anything slower is a stall. Abandoning one is safe — the published flags
+    /// stay down and the next refresh republishes.
+    static let publishDeadline: TimeInterval = 30
+
+    /// After a send fails on a full iCloud, automatic retries wait this long;
+    /// the home footer's tap still retries at once.
+    static let storageFullRetryInterval: TimeInterval = 60 * 60
+
+    /// How often the owner's refresh pass re-counts who is on the share —
+    /// one share fetch, for the "someone else joined" warning.
+    static let shareMemberCheckInterval: TimeInterval = 60 * 60
 }

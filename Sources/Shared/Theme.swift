@@ -8,11 +8,24 @@ enum Theme {
     static let accent = Color(red: 0.78, green: 0.27, blue: 0.32)
     /// The crimson lifted for text on dark backgrounds, where the accent reads as disabled.
     static let accentBright = Color(red: 0.95, green: 0.45, blue: 0.50)
+    /// Crimson *text*, adaptive. Light: `accent` itself is 4.25:1 on cream and
+    /// under 3:1 on its own tint over the backdrop's crimson corner; this shade is
+    /// 7.7 on cream, about 6.6 on the send row's tint, 4.47 at the very corner.
+    /// Dark: `accentBright`.
+    static let accentText = adaptive(light: Color(red: 0.55, green: 0.14, blue: 0.20), dark: accentBright)
     /// Fox orange.
     static let warm = Color(red: 0.92, green: 0.53, blue: 0.25)
     /// The orange for surfaces that carry white text, or for orange text on the
-    /// cream ground — `warm` itself sits near 2.6:1 there, short of AA (4.5:1).
-    static let warmDeep = Color(red: 0.72, green: 0.35, blue: 0.10)
+    /// cream ground — `warm` itself sits near 2.3:1 there, short of AA (4.5:1).
+    /// 4.9:1 on cream, 5.5:1 under white text.
+    static let warmDeep = Color(red: 0.66, green: 0.31, blue: 0.08)
+    /// Orange *text*, adaptive: `warmDeep` on light grounds, `warm` on dark,
+    /// where the deep shade is under 4:1 on black.
+    static let warmText = adaptive(light: warmDeep, dark: warm)
+
+    private static func adaptive(light: Color, dark: Color) -> Color {
+        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(dark) : UIColor(light) })
+    }
     /// Fish steel blue.
     static let mint = Color(red: 0.44, green: 0.66, blue: 0.86)
 
@@ -131,12 +144,10 @@ struct PrimaryButtonStyle: ButtonStyle {
 }
 
 struct SecondaryButtonStyle: ButtonStyle {
-    @Environment(\.colorScheme) private var colorScheme
-
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(Theme.rounded(16, .medium))
-            .foregroundStyle(colorScheme == .dark ? Theme.accentBright : Theme.accent)
+            .foregroundStyle(Theme.accentText)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
             .background(Theme.accent.opacity(configuration.isPressed ? 0.20 : 0.12),

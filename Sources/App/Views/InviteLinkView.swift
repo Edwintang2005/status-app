@@ -19,7 +19,7 @@ struct CopyLinkButton: View {
             if prominent {
                 label
                     .font(Theme.rounded(17, .semibold))
-                    .foregroundStyle(Theme.accent)
+                    .foregroundStyle(Theme.accentText)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 15)
                     .background(Theme.accent.opacity(0.12), in: Capsule())

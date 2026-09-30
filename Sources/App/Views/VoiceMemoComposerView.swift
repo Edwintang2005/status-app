@@ -32,7 +32,7 @@ struct VoiceMemoComposerView: View {
                         if let message = recorder.errorMessage {
                             Text(message)
                                 .font(Theme.rounded(13))
-                                .foregroundStyle(Theme.warmDeep)
+                                .foregroundStyle(Theme.warmText)
                                 .multilineTextAlignment(.center)
                                 .fixedSize(horizontal: false, vertical: true)
                         }

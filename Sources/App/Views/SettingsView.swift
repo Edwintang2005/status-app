@@ -75,6 +75,16 @@ struct SettingsView: View {
                     }
                 }
 
+                // The home tip's instructions, kept here once it's dismissed.
+                Section {
+                    LabeledContent("Lock Screen widget") {
+                        Image(systemName: "lock.iphone").foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
+                    }
+                } footer: {
+                    Text("Touch and hold your Lock Screen, tap Customize, then the Lock Screen, and add \(AppConfig.appName) to the widget row: \(model.partnerName)'s status, and the heart that sends a nudge, without unlocking.")
+                }
+
                 Section {
                     Toggle("Hide strong language", isOn: $model.contentFilterEnabled)
                     if model.isPaired {
@@ -330,6 +340,7 @@ struct SettingsView: View {
                 }
                 // The way back if a close strands the partner (`inviteLeftClosed`).
                 Button("Reopen the invite link") { confirmingReopen = true }
+                    .disabled(model.isChangingInviteLink)
             } else {
                 // Absent only until `refreshInviteURL()` returns — a loading
                 // state, not an empty one.
@@ -351,6 +362,7 @@ struct SettingsView: View {
                 Button("Close the invite link", role: .destructive) {
                     Task { await model.closeInvite() }
                 }
+                .disabled(model.isChangingInviteLink)
             }
         } header: {
             Text("Invite link")
@@ -537,7 +549,7 @@ private struct InviteDialogs: ViewModifier {
                 }
                 Button("Not now", role: .cancel) {}
             } message: {
-                Text("\(model.partnerName) joined through this link, so closing it briefly takes them off your shared space and re-adds them privately. Have them ready: they tap the invite link once more to get back in. If anything fails, the link is reopened.")
+                Text("\(model.partnerName) joined through this link, so closing it briefly takes them off your shared space and re-adds them privately. Have them ready: they tap the invite link once more to get back in. If anything fails, the app tries to reopen the link and tells you how it went.")
             }
             .confirmationDialog("Reopen the invite link?",
                                 isPresented: $confirmingReopen,

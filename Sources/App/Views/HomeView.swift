@@ -16,6 +16,9 @@ struct HomeView: View {
     /// The user chose to see a filter-hidden status message this once.
     @State private var revealFilteredStatus = false
     @State private var confirmingStatusReport = false
+    /// Local, not `model.confirmingInviteReseat`: Settings hosts that one, and
+    /// two views presenting from one flag collide.
+    @State private var confirmingCloseLink = false
     /// Snapshot taken when the carousel opens — paging marks moments seen, so
     /// reading `model.carouselMoments` live would shrink the list under the user.
     @State private var carouselQueue: [Moment] = []
@@ -36,6 +39,7 @@ struct HomeView: View {
                         }
                         sendRow
                         partnerCard
+                        homeNotice
                         if let moment = model.unseenVisualMoments.first ?? model.latestVisualMoment {
                             momentCard(moment)
                         }
@@ -90,7 +94,6 @@ struct HomeView: View {
                     .accessibilityLabel("Settings")
                 }
             }
-            .toolbarBackground(.hidden, for: .navigationBar)
         }
         // Every sheet hosts the model's error alert (`presentsModelErrors`):
         // an error raised while one is up can't present from the root.
@@ -156,9 +159,17 @@ struct HomeView: View {
         // A deep link that arrived while another sheet was up stays latched;
         // present it once that sheet closes instead of silently dropping it.
         .onChange(of: anySheetShowing) { _, showing in
-            if !showing { consumePendingComposer() }
             // Root-level presentations (the anniversary prompt) wait on this.
             model.homeSheetShowing = showing
+            guard !showing else { return }
+            consumePendingComposer()
+            // A status that landed under a sheet is seen once it's uncovered —
+            // unless the queued composer just covered it again.
+            model.homeSheetShowing = anySheetShowing
+            model.markPartnerStatusSeen()
+        }
+        .onChange(of: model.rootSheetShowing) { _, showing in
+            if !showing { model.markPartnerStatusSeen() }
         }
         // Torn down with a sheet up (an unlink, a block) never fires the change
         // above; a flag left true would hold the anniversary prompt back for good.
@@ -170,6 +181,58 @@ struct HomeView: View {
         .onChange(of: model.snapshot.theirs?.updatedAt) { _, _ in model.markPartnerStatusSeen() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { model.markPartnerStatusSeen() }
+        }
+        .confirmationDialog("Close the invite link?",
+                            isPresented: $confirmingCloseLink,
+                            titleVisibility: .visible) {
+            Button("Close and re-seat \(model.partnerName)", role: .destructive) {
+                Task { await model.closeInviteReseatingPartner() }
+            }
+            Button("Not now", role: .cancel) {}
+        } message: {
+            Text("Closing it briefly takes \(model.partnerName) off your shared space and re-adds them privately. Have them ready: they tap the invite link once more to get back in. If anything fails, the app tries to reopen the link and tells you how it went.")
+        }
+        // Waits out any sheet (Settings shows its own copy): one presentation
+        // per view, so over a sheet it would be dropped.
+        .alert("Invite link", isPresented: Binding(get: { model.inviteNotice != nil && !anySheetShowing
+                                                           && !model.rootSheetShowing },
+                                                   set: { if !$0 { model.inviteNotice = nil } })) {
+            Button("OK", role: .cancel) { model.inviteNotice = nil }
+        } message: {
+            Text(model.inviteNotice ?? "")
+        }
+    }
+
+    // MARK: - Notices
+
+    /// At most one at a time, most urgent first.
+    @ViewBuilder
+    private var homeNotice: some View {
+        if let count = model.extraShareMembers {
+            HomeNoticeCard(systemImage: "person.2.badge.gearshape",
+                           title: "Someone else has joined",
+                           message: "\(count) people besides you are on your shared space, not just \(model.partnerName). Closing the invite link can't remove them. If that isn't right, unlink in Settings — it deletes the shared space for both of you — and send \(model.partnerName) a new link.",
+                           actionTitle: "Open Settings",
+                           urgent: true) {
+                showingSettings = true
+            }
+        } else if model.showsCloseLinkPrompt {
+            HomeNoticeCard(systemImage: "lock.open",
+                           title: "\(model.partnerName)'s in",
+                           message: "Your invite link still lets anyone who has it join. Close it while you're together: \(model.partnerName) taps the link once more to get back in.",
+                           actionTitle: "Close the link…",
+                           dismissTitle: "Don't show again",
+                           busy: model.isChangingInviteLink,
+                           onDismiss: { model.dismissCloseLinkPrompt() }) {
+                confirmingCloseLink = true
+            }
+        } else if model.showsWidgetTip {
+            HomeNoticeCard(systemImage: "lock.iphone",
+                           title: "Put \(model.partnerName) on your Lock Screen",
+                           message: "Touch and hold your Lock Screen, tap Customize, then the Lock Screen, and add \(AppConfig.appName) to the widget row: their status, and the heart that sends a nudge, without unlocking.",
+                           actionTitle: "Got it") {
+                model.dismissWidgetTip()
+            }
         }
     }
 
@@ -479,6 +542,19 @@ struct HomeView: View {
         return summary
     }
 
+    /// Says whose storage is full when that's why sends are stuck — only the owner can fix it.
+    private var pendingLabel: String {
+        let count = model.pendingUploadCount
+        guard model.storageFullAt != nil else {
+            return count == 1
+                ? String(localized: "1 waiting to send · tap to retry")
+                : String(localized: "\(count) waiting to send · tap to retry")
+        }
+        return model.role == .participant
+            ? String(localized: "\(model.partnerName)'s iCloud is full · \(count) waiting · tap to retry")
+            : String(localized: "Your iCloud is full · \(count) waiting · tap to retry")
+    }
+
     private var syncFooter: some View {
         HStack(spacing: 6) {
             if model.isRefreshing {
@@ -499,10 +575,8 @@ struct HomeView: View {
                     Task { await model.retryPendingNow() }
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "icloud.and.arrow.up")
-                        Text(model.pendingUploadCount == 1
-                             ? "1 waiting to send · tap to retry"
-                             : "\(model.pendingUploadCount) waiting to send · tap to retry")
+                        Image(systemName: model.storageFullAt == nil ? "icloud.and.arrow.up" : "exclamationmark.icloud")
+                        Text(pendingLabel)
                     }
                 }
                 .buttonStyle(.plain)
@@ -522,6 +596,62 @@ struct HomeView: View {
         // button is showing — combining would swallow its action.
         .accessibilityElement(children: model.pendingUploadCount > 0 && !model.isRetryingUploads
                               ? .contain : .combine)
+    }
+}
+
+/// One of Home's one-at-a-time notices (see `HomeView.homeNotice`).
+private struct HomeNoticeCard: View {
+    let systemImage: String
+    let title: LocalizedStringKey
+    let message: LocalizedStringKey
+    let actionTitle: LocalizedStringKey
+    var dismissTitle: LocalizedStringKey?
+    /// Orange for a warning, crimson otherwise — each in its AA-safe shade.
+    var urgent = false
+    /// The action is running (the close handshake takes seconds): not tappable again.
+    var busy = false
+    var onDismiss: () -> Void = {}
+    let action: () -> Void
+
+    private var tint: Color { urgent ? Theme.warmText : Theme.accentText }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(title, systemImage: systemImage)
+                .font(Theme.rounded(16, .semibold))
+                .foregroundStyle(tint)
+                .accessibilityAddTraits(.isHeader)
+            Text(message)
+                .font(Theme.rounded(14))
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 20) {
+                Button(action: action) {
+                    HStack(spacing: 6) {
+                        Text(actionTitle)
+                        if busy { ProgressView().controlSize(.small) }
+                    }
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .font(Theme.rounded(15, .semibold))
+                .foregroundStyle(tint)
+                .disabled(busy)
+                if let dismissTitle {
+                    Button(action: onDismiss) {
+                        Text(dismissTitle)
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .font(Theme.rounded(15))
+                    .foregroundStyle(.primary.opacity(0.7))
+                    .disabled(busy)
+                }
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card(padding: 16)
+        .accessibilityElement(children: .contain)
     }
 }
 

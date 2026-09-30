@@ -6,6 +6,8 @@ struct PairingView: View {
     @Environment(AppModel.self) private var model
     @State private var name: String = ""
     @FocusState private var nameFocused: Bool
+    /// Which button's work `isBusy` is, so the spinner shows on the one tapped.
+    @State private var startingNewSpace = false
 
     var body: some View {
         ScrollView {
@@ -35,6 +37,35 @@ struct PairingView: View {
             if !focused { commitName() }
         }
         .onDisappear { commitName() }
+        .confirmationDialog("Delete your old shared space?",
+                            isPresented: Binding(get: { model.confirmingReplacePairing },
+                                                 set: { model.confirmingReplacePairing = $0 }),
+                            titleVisibility: .visible) {
+            Button("Delete it and start a new one", role: .destructive) {
+                startNewSpace(replacingExisting: true)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(replaceMessage)
+        }
+    }
+
+    /// Says who the deletion reaches, and offers Rejoin only when it's on screen.
+    private var replaceMessage: String {
+        let what = model.replacingSpaceHasPartner
+            ? String(localized: "This iCloud account still has a shared space with someone in it. A new link can't reuse it without handing its whole history to whoever joins, so starting over deletes it for both of you — every status, photo and memo — and unlinks them.")
+            : String(localized: "This iCloud account still has an earlier shared space. A new link can't reuse it without handing what's in it to whoever joins, so starting over deletes it — every status, photo and memo in it.")
+        return model.rejoinablePairing == nil ? what : what + " " + String(localized: "To keep it, tap Rejoin instead.")
+    }
+
+    private func startNewSpace(replacingExisting: Bool = false) {
+        nameFocused = false
+        commitName()  // The invite carries the name; don't race the focus change.
+        startingNewSpace = true
+        Task {
+            await model.createInvite(replacingExisting: replacingExisting)
+            startingNewSpace = false
+        }
     }
 
     private var trimmedName: String {
@@ -91,12 +122,22 @@ struct PairingView: View {
 
             if let url = model.inviteURL {
                 inviteReady(url: url)
+            } else if model.rejoinablePairing != nil {
+                // Not a second primary button beside Rejoin: on a new phone this
+                // is the one that would replace the space (it asks first).
+                Button { startNewSpace() } label: {
+                    HStack(spacing: 6) {
+                        Text("Start a new shared space instead…")
+                        if model.isBusy && startingNewSpace { ProgressView().controlSize(.small) }
+                    }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .font(Theme.rounded(15, .medium))
+                .foregroundStyle(.primary.opacity(0.7))
+                .disabled(trimmedName.isEmpty || model.isBusy)
             } else {
-                Button {
-                    nameFocused = false
-                    commitName()  // The invite carries the name; don't race the focus change.
-                    Task { await model.createInvite() }
-                } label: {
+                Button { startNewSpace() } label: {
                     if model.isBusy {
                         ProgressView().tint(.white)
                     } else {
@@ -132,7 +173,7 @@ struct PairingView: View {
                 commitName()
                 Task { await model.rejoin(name: trimmedName) }
             } label: {
-                if model.isBusy {
+                if model.isBusy && !startingNewSpace {
                     ProgressView().tint(.white)
                 } else {
                     Text("Rejoin")
@@ -183,7 +224,7 @@ struct PairingView: View {
         } icon: {
             Image(systemName: "exclamationmark.icloud")
         }
-        .foregroundStyle(Theme.warmDeep)
+        .foregroundStyle(Theme.warmText)
         .card(padding: 16)
     }
 

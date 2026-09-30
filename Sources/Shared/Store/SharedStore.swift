@@ -7,7 +7,9 @@ import WidgetKit
 
 /// App Group state shared between the app, widget and notification processes.
 /// File-backed, not `UserDefaults` — see `GroupFileStore` for why.
-final class SharedStore {
+/// `@unchecked`: all state is the key-value store (internally locked) and the
+/// cross-process locks, so any thread or actor may call in.
+final class SharedStore: @unchecked Sendable {
     static let shared = SharedStore()
 
     private let store: GroupKeyValueStore
@@ -28,6 +30,8 @@ final class SharedStore {
         static let unreadable = "unreadableRecords"
         static let zoneGone = "zoneGoneSeenAt"
         static let lastPairing = "lastPairing"
+        static let closeLinkPromptDismissed = "closeLinkPromptDismissed"
+        static let widgetTipDismissed = "widgetTipDismissed"
     }
 
     init(store: GroupKeyValueStore = GroupFileStore()) {
@@ -184,6 +188,20 @@ final class SharedStore {
         }
     }
 
+    /// Owner side: the home card asking to close the invite link once the
+    /// partner is in was waved away. Per pairing — `clearPairing` resets it.
+    var closeLinkPromptDismissed: Bool {
+        get { store.bool(forKey: Key.closeLinkPromptDismissed) }
+        set { store.setBool(newValue, forKey: Key.closeLinkPromptDismissed) }
+    }
+
+    /// The home card on adding the lock-screen widget was dismissed, or a
+    /// widget was seen installed. Per device, and kept across unlinks.
+    var widgetTipDismissed: Bool {
+        get { store.bool(forKey: Key.widgetTipDismissed) }
+        set { store.setBool(newValue, forKey: Key.widgetTipDismissed) }
+    }
+
     /// Forgets the pairing, both statuses and the sync cursors. `keepingName`
     /// preserves the display name (unlink) vs. fresh-install reset (start over).
     func clearPairing(keepingName: Bool) {
@@ -200,6 +218,7 @@ final class SharedStore {
             // The next pairing gets a new share with a new link, which starts open.
             inviteClosed = false
             inviteURL = nil
+            closeLinkPromptDismissed = false
             hiddenPartnerStatusAt = nil
             anniversaryPromptPending = false
             zoneGoneSeenAt = nil
@@ -417,8 +436,12 @@ final class SharedStore {
 
     /// Kept current by the app from the protected-data notifications; a locked
     /// phone's background refresh must not count toward giving up. Extensions
-    /// never give up regardless.
-    nonisolated(unsafe) static var protectedDataAvailable = true
+    /// never give up regardless. Written on main, read from the sync actor.
+    static var protectedDataAvailable: Bool {
+        get { protectedData.withLock { $0 } }
+        set { protectedData.withLock { $0 = newValue } }
+    }
+    private static let protectedData = OSAllocatedUnfairLock(initialState: true)
 
     /// Which of the three processes this is, for the tally above.
     static let processLabel: String = {

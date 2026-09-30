@@ -22,6 +22,8 @@ struct StatusProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<StatusEntry>) -> Void) {
+        // WidgetKit calls it once, from whichever thread; it just isn't marked `Sendable`.
+        nonisolated(unsafe) let completion = completion
         Task {
             let result = await Self.refreshIfPossible()
             let snapshot = SharedStore.shared.snapshot

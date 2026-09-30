@@ -239,12 +239,12 @@ Everything is written locally first, so nothing is ever lost — the question is
 only when the partner gets it. Each send type recovers its own way:
 
 - **Statuses** are marked unpublished (`Snapshot.myStatusPublished`) until the
-  publish lands, and republished by `republishStatusIfNeeded()` on the next
+  publish lands, and republished by `Outbox.republishStatus()` on the next
   successful refresh. A resync can hand back the *older* server copy of your
   own status; `apply` keeps whichever has the newer `updatedAt`, so an offline
   status can't be silently reverted.
 - **Moments** carry a local-only `uploaded` flag and are re-sent by
-  `retryPendingUploads()` — the grid badges them with a clock, and the sync
+  `Outbox.retryPendingUploads(automatic:)` — the grid badges them with a clock, and the sync
   footer counts them ("1 waiting to send · tap to retry") until they're out;
   tapping the footer runs the same retry at once instead of waiting for the
   next refresh. Pending media is exempt from the cache prune, and a pending
@@ -339,8 +339,9 @@ standing ask. Offline edits and asks recover like statuses do
 ### Read receipts
 
 On by default, one switch per side in Settings, and the switch gates both
-directions: a device only *publishes* receipts while its own toggle is on, and
-only *shows* the partner's while it's on.
+directions: a device only *publishes* receipts while its own toggle is on (off,
+each launch re-sends an empty one, so a retraction a late write overtook heals),
+and only *shows* the partner's while it's on.
 
 Each side owns one `Receipt` record (`receipt-owner` / `receipt-participant`)
 carrying an encrypted JSON map of `{momentID: seenAt}` for the last
@@ -408,7 +409,12 @@ token rather than fetching known record names. Three things fall out of that:
 0.85 in the photo's own frame, plus a 512px square thumbnail), and it
 accumulates. A thousand moments is around
 750 MB against your iCloud quota — real, but inside the free 5 GB, and it only
-grows as fast as you actually send things.
+grows as fast as you actually send things. **All of it counts against whoever
+created the link**: the shared zone lives in their private database, so the
+partner's sends use the owner's storage too. When it fills, every send fails
+with `quotaExceeded`; the app says whose storage is full (`SendFailure`), keeps
+the sends queued, and retries automatically only hourly
+(`AppConfig.storageFullRetryInterval`) — the footer's tap retries at once.
 
 **On the phone:** bounded, and much smaller. The device keeps
 metadata for the last `AppConfig.momentHistoryLimit` (500) entries — a few
@@ -428,7 +434,11 @@ every render and has no business parsing hundreds of history entries.
 
 Change fetches use `desiredKeys` to exclude the `CKAsset` fields (`image`, `thumb`, `audio`), so a
 sync — including the big first one after a reinstall — moves only metadata.
-Images for the ten newest arrivals are pulled straight after; everything older
+Media is pulled only once the delta is filed and its change token saved
+(`MediaPrefetchPlan`): the app takes full media for the ten newest moments, the
+widget the thumbnails of the partner's three newest photos and doodles, and the
+notification service only the newest of those thumbnails and its banner's one
+file. Everything older
 waits until you look at it.
 
 Images travel as `CKAsset`s, which **CloudKit encrypts by default** — they must
@@ -586,6 +596,8 @@ Sources/
     Store/MomentIndex.swift      the durable history list, kept out of the
                                  snapshot
     Store/StatusHistoryLog.swift local rolling status log (see "Status history")
+    Store/Outbox.swift           the offline-send retry loops (republish, pending
+                                 uploads, receipts) and their flag rules
     Cloud/SyncBackend.swift      the sync surface the UI depends on, plus the
                                  DEBUG-only demo backend
     Cloud/CloudSync.swift        the CloudKit actor's core; one extension file
@@ -593,6 +605,11 @@ Sources/
                                  Moments, Receipts, Anniversary, Subscriptions,
                                  Unpairing
     Cloud/RefreshDelta.swift     the pure fold of a delta into the snapshot
+    Cloud/ParsedDelta.swift      how a fetched delta is sorted and judged
+    Cloud/MediaPrefetchPlan.swift  what each process downloads after a refresh
+    Cloud/ZoneGonePolicy.swift, RefreshGate.swift, SendFailure.swift
+                                 small pure rules: the zone-gone verdict, one
+                                 fetch at a time, a full iCloud vs a blip
     Cloud/CloudDiagnostics.swift the report behind Settings → Diagnostics
                                  (tap Version seven times in Release)
     Notifications.swift          banner category/action IDs, Notification.Names
