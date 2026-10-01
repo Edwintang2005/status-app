@@ -93,8 +93,9 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
             return content
         }
 
-        let (partnerName, reportedAt) = await MainActor.run {
-            (SharedStore.shared.snapshot.moderatedPartnerName, SharedStore.shared.hiddenPartnerStatusAt)
+        let (partnerName, reportedAt, freshStarted) = await MainActor.run {
+            (SharedStore.shared.snapshot.moderatedPartnerName, SharedStore.shared.hiddenPartnerStatusAt,
+             SharedStore.shared.snapshot.freshStart.clearedBefore != nil)
         }
 
         // Dispatch by subscriptionID, never by the sync delta: whichever
@@ -126,6 +127,13 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
                 await apply(moment, to: content, partnerName: partnerName)
             } else if let body = AnnouncementPolicy.heldMomentBody(kinds: result.heldPartnerMomentKinds) {
                 applyHeld(body, category: NotificationCategory.moment, to: content, partnerName: partnerName)
+            } else if freshStarted, result.removedMoments > 0, !couldNotRead {
+                // A fresh start's deletions fire the moment subscription; the push
+                // can't be dropped, so it says what happened, quietly.
+                content.title = AppConfig.appName
+                content.body = String(localized: "Moments were cleared for your fresh start.")
+                content.threadIdentifier = "fresh-start"
+                quieten(content)
             } else {
                 applyUnclaimed(to: content, ownWrite: result.ownRecordsChanged, couldNotRead: couldNotRead,
                                ownBody: String(localized: "You sent something from another device."))

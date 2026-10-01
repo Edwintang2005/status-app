@@ -23,6 +23,8 @@ struct SettingsView: View {
     @State private var localOnlyReason: String?
     /// Outcome of a successful archive, for the alert saying where it went.
     @State private var archiveSummary: ArchiveSummary?
+    /// An incomplete archive's summary, held behind its share sheet.
+    @State private var summaryAfterShare: ArchiveSummary?
     /// An unlink/wipe waiting behind a device-only archive's share sheet;
     /// re-offered once that sheet closes instead of being silently dropped.
     @State private var pendingEndingAfterShare: Ending?
@@ -120,7 +122,19 @@ struct SettingsView: View {
                     inviteSection
                 }
 
-                if !model.history.isEmpty {
+                if model.isPaired {
+                    Section {
+                        NavigationLink {
+                            FreshStartView()
+                        } label: {
+                            LabeledContent("Fresh start", value: freshStartSummary)
+                        }
+                    } footer: {
+                        Text("Clears the history you share — moments, status history and read receipts — from both iPhones, and keeps the link, your statuses and the heart. \(model.partnerName) has to agree.")
+                    }
+                }
+
+                if model.hasMemoriesToArchive {
                     Section {
                         Button {
                             Task { await saveMemories(then: nil) }
@@ -226,7 +240,7 @@ struct SettingsView: View {
             .confirmationDialog(unlinkTitle,
                                 isPresented: $confirmingUnlink,
                                 titleVisibility: .visible) {
-                if !model.history.isEmpty {
+                if model.hasMemoriesToArchive {
                     Button("Save memories, then unlink") {
                         Task { await saveMemories(then: .unlink) }
                     }
@@ -254,7 +268,7 @@ struct SettingsView: View {
             .confirmationDialog("Delete everything and start over?",
                                 isPresented: $confirmingWipe,
                                 titleVisibility: .visible) {
-                if !model.history.isEmpty {
+                if model.hasMemoriesToArchive {
                     Button("Save memories, then delete") {
                         Task { await saveMemories(then: .wipe) }
                     }
@@ -287,6 +301,10 @@ struct SettingsView: View {
                                         set: { if !$0 { model.archiveToShare = nil } }),
                    onDismiss: {
                        model.archiveToShare = nil
+                       if let summary = summaryAfterShare {
+                           summaryAfterShare = nil
+                           archiveSummary = summary
+                       }
                        if let pending = pendingEndingAfterShare {
                            pendingEndingAfterShare = nil
                            confirmingEndingAfterShare = pending
@@ -428,13 +446,24 @@ struct SettingsView: View {
         }
     }
 
+    private var freshStartSummary: String {
+        switch model.freshStartPhase {
+        case .idle: return ""
+        case .asked: return String(localized: "Asked")
+        case .theyAsked: return String(localized: "\(model.partnerName) asked")
+        case .agreed: return String(localized: "Agreed")
+        case .starting, .clearing: return String(localized: "Clearing")
+        case .waitingForPartner: return String(localized: "Your side is done")
+        }
+    }
+
     private struct ArchiveSummary: Identifiable {
         let id = UUID()
         let text: String
     }
 
     private var archiveFooter: String {
-        String(localized: "Copies every photo, drawing and voice memo — with the date, the caption and who sent it — into iCloud Drive › \(AppConfig.appName), as ordinary files that open in anything. Nothing is deleted, and the archive stays after you unlink.")
+        String(localized: "Copies every photo, drawing and voice memo — with the date, the caption and who sent it — and your status history into iCloud Drive › \(AppConfig.appName), as ordinary files that open in anything. Nothing is deleted, and the archive stays after you unlink.")
     }
 
     /// A blank name never commits ("" means "no name" and would swap the screen
@@ -447,11 +476,25 @@ struct SettingsView: View {
         model.myDisplayName = trimmed
     }
 
-    /// Archives first, and deletes only if the archive reached iCloud Drive.
-    /// A device-only archive shows the share sheet, holding the ending until
-    /// that sheet closes — see `pendingEndingAfterShare`.
+    /// Archives first, and deletes only if the archive is complete and reached
+    /// iCloud Drive. A device-only archive shows the share sheet, holding the
+    /// ending until that sheet closes — see `pendingEndingAfterShare`.
     private func saveMemories(then ending: Ending?) async {
         guard let outcome = await model.archiveMemories() else { return }
+
+        // Part of the history would be deleted with no copy kept: stop, say so,
+        // and leave the ending for the user to choose again.
+        if ending != nil, !outcome.isComplete {
+            let summary = ArchiveSummary(text: successText(outcome) + " "
+                + String(localized: "Nothing was unlinked, because the archive isn't complete."))
+            // A device-only archive's share sheet is already up; one presentation at a time.
+            if outcome.destination == .deviceOnly {
+                summaryAfterShare = summary
+            } else {
+                archiveSummary = summary
+            }
+            return
+        }
 
         switch outcome.destination {
         case .iCloudDrive:
@@ -467,11 +510,22 @@ struct SettingsView: View {
     }
 
     private func successText(_ outcome: MemoryArchive.Outcome) -> String {
-        var text = outcome.momentCount == 1
-            ? String(localized: "1 moment saved to iCloud Drive › \(AppConfig.appName) › \(outcome.folder.lastPathComponent).")
-            : String(localized: "\(outcome.momentCount) moments saved to iCloud Drive › \(AppConfig.appName) › \(outcome.folder.lastPathComponent).")
+        let moments = outcome.momentCount == 1
+            ? String(localized: "1 moment")
+            : String(localized: "\(outcome.momentCount) moments")
+        let statuses = outcome.statusCount == 1
+            ? String(localized: "1 status")
+            : String(localized: "\(outcome.statusCount) statuses")
+        var text = outcome.destination == .iCloudDrive
+            ? String(localized: "\(moments) and \(statuses) saved to iCloud Drive › \(AppConfig.appName) › \(outcome.folder.lastPathComponent).")
+            : String(localized: "\(moments) and \(statuses) saved on this iPhone only.")
         if outcome.unrecovered > 0 {
             text += " " + String(localized: "\(outcome.unrecovered) couldn't be fetched back from iCloud and are listed in Memories.txt without a file.")
+        }
+        if !outcome.includesZone {
+            text += " " + String(localized: "iCloud couldn't be reached, so it holds only what was on this iPhone.")
+        } else if outcome.unreadable > 0 {
+            text += " " + String(localized: "\(outcome.unreadable) items in iCloud couldn't be read on this iPhone and were left out.")
         }
         return text
     }

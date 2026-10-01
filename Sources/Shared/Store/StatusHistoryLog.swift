@@ -90,7 +90,8 @@ final class StatusHistoryLog: @unchecked Sendable {
 
     /// Batch form, one lock for a whole delta (a resync delivers the entire
     /// cloud log at once). Same dedup; existing entries win.
-    func record(_ entries: [StatusHistoryEntry]) {
+    /// `cleared` is built inside the lock, like `MomentIndex.insertReadable`'s.
+    func record(_ entries: [StatusHistoryEntry], cleared: (() -> (StatusHistoryEntry) -> Bool)? = nil) {
         guard !entries.isEmpty else { return }
         lock.lock()
         defer { lock.unlock() }
@@ -99,7 +100,8 @@ final class StatusHistoryLog: @unchecked Sendable {
             var all = loadUnlocked()
             var known = Set(all.map(\.id))
             var changed = false
-            for entry in entries where known.insert(entry.id).inserted {
+            let isCleared = cleared?() ?? { _ in false }
+            for entry in entries where !isCleared(entry) && known.insert(entry.id).inserted {
                 all.append(entry)
                 changed = true
             }

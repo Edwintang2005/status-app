@@ -271,11 +271,11 @@ final class SharedStore: @unchecked Sendable {
 
     /// Files moments in the history index, refreshes derived snapshot fields,
     /// and trims cached media.
-    func record(_ moments: [Moment]) {
+    func record(_ moments: [Moment], cleared: (() -> (Moment) -> Bool)? = nil) {
         guard !moments.isEmpty else { return }
         // `nil` for an unreadable index: pruning against just this delta would
         // delete the media of everything else.
-        guard let all = MomentIndex.shared.insertReadable(moments) else { return }
+        guard let all = MomentIndex.shared.insertReadable(moments, cleared: cleared) else { return }
         refreshDerived(reloadWidgets: false)
 
         // Index keeps every entry; only recent files stay on disk — older

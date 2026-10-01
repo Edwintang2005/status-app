@@ -131,6 +131,10 @@ enum AppConfig {
     /// anything slower is a stall. Abandoning one is safe — the published flags
     /// stay down and the next refresh republishes.
     static let publishDeadline: TimeInterval = 30
+    /// A fresh start's clear: a whole-zone fetch plus batched deletions. An
+    /// abandoned pass is safe — it re-runs from the top — and the local clear
+    /// only follows a pass that finished.
+    static let freshStartDeadline: TimeInterval = 300
 
     /// After a send fails on a full iCloud, automatic retries wait this long;
     /// the home footer's tap still retries at once.

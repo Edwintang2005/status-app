@@ -103,8 +103,10 @@ final class AppModel {
         self.backendProvider = backendProvider
         self.outbox = Outbox(store: store,
                              index: .shared,
+                             statusLog: .shared,
                              backend: backendProvider,
                              hasMedia: { MomentStore.shared.hasMedia(for: $0) },
+                             deleteMedia: { MomentStore.shared.delete(id: $0) },
                              protect: { name, body in try await AppModel.withUploadProtection(name, body) },
                              indexChanged: { store.refreshDerived() })
         self.snapshot = store.snapshot
@@ -561,6 +563,8 @@ final class AppModel {
             if await outbox.republishStatus() { reload() }
             if await outbox.republishAnniversary() { reload() }
             if await outbox.republishAnniversaryRequest() { reload() }
+            // Before the upload retry: the clear and a retry never overlap.
+            if await outbox.advanceFreshStart() { reload() }
             // Re-read at once: the footer and the tiles' clocks read `history`.
             if await outbox.retryPendingUploads(automatic: true) { reload() }
             await outbox.flushReceipts()
@@ -1233,22 +1237,42 @@ final class AppModel {
     /// The last archive that only reached this device — must be offered for sharing before any delete.
     var archiveToShare: URL?
 
-    var canArchiveMemories: Bool { !history.isEmpty && archiveProgress == nil }
+    /// Paired, the zone may hold more than this phone's capped index, statuses included.
+    var hasMemoriesToArchive: Bool { isPaired || !history.isEmpty }
+    var canArchiveMemories: Bool { hasMemoriesToArchive && archiveProgress == nil }
 
-    /// Writes the history out as plain files in iCloud Drive. Most media is fetched
-    /// back from CloudKit (hence progress), and it must finish *before* anything is deleted.
+    /// Writes the whole zone's history, merged with this phone's, out as plain
+    /// files in iCloud Drive. Most media is fetched back from CloudKit (hence
+    /// progress), and it must finish *before* anything is deleted. An unreachable
+    /// zone still archives this phone's copy; `Outcome.isComplete` says which.
+    /// `offeringShare: false` leaves a device-only archive for the caller to
+    /// offer: Settings presents `archiveToShare`, and a view pushed over it can't.
     @discardableResult
-    func archiveMemories() async -> MemoryArchive.Outcome? {
-        guard !history.isEmpty else { return nil }
+    func archiveMemories(offeringShare: Bool = true) async -> MemoryArchive.Outcome? {
         archiveProgress = 0
         defer { archiveProgress = nil }
 
+        let backend = self.backend
+        var zone: ArchiveContents.Zone?
         do {
-            let outcome = try await MemoryArchive.write(history,
-                                                        partnerName: partnerName) { fraction in
+            zone = try await withDeadline(AppConfig.refreshDeadline) { try await backend.archiveZone() }
+        } catch {
+            log.error("Archive couldn't read the zone: \(error.localizedDescription); archiving this iPhone's copy.")
+        }
+        let contents = ArchiveContents.merged(zone: zone,
+                                              localMoments: history,
+                                              localStatuses: StatusHistoryLog.shared.load(),
+                                              anniversary: snapshot.anniversary,
+                                              hidden: store.hiddenMomentIDs)
+
+        do {
+            let outcome = try await MemoryArchive.write(contents,
+                                                        myName: myDisplayName,
+                                                        partnerName: partnerName,
+                                                        reportedStatusAt: hiddenPartnerStatusAt) { fraction in
                 Task { @MainActor in self.archiveProgress = fraction }
             }
-            if outcome.destination == .deviceOnly {
+            if outcome.destination == .deviceOnly, offeringShare {
                 // Nothing is safe yet: the folder only exists here until the user saves it somewhere.
                 archiveToShare = outcome.folder
             }
@@ -1257,6 +1281,121 @@ final class AppModel {
             present(error)
             return nil
         }
+    }
+
+    // MARK: - Fresh start (clear the history, both agreeing)
+
+    /// Where the fresh start stands on this phone — see `FreshStartPolicy.Phase`.
+    var freshStartPhase: FreshStartPolicy.Phase {
+        guard let role else { return .idle(lastCleared: nil) }
+        return FreshStartPolicy.phase(snapshot.freshStart, role: role)
+    }
+
+    /// A change of ours is still waiting to reach iCloud.
+    var freshStartSending: Bool { snapshot.freshStart.pendingIntent != nil }
+    var isClearingHistory: Bool { outbox.isClearingHistory }
+    var freshStartFailure: String? { outbox.freshStartFailure }
+    /// An ask, agree or withdraw is in flight.
+    private(set) var isChangingFreshStart = false
+
+    /// The partner's standing ask, unless its Home card was waved away.
+    var showsFreshStartRequest: Bool {
+        guard isPaired, case .theyAsked(let asked) = freshStartPhase else { return false }
+        return snapshot.freshStart.dismissedAsk != asked
+    }
+
+    /// The clear is due here but keeps failing — worth a card of its own.
+    var freshStartNeedsAttention: Bool {
+        guard isPaired, case .clearing = freshStartPhase else { return false }
+        return freshStartFailure != nil && !isClearingHistory
+    }
+
+    var partnerFinishedFreshStart: Bool {
+        guard let epoch = snapshot.freshStart.finishedBefore else { return false }
+        return (snapshot.freshStart.theirs?.clearedBefore ?? .distantPast) >= epoch
+    }
+
+    /// Asks for a fresh start. Looks for a standing ask from them first — then
+    /// this is theirs to agree to instead. Returns what to tell the user, if anything.
+    func askForFreshStart() async -> String? {
+        guard isPaired, !isChangingFreshStart else { return nil }
+        isChangingFreshStart = true
+        defer { isChangingFreshStart = false }
+        await refresh()
+        switch freshStartPhase {
+        case .idle, .waitingForPartner:
+            break
+        case .theyAsked:
+            return String(localized: "\(partnerName) has just asked for a fresh start too — you can agree to theirs instead.")
+        default:
+            return nil
+        }
+        do {
+            let asked = try await outbox.askForFreshStart()
+            reload()
+            if !asked {
+                return String(localized: "Your last fresh start change is still being sent. Try again in a moment.")
+            }
+            Task { await advanceFreshStart() }
+            return nil
+        } catch is CancellationError {
+            // Abandoned at the deadline, it may still land: the next refresh reads it back.
+            reload()
+            return String(localized: "iCloud didn't answer in time. If the request got through, it shows here shortly.")
+        } catch {
+            reload()
+            let reason = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            return String(localized: "Couldn't reach iCloud, so nothing was asked. (\(reason))")
+        }
+    }
+
+    /// Agrees to the partner's standing ask — final. Re-checked against a fresh
+    /// refresh first: agreeing to an ask they've since withdrawn would do nothing.
+    func agreeToFreshStart() async -> String? {
+        guard isPaired, !isChangingFreshStart else { return nil }
+        isChangingFreshStart = true
+        defer { isChangingFreshStart = false }
+        await refresh()
+        guard case .theyAsked(let asked) = freshStartPhase else {
+            return String(localized: "\(partnerName) has withdrawn the request, so nothing changes.")
+        }
+        let result = await outbox.publishFreshStart(.agree(asked))
+        reload()
+        Task { await advanceFreshStart() }
+        if result == nil {
+            return String(localized: "Your answer is saved on this iPhone and will be sent once iCloud can be reached.")
+        }
+        return nil
+    }
+
+    /// Takes our ask back, until the partner's phone has committed to it.
+    func withdrawFreshStart() async -> String? {
+        guard isPaired, !isChangingFreshStart, case .asked = freshStartPhase else { return nil }
+        isChangingFreshStart = true
+        defer { isChangingFreshStart = false }
+        let result = await outbox.publishFreshStart(.withdraw)
+        reload()
+        switch result {
+        case .refused?:
+            Task { await advanceFreshStart() }
+            return String(localized: "\(partnerName) had already agreed, so the fresh start is going ahead.")
+        case nil where freshStartSending:
+            return String(localized: "Withdrawn on this iPhone; iCloud will be told once it can be reached.")
+        default:
+            return nil
+        }
+    }
+
+    /// The sheet's "Try again", and the start of a clear just agreed.
+    func advanceFreshStart() async {
+        await outbox.advanceFreshStart()
+        reload()
+    }
+
+    func dismissFreshStartRequest() {
+        guard case .theyAsked(let asked) = freshStartPhase else { return }
+        store.mutate(reloadWidgets: false) { $0.freshStart.dismissedAsk = asked }
+        reload()
     }
 
     // MARK: - Ending it

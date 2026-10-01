@@ -385,7 +385,8 @@ are still local-only. The sheet opens from the partner card on the home screen.
 
 Every moment is its own CloudKit record, kept indefinitely. Nothing is
 overwritten and nothing expires, so the history is **complete and recoverable**
-— sign in on a new phone and the whole thing comes back.
+— sign in on a new phone and the whole thing comes back. The one way history
+is deleted while you stay linked is a fresh start, which needs you both (below).
 
 Syncing uses `CKFetchRecordZoneChangesOperation` with a stored server change
 token rather than fetching known record names. Three things fall out of that:
@@ -402,6 +403,48 @@ token rather than fetching known record names. Three things fall out of that:
   fresh install needs. Recovery isn't a special path; it's the ordinary one
   with an empty starting point.
 - Deletions propagate, so removing a moment later is a one-line change.
+
+### Fresh start
+
+Settings → **Fresh start** clears the shared history — every moment, the
+status history and read receipts — from both phones and the zone, and keeps
+the link, both current statuses, the heart and the date. One person asks, the
+other agrees; nothing is deleted before both have. Save memories is offered
+first on both sides (skippable behind a confirmation); an archive that
+couldn't read the whole zone stops before anything is asked or agreed.
+
+It's a handshake over one `FreshStart` record per side (`freshstart-<role>`,
+encrypted `stage`, `epoch`, `clearedBefore`), with no subscription: the
+request reaches the partner as a Home card on their next refresh, like the
+anniversary ask.
+
+1. **Ask.** The epoch is the ask's *server* save time, so "before the
+   request" is judged by the server's clock for every record
+   (`creationDate`), never by either phone's. An ask is sent at once or not at
+   all — queued offline, it would clear whatever arrived before it landed.
+2. **Agree**, naming that epoch. Final; an agreement naming a withdrawn or
+   older ask does nothing. If both ask at once, the later ask turns into
+   agreement to the earlier.
+3. **Commit.** The asker's app commits on seeing the yes. Withdrawing and
+   committing both write the asker's own record against the server copy under
+   a change tag, so a withdraw racing the partner's yes leaves neither phone
+   clearing (`FreshStartPolicy.transition`). The asker can withdraw until
+   then; an unanswered ask never expires.
+4. **Clear.** Each phone's app — never an extension — re-reads both records
+   from the server, deletes *its own* moments and `StatusLog`s created before
+   the epoch and its `Receipt` (never `status-*`/`nudge-*`, whose deletion
+   reads as an unlink, and never the current status's log record), then
+   purges its own copy, and marks its record `clearedBefore`. A phone that's
+   offline finishes its half the next time it opens; a failed pass re-runs
+   whole. A send that never reached iCloud is kept and sent afterwards — it's
+   the only copy.
+
+`Snapshot.freshStart.clearedBefore` then keeps older records out of every
+later delta (a partner whose phone hasn't cleared yet, a full resync) and out
+of the re-queue of "missing" sends, so nothing cleared comes back. Reports and
+blocks are untouched. The deletions can fire the moment subscription; the
+extension rewords such a push quietly ("Moments were cleared for your fresh
+start") rather than claim something new arrived.
 
 ### What it costs
 
@@ -536,6 +579,18 @@ Everything below is already wired up; this is the order to do it in.
    As the participant, also tap **"Ask … to set it"** on the count screen once
    (the `AnniversaryRequest` record).
 
+   Then run **one complete fresh start** between the two Debug devices (Settings
+   → Fresh start: ask on one, agree on the other, and open the app on both until
+   each has cleared). The `FreshStart` record only gets all three fields —
+   `stage`, `epoch` (from the agreement and commit) and `clearedBefore` (from
+   the completion) — over a full round, and each field's encryption is fixed
+   when it's created. While you're there, check Diagnostics on both phones
+   shows the round finished (`Fresh start:` line): the consent check reads
+   `lastModifiedUserRecordID` and assumes your own writes come back as
+   `__defaultOwner__` or your account's record name in both databases — a
+   clear refused with "doesn't show the fresh start agreed" means that
+   assumption is wrong on the live service.
+
    **Tapping "Create invite link" is part of this step, not an optional extra.**
    Zone sharing needs a system record type, `cloudkit.share`, and CloudKit only
    adds it to the Development schema the first time a `CKShare` is actually
@@ -549,8 +604,8 @@ Everything below is already wired up; this is the order to do it in.
    anything, so an App Store build against an undeployed schema fails on every
    write. Re-deploy whenever you add a field. Confirm afterwards by switching
    the Console to *Production* and checking that `Status`, `StatusLog`,
-   `Nudge`, `Moment`, `Receipt`, `Anniversary`, `AnniversaryRequest` **and
-   `cloudkit.share`** are all listed under Record Types.
+   `Nudge`, `Moment`, `Receipt`, `Anniversary`, `AnniversaryRequest`,
+   `FreshStart` **and `cloudkit.share`** are all listed under Record Types.
 4. **Archive** with `make archive` (or Xcode's *Product → Archive*). The
    Release configuration already points at
    [RedString-Release.entitlements](Sources/App/Resources/RedString-Release.entitlements),
@@ -585,8 +640,10 @@ Sources/
                                  partner text through; report mail
     AnnouncementPolicy.swift     check-and-claim behind every notification
     WidgetReloadPolicy.swift     when the widget refreshes next
+    FreshStartPolicy.swift       the fresh start's handshake and what it clears
     Models/                      Mood, StatusPayload, PairingInfo, Snapshot,
-                                 Moment, MomentAttachment, Anniversary
+                                 Moment, MomentAttachment, Anniversary,
+                                 FreshStart, ArchiveContents
     Store/SharedStore.swift      App Group cache — the app↔widget channel
     Store/GroupState.swift       file-backed key-value store (see its header
                                  for why UserDefaults couldn't be trusted)
@@ -597,16 +654,18 @@ Sources/
                                  snapshot
     Store/StatusHistoryLog.swift local rolling status log (see "Status history")
     Store/Outbox.swift           the offline-send retry loops (republish, pending
-                                 uploads, receipts) and their flag rules
+                                 uploads, receipts, the fresh start's steps)
+                                 and their flag rules
     Cloud/SyncBackend.swift      the sync surface the UI depends on, plus the
                                  DEBUG-only demo backend
     Cloud/CloudSync.swift        the CloudKit actor's core; one extension file
     Cloud/CloudSync+*.swift      per concern: Pairing, Status, Refresh, Nudges,
-                                 Moments, Receipts, Anniversary, Subscriptions,
-                                 Unpairing
+                                 Moments, Receipts, Anniversary, FreshStart,
+                                 Archive, Subscriptions, Unpairing
     Cloud/RefreshDelta.swift     the pure fold of a delta into the snapshot
     Cloud/ParsedDelta.swift      how a fetched delta is sorted and judged
     Cloud/MediaPrefetchPlan.swift  what each process downloads after a refresh
+    Cloud/ZoneClearPlan.swift    which own records an unlink or a fresh start deletes
     Cloud/ZoneGonePolicy.swift, RefreshGate.swift, SendFailure.swift
                                  small pure rules: the zone-gone verdict, one
                                  fetch at a time, a full iCloud vs a blip
@@ -633,6 +692,7 @@ Sources/
       ScrubbableWaveform                   swipe-to-seek wrapper over WaveformBars
       MomentLibraryView, MomentGalleryView the history grid and pager
       HistoryFilter, StatusHistoryView     direction filter + the status log sheet
+      FreshStartView                       ask, agree, withdraw; the clear's progress
       DrawingCanvas.swift                  PencilKit canvas and palette
       CameraPicker.swift                   UIImagePickerController wrapper
       InviteLinkView, ShareSheet, PinchToZoom, DiagnosticsView, RelativeTime

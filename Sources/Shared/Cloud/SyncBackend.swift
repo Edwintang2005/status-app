@@ -24,6 +24,9 @@ struct RefreshResult: Sendable {
     var heldPartnerMomentKinds: [Moment.Kind] = []
     /// The partner's status record arrived unreadable.
     var heldPartnerStatus = false
+    /// Moment records deleted in this delta (either side's) — a fresh start
+    /// clearing, an unlink, never news.
+    var removedMoments = 0
 
     var unreadableRecords: Int { unreadableRecordNames.count }
     var newestPartnerMoment: Moment? { newPartnerMoments.last }
@@ -54,6 +57,9 @@ protocol SyncBackend: Sendable {
     /// Pulls only the thumbnail — what a library tile needs when it scrolls into
     /// view past the cache window. No-op for voice memos and for backends that never evict.
     func fetchThumbnail(for moment: Moment) async throws
+    /// Every readable moment and status log in the zone, for the memories
+    /// archive. Touches no local state or change token.
+    func archiveZone() async throws -> ArchiveContents.Zone
     /// Publishes this device's read-receipt seen-map ({momentID: seenAt}) and
     /// which partner status it has had on screen; an empty map and `nil`
     /// retract. No-op for backends without a partner.
@@ -63,6 +69,13 @@ protocol SyncBackend: Sendable {
     /// Participant only: asks the owner to set the date. Fixed record name,
     /// so re-asking overwrites.
     func publishAnniversaryRequest(at date: Date) async throws
+    /// Applies a fresh-start step to this side's `FreshStart` record, judged
+    /// against the server copy (`FreshStartPolicy.transition`).
+    func publishFreshStart(_ intent: FreshStartIntent) async throws -> FreshStartPublishResult
+    /// Once both sides committed: deletes this side's own history from before
+    /// `epoch`, after re-checking the commit on the server. Returns the zone's
+    /// classification for the local clear.
+    func clearHistory(before epoch: Date, keepingStatusLogAt keep: Date?) async throws -> FreshStartPolicy.Zone
     func registerSubscription() async throws
     /// The system said the iCloud account changed; the next `readiness()` must
     /// re-check it for real rather than trust its cache.
@@ -154,9 +167,26 @@ struct DemoBackend: SyncBackend {
     func send(_ moment: Moment) async throws {}
     func fetchMedia(for moment: Moment) async throws {}
     func fetchThumbnail(for moment: Moment) async throws {}
+    func archiveZone() async throws -> ArchiveContents.Zone {
+        ArchiveContents.Zone(moments: [], statuses: [], unreadable: 0)
+    }
     func publishReceipts(_ seen: [String: Date], statusSeen: StatusSeen?) async throws {}
     func publishAnniversary(_ anniversary: Anniversary?) async throws {}
     func publishAnniversaryRequest(at date: Date) async throws {}
+    /// No partner to agree: an ask simply stands, stamped now.
+    func publishFreshStart(_ intent: FreshStartIntent) async throws -> FreshStartPublishResult {
+        let held = await MainActor.run { SharedStore.shared.snapshot.freshStart.mine }
+        switch FreshStartPolicy.transition(intent, from: held) {
+        case .write(var record):
+            if record.stage == .asking { record.epoch = TrustedTime.plausible(Date(), serverTime: nil) }
+            return .saved(record)
+        case .unchanged(let record): return .saved(record)
+        case .refused(let record): return .refused(record)
+        }
+    }
+    func clearHistory(before epoch: Date, keepingStatusLogAt keep: Date?) async throws -> FreshStartPolicy.Zone {
+        FreshStartPolicy.Zone()
+    }
     func registerSubscription() async throws {}
     func noteAccountChanged() async {}
     func unpair() async throws {}

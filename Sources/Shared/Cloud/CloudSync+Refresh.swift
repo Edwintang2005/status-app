@@ -57,12 +57,19 @@ extension CloudSync {
         // return go back in the retry queue (`requeueMissingUploads`). Judged by
         // record name, so a copy this process couldn't decrypt still counts as
         // present. App only — an extension's batch is never the whole zone.
-        if previous == nil, !changes.moreComing, !Self.isAppExtension {
+        // Not while a `FreshStart` record is unreadable: after a clear every own
+        // moment is "missing", and the record saying so is what this pass couldn't read.
+        let freshStartNames = [pairing.role.freshStartRecordName, pairing.role.other.freshStartRecordName]
+        let freshStartHeld = result.unreadableRecordNames.contains(where: freshStartNames.contains)
+        if previous == nil, !changes.moreComing, !Self.isAppExtension, !freshStartHeld {
             let delivered = Set(changes.records.compactMap {
                 pairing.role.momentID(fromRecordName: $0.recordID.recordName)
             })
+            // After a fresh start "not returned" is mostly "cleared": those stay
+            // out of the queue, or a second device's old index re-sends them all.
+            let clearedBefore = await MainActor.run { SharedStore.shared.snapshot.freshStart.clearedBefore }
             let requeued = MomentIndex.shared.requeueMissingUploads(
-                delivered: delivered, hasMedia: MomentStore.shared.hasMedia)
+                delivered: delivered, hasMedia: MomentStore.shared.hasMedia, clearedBefore: clearedBefore)
             if !requeued.isEmpty {
                 log.error("\(requeued.count) own moment(s) marked sent were missing from the zone; re-queued for upload.")
                 result.requeuedUploads = requeued.count
@@ -162,6 +169,7 @@ extension CloudSync {
                 Field.seenMap, Field.statusSeenAt, Field.statusSeenFor,
                 Field.startsAt, Field.timeZone,
                 Field.requestedAt,
+                Field.stage, Field.epoch, Field.clearedBefore,
             ]
         )
 
@@ -207,13 +215,26 @@ extension CloudSync {
     /// `arrived` is every new moment, own and partner's, for `prefetchMedia`.
     func apply(_ changes: ZoneChanges,
                pairing: PairingInfo) async -> (result: RefreshResult, arrived: [Moment]) {
-        let hidden = await MainActor.run { SharedStore.shared.hiddenMomentIDs }
+        let (hidden, freshStart) = await MainActor.run {
+            (SharedStore.shared.hiddenMomentIDs, SharedStore.shared.snapshot.freshStart)
+        }
+        let names = myRecordNames(pairing)
+        var metadata = RecordMetadata.server
+        metadata.isForeign = { Self.isForeign($0, names: names) }
         let parsed = ParsedDelta.parse(records: changes.records,
                                        deletedIDs: changes.deletedIDs,
                                        mineRole: pairing.role,
-                                       hidden: hidden)
+                                       hidden: hidden,
+                                       freshStart: freshStart,
+                                       metadata: metadata)
         if !parsed.unreadable.isEmpty {
             log.notice("\(parsed.unreadable.count) records in this delta had unreadable encrypted fields.")
+        }
+        if parsed.beforeEpoch > 0 {
+            log.notice("\(parsed.beforeEpoch) records from before the fresh start were left unfiled.")
+        }
+        if parsed.foreignFreshStart {
+            log.error("Our FreshStart record was written by another account; ignored.")
         }
 
         // Captured before the deletions and the insert below, so "new" can mean
@@ -264,7 +285,13 @@ extension CloudSync {
         if let mine = outcome.myStatusToLog { StatusHistoryLog.shared.record(mine, fromMe: true) }
         // The durable log: one entry per `StatusLog` record, same dedup key as the
         // two lines above, so a status and its log record collapse into one.
-        StatusHistoryLog.shared.record(parsed.logEntries)
+        // Re-judged inside each store's lock against the epoch as it is then.
+        let created = Self.serverCreationTimes(changes.records, mineRole: pairing.role)
+        StatusHistoryLog.shared.record(parsed.logEntries) {
+            let epoch = SharedStore.shared.snapshot.freshStart.clearedBefore
+            let isCleared = FreshStartPolicy.clearedFilter(createdAt: created.logs, epoch: epoch)
+            return { isCleared(FreshStartPolicy.LogKey(fromMe: $0.fromMe, at: $0.at)) }
+        }
 
         let arrived = outcome.arrived
         if arrived.isEmpty {
@@ -276,7 +303,13 @@ extension CloudSync {
                 SharedStore.reloadWidgets()
             }
         } else {
-            await MainActor.run { store.record(arrived) }
+            await MainActor.run {
+                store.record(arrived) {
+                    let epoch = SharedStore.shared.snapshot.freshStart.clearedBefore
+                    let isCleared = FreshStartPolicy.clearedFilter(createdAt: created.moments, epoch: epoch)
+                    return { isCleared($0.id) }
+                }
+            }
         }
 
         // After the moments above are in the index — a receipt arriving in the
@@ -285,6 +318,25 @@ extension CloudSync {
             MomentIndex.shared.applyPartnerReceipts(Self.receiptMap(from: receipts))
         }
         return (outcome.result, arrived)
+    }
+
+    /// Each moment's and status log's server creation time, for the fresh
+    /// start's under-lock filter.
+    static func serverCreationTimes(_ records: [CKRecord],
+                                    mineRole: PairRole) -> (moments: [String: Date], logs: [FreshStartPolicy.LogKey: Date]) {
+        var moments: [String: Date] = [:]
+        var logs: [FreshStartPolicy.LogKey: Date] = [:]
+        for record in records {
+            guard let created = record.creationDate ?? record.modificationDate else { continue }
+            let name = record.recordID.recordName
+            for side in [mineRole, mineRole.other] {
+                if let id = side.momentID(fromRecordName: name) { moments[id] = created }
+                if let date = side.statusLogDate(fromRecordName: name) {
+                    logs[FreshStartPolicy.LogKey(fromMe: side == mineRole, at: date)] = created
+                }
+            }
+        }
+        return (moments, logs)
     }
 
     /// Whether the process could decrypt this record. Each type is probed on a
@@ -302,6 +354,8 @@ extension CloudSync {
             return record.encryptedValues[Field.startsAt] != nil
         case RecordType.anniversaryRequest:
             return record.encryptedValues[Field.requestedAt] != nil
+        case RecordType.freshStart:
+            return record.encryptedValues[Field.stage] != nil
         default:
             return true
         }

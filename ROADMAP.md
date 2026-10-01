@@ -3,6 +3,56 @@
 Effort: S = hours, M = days, L = a week+. Any CloudKit field/record-type
 addition requires re-deploying the schema to Production (README → "Shipping it").
 
+## Shipped (October 2026)
+
+- **Fresh start — clear the history, both agreeing.** For a chapter that has
+  ended without the link ending: one person asks (Settings → Fresh start), the
+  other gets a Home card (no push, no subscription — it rides any refresh like
+  `AnniversaryRequest`) and agrees; Save memories is offered first to both,
+  skippable behind a confirmation, and an incomplete archive stops before
+  anything is asked or agreed. Moments, status logs and read receipts go from
+  both phones and the zone; both current statuses, the heart, the link, the
+  date and its request stay. The request doesn't expire; the asker can
+  withdraw it until the partner's phone commits.
+  - **Records.** One `FreshStart` per side (`freshstart-<role>`, encrypted
+    `stage`, `epoch`, `clearedBefore`). The epoch is the ask's *server* save
+    time — not either phone's clock — so "before the request" means the same
+    on both, and the cut on every record is its server `creationDate`. An ask
+    is written once, never re-saved, and never queued offline.
+  - **Commit, not just agreement.** Agree names the epoch and is final; the
+    asker's app commits on seeing it, and only a committed epoch clears. A
+    withdraw and a commit are both writes to the asker's own record judged
+    against the server copy under a change tag (`FreshStartPolicy.transition`),
+    so a withdraw racing the partner's yes can never leave one phone clearing.
+    Both asking at once: the later ask converts into agreement to the earlier.
+  - **Each side deletes only its own records**, app only, after re-reading
+    both records from the server (`CloudSync.clearHistory`): non-atomic
+    batches, each confirmed, re-run whole on failure. Never `status-*`/
+    `nudge-*` (read as an unlink), never the `FreshStart` record (the lasting
+    mark), never the current status's log record. This phone's own copy is
+    purged only after its zone half succeeds (`FreshStartPolicy.purge`): the
+    zone's server-time classification wins; what the zone doesn't hold is
+    judged by its date — except an own send that never reached iCloud, which
+    is kept and sent (it's the only copy, and lands after the epoch).
+  - **Resurrection closed** by `Snapshot.freshStart.clearedBefore`, moved only
+    by a published commit and never back down: ingestion drops older moments
+    and logs (before the readability check, so they never hold the token —
+    and the commit in the same delta already counts), `requeueMissingUploads`
+    leaves older sends alone, and the upload retry never overlaps a clear.
+    Our own record written by another account is never taken as our consent.
+  - Extensions only fold the records; the NSE rewords a deletion-only moment
+    push quietly. Diagnostics shows both records. Tests: `FreshStartPolicyTests`
+    (with a two-phone handshake simulation), `FreshStartIngestTests`,
+    `FreshStartOutboxTests`. Schema: new type, see README "Shipping it".
+  - **Changed from the first design**: the epoch is server time, not the
+    asker's clock; a commit step guards the withdraw race; agreement is final;
+    withdrawing writes an idle record instead of deleting it (it carries the
+    last clear's mark); unsent own sends are kept, not dropped; the current
+    status keeps its log entry.
+- **Groundwork**: `ZoneClearPlan` (`.freshStart` vs `.unlink`, which now
+  takes the `FreshStart` record too) and a complete memories archive read from
+  the whole zone (`SyncBackend.archiveZone`, `ArchiveContents`).
+
 ## Shipped (September 2026)
 
 - **Arena review fixes** — from a ten-critic review. A new invite no longer
@@ -216,6 +266,35 @@ addition requires re-deploying the schema to Production (README → "Shipping it
 
 ## Next
 
+### Fresh start — follow-ups (S each)
+
+Shipped October 2026 (above); left on file:
+- Verify on the live service, as for the invite handshake: that
+  `lastModifiedUserRecordID` names this account (`__defaultOwner__` or its own
+  record name) on both databases, so a second device trusts its own record.
+  If it doesn't, a second device with an old index still filters (the
+  partner's half and `clearedBefore` from the agreement), but won't purge.
+- A partner who never opens the app again leaves their half in the zone (and
+  in the owner's storage). Each phone hides it; deleting the other side's
+  records would undo the creator-check direction (#5/#6). Unlink settles it.
+- The asker's archive is taken just before the ask lands: a send in that
+  window (an archive's length, normally seconds) is cleared without being in
+  the asker's copy — it is in the agreer's, taken after the epoch.
+- A moment push that only carried deletions is reworded quietly by the NSE,
+  never dropped (no filtering entitlement).
+- An older build on a second device of either person neither filters nor
+  guards the requeue; after a full resync it could re-send cleared moments.
+- `requeueMissingUploads` judges a cleared send by its client `sentAt`, not
+  the server time the cut uses: a second device whose clock ran ahead of the
+  ask by more than the gap to a send could re-queue that one send after a full
+  resync. The index would need each moment's server creation time to close it.
+- Nothing clears until the asker's phone commits, and then this phone's own
+  zone pass must finish before its copy is purged: Home and the widget keep
+  the history until then (the sheet says "waiting"; a failing pass gets its own
+  card). Extensions never purge.
+- Asks need a connection (an ask queued offline would move the epoch); the
+  sheet says so rather than queueing.
+
 ### Super nudge — escalate when they spam the heart (S–M)
 
 When one side taps the heart repeatedly in a short window, the other side gets
@@ -351,9 +430,8 @@ Verified in code by the review; ordered by value over cost within each group.
   Apple-encrypted; E2E only with Advanced Data Protection). "Your own iCloud"
   is wrong for the joiner (`WelcomeView`, Settings' version footer, `TermsView`,
   site). "Details go to us" / "we're notified" is a `mailto:` draft to send.
-- README "complete and recoverable"/"unlimited" history vs the 500-entry index,
-  which "Save memories" also stops at. Fix the copy; separately decide on
-  lifting the cap or archiving from a zone enumeration (M).
+- README "complete and recoverable"/"unlimited" history vs the 500-entry index.
+  Fix the copy. ("Save memories" now reads the whole zone — October 2026.)
 
 **Re-seat and zone-gone (S)**
 - The 120 s zone-gone window is justified by "ten seconds", but a re-seated
@@ -452,8 +530,9 @@ Found by the audit and deliberately left for now; numbers are the audit's.
   (`"Red String — <name>"`), contradicting "the names you set are
   encrypted". One line. (S)
 - #33 The word filter misses plurals, spaced letters, homoglyphs, leetspeak.
-- #34 The memories archive uses raw partner text and writes plaintext to
-  iCloud Drive; long names fail as "unrecovered".
+- #34 remainder: the memories archive writes plaintext to iCloud Drive (it's
+  an export; say so in the policy). Filtered partner text and long names
+  fixed October 2026.
 - #36 Plaintext metadata: memo durations, nudge counts, send times, receipt
   times (`kind` must stay plaintext for locked-phone banners).
 - #37 Diagnostics' "Copy report" puts participant names/emails on the clipboard.

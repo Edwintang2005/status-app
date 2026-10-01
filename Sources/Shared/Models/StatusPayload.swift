@@ -120,6 +120,14 @@ enum PairRole: String, Codable {
         }
     }
 
+    /// One `FreshStart` record per side — see `FreshStartPolicy`.
+    var freshStartRecordName: String {
+        switch self {
+        case .owner: return "freshstart-owner"
+        case .participant: return "freshstart-participant"
+        }
+    }
+
     /// Moment records are `moment-<role>-<uuid>`; the role in the name tells a
     /// device's own sends from its partner's without an extra field.
     var momentRecordPrefix: String { "moment-\(rawValue)-" }
@@ -293,6 +301,10 @@ struct Snapshot: Codable, Hashable {
     /// so the prompt shows once per ask.
     var anniversaryRequestDismissedAt: Date?
 
+    /// Clearing the shared history, both agreeing — see `FreshStartPolicy`.
+    /// Its `clearedBefore` keeps cleared history out of every later delta.
+    var freshStart = FreshStart()
+
     static let empty = Snapshot(
         mine: nil,
         theirs: nil,
@@ -319,6 +331,7 @@ struct Snapshot: Codable, Hashable {
         case anniversaryRequestedAt, anniversaryRequestPublished, anniversaryRequestDismissedAt
         case lastAnnouncedMomentSentAt
         case myStatusLoggedAt, lastBreakthroughNudgeAt
+        case freshStart
     }
 
     /// Hand-written: synthesised `Codable` errors on missing keys, so a snapshot
@@ -376,6 +389,7 @@ struct Snapshot: Codable, Hashable {
         anniversaryRequestDismissedAt = try container
             .decodeIfPresent(Date.self, forKey: .anniversaryRequestDismissedAt)
         lastAnnouncedMomentSentAt = try container.decodeIfPresent(Date.self, forKey: .lastAnnouncedMomentSentAt)
+        freshStart = try container.decodeIfPresent(FreshStart.self, forKey: .freshStart) ?? FreshStart()
     }
 
     /// Hand-written: `latestPartnerVisualMoment`'s nil must be written as an
@@ -415,6 +429,7 @@ struct Snapshot: Codable, Hashable {
         try container.encodeIfPresent(lastAnnouncedMomentSentAt, forKey: .lastAnnouncedMomentSentAt)
         try container.encodeIfPresent(myStatusLoggedAt, forKey: .myStatusLoggedAt)
         try container.encodeIfPresent(lastBreakthroughNudgeAt, forKey: .lastBreakthroughNudgeAt)
+        try container.encode(freshStart, forKey: .freshStart)
     }
 
     init(mine: StatusPayload?,

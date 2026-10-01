@@ -23,6 +23,9 @@ struct RefreshDelta: Sendable, Equatable {
     var anniversaryRequestedAt: Date?
     var anniversaryRequestErased = false
 
+    /// Both sides' `FreshStart` records, when they arrived readable or were deleted.
+    var freshStart = FreshStart.Incoming()
+
     /// Records whose encrypted fields came back empty. Whatever they carried is
     /// not in this delta, so the change token must not advance past them.
     var unreadableRecords = 0
@@ -85,6 +88,10 @@ struct RefreshDelta: Sendable, Equatable {
             } else if let anniversaryRequestedAt {
                 snapshot.anniversaryRequestedAt = anniversaryRequestedAt
             }
+        }
+
+        if !freshStart.isEmpty {
+            snapshot.freshStart.fold(freshStart)
         }
     }
 

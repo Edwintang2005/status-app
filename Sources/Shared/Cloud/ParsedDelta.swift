@@ -1,5 +1,20 @@
 import CloudKit
 
+/// The server's own facts about a record — injectable, since a `CKRecord` built
+/// in a test has no server dates or author.
+struct RecordMetadata: Sendable {
+    /// When the record first reached the server.
+    var createdAt: @Sendable (CKRecord) -> Date?
+    /// Its last save.
+    var savedAt: @Sendable (CKRecord) -> Date?
+    /// Positively written by another iCloud account than this one.
+    var isForeign: @Sendable (CKRecord) -> Bool
+
+    static let server = RecordMetadata(createdAt: { $0.creationDate ?? $0.modificationDate },
+                                       savedAt: { $0.modificationDate },
+                                       isForeign: { _ in false })
+}
+
 /// One fetched delta sorted into what `CloudSync.apply` files, then judged
 /// against the held snapshot. Pure — no stores, no network — so the rules
 /// (unreadable holds, reported moments, deletions by role, delete-then-recreate,
@@ -31,16 +46,61 @@ struct ParsedDelta {
     /// `StatusLog` records the cloud cap pruned, by side.
     var removedMyLogs: [Date] = []
     var removedTheirLogs: [Date] = []
+    /// Both sides' `FreshStart` records, readable ones only.
+    var freshStart = FreshStart.Incoming()
+    /// Our own `FreshStart` record arrived written by another account: ignored.
+    var foreignFreshStart = false
+    /// Moments and log records created before the committed epoch: doomed, so never filed.
+    var beforeEpoch = 0
 
+    /// `freshStart` is what's held before this delta: its committed epoch, moved
+    /// by any `FreshStart` record in the delta itself, keeps older history out —
+    /// a full resync carries the commit and the records it clears together.
     static func parse(records: [CKRecord],
                       deletedIDs: [CKRecord.ID],
                       mineRole: PairRole,
-                      hidden: Set<String>) -> ParsedDelta {
+                      hidden: Set<String>,
+                      freshStart held: FreshStart? = nil,
+                      metadata: RecordMetadata = .server) -> ParsedDelta {
         let theirsRole = mineRole.other
         var delta = ParsedDelta()
 
+        for record in records where record.recordType == CloudSync.RecordType.freshStart && CloudSync.isReadable(record) {
+            let name = record.recordID.recordName
+            guard let parsed = CloudSync.freshStart(from: record, savedAt: metadata.savedAt(record)) else { continue }
+            if name == mineRole.freshStartRecordName {
+                // The share is read-write for both: a copy of ours the partner
+                // wrote must not stand in for our own consent.
+                if metadata.isForeign(record) {
+                    delta.foreignFreshStart = true
+                } else {
+                    delta.freshStart.mine = parsed
+                }
+            } else if name == theirsRole.freshStartRecordName {
+                delta.freshStart.theirs = parsed
+            }
+        }
+        for recordID in deletedIDs {
+            if recordID.recordName == mineRole.freshStartRecordName, delta.freshStart.mine == nil {
+                delta.freshStart.mineErased = true
+            }
+            if recordID.recordName == theirsRole.freshStartRecordName, delta.freshStart.theirs == nil {
+                delta.freshStart.theirsErased = true
+            }
+        }
+        var projected = held
+        projected?.fold(delta.freshStart)
+        let epoch = projected?.clearedBefore
+
         for record in records {
             let name = record.recordID.recordName
+            // Checked before readability: a doomed record must not hold the token either.
+            if let epoch,
+               record.recordType == CloudSync.RecordType.moment || record.recordType == CloudSync.RecordType.statusLog,
+               let created = metadata.createdAt(record), created < epoch {
+                delta.beforeEpoch += 1
+                continue
+            }
             // Every type below always carries its probe field; an empty one means
             // the process couldn't decrypt, and the record is left for a later fetch.
             guard CloudSync.isReadable(record) else {
@@ -144,6 +204,7 @@ struct ParsedDelta {
             statusSeen: theirReceipts.flatMap(CloudSync.statusSeen(from:)),
             anniversaryRequestedAt: requestRecord.flatMap(CloudSync.anniversaryRequestDate(from:)),
             anniversaryRequestErased: requestErased,
+            freshStart: freshStart,
             unreadableRecords: unreadable.count
         )
 
@@ -172,12 +233,13 @@ struct ParsedDelta {
             .sorted { $0.sentAt < $1.sentAt }
             .map(\.kind)
 
-        let result = RefreshResult(partnerStatus: partnerErased ? nil : (theirs ?? previousTheirs),
+        var result = RefreshResult(partnerStatus: partnerErased ? nil : (theirs ?? previousTheirs),
                                    newPartnerMoments: newFromPartner,
                                    unreadableRecordNames: unreadable,
                                    ownRecordsChanged: ownRecordsChanged,
                                    heldPartnerMomentKinds: heldKinds,
                                    heldPartnerStatus: unreadable.contains(mineRole.other.statusRecordName))
+        result.removedMoments = removedMomentIDs.count
         return Outcome(fold: fold,
                        partnerStatusToLog: partnerToLog,
                        myStatusToLog: myToLog,

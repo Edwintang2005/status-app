@@ -131,6 +131,7 @@ enum AnnouncementPolicy {
 
     /// Whether the refresh changed anything the user would notice.
     static func changed(_ result: RefreshResult, previousStatus: StatusPayload?) -> Bool {
-        previousStatus != result.partnerStatus || !result.newPartnerMoments.isEmpty
+        // Deletions too: a fresh start clearing must reach the open screen.
+        previousStatus != result.partnerStatus || !result.newPartnerMoments.isEmpty || result.removedMoments > 0
     }
 }

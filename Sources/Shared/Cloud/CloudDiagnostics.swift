@@ -22,6 +22,8 @@ struct CloudDiagnostics: Sendable {
     /// Records whose encrypted fields arrived empty, per process — see
     /// `SharedStore.noteUnreadableRecords`.
     var unreadableRecords: String
+    /// Both `FreshStart` records as last folded here, and this device's marks.
+    var freshStart: String
     /// Anything that failed while gathering the above, rather than a silent gap.
     var problems: [String]
 
@@ -39,6 +41,7 @@ struct CloudDiagnostics: Sendable {
             "Invite link: \(sharePublicPermission ?? "no share")",
             "Participants: \(shareParticipants.isEmpty ? "none" : shareParticipants.joined(separator: " | "))",
             "Unreadable encrypted records: \(unreadableRecords)",
+            "Fresh start: \(freshStart)",
         ]
         if !problems.isEmpty {
             lines.append("Problems: " + problems.joined(separator: " | "))
@@ -108,8 +111,9 @@ extension CloudSync {
         }
 
         var subscriptions: [String] = []
-        let (pairing, unreadable) = await MainActor.run {
-            (SharedStore.shared.pairing, SharedStore.shared.unreadableTally.summary)
+        let (pairing, unreadable, freshStart) = await MainActor.run {
+            (SharedStore.shared.pairing, SharedStore.shared.unreadableTally.summary,
+             SharedStore.shared.snapshot.freshStart.summary)
         }
         let database = pairing.map { self.database(for: $0) } ?? container.privateCloudDatabase
         do {
@@ -146,6 +150,7 @@ extension CloudSync {
             shareParticipants: shareParticipants,
             sharePublicPermission: sharePublicPermission,
             unreadableRecords: unreadable,
+            freshStart: freshStart,
             problems: problems
         )
     }

@@ -11,6 +11,8 @@ struct HomeView: View {
     @State private var showingStatusHistory = false
     /// The easter egg — see `EasterEggView`.
     @State private var showingAnniversary = false
+    /// The partner's fresh start request, or a clear that keeps failing.
+    @State private var showingFreshStart = false
     /// Owned here so leaving the screen or starting a second memo stops playback.
     @State private var voicePlayer = VoicePlayer()
     /// The user chose to see a filter-hidden status message this once.
@@ -150,6 +152,18 @@ struct HomeView: View {
                 .environment(model)
                 .presentsModelErrors()
         }
+        .sheet(isPresented: $showingFreshStart) {
+            NavigationStack {
+                FreshStartView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showingFreshStart = false }
+                        }
+                    }
+            }
+            .environment(model)
+            .presentsModelErrors()
+        }
         .onChange(of: model.pendingComposer) { _, pending in
             if pending { consumePendingComposer() }
         }
@@ -216,6 +230,24 @@ struct HomeView: View {
                            urgent: true) {
                 showingSettings = true
             }
+        } else if model.showsFreshStartRequest {
+            // The request's only delivery: no push, no banner (it rides any refresh).
+            HomeNoticeCard(systemImage: "sparkles",
+                           title: "\(model.partnerName) asked for a fresh start",
+                           message: "Clearing the history you share — moments, status history and read receipts — from both iPhones. Your link, your statuses and the heart stay. Nothing changes unless you agree.",
+                           actionTitle: "Review…",
+                           dismissTitle: "Not now",
+                           onDismiss: { model.dismissFreshStartRequest() }) {
+                showingFreshStart = true
+            }
+        } else if model.freshStartNeedsAttention {
+            HomeNoticeCard(systemImage: "exclamationmark.arrow.circlepath",
+                           title: "Your fresh start hasn't finished",
+                           message: "This iPhone couldn't clear its side yet. It tries again whenever the app opens.",
+                           actionTitle: "Review…",
+                           urgent: true) {
+                showingFreshStart = true
+            }
         } else if model.showsCloseLinkPrompt {
             HomeNoticeCard(systemImage: "lock.open",
                            title: "\(model.partnerName)'s in",
@@ -241,7 +273,7 @@ struct HomeView: View {
     private var anySheetShowing: Bool {
         showingPicker || showingSettings || showingComposer || showingVoiceComposer
             || showingLibrary || showingStatusHistory || showingAnniversary
-            || !carouselQueue.isEmpty
+            || showingFreshStart || !carouselQueue.isEmpty
     }
 
     private func consumePendingComposer() {

@@ -10,6 +10,15 @@ final class FakeBackend: SyncBackend, @unchecked Sendable {
     private var _statusSeen: [StatusSeen?] = []
     private var _anniversaries: [Anniversary?] = []
     private var _requests: [Date] = []
+    private var _freshStartIntents: [FreshStartIntent] = []
+    private var _clears: [(epoch: Date, keep: Date?)] = []
+    private var _freshStartServer: FreshStartRecord?
+    /// The server's clock for an ask's save.
+    var freshStartSavedAt = Fixtures.date(1_000)
+    /// What a clear reports of the zone.
+    var clearZone = FreshStartPolicy.Zone()
+    /// Runs inside `clearHistory` — a send landing mid-clear.
+    var duringClear: (@Sendable () -> Void)?
     private var failures: [String: [Error]] = [:]
     /// Runs inside the call, before it returns — a write landing mid-flight.
     var duringPublish: (@Sendable () -> Void)?
@@ -21,6 +30,13 @@ final class FakeBackend: SyncBackend, @unchecked Sendable {
     var statusSeen: [StatusSeen?] { lock.withLock { _statusSeen } }
     var anniversaries: [Anniversary?] { lock.withLock { _anniversaries } }
     var requests: [Date] { lock.withLock { _requests } }
+    var freshStartIntents: [FreshStartIntent] { lock.withLock { _freshStartIntents } }
+    var clears: [(epoch: Date, keep: Date?)] { lock.withLock { _clears } }
+    /// Our `FreshStart` record as the fake server holds it.
+    var freshStartServer: FreshStartRecord? {
+        get { lock.withLock { _freshStartServer } }
+        set { lock.withLock { _freshStartServer = newValue } }
+    }
 
     /// The next `count` calls to `method` throw `error`.
     func fail(_ method: String, with error: Error, times count: Int = 1) {
@@ -51,6 +67,9 @@ final class FakeBackend: SyncBackend, @unchecked Sendable {
     }
     func fetchMedia(for moment: Moment) async throws {}
     func fetchThumbnail(for moment: Moment) async throws {}
+    func archiveZone() async throws -> ArchiveContents.Zone {
+        ArchiveContents.Zone(moments: [], statuses: [], unreadable: 0)
+    }
     func publishReceipts(_ seen: [String: Date], statusSeen: StatusSeen?) async throws {
         duringReceipts?()
         try check("receipts")
@@ -66,6 +85,31 @@ final class FakeBackend: SyncBackend, @unchecked Sendable {
     func publishAnniversaryRequest(at date: Date) async throws {
         try check("request")
         lock.withLock { _requests.append(date) }
+    }
+    /// The real transition rule against the fake server copy.
+    func publishFreshStart(_ intent: FreshStartIntent) async throws -> FreshStartPublishResult {
+        try check("freshStart")
+        return lock.withLock {
+            _freshStartIntents.append(intent)
+            switch FreshStartPolicy.transition(intent, from: _freshStartServer) {
+            case .write(var record):
+                if record.stage == .asking { record.epoch = freshStartSavedAt }
+                _freshStartServer = record
+                return .saved(record)
+            case .unchanged(let record):
+                return .saved(record)
+            case .refused(let record):
+                return .refused(record)
+            }
+        }
+    }
+    func clearHistory(before epoch: Date, keepingStatusLogAt keep: Date?) async throws -> FreshStartPolicy.Zone {
+        duringClear?()
+        try check("clear")
+        return lock.withLock {
+            _clears.append((epoch, keep))
+            return clearZone
+        }
     }
     func registerSubscription() async throws {}
     func noteAccountChanged() async {}
@@ -84,6 +128,9 @@ final class OutboxTests: XCTestCase {
     private var media: Set<String> = []
     /// Times the outbox told the store its index lost an entry.
     private var indexChanges = 0
+    private var statusLog: StatusHistoryLog!
+    /// Moment ids whose files the outbox deleted.
+    private var deletedMedia: [String] = []
 
     override func setUp() async throws {
         store = SharedStore(defaults: temporaryDefaults())
@@ -93,11 +140,15 @@ final class OutboxTests: XCTestCase {
         backend = FakeBackend()
         media = []
         indexChanges = 0
+        deletedMedia = []
+        statusLog = StatusHistoryLog(fileURL: temporaryFile("status-history.json"))
         let backend = backend!
         outbox = Outbox(store: store,
                         index: index,
+                        statusLog: statusLog,
                         backend: { backend },
                         hasMedia: { [unowned self] in self.media.contains($0.id) },
+                        deleteMedia: { [unowned self] in self.deletedMedia.append($0) },
                         protect: { _, body in try await body() },
                         indexChanged: { [unowned self] in self.indexChanges += 1 })
     }

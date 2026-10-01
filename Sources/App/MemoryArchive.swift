@@ -18,8 +18,14 @@ enum MemoryArchive {
         let folder: URL
         let destination: Destination
         let momentCount: Int
+        let statusCount: Int
         /// Moments whose media couldn't be recovered — listed in the archive, not quietly dropped.
         let unrecovered: Int
+        /// The zone was read and every record in it was readable; anything short
+        /// of that must not be the last copy before a delete.
+        let isComplete: Bool
+        let includesZone: Bool
+        let unreadable: Int
     }
 
     enum ArchiveError: LocalizedError {
@@ -27,20 +33,24 @@ enum MemoryArchive {
 
         var errorDescription: String? {
             switch self {
-            case .nothingToSave: return String(localized: "There's nothing saved on this iPhone to archive yet.")
+            case .nothingToSave: return String(localized: "There's nothing to archive yet.")
             }
         }
     }
 
-    /// - Parameters:
-    ///   - moments: the whole history, in any order.
-    ///   - progress: called with `0...1` as media is gathered.
-    static func write(_ moments: [Moment],
+    /// The partner's words go through the presentation helpers, like every other
+    /// surface (invariant 20): `reportedStatusAt` hides a reported status.
+    /// - Parameter progress: called with `0...1` as media is gathered.
+    static func write(_ contents: ArchiveContents,
+                      myName: String,
                       partnerName: String,
+                      reportedStatusAt: Date?,
                       progress: @escaping @Sendable (Double) -> Void) async throws -> Outcome {
-        guard !moments.isEmpty else { throw ArchiveError.nothingToSave }
+        guard !contents.isEmpty else { throw ArchiveError.nothingToSave }
 
-        let ordered = moments.sorted { $0.sentAt < $1.sentAt }
+        let ordered = contents.moments
+        let names = Names(me: myName, partner: partnerName)
+        let statuses = contents.statuses.map { $0.moderated(reportedAt: reportedStatusAt) }
         let store = MomentStore.shared
         let fileManager = FileManager.default
 
@@ -72,7 +82,7 @@ enum MemoryArchive {
                                                            isDirectory: true)
             try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
 
-            let name = Self.fileName(for: moment, extension: source.pathExtension)
+            let name = Self.fileName(for: moment, names: names, extension: source.pathExtension)
             let destination = Self.unusedURL(in: directory, named: name)
             do {
                 try fileManager.copyItem(at: source, to: destination)
@@ -86,9 +96,9 @@ enum MemoryArchive {
             }
         }
 
-        try Self.html(for: entries, partnerName: partnerName)
+        try Self.html(for: entries, statuses: statuses, contents: contents, names: names)
             .write(to: staging.appendingPathComponent("Memories.html"), atomically: true, encoding: .utf8)
-        try Self.text(for: entries, partnerName: partnerName)
+        try Self.text(for: entries, statuses: statuses, contents: contents, names: names)
             .write(to: staging.appendingPathComponent("Memories.txt"), atomically: true, encoding: .utf8)
 
         progress(1)
@@ -100,10 +110,10 @@ enum MemoryArchive {
 
         guard let container else {
             log.notice("No iCloud Drive; archive left on the device for sharing.")
-            return Outcome(folder: staging,
-                           destination: .deviceOnly,
-                           momentCount: ordered.count,
-                           unrecovered: unrecovered)
+            return Outcome(folder: staging, destination: .deviceOnly,
+                           momentCount: ordered.count, statusCount: statuses.count,
+                           unrecovered: unrecovered, isComplete: contents.isComplete,
+                           includesZone: contents.includesZone, unreadable: contents.unreadable)
         }
 
         let documents = container.appendingPathComponent("Documents", isDirectory: true)
@@ -111,11 +121,11 @@ enum MemoryArchive {
         let final = Self.unusedURL(in: documents, named: folderName)
         try fileManager.moveItem(at: staging, to: final)
 
-        log.notice("Archived \(ordered.count) moments to iCloud Drive.")
-        return Outcome(folder: final,
-                       destination: .iCloudDrive,
-                       momentCount: ordered.count,
-                       unrecovered: unrecovered)
+        log.notice("Archived \(ordered.count) moments and \(statuses.count) statuses to iCloud Drive.")
+        return Outcome(folder: final, destination: .iCloudDrive,
+                       momentCount: ordered.count, statusCount: statuses.count,
+                       unrecovered: unrecovered, isComplete: contents.isComplete,
+                       includesZone: contents.includesZone, unreadable: contents.unreadable)
     }
 
     // MARK: - Naming
@@ -124,6 +134,19 @@ enum MemoryArchive {
         let moment: Moment
         /// `nil` when the file couldn't be recovered.
         let relativePath: String?
+    }
+
+    private struct Names {
+        let me: String
+        let partner: String
+
+        func sender(of moment: Moment) -> String {
+            let fallback = moment.fromMe ? me : partner
+            let shown = moment.displaySenderName(fallback: fallback)
+            return shown.isEmpty ? fallback : shown
+        }
+
+        func author(of status: StatusHistoryEntry) -> String { status.fromMe ? me : partner }
     }
 
     private static func subfolder(for kind: Moment.Kind) -> String {
@@ -149,7 +172,7 @@ enum MemoryArchive {
     private static let fileDateFormat = fixedFormat("yyyy-MM-dd HHmm")
 
     private static func folderName(partnerName: String) -> String {
-        let partner = sanitised(partnerName)
+        let partner = prefix(sanitised(partnerName), bytes: 60)
         let today = folderDateFormat.string(from: Date())
         return partner.isEmpty
             ? "\(AppConfig.appName) memories \(today)"
@@ -157,13 +180,24 @@ enum MemoryArchive {
     }
 
     /// Dated, attributed and captioned — the filename is the only metadata that survives copying.
-    private static func fileName(for moment: Moment, extension ext: String) -> String {
-        var name = fileDateFormat.string(from: moment.sentAt) + " " + sanitised(moment.senderName)
-        let caption = sanitised(moment.caption)
+    private static func fileName(for moment: Moment, names: Names, extension ext: String) -> String {
+        var name = fileDateFormat.string(from: moment.sentAt) + " " + prefix(sanitised(names.sender(of: moment)), bytes: 60)
+        let caption = sanitised(moment.displayCaption ?? "")
         if !caption.isEmpty {
-            name += " — " + String(caption.prefix(40))
+            name += " — " + prefix(caption, bytes: 100)
         }
         return name + "." + (ext.isEmpty ? "dat" : ext)
+    }
+
+    /// Filenames are capped in bytes (255 on APFS), and emoji run four a character;
+    /// past the cap the copy failed and the moment was listed as unrecovered.
+    private static func prefix(_ text: String, bytes: Int) -> String {
+        var result = ""
+        for character in text {
+            guard result.utf8.count + character.utf8.count <= bytes else { break }
+            result.append(character)
+        }
+        return result.trimmingCharacters(in: .whitespaces)
     }
 
     /// Strips what a filesystem — or a person reading a filename — can't use.
@@ -197,30 +231,72 @@ enum MemoryArchive {
         return formatter
     }()
 
-    private static func text(for entries: [Entry], partnerName: String) -> String {
-        var lines = ["\(AppConfig.appName) — memories with \(partnerName)",
-                     "\(entries.count) moments, oldest first.",
-                     ""]
+    private static let readableDay: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .long
+        formatter.timeStyle = .none
+        return formatter
+    }()
+
+    /// What the header says beyond the counts: the pair's date, and anything
+    /// the archive couldn't hold — said, never silently missing.
+    private static func notes(for contents: ArchiveContents) -> [String] {
+        var notes: [String] = []
+        if let anniversary = contents.anniversary {
+            let day = readableDay.string(from: anniversary.startsAt)
+            notes.append(String(localized: "Your date: \(day)."))
+        }
+        if !contents.includesZone {
+            notes.append(String(localized: "iCloud couldn't be reached, so this holds only what was on this iPhone."))
+        } else if contents.unreadable > 0 {
+            notes.append(String(localized: "\(contents.unreadable) items in iCloud couldn't be read on this iPhone and aren't included."))
+        }
+        return notes
+    }
+
+    private static func statusLine(_ status: StatusHistoryEntry, names: Names) -> String {
+        var line = readableDate.string(from: status.at) + "  ·  " + names.author(of: status)
+            + "  ·  " + status.emoji
+        if !status.message.isEmpty { line += " " + status.message }
+        if status.isCelebration { line += "  🎉" }
+        return line
+    }
+
+    private static func text(for entries: [Entry],
+                             statuses: [StatusHistoryEntry],
+                             contents: ArchiveContents,
+                             names: Names) -> String {
+        var lines = ["\(AppConfig.appName) — memories with \(names.partner)",
+                     "\(entries.count) moments and \(statuses.count) statuses, oldest first."]
+        lines += notes(for: contents)
+        lines.append("")
         for entry in entries {
             let moment = entry.moment
-            var line = readableDate.string(from: moment.sentAt) + "  ·  " + moment.senderName
-            if !moment.caption.isEmpty { line += "  ·  \u{201C}\(moment.caption)\u{201D}" }
+            var line = readableDate.string(from: moment.sentAt) + "  ·  " + names.sender(of: moment)
+            if let caption = moment.displayCaption { line += "  ·  \u{201C}\(caption)\u{201D}" }
             if moment.isVoice, moment.duration > 0 {
                 line += "  ·  \(Int(moment.duration.rounded()))s"
             }
             line += "  ·  " + (entry.relativePath ?? "[file no longer available]")
             lines.append(line)
         }
+        if !statuses.isEmpty {
+            lines += ["", "Statuses", ""]
+            lines += statuses.map { statusLine($0, names: names) }
+        }
         return lines.joined(separator: "\n") + "\n"
     }
 
-    private static func html(for entries: [Entry], partnerName: String) -> String {
+    private static func html(for entries: [Entry],
+                             statuses: [StatusHistoryEntry],
+                             contents: ArchiveContents,
+                             names: Names) -> String {
         let items = entries.map { entry -> String in
             let moment = entry.moment
+            let sender = names.sender(of: moment)
             let when = escaped(readableDate.string(from: moment.sentAt))
-            let who = escaped(moment.senderName)
-            let caption = moment.caption.isEmpty ? "" :
-                "<p class=\"caption\">\(escaped(moment.caption))</p>"
+            let who = escaped(sender)
+            let caption = moment.displayCaption.map { "<p class=\"caption\">\(escaped($0))</p>" } ?? ""
 
             let media: String
             var trailing = "\(who) · \(when)"
@@ -233,9 +309,8 @@ enum MemoryArchive {
                     trailing += " · \(Int(moment.duration.rounded()))s"
                 }
             case (let path?, _):
-                let alt = moment.caption.isEmpty
-                    ? "A \(moment.kind == .drawing ? "drawing" : "photo") from \(moment.senderName)"
-                    : moment.caption
+                let alt = moment.displayCaption
+                    ?? "A \(moment.kind == .drawing ? "drawing" : "photo") from \(sender)"
                 media = "<img src=\"\(href(path))\" alt=\"\(escaped(alt))\">"
             }
 
@@ -248,13 +323,31 @@ enum MemoryArchive {
             """
         }.joined(separator: "\n")
 
+        let statusItems = statuses.map { status -> String in
+            let words = status.message.isEmpty ? "" : " \(escaped(status.message))"
+            let celebration = status.isCelebration ? " 🎉" : ""
+            return """
+            <li><span class="status">\(escaped(status.emoji))\(words)\(celebration)</span>\
+            <span class="meta">\(escaped(names.author(of: status))) · \(escaped(readableDate.string(from: status.at)))</span></li>
+            """
+        }.joined(separator: "\n")
+        let statusSection = statuses.isEmpty ? "" : """
+        <section>
+          <h2>Statuses</h2>
+          <ul class="statuses">
+        \(statusItems)
+          </ul>
+        </section>
+        """
+        let notes = notes(for: contents).map { "<p class=\"lede\">\(escaped($0))</p>" }.joined(separator: "\n")
+
         return """
         <!doctype html>
         <html lang="en">
         <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>\(escaped(AppConfig.appName)) memories with \(escaped(partnerName))</title>
+        <title>\(escaped(AppConfig.appName)) memories with \(escaped(names.partner))</title>
         <style>
           :root { color-scheme: light dark; }
           body {
@@ -263,22 +356,29 @@ enum MemoryArchive {
           }
           header { margin-bottom: 48px; }
           h1 { font-size: 30px; margin: 0 0 8px; }
-          .lede { opacity: 0.65; margin: 0; }
+          h2 { font-size: 22px; margin: 56px 0 16px; }
+          .lede { opacity: 0.65; margin: 0 0 6px; }
           figure { margin: 0 0 44px; }
           img { width: 100%; height: auto; border-radius: 18px; display: block; }
           audio { width: 100%; }
           .caption { font-size: 20px; font-weight: 600; margin: 14px 0 4px; }
           figcaption, .meta { font-size: 14px; opacity: 0.6; margin: 6px 0 0; }
           .missing { font-size: 15px; opacity: 0.6; font-style: italic; margin: 0; }
+          .statuses { list-style: none; padding: 0; margin: 0; }
+          .statuses li { margin: 0 0 18px; }
+          .statuses .status { display: block; font-size: 18px; }
+          .statuses .meta { display: block; margin: 2px 0 0; }
         </style>
         </head>
         <body>
         <header>
-          <h1>Memories with \(escaped(partnerName))</h1>
-          <p class="lede">\(entries.count) moments, oldest first. \
+          <h1>Memories with \(escaped(names.partner))</h1>
+          <p class="lede">\(entries.count) moments and \(statuses.count) statuses, oldest first. \
         The photos and recordings sit beside this page in their own folders.</p>
+        \(notes)
         </header>
         \(items)
+        \(statusSection)
         </body>
         </html>
         """

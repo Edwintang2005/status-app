@@ -46,14 +46,8 @@ extension CloudSync {
                                   in zone: CKRecordZone.ID,
                                   database: CKDatabase) async throws {
         let changes = try await fetchZoneChanges(zone: zone, in: database, since: nil)
-        let mine = changes.records.map(\.recordID).filter { id in
-            let name = id.recordName
-            return name == role.statusRecordName
-                || name == role.nudgeRecordName
-                || name == role.receiptRecordName
-                || (role == .participant && name == Self.anniversaryRequestRecordName)
-                || role.momentID(fromRecordName: name) != nil
-                || role.statusLogDate(fromRecordName: name) != nil
+        let mine = changes.records.map(\.recordID).filter {
+            ZoneClearPlan.deletes($0.recordName, role: role, scope: .unlink)
         }
         guard !mine.isEmpty else { return }
 

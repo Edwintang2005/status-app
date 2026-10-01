@@ -46,6 +46,9 @@ enum SyncError: LocalizedError {
     /// More than one person joined through the link. The close handshake would
     /// re-seat them all, so it refuses rather than lock a stranger in.
     case tooManyOnShare(Int)
+    /// The clear was due, but the zone's own `FreshStart` records don't show
+    /// both sides committed (any more): nothing is deleted on a guess.
+    case freshStartNotAgreed
 
     var errorDescription: String? {
         switch self {
@@ -92,6 +95,8 @@ enum SyncError: LocalizedError {
             return String(localized: "iCloud didn't confirm the save. It will be retried.")
         case .existingPairing:
             return String(localized: "This iCloud account still has an earlier shared space. Rejoin it to carry on, or start a new one — which deletes the old one.")
+        case .freshStartNotAgreed:
+            return String(localized: "iCloud doesn't show the fresh start agreed by both of you, so nothing was cleared. It will be checked again next time you open the app.")
         case .tooManyOnShare(let count):
             return String(localized: "\(count) people besides you are on your shared space, so closing the invite link would keep all of them in. To be sure only your partner has access, unlink in Settings — which deletes the shared space for both of you — and send them a new link.")
         }
@@ -140,6 +145,8 @@ actor CloudSync: SyncBackend {
         static let anniversary = "Anniversary"
         /// One per pair, written by the participant: "please set the date".
         static let anniversaryRequest = "AnniversaryRequest"
+        /// One per side: asking for, agreeing to or committing a fresh start.
+        static let freshStart = "FreshStart"
     }
 
     /// The pair's one `Anniversary` record. Not role-derived: there is only
@@ -190,6 +197,12 @@ actor CloudSync: SyncBackend {
         // AnniversaryRequest. Encrypted for the same reason, and it doubles as
         // the type's readability probe.
         static let requestedAt = "requestedAt"
+
+        // FreshStart. Who asked to clear the history is behavioural, so every
+        // field is encrypted; `stage` is always written and is the type's probe.
+        static let stage = "stage"
+        static let epoch = "epoch"
+        static let clearedBefore = "clearedBefore"
     }
 
     /// One subscription per record type — each wants a different payload.

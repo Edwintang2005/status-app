@@ -46,6 +46,24 @@ final class MomentIndexTests: XCTestCase {
         XCTAssertEqual(index.load().count, 5)
     }
 
+    /// After a fresh start "not returned" is mostly "cleared": a second device's
+    /// old index must not re-send the cleared history.
+    func testRequeueLeavesSendsFromBeforeAFreshStartAlone() {
+        let (index, _) = makeIndex()
+        index.insert([Fixtures.moment("cleared", at: Fixtures.date(100), fromMe: true),
+                      Fixtures.moment("lostSince", at: Fixtures.date(2_000), fromMe: true)])
+        let requeued = index.requeueMissingUploads(delivered: [], hasMedia: { _ in true },
+                                                   clearedBefore: Fixtures.date(1_000))
+        XCTAssertEqual(requeued.map(\.id), ["lostSince"])
+    }
+
+    func testRemovingManyAtOnce() {
+        let (index, _) = makeIndex()
+        index.insert([Fixtures.moment("a"), Fixtures.moment("b", at: Fixtures.date(1)), Fixtures.moment("c", at: Fixtures.date(2))])
+        index.remove(ids: ["a", "c", "missing"])
+        XCTAssertEqual(index.load().map(\.id), ["b"])
+    }
+
     func testEncryptedTextSurvivesUnreadableRedelivery() {
         let (index, _) = makeIndex()
         var sent = Fixtures.moment("v1", kind: .voice)

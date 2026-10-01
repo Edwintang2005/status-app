@@ -103,13 +103,17 @@ final class MomentIndex: @unchecked Sendable {
 
     /// The same, but `nil` when the file couldn't be read — judged under the
     /// lock, so a caller never prunes media against a delta-only list.
-    func insertReadable(_ moments: [Moment]) -> [Moment]? {
+    /// `cleared` is built *inside* the lock: a fresh start another process
+    /// committed and purged after this delta was parsed still keeps its
+    /// history out (`FreshStartPolicy.clearedFilter`).
+    func insertReadable(_ moments: [Moment], cleared: (() -> (Moment) -> Bool)? = nil) -> [Moment]? {
         lock.lock()
         defer { lock.unlock() }
 
         return crossLock.withLock {
             var all = loadUnlocked()
-            for moment in moments {
+            let isCleared = cleared?() ?? { _ in false }
+            for moment in moments where !isCleared(moment) {
                 var moment = moment
                 // `seen` is local-only; a full resync re-inserts everything, and
                 // without this merge heard voice memos would re-badge as new.
@@ -210,10 +214,13 @@ final class MomentIndex: @unchecked Sendable {
     /// not return were never stored (a save whose failure went unnoticed) and
     /// go back in the retry queue. Only those whose media is still here — a
     /// pending entry without media is dropped by the retry as a ghost, and the
-    /// local copy is all that's left of these. Returns what was re-queued.
+    /// local copy is all that's left of these. Sends from before a fresh
+    /// start's epoch (`clearedBefore`) were cleared, not lost, and stay out.
+    /// Returns what was re-queued.
     @discardableResult
     func requeueMissingUploads(delivered: Set<String>,
-                               hasMedia: (Moment) -> Bool) -> [Moment] {
+                               hasMedia: (Moment) -> Bool,
+                               clearedBefore: Date? = nil) -> [Moment] {
         lock.lock()
         defer { lock.unlock() }
 
@@ -222,7 +229,9 @@ final class MomentIndex: @unchecked Sendable {
             var requeued: [Moment] = []
             for index in all.indices
             where all[index].fromMe && all[index].uploaded
-                && !delivered.contains(all[index].id) && hasMedia(all[index]) {
+                && !delivered.contains(all[index].id)
+                && all[index].sentAt >= (clearedBefore ?? .distantPast)
+                && hasMedia(all[index]) {
                 all[index].uploaded = false
                 requeued.append(all[index])
             }
@@ -238,6 +247,19 @@ final class MomentIndex: @unchecked Sendable {
             var all = loadUnlocked()
             all.removeAll { $0.id == id }
             saveUnlocked(all)
+        }
+    }
+
+    /// One lock for many — a fresh start's local clear.
+    func remove(ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        crossLock.withLock {
+            var all = loadUnlocked()
+            let before = all.count
+            all.removeAll { ids.contains($0.id) }
+            if all.count != before { saveUnlocked(all) }
         }
     }
 
