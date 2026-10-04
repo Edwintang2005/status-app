@@ -22,6 +22,9 @@ enum Theme {
     /// Orange *text*, adaptive: `warmDeep` on light grounds, `warm` on dark,
     /// where the deep shade is under 4:1 on black.
     static let warmText = adaptive(light: warmDeep, dark: warm)
+    /// Small informational text — captions, timestamps, "Seen …": 5.5:1 on
+    /// cream, where `.secondary` is 3.3:1 and `.tertiary` 1.7:1.
+    static let mutedText = adaptive(light: Color(red: 0.42, green: 0.37, blue: 0.36), dark: Color(white: 0.72))
 
     private static func adaptive(light: Color, dark: Color) -> Color {
         Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(dark) : UIColor(light) })
@@ -152,5 +155,20 @@ struct SecondaryButtonStyle: ButtonStyle {
             .padding(.vertical, 14)
             .background(Theme.accent.opacity(configuration.isPressed ? 0.20 : 0.12),
                         in: Capsule())
+    }
+}
+
+// MARK: - Scroll edge
+
+extension View {
+    /// A scrolled title sits on a hard edge: iOS 26's soft one let the title
+    /// draw over the content beneath it (the heart button's label).
+    @ViewBuilder
+    func hardTopScrollEdge() -> some View {
+        if #available(iOS 26, *) {
+            scrollEdgeEffectStyle(.hard, for: .top)
+        } else {
+            self
+        }
     }
 }

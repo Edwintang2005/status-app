@@ -143,7 +143,8 @@ struct MomentWidgetView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             }
         }
-        .widgetURL(URL(string: "redstring://open"))
+        // The photo opens itself; with a memo waiting, Home (where it plays).
+        .widgetURL(URL(string: unheardMemos > 0 ? "redstring://open" : "redstring://moment/\(moment.id)"))
     }
 
     private var empty: some View {

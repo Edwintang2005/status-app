@@ -51,6 +51,7 @@ struct StatusHistoryView: View {
                             }
                         }
                         .scrollContentBackground(.hidden)
+                        .hardTopScrollEdge()
                     }
                 }
             }
@@ -67,16 +68,19 @@ struct StatusHistoryView: View {
 
     private func row(_ entry: StatusHistoryEntry) -> some View {
         HStack(spacing: 12) {
+            // Emoji-only is a status of its own: the emoji, a little larger, and its time.
             Text(entry.emoji)
-                .font(.system(size: 28))
+                .font(.system(size: entry.message.isEmpty ? 34 : 28))
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(entry.message.isEmpty ? String(localized: "no message") : entry.message)
-                    .font(Theme.rounded(16, .medium))
-                    .foregroundStyle(entry.message.isEmpty || isPlaceholder(entry) ? .secondary : .primary)
+                if !entry.message.isEmpty {
+                    Text(entry.message)
+                        .font(Theme.rounded(16, .medium))
+                        .foregroundStyle(isPlaceholder(entry) ? Theme.mutedText : .primary)
+                }
                 Text(who(entry) + " · " + entry.at.formatted(date: .omitted, time: .shortened))
                     .font(Theme.rounded(12))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.mutedText)
             }
 
             Spacer(minLength: 0)

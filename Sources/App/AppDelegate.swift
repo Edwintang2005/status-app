@@ -100,6 +100,13 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
             let message = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !message.isEmpty else { return }
             await AppModel.current?.setStatus(emoji: "💬", message: message)
+        case UNNotificationDefaultActionIdentifier:
+            // Tapping a moment's banner opens the moment, not just Home; the
+            // route waits for Home to be free to show it.
+            if response.notification.request.content.categoryIdentifier == NotificationCategory.moment,
+               let model = AppModel.current, model.isPaired {
+                model.pendingRoute = .newMoments
+            }
         default:
             break
         }

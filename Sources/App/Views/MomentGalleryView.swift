@@ -209,11 +209,16 @@ struct MomentGalleryView: View {
                 }
                 Text(attribution(moment))
                     .font(Theme.rounded(13))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.mutedText)
                 if let seen = seenLine(moment) {
                     Label(seen, systemImage: "eye.fill")
                         .font(Theme.rounded(12))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.mutedText)
+                }
+                // Answer what you're looking at: the banner's "Send a heart back", here too.
+                if !moment.fromMe {
+                    HeartBackButton(prominent: false)
+                        .padding(.top, 10)
                 }
             }
 
@@ -415,3 +420,56 @@ struct MomentGalleryView: View {
         .tint(Theme.accent)
 }
 #endif
+
+/// The heart, sent from wherever their content is: the nudge itself, so the
+/// cooldown and its failure handling are `CloudSync.sendNudge`'s.
+struct HeartBackButton: View {
+    /// The celebration's main button, or a quieter one under a photo.
+    var prominent = true
+    var afterSending: () -> Void = {}
+
+    @Environment(AppModel.self) private var model
+    @State private var remaining: TimeInterval = 0
+
+    var body: some View {
+        Button {
+            Task {
+                await model.sendNudge()
+                afterSending()
+            }
+        } label: {
+            if remaining > 0 {
+                Label("Sent · \(Int(remaining))s", systemImage: "checkmark")
+            } else {
+                Label("Send a heart back", systemImage: "heart.fill")
+            }
+        }
+        .buttonStyle(styled)
+        .disabled(remaining > 0 || !model.canNudge)
+        .task(id: model.snapshot.lastNudgeSentAt) {
+            while !Task.isCancelled {
+                let elapsed = Date().timeIntervalSince(model.snapshot.lastNudgeSentAt ?? .distantPast)
+                remaining = max(0, AppConfig.nudgeCooldown - elapsed)
+                guard remaining > 0 else { return }
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
+
+    private var styled: AnyButtonStyle {
+        prominent ? AnyButtonStyle(PrimaryButtonStyle()) : AnyButtonStyle(SecondaryButtonStyle())
+    }
+}
+
+/// Either of the app's two button styles, chosen at runtime.
+struct AnyButtonStyle: ButtonStyle {
+    private let make: (Configuration) -> AnyView
+
+    init<S: ButtonStyle>(_ style: S) {
+        make = { AnyView(style.makeBody(configuration: $0)) }
+    }
+
+    func makeBody(configuration: Configuration) -> some View {
+        make(configuration)
+    }
+}

@@ -7,6 +7,7 @@ struct CelebrationOverlay: View {
     let partnerName: String
     let onDismiss: () -> Void
 
+    @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
     /// Fixed at init so the confetti doesn't reshuffle on every redraw.
@@ -40,10 +41,16 @@ struct CelebrationOverlay: View {
         .accessibilityLabel("\(headline). From \(partnerName).")
         .accessibilityAddTraits(.isModal)
         .accessibilityAction(named: "Dismiss", finish)
+        .accessibilityAction(named: "Send a heart back") {
+            Task {
+                await model.sendNudge()
+                finish()
+            }
+        }
         .task {
             start = .now
             UINotificationFeedbackGenerator().notificationOccurred(.success)
-            withAnimation(.spring(response: 0.7, dampingFraction: 0.6)) { revealed = true }
+            withAnimation(reduceMotion ? .easeIn(duration: 0.4) : .spring(response: 0.7, dampingFraction: 0.6)) { revealed = true }
         }
     }
 
@@ -58,13 +65,13 @@ struct CelebrationOverlay: View {
                            center: .center,
                            startRadius: 0,
                            endRadius: 420)
-                .scaleEffect(revealed ? 1 : 0.2)
+                .scaleEffect(revealed || reduceMotion ? 1 : 0.2)
                 .opacity(revealed ? 1 : 0)
             RadialGradient(colors: [Theme.accent.opacity(0.40), .clear],
                            center: UnitPoint(x: 0.5, y: 0.72),
                            startRadius: 0,
                            endRadius: 360)
-                .scaleEffect(revealed ? 1 : 0.2)
+                .scaleEffect(revealed || reduceMotion ? 1 : 0.2)
                 .opacity(revealed ? 1 : 0)
         }
     }
@@ -75,8 +82,10 @@ struct CelebrationOverlay: View {
 
             Text(payload.emoji)
                 .font(.system(size: 84))
-                .scaleEffect(revealed ? 1 : 0.3)
-                .rotationEffect(.degrees(revealed ? 0 : -25))
+                // Under Reduce Motion everything here only fades.
+                .scaleEffect(revealed || reduceMotion ? 1 : 0.3)
+                .rotationEffect(.degrees(revealed || reduceMotion ? 0 : -25))
+                .opacity(revealed ? 1 : 0)
                 .padding(.bottom, 26)
 
             // Sized to fit rather than truncated — anniversary messages run long.
@@ -87,7 +96,7 @@ struct CelebrationOverlay: View {
                 .minimumScaleFactor(0.45)
                 .foregroundStyle(.primary)
                 .shadow(color: Theme.warm.opacity(0.35), radius: 18)
-                .scaleEffect(revealed ? 1 : 0.8)
+                .scaleEffect(revealed || reduceMotion ? 1 : 0.8)
                 .opacity(revealed ? 1 : 0)
                 .padding(.horizontal, 34)
 
@@ -99,18 +108,16 @@ struct CelebrationOverlay: View {
 
             Spacer(minLength: 0)
 
-            Button(action: finish) {
-                Label("Love it", systemImage: "heart.fill")
-            }
-            .buttonStyle(PrimaryButtonStyle(tint: Theme.warmDeep))
-            .padding(.horizontal, 44)
+            // The natural answer to their moment: the heart, then out.
+            HeartBackButton(afterSending: finish)
+                .padding(.horizontal, 44)
             .opacity(revealed ? 1 : 0)
             // Delayed until the words have landed.
             .animation(.smooth(duration: 0.4).delay(0.7), value: revealed)
 
             Text("Tap anywhere to close")
-                .font(Theme.rounded(12))
-                .foregroundStyle(.tertiary)
+                .font(Theme.rounded(13))
+                .foregroundStyle(Theme.mutedText)
                 .padding(.top, 12)
                 .opacity(revealed ? 1 : 0)
                 .animation(.smooth(duration: 0.4).delay(1.1), value: revealed)
@@ -226,6 +233,7 @@ struct ConfettiLayer: View {
                                                   lastNudgeAt: nil,
                                                   isCelebration: true),
                            partnerName: "Sam") {}
+            .environment(AppModel.previewModel())
     }
 }
 #endif

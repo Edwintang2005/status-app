@@ -45,6 +45,7 @@ struct MomentLibraryView: View {
                             }
                             .padding(12)
                         }
+                        .hardTopScrollEdge()
                     }
                 }
             }
@@ -60,9 +61,13 @@ struct MomentLibraryView: View {
                         }
                         .pickerStyle(.inline)
                     } label: {
-                        Image(systemName: kind == .all
-                              ? "line.3.horizontal.decrease.circle"
-                              : "line.3.horizontal.decrease.circle.fill")
+                        // Says its choice, rather than a bare glyph that read as a
+                        // menu button. Not a Label: the toolbar would drop its title.
+                        HStack(spacing: 5) {
+                            Image(systemName: "line.3.horizontal.decrease")
+                            Text(kind.label)
+                        }
+                        .font(Theme.rounded(15, .semibold))
                     }
                     .accessibilityLabel("Filter by type")
                     .accessibilityValue(kind.label)
@@ -93,7 +98,7 @@ struct MomentLibraryView: View {
 
     private var title: String {
         let count = filtered.count
-        return count == 0 ? String(localized: "History") : String(localized: "History · \(count)")
+        return count == 0 ? String(localized: "Moments") : String(localized: "Moments · \(count)")
     }
 
     private func cell(_ moment: Moment) -> some View {
@@ -106,20 +111,21 @@ struct MomentLibraryView: View {
 
                 if !moment.seen && !moment.fromMe {
                     Circle()
-                        .fill(Theme.warm)
+                        .fill(Theme.warmDeep)
                         .frame(width: 10, height: 10)
                         .overlay(Circle().strokeBorder(.white, lineWidth: 1.5))
                         .padding(7)
                 }
             }
             .overlay(alignment: .bottomLeading) {
-                if moment.fromMe {
-                    // Un-uploaded sends wear a clock (cleared by `Outbox.retryPendingUploads`);
-                    // seen-by-partner (read receipts on, both sides) wears an eye.
-                    Image(systemName: sentBadgeSymbol(moment))
-                        .font(.system(size: 9, weight: .bold))
+                // Un-uploaded sends wear a clock (cleared by `Outbox.retryPendingUploads`);
+                // seen-by-partner (read receipts on, both sides) wears an eye. A
+                // plain sent tile wears nothing: sent is every own tile's normal state.
+                if moment.fromMe, let symbol = sentBadgeSymbol(moment) {
+                    Image(systemName: symbol)
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.white)
-                        .padding(4)
+                        .padding(5)
                         .background(moment.uploaded ? AnyShapeStyle(.black.opacity(0.35))
                                                     : AnyShapeStyle(Theme.warmDeep),
                                     in: Circle())
@@ -159,10 +165,10 @@ struct MomentLibraryView: View {
         return parts.joined(separator: ", ")
     }
 
-    private func sentBadgeSymbol(_ moment: Moment) -> String {
+    private func sentBadgeSymbol(_ moment: Moment) -> String? {
         guard moment.uploaded else { return "clock.fill" }
         if model.readReceiptsEnabled, moment.seenByPartnerAt != nil { return "eye.fill" }
-        return "arrow.up.right"
+        return nil
     }
 
     /// Voice tiles draw from the indexed waveform, so they render without audio.

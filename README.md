@@ -320,9 +320,10 @@ sent.
 
 ### The anniversary
 
-The hidden count (long-press the home title, tie the string, hold the logo)
-runs from a date only the zone owner sets: the prompt after creating the
-invite link, or later from the row a long press on the Settings title reveals.
+The hidden count (hold the home title, then tie the string from the fox to the
+fish — the logo they become rises into the count's header) runs from a date
+only the zone owner sets: the prompt after creating the invite link, or later
+from the "Our date" row in Settings.
 It travels as one `Anniversary` record (`anniversary`, encrypted `startsAt` +
 `timeZone`) that both sides pick up on any refresh; the owner's time zone
 rides along so the monthly mark is the same moment on both phones. Until it's
@@ -685,8 +686,8 @@ Sources/
     Views/
       HomeView, RootView, WelcomeView, PairingView, SettingsView, TermsView
       MoodPickerView, CelebrationOverlay   statuses and celebrations
-      TieTheStringView, LogoView,          easter egg: long-press the home title, tie the
-      AnniversaryView, AnniversaryEditorView string, hold the logo; the owner's date
+      TieTheStringView, AnniversaryView,   easter egg: hold the home title, tie the
+      AnniversaryEditorView                string, the count; the owner's date
       MomentComposerView                   photo + doodle composer
       VoiceMemoComposerView, VoiceMomentViews
       ScrubbableWaveform                   swipe-to-seek wrapper over WaveformBars

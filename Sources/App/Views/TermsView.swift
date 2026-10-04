@@ -14,11 +14,10 @@ struct TermsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     if !readOnly {
-                        Text("Before you start")
-                            .font(Theme.rounded(30, .bold))
-                            .padding(.top, 24)
+                        // What the app is, before the rules — the gate itself is unchanged.
+                        intro
                     }
-                    Text("Terms of Use")
+                    Text(readOnly ? "Terms of Use" : "The full terms")
                         .font(Theme.rounded(readOnly ? 24 : 18, .semibold))
                     ForEach(Array(Self.sections.enumerated()), id: \.offset) { _, section in
                         VStack(alignment: .leading, spacing: 6) {
@@ -26,13 +25,13 @@ struct TermsView: View {
                                 .font(Theme.rounded(15, .semibold))
                             Text(section.body)
                                 .font(Theme.rounded(15))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Theme.mutedText)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     Text("These terms supplement Apple's standard Licensed Application End User License Agreement, which also applies.")
                         .font(Theme.rounded(13))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(Theme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.horizontal, 24)
@@ -54,6 +53,32 @@ struct TermsView: View {
                 .background(.ultraThinMaterial)
             }
         }
+    }
+
+    private var intro: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("💛")
+                .font(.system(size: 44))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(AppConfig.appName)
+                    .font(Theme.rounded(32, .bold))
+                    .accessibilityAddTraits(.isHeader)
+                Text("A private status app for two people.")
+                    .font(Theme.rounded(17))
+                    .foregroundStyle(Theme.mutedText)
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                Label("What you send goes to your partner, through your own iCloud.", systemImage: "lock.fill")
+                Label("Report or block anything, anytime.", systemImage: "flag.fill")
+                Label("We act on reports within 24 hours.", systemImage: "clock.fill")
+            }
+            .font(Theme.rounded(15, .medium))
+            .labelStyle(TermsBulletStyle())
+            .card(padding: 18)
+        }
+        .padding(.top, 24)
+        .padding(.bottom, 8)
     }
 
     private struct Section {
@@ -84,3 +109,16 @@ struct TermsView: View {
         .tint(Theme.accent)
 }
 #endif
+
+/// A crimson glyph beside wrapping text, aligned to its first line.
+private struct TermsBulletStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            configuration.icon
+                .foregroundStyle(Theme.accent)
+                .frame(width: 22)
+            configuration.title
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}

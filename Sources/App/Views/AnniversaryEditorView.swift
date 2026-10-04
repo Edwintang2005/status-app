@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Owner only: when the two of them began. Shown as a prompt once the invite
-/// link exists, from the hidden row in Settings, and from the count screen
-/// while no date is set. Saves in the owner's current time zone.
+/// link exists, from the "Our date" row in Settings, and from the count screen.
+/// Saves in the owner's current time zone.
 struct AnniversaryEditorView: View {
     enum Mode { case prompt, edit }
 
@@ -45,9 +45,10 @@ struct AnniversaryEditorView: View {
                             .datePickerStyle(.graphical)
                             .card(padding: 12)
 
-                        Text("It's the start of a count hidden somewhere in the app. Only the two of you can find it.")
+                        // Names the door, so the owner can tell the partner.
+                        Text("Hold \(AppConfig.appName) at the top of Home to find the count. Only the two of you will know.")
                             .font(Theme.rounded(13))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(Theme.mutedText)
                             .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
                             .padding(.horizontal, 12)

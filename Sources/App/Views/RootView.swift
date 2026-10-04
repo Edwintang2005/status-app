@@ -57,7 +57,7 @@ struct RootView: View {
             AnniversaryEditorView(mode: .prompt)
                 .environment(model)
         }
-        .alert("Something went wrong",
+        .alert(model.errorAlertTitle,
                isPresented: Binding(get: { model.errorMessage != nil },
                                     set: { if !$0 { model.errorMessage = nil } })) {
             Button("OK", role: .cancel) { model.errorMessage = nil }
@@ -80,7 +80,7 @@ private struct ModelErrorAlert: ViewModifier {
     @Environment(AppModel.self) private var model: AppModel?
 
     func body(content: Content) -> some View {
-        content.alert("Something went wrong",
+        content.alert(model?.errorAlertTitle ?? "",
                       isPresented: Binding(get: { model?.errorMessage != nil },
                                            set: { if !$0 { model?.errorMessage = nil } })) {
             Button("OK", role: .cancel) { model?.errorMessage = nil }
