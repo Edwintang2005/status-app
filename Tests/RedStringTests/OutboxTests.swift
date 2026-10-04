@@ -252,11 +252,38 @@ final class OutboxTests: XCTestCase {
     /// Only a full iCloud stops the pass; anything else is that one send's problem.
     func testATransientFailureMovesOnToTheNextSend() async {
         queue(["a", "b"])
-        backend.fail("send", with: CKError(.networkFailure))
+        backend.fail("send", with: CKError(.serviceUnavailable))
         await outbox.retryPendingUploads(automatic: true)
         XCTAssertEqual(backend.sent.count, 1)
         XCTAssertEqual(index.load().filter { !$0.uploaded }.count, 1, "the failed one stays queued")
         XCTAssertNil(outbox.storageFullAt)
+    }
+
+    func testNoConnectionStopsThePassButNotLaterOnes() async {
+        queue(["a", "b"])
+        backend.fail("send", with: CKError(.networkUnavailable))
+        await outbox.retryPendingUploads(automatic: true)
+        XCTAssertTrue(backend.sent.isEmpty, "the second would hit the same dead connection")
+        XCTAssertNil(outbox.storageFullAt, "offline isn't a full iCloud")
+        XCTAssertEqual(index.load().filter { !$0.uploaded }.count, 2)
+
+        await outbox.retryPendingUploads(automatic: true)
+        XCTAssertEqual(Set(backend.sent), ["a", "b"], "the reconnect pass sends both, no back-off")
+    }
+
+    func testUnpublishedCountMirrorsTheRepublishGuards() {
+        var snapshot = Snapshot.empty
+        XCTAssertEqual(snapshot.unpublishedCount(role: .owner), 0)
+        snapshot.mine = Fixtures.status()
+        snapshot.myStatusPublished = false
+        snapshot.anniversaryPublished = false
+        snapshot.anniversaryRequestPublished = false
+        XCTAssertEqual(snapshot.unpublishedCount(role: .owner), 2, "the owner never sends a request")
+        XCTAssertEqual(snapshot.unpublishedCount(role: .participant), 1, "nor the participant a date; no ask on file")
+        snapshot.anniversaryRequestedAt = Fixtures.t0
+        XCTAssertEqual(snapshot.unpublishedCount(role: .participant), 2)
+        snapshot.freshStart.pendingIntent = .withdraw
+        XCTAssertEqual(snapshot.unpublishedCount(role: .participant), 3, "a queued fresh start answer waits too")
     }
 
     func testAFullICloudStopsThePassAndHoldsOffAutomaticRetries() async {

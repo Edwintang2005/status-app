@@ -189,8 +189,9 @@ final class Outbox {
                 log.info("Retried upload of \(moment.id, privacy: .public) successfully")
             } catch {
                 log.error("Retry upload of \(moment.id, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
-                // The rest would hit the same full iCloud.
-                if noteSendFailed(error) == .storageFull { break }
+                // The rest would hit the same full iCloud, or the same missing route.
+                let failure = noteSendFailed(error)
+                if failure == .storageFull || failure == .offline { break }
             }
         }
         return changed
@@ -364,6 +365,16 @@ extension Snapshot {
     mutating func markAnniversaryRequestPublished(_ date: Date) {
         guard anniversaryRequestedAt == date else { return }
         anniversaryRequestPublished = true
+    }
+
+    /// Own records changed here that haven't reached iCloud yet — counted in the
+    /// home footer beside pending moments. Mirrors the republish guards.
+    func unpublishedCount(role: PairRole) -> Int {
+        var count = myStatusPublished || mine == nil ? 0 : 1
+        if role == .owner, !anniversaryPublished { count += 1 }
+        if role == .participant, !anniversaryRequestPublished, anniversaryRequestedAt != nil { count += 1 }
+        if freshStart.pendingIntent != nil { count += 1 }
+        return count
     }
 
     /// `true` (and cleared) when receipts were waiting to publish.

@@ -266,6 +266,26 @@ addition requires re-deploying the schema to Production (README → "Shipping it
 
 ## Next
 
+### Statuses set while offline only log the last one (S) — pre-existing
+Set A then B offline: the reconnect republishes `mine` (B) and logs B, so A
+stays in this phone's `StatusHistoryLog` but never gets a `StatusLog` record —
+the partner's history skips it and a reinstall loses it. Always true of failed
+sends; offline queueing makes it ordinary. Fix: a local-only "unlogged" mark on
+own `StatusHistoryEntry`s and a capped republish of their `StatusLog` records.
+
+### Send the queue while the app is suspended (M) — open question
+Offline sends go on the reconnect refresh, but `NWPathMonitor` only runs
+while the app does: send offline, lock the phone, regain signal, and nothing
+leaves until the app is next opened. Options: a `BGAppRefreshTask` scheduled
+on backgrounding whenever `pendingSendCount > 0` (needs the `fetch`
+background mode and `BGTaskSchedulerPermittedIdentifiers`; iOS runs it at
+its own discretion, often within the hour for an app used daily, never
+guaranteed), or a `BGProcessingTask` with `requiresNetworkConnectivity`
+(runs later still, usually idle/charging). Either runs `refresh()` + the
+recovery pass under the existing upload protection. Long-lived CloudKit
+operations were considered and set aside — they don't wait for a
+connection, and their results arrive only on relaunch.
+
 ### Fresh start — follow-ups (S each)
 
 Shipped October 2026 (above); left on file:

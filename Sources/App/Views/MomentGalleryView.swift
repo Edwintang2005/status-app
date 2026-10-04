@@ -119,6 +119,14 @@ struct MomentGalleryView: View {
             } message: {
                 Text("It's removed from this iPhone straight away, and the details go to us by email. We act on reports within 24 hours.")
             }
+            .onChange(of: model.isOffline) { _, offline in
+                guard !offline else { return }
+                unavailable.removeAll()
+                Task {
+                    await loadIfNeeded()
+                    markCurrentPhotoSeen()
+                }
+            }
             .task(id: selection) {
                 saveState = .idle
                 // Paging away from a memo stops it.
@@ -192,7 +200,8 @@ struct MomentGalleryView: View {
                 // Own view with its own load, so a page decodes only when it appears.
                 GalleryImageView(momentID: moment.id,
                                  isLoading: loading.contains(moment.id),
-                                 isUnavailable: unavailable.contains(moment.id))
+                                 isUnavailable: unavailable.contains(moment.id),
+                                 isOffline: model.isOffline)
             }
 
             VStack(spacing: 5) {
@@ -227,53 +236,89 @@ struct MomentGalleryView: View {
     /// One gallery page's photo. Loads (and re-checks after a CloudKit fetch
     /// finishes) on appearance, decoding off the main thread, and releases the
     /// decode off-screen — the lazy stack keeps pages it has built, and holding
-    /// every decoded photo of a long history risks a jetsam.
+    /// every decoded photo of a long history risks a jetsam. Without the full
+    /// file (past the media cache, offline) the kept thumbnail stands in, labelled.
     private struct GalleryImageView: View {
         let momentID: String
         let isLoading: Bool
         let isUnavailable: Bool
+        let isOffline: Bool
         @State private var image: UIImage?
+        @State private var isPreview = false
 
         var body: some View {
-            if let image {
-                // Always the centred square, whatever frame the file keeps.
-                SquareFill { Image(uiImage: image).resizable().scaledToFill() }
-                    .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-                    .shadow(color: .black.opacity(0.12), radius: 24, y: 12)
-                    // Two-finger, so it never fights the one-finger page swipe.
-                    .pinchToZoom()
-                    .onDisappear { self.image = nil }
-            } else {
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .fill(Color.primary.opacity(0.06))
-                    .aspectRatio(1, contentMode: .fit)
-                    .overlay {
-                        if isLoading {
-                            VStack(spacing: 10) {
-                                ProgressView()
-                                Text("Fetching from iCloud…")
-                                    .font(Theme.rounded(13))
+            // A container, not a `Group`: a group's modifiers attach to each
+            // branch, so swapping branches would fire `onDisappear` and drop the image.
+            ZStack {
+                if let image {
+                    // Always the centred square, whatever frame the file keeps.
+                    SquareFill { Image(uiImage: image).resizable().scaledToFill() }
+                        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                        // Over the photo, not under it: the page centres its content,
+                        // and a note coming and going would shift the picture.
+                        .overlay(alignment: .bottom) {
+                            if isPreview { previewNote.padding(12) }
+                        }
+                        .shadow(color: .black.opacity(0.12), radius: 24, y: 12)
+                        // Two-finger, so it never fights the one-finger page swipe.
+                        .pinchToZoom()
+                } else {
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .fill(Color.primary.opacity(0.06))
+                        .aspectRatio(1, contentMode: .fit)
+                        .overlay {
+                            if isLoading {
+                                VStack(spacing: 10) {
+                                    ProgressView()
+                                    Text("Fetching from iCloud…")
+                                        .font(Theme.rounded(13))
+                                        .foregroundStyle(.secondary)
+                                }
+                            } else if isUnavailable {
+                                Label(isOffline ? "Loads when you're back online" : "Couldn't load this one",
+                                      systemImage: isOffline ? "wifi.slash" : "icloud.slash")
+                                    .font(Theme.rounded(14))
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Image(systemName: "photo")
+                                    .font(.system(size: 30))
                                     .foregroundStyle(.secondary)
                             }
-                        } else if isUnavailable {
-                            Label("Couldn't load this one", systemImage: "icloud.slash")
-                                .font(Theme.rounded(14))
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Image(systemName: "photo")
-                                .font(.system(size: 30))
-                                .foregroundStyle(.secondary)
                         }
-                    }
-                    // Keyed on `isLoading` too, so a finished CloudKit fetch
-                    // re-runs this and picks up the new file.
-                    .task(id: "\(momentID)-\(isLoading)") {
-                        let id = momentID
-                        image = await Task.detached(priority: .userInitiated) {
-                            MomentStore.shared.image(for: id)
-                        }.value
-                    }
+                }
             }
+            .onDisappear { image = nil }
+            // Keyed on `isLoading` and `isUnavailable` too, so a finished fetch —
+            // or the reconnect clearing the failure — re-runs this and picks up the file.
+            .task(id: "\(momentID)-\(isLoading)-\(isUnavailable)") {
+                guard image == nil || isPreview else { return }
+                let id = momentID
+                let loaded = await Task.detached(priority: .userInitiated) { () -> (UIImage?, Bool) in
+                    if let full = MomentStore.shared.image(for: id) { return (full, false) }
+                    return (MomentStore.shared.thumbnail(for: id), true)
+                }.value
+                guard !Task.isCancelled else { return }
+                image = loaded.0
+                isPreview = loaded.0 != nil && loaded.1
+            }
+        }
+
+        @ViewBuilder
+        private var previewNote: some View {
+            Group {
+                if isLoading {
+                    Label("Fetching full size…", systemImage: "icloud.and.arrow.down")
+                } else if isOffline {
+                    Label("Preview · full size loads when you're back online", systemImage: "wifi.slash")
+                } else if isUnavailable {
+                    Label("Preview · full size couldn't load", systemImage: "icloud.slash")
+                }
+            }
+            .font(Theme.rounded(12))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial, in: Capsule())
         }
     }
 
@@ -286,7 +331,8 @@ struct MomentGalleryView: View {
                 .font(Theme.rounded(13))
                 .foregroundStyle(.secondary)
         } else if unavailable.contains(moment.id) {
-            Label("Couldn't load this one", systemImage: "icloud.slash")
+            Label(model.isOffline ? "Plays once you're back online" : "Couldn't load this one",
+                  systemImage: model.isOffline ? "wifi.slash" : "icloud.slash")
                 .font(Theme.rounded(13))
                 .foregroundStyle(.secondary)
         }
@@ -330,12 +376,18 @@ struct MomentGalleryView: View {
               !MomentStore.shared.hasMedia(for: moment),
               !loading.contains(moment.id) else { return }
 
+        // Offline there's nothing to fetch; the reconnect re-runs this.
+        guard !model.isOffline else {
+            unavailable.insert(moment.id)
+            return
+        }
         loading.insert(moment.id)
         unavailable.remove(moment.id)
         let ok = await model.ensureMedia(for: moment)
         loading.remove(moment.id)
-        // Swiping away cancels mid-fetch; "user left" isn't "couldn't load".
-        if !ok, !Task.isCancelled { unavailable.insert(moment.id) }
+        // Swiping away cancels mid-fetch (or, for the reconnect's retry, moves
+        // `selection` on); "user left" isn't "couldn't load".
+        if !ok, !Task.isCancelled, selection == moment.id { unavailable.insert(moment.id) }
     }
 
     // MARK: - Keeping a copy

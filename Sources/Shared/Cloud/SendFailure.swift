@@ -5,6 +5,10 @@ enum SendFailure: Equatable, Sendable {
     /// The zone owner's iCloud is full. Both people's sends count against it,
     /// and nothing lands until they free space — retrying every refresh only burns data.
     case storageFull
+    /// No route at all (`networkUnavailable`): quiet — the footer says it's
+    /// waiting — and a retry pass stops. `networkFailure` is CFNetwork's
+    /// catch-all (a dropped upload, TLS, a proxy) and stays transient.
+    case offline
     /// Anything else: retried on the next refresh.
     case transient
 
@@ -15,13 +19,23 @@ enum SendFailure: Equatable, Sendable {
             self = .transient
             return
         }
+        let itemCodes = error.partialErrorsByItemID?.values.compactMap { ($0 as? CKError)?.code } ?? []
         if error.code == .quotaExceeded {
             self = .storageFull
-        } else if error.code == .partialFailure,
-                  error.partialErrorsByItemID?.values.contains(where: { ($0 as? CKError)?.code == .quotaExceeded }) == true {
+        } else if error.code == .partialFailure, itemCodes.contains(.quotaExceeded) {
             self = .storageFull
+        } else if Self.isNetwork(error.code) {
+            self = .offline
+        } else if error.code == .partialFailure, !itemCodes.isEmpty,
+                  itemCodes.allSatisfy({ Self.isNetwork($0) || $0 == .batchRequestFailed }),
+                  itemCodes.contains(where: Self.isNetwork) {
+            self = .offline
         } else {
             self = .transient
         }
+    }
+
+    private static func isNetwork(_ code: CKError.Code) -> Bool {
+        code == .networkUnavailable
     }
 }

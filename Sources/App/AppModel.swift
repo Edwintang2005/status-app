@@ -41,6 +41,20 @@ final class AppModel {
     @ObservationIgnored private let pathMonitor = NWPathMonitor()
     /// Starts `true` so the monitor's immediate first callback doesn't double up with `onLaunch`'s refresh.
     @ObservationIgnored private var networkWasSatisfied = true
+    /// No network path — display only (Home's card, the gallery's wording). Sends
+    /// never gate on it: it goes stale while suspended, and a banner action wakes
+    /// the app before the monitor catches up. They try, and fail quietly offline.
+    private(set) var isOffline = false
+    /// The path is down because mobile data is off for this app — the one cause the user can fix.
+    private(set) var mobileDataDenied = false
+    @ObservationIgnored private var offlineShowTask: Task<Void, Never>?
+    @ObservationIgnored private var catchUpTask: Task<Void, Never>?
+    /// Whichever refresh last fetched — the reconnect catch-up judges by it, not by who ran it.
+    @ObservationIgnored private var lastFetchSucceededAt: Date?
+    /// Status publishes this model has in flight — not yet "waiting to send".
+    private var statusSendsInFlight = 0
+    /// The footer's tap-to-retry is running.
+    private(set) var isSendingNow = false
     /// Owner side: the link to hand to the partner. Kept after the invite
     /// closes — the same link re-admits the existing partner on a new phone.
     /// Seeded from the store so it survives a relaunch — see `refreshInviteURL()`.
@@ -167,9 +181,22 @@ final class AppModel {
         history.first { !$0.fromMe && $0.isVoice }
     }
 
-    /// Own moments not yet in CloudKit — the sync footer count and the outbox's retry set.
+    /// Own moments not yet in CloudKit — the outbox's retry set.
     var pendingUploadCount: Int {
         history.count { $0.fromMe && !$0.uploaded }
+    }
+
+    /// The status on screen hasn't reached iCloud and no publish is under way.
+    var myStatusWaitingToSend: Bool {
+        isPaired && snapshot.mine != nil && !snapshot.myStatusPublished && statusSendsInFlight == 0
+    }
+
+    /// Everything of ours still only on this iPhone — the sync footer's count.
+    var pendingSendCount: Int {
+        guard isPaired, let role else { return 0 }
+        var count = pendingUploadCount + snapshot.unpublishedCount(role: role)
+        if !snapshot.myStatusPublished, snapshot.mine != nil, statusSendsInFlight > 0 { count -= 1 }
+        return count
     }
 
     /// When the partner saw the status currently in `mine` — the "Seen …" line
@@ -516,22 +543,64 @@ final class AppModel {
         }
     }
 
-    /// Refreshes only on the offline→online edge — `refresh()` already handles
+    /// Refreshes on the offline→online edge — `refresh()` already handles
     /// offline calls and re-entrancy; the job here is ignoring path churn while up.
+    /// Delivered on the main queue so updates apply in the order they happened.
     private func startNetworkMonitoring() {
         pathMonitor.pathUpdateHandler = { [weak self] path in
-            let satisfied = path.status == .satisfied
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                let cameBackOnline = satisfied && !self.networkWasSatisfied
-                self.networkWasSatisfied = satisfied
-                if cameBackOnline {
-                    self.log.notice("Network is back; refreshing.")
-                    await self.refresh()
-                }
-            }
+            MainActor.assumeIsolated { self?.networkPathChanged(path) }
         }
-        pathMonitor.start(queue: DispatchQueue(label: "redstring.network-path"))
+        pathMonitor.start(queue: .main)
+    }
+
+    /// Only `.unsatisfied` is down: `.requiresConnection` (an on-demand VPN, a
+    /// dormant radio) comes up as soon as something uses it.
+    private func networkPathChanged(_ path: NWPath) {
+        let down = path.status == .unsatisfied
+        let cameBackOnline = !down && !networkWasSatisfied
+        networkWasSatisfied = !down
+        offlineShowTask?.cancel()
+        if down {
+            mobileDataDenied = path.unsatisfiedReason == .cellularDenied
+            // Shown after a moment: a Wi-Fi↔cellular handoff blips for under a second.
+            offlineShowTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(AppConfig.offlineCardDelay))
+                guard !Task.isCancelled, let self, !self.networkWasSatisfied else { return }
+                self.setOffline(true)
+            }
+        } else {
+            setOffline(false)
+        }
+        if cameBackOnline {
+            log.notice("Network is back; refreshing.")
+            // An unread "you're offline" alert would now be wrong.
+            if errorMessage == Self.offlineNudgeMessage { errorMessage = nil }
+            catchUpTask?.cancel()
+            catchUpTask = Task { [weak self] in await self?.catchUpAfterReconnect() }
+        }
+    }
+
+    private func setOffline(_ offline: Bool) {
+        #if DEBUG
+        // Demo mode's backend never touches the network.
+        if DemoMode.isActive { return }
+        #endif
+        if isOffline != offline { isOffline = offline }
+    }
+
+    /// The first refresh after the path returns often beats DNS or a VPN; one
+    /// failure must not leave queued sends waiting for the next foreground.
+    /// Done once a fetch since the edge worked (whoever ran it — a request that
+    /// joined a running refresh still retries if that one failed) and nothing is
+    /// left queued: a send pass can still hit the flap after a good fetch.
+    private func catchUpAfterReconnect() async {
+        let since = Date()
+        for delay in AppConfig.reconnectRetryDelays {
+            if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
+            guard !Task.isCancelled, networkWasSatisfied, isPaired else { return }
+            await refresh()
+            if let fetched = lastFetchSucceededAt, fetched >= since, pendingSendCount == 0 { return }
+        }
     }
 
     /// The system reported an iCloud account change: make the next readiness
@@ -560,19 +629,24 @@ final class AppModel {
     private func recoverAfterRefresh() async {
         guard isPaired, recoveryGate.begin() else { return }
         repeat {
-            if await outbox.republishStatus() { reload() }
-            if await outbox.republishAnniversary() { reload() }
-            if await outbox.republishAnniversaryRequest() { reload() }
-            // Before the upload retry: the clear and a retry never overlap.
-            if await outbox.advanceFreshStart() { reload() }
-            // Re-read at once: the footer and the tiles' clocks read `history`.
-            if await outbox.retryPendingUploads(automatic: true) { reload() }
+            await sendQueued(automatic: true)
             await outbox.flushReceipts()
             await restoreLatestThumbnailIfMissing()
             await checkShareMembers(throttled: true)
             await checkInstalledWidgets()
         } while recoveryGate.takeRequest()
         recoveryGate.end()
+    }
+
+    /// Everything queued, in order, re-read after each step: the footer, the
+    /// status row and the tiles' clocks follow along.
+    private func sendQueued(automatic: Bool) async {
+        if await outbox.republishStatus() { reload() }
+        if await outbox.republishAnniversary() { reload() }
+        if await outbox.republishAnniversaryRequest() { reload() }
+        // Before the upload retry: the clear and a retry never overlap.
+        if await outbox.advanceFreshStart() { reload() }
+        if await outbox.retryPendingUploads(automatic: automatic) { reload() }
     }
 
     /// One fetch and reload; `false` when it failed or there was nothing to fetch for.
@@ -583,6 +657,10 @@ final class AppModel {
         do {
             try await SyncRunner.refresh()
             reload()
+            lastFetchSucceededAt = Date()
+            // A fetch that worked is proof the monitor's "down" is stale.
+            offlineShowTask?.cancel()
+            setOffline(false)
             return true
         } catch {
             // The backend may have unlinked us (a vanished zone means the other
@@ -632,6 +710,8 @@ final class AppModel {
         reload()
 
         guard paired else { return }
+        statusSendsInFlight += 1
+        defer { statusSendsInFlight -= 1 }
         do {
             let backend = backend
             try await withDeadline(AppConfig.publishDeadline) { try await backend.publish(payload) }
@@ -663,10 +743,14 @@ final class AppModel {
         // status itself never made it into the log (set offline, then renamed).
         let logged = store.snapshot.myStatusLoggedAt != payload.wordsAt
         let backend = backend
+        statusSendsInFlight += 1
         Task { [payload] in
+            defer { statusSendsInFlight -= 1 }
             do {
                 try await withDeadline(AppConfig.publishDeadline) { try await backend.publish(payload, logged: logged) }
                 store.mutate(reloadWidgets: false) { $0.markStatusPublished(payload) }
+                outbox.noteSendSucceeded()
+                reload()
             } catch {
                 // Quiet: the name is right locally, and the outbox's republish carries it over.
                 outbox.noteSendFailed(error)
@@ -677,6 +761,7 @@ final class AppModel {
 
     // MARK: - Nudge
 
+    /// Never queued: a heart is a moment-in-time gesture.
     func sendNudge() async {
         guard canNudge else { return }
         do {
@@ -685,9 +770,17 @@ final class AppModel {
             }
             reload()
         } catch {
-            present(error)
+            if isOffline || SendFailure(error) == .offline {
+                errorMessage = Self.offlineNudgeMessage
+            } else {
+                present(error)
+            }
             reload()
         }
+    }
+
+    private static var offlineNudgeMessage: String {
+        String(localized: "You're offline, so that heart didn't go. Hearts aren't saved for later — send one once you're back online.")
     }
 
     // MARK: - Moments
@@ -909,11 +1002,18 @@ final class AppModel {
 
     // MARK: - Pending uploads
 
-    /// The home footer's tap-to-retry: the same pass the next refresh would
-    /// run, without waiting for one. The outbox guards re-entry.
+    /// The home footer's tap-to-retry: what the next refresh would send, without
+    /// waiting for one. Says so when it didn't all go — silence read as a dead button.
     func retryPendingNow() async {
-        await outbox.retryPendingUploads(automatic: false)
+        guard !isSendingNow else { return }
+        isSendingNow = true
+        defer { isSendingNow = false }
+        await sendQueued(automatic: false)
         reload()
+        // A full iCloud already names itself in the footer.
+        if pendingSendCount > 0, storageFullAt == nil {
+            errorMessage = String(localized: "Couldn't reach iCloud just now. Everything is saved on this iPhone and will send on the next sync.")
+        }
     }
 
     // MARK: - Read receipts
@@ -1443,14 +1543,20 @@ final class AppModel {
     private func presentSendFailure(_ error: Error, noun: String) {
         let code = (error as? CKError).map { "CKError \($0.code.rawValue): " } ?? ""
         log.error("Send failed (\(code, privacy: .public))\(error.localizedDescription, privacy: .public)")
-        switch outbox.noteSendFailed(error) {
+        let failure = outbox.noteSendFailed(error)
+        // Offline the card already says it; an alert per send would nag.
+        if isOffline, failure != .storageFull { return }
+        switch failure {
+        case .offline:
+            // The footer and the item's clock say it's waiting.
+            break
         case .storageFull:
             // Whose storage it is decides who can fix it: the zone lives in the owner's iCloud.
             errorMessage = role == .participant
                 ? String(localized: "\(partnerName)'s iCloud storage is full. Your shared space lives in their iCloud, so that \(noun) can't be sent until they free up some space. It's saved on this iPhone and will go then.")
                 : String(localized: "Your iCloud storage is full, so that \(noun) can't be sent yet. It's saved on this iPhone and will go once there's space. Your shared space lives in your iCloud, so everything either of you sends counts against it.")
         case .transient:
-            errorMessage = String(localized: "Couldn't send that \(noun) right now — it's saved, and will be sent automatically next time you open the app.")
+            errorMessage = String(localized: "Couldn't send that \(noun) right now — it's saved on this iPhone and will be sent the next time the app syncs.")
         }
     }
 

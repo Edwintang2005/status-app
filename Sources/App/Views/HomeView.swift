@@ -35,6 +35,14 @@ struct HomeView: View {
                 Theme.Background()
                 ScrollView {
                     VStack(spacing: 12) {
+                        // In the scroll content, not pinned above it: a sibling
+                        // that resizes the scroll view looped layout against the bar.
+                        if model.isOffline {
+                            OfflineBanner(pendingCount: model.pendingSendCount,
+                                          mobileDataDenied: model.mobileDataDenied,
+                                          storageFull: model.storageFullAt != nil)
+                                .transition(.opacity)
+                        }
                         myStatusRow
                         NudgeButton(lastSentAt: model.snapshot.lastNudgeSentAt) {
                             await model.sendNudge()
@@ -52,6 +60,7 @@ struct HomeView: View {
                     }
                     .padding(.horizontal, 20)
                     .padding(.vertical, 14)
+                    .animation(.smooth(duration: 0.3), value: model.isOffline)
                     // Pin the scrollable content to the viewport: a child with a
                     // wide *ideal* size (a long single-line Text) can otherwise
                     // inflate the content's horizontal extent on some OS builds,
@@ -492,7 +501,9 @@ struct HomeView: View {
                 // Fetches from CloudKit first when the memo isn't cached.
                 guard await model.ensureMedia(for: memo),
                       let url = MomentStore.shared.mediaURL(for: memo) else {
-                    model.errorMessage = String(localized: "Couldn't fetch that voice memo from iCloud. Try again in a moment.")
+                    model.errorMessage = model.isOffline
+                        ? String(localized: "That voice memo isn't saved on this iPhone, so it can't play while you're offline. It will once you're back online.")
+                        : String(localized: "Couldn't fetch that voice memo from iCloud. Try again in a moment.")
                     return
                 }
                 voicePlayer.play(url)
@@ -530,8 +541,13 @@ struct HomeView: View {
                                          ? .primary
                                          : .secondary)
                         .lineLimit(1)
-                    // The status read receipt — read receipts on, both sides.
-                    if let seenAt = model.myStatusSeenAt {
+                    // Ahead of the receipt: these words haven't reached the partner yet.
+                    if model.myStatusWaitingToSend {
+                        Label("Waiting to send", systemImage: "clock")
+                            .font(Theme.rounded(11))
+                            .foregroundStyle(.secondary)
+                    } else if let seenAt = model.myStatusSeenAt {
+                        // The status read receipt — read receipts on, both sides.
                         RelativeTime(seenAt) { when in
                             Label("Seen \(when)", systemImage: "eye.fill")
                         }
@@ -568,7 +584,9 @@ struct HomeView: View {
             return String(localized: "Set your status")
         }
         var summary = String(localized: "Your status: \(mine.emoji) \(mine.message)")
-        if let seenAt = model.myStatusSeenAt {
+        if model.myStatusWaitingToSend {
+            summary += String(localized: ". Waiting to send")
+        } else if let seenAt = model.myStatusSeenAt {
             summary += String(localized: ". Seen \(seenAt.relativeWording())")
         }
         return summary
@@ -576,7 +594,7 @@ struct HomeView: View {
 
     /// Says whose storage is full when that's why sends are stuck — only the owner can fix it.
     private var pendingLabel: String {
-        let count = model.pendingUploadCount
+        let count = model.pendingSendCount
         guard model.storageFullAt != nil else {
             return count == 1
                 ? String(localized: "1 waiting to send · tap to retry")
@@ -587,9 +605,23 @@ struct HomeView: View {
             : String(localized: "Your iCloud is full · \(count) waiting · tap to retry")
     }
 
+    /// How fresh the screen is; the banner up top carries what's queued.
+    @ViewBuilder
+    private var offlineLabel: some View {
+        if let synced = model.snapshot.lastSyncedAt {
+            RelativeTime(synced) { Text("Offline · synced \($0)") }
+        } else {
+            Text("Offline")
+        }
+    }
+
     private var syncFooter: some View {
         HStack(spacing: 6) {
-            if model.isRefreshing {
+            if model.isOffline {
+                // First: offline, a refresh fails at once and readiness reads as a network error.
+                Image(systemName: "wifi.slash")
+                offlineLabel
+            } else if model.isRefreshing {
                 ProgressView().controlSize(.mini)
                 Text("Syncing…")
             } else if let problem = model.readinessMessage {
@@ -597,10 +629,10 @@ struct HomeView: View {
                 // problems — the pairing screen isn't mounted any more.
                 Image(systemName: "exclamationmark.icloud")
                 Text(problem)
-            } else if model.isRetryingUploads {
+            } else if model.isRetryingUploads || model.isSendingNow {
                 ProgressView().controlSize(.mini)
                 Text("Sending…")
-            } else if model.pendingUploadCount > 0 {
+            } else if model.pendingSendCount > 0 {
                 // Ahead of "Synced …", which would mislead while an upload
                 // is still sitting on this device. Tapping retries now.
                 Button {
@@ -626,8 +658,55 @@ struct HomeView: View {
         .padding(.top, 4)
         // Combined into one line for VoiceOver, except while the retry
         // button is showing — combining would swallow its action.
-        .accessibilityElement(children: model.pendingUploadCount > 0 && !model.isRetryingUploads
+        .accessibilityElement(children: model.pendingSendCount > 0 && !model.isRetryingUploads
+                              && !model.isSendingNow && !model.isOffline
                               ? .contain : .combine)
+    }
+}
+
+/// Home's offline notice: everything on this iPhone still works, and what's
+/// queued goes when the connection does.
+private struct OfflineBanner: View {
+    let pendingCount: Int
+    let mobileDataDenied: Bool
+    /// Reconnecting won't send it: the owner's iCloud has no room.
+    let storageFull: Bool
+
+    private var title: String {
+        mobileDataDenied ? String(localized: "Mobile data is off for Red String") : String(localized: "You're offline")
+    }
+
+    private var detail: String {
+        switch pendingCount {
+        case 1... where storageFull: String(localized: "What you've sent is saved here, waiting for iCloud space.")
+        case 0 where mobileDataDenied: String(localized: "Turn it on in Settings, or join Wi-Fi. You can still look back and send.")
+        case 0: String(localized: "You can still look back and send — it goes when you reconnect.")
+        case 1: String(localized: "1 thing will send when you're back online.")
+        default: String(localized: "\(pendingCount) things will send when you're back online.")
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "wifi.slash")
+                .font(Theme.rounded(17, .semibold))
+                .foregroundStyle(Theme.warmText)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(Theme.rounded(15, .semibold))
+                Text(detail)
+                    .font(Theme.rounded(13))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .strokeBorder(Color.white.opacity(0.35), lineWidth: 1))
+        .accessibilityElement(children: .combine)
     }
 }
 

@@ -136,6 +136,13 @@ enum AppConfig {
     /// only follows a pass that finished.
     static let freshStartDeadline: TimeInterval = 300
 
+    /// Refresh attempts after the network comes back, each this long after the
+    /// last failed one — the first often beats DNS or a VPN reconnecting.
+    static let reconnectRetryDelays: [TimeInterval] = [0, 5, 20]
+    /// How long the path must stay down before Home says "offline" — a
+    /// Wi-Fi↔cellular handoff drops it for under a second.
+    static let offlineCardDelay: TimeInterval = 1.5
+
     /// After a send fails on a full iCloud, automatic retries wait this long;
     /// the home footer's tap still retries at once.
     static let storageFullRetryInterval: TimeInterval = 60 * 60

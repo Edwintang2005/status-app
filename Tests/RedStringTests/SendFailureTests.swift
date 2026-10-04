@@ -2,7 +2,8 @@ import CloudKit
 import XCTest
 
 /// A full iCloud is the one send failure that no retry fixes: the wording names
-/// whose storage it is and automatic retries back off. Everything else is transient.
+/// whose storage it is and automatic retries back off. No connection is quiet (the footer
+/// says so); everything else is transient.
 final class SendFailureTests: XCTestCase {
     private let zone = CKRecordZone.ID(zoneName: "CoupleZone", ownerName: "_owner")
 
@@ -24,8 +25,17 @@ final class SendFailureTests: XCTestCase {
         XCTAssertEqual(SendFailure(partial([.batchRequestFailed, .quotaExceeded])), .storageFull)
     }
 
+    func testNoRouteIsOffline() {
+        XCTAssertEqual(SendFailure(CKError(.networkUnavailable)), .offline)
+        XCTAssertEqual(SendFailure(partial([.batchRequestFailed, .networkUnavailable])), .offline)
+        XCTAssertEqual(SendFailure(partial([.networkUnavailable, .quotaExceeded])), .storageFull, "quota wins")
+        XCTAssertEqual(SendFailure(partial([.networkUnavailable, .serverRecordChanged])), .transient)
+        XCTAssertEqual(SendFailure(partial([.batchRequestFailed])), .transient)
+    }
+
     func testOtherFailuresAreTransient() {
-        XCTAssertEqual(SendFailure(CKError(.networkFailure)), .transient)
+        XCTAssertEqual(SendFailure(CKError(.networkFailure)), .transient, "a dropped upload isn't no route")
+        XCTAssertEqual(SendFailure(CKError(.serviceUnavailable)), .transient)
         XCTAssertEqual(SendFailure(partial([.serverRecordChanged])), .transient)
         XCTAssertEqual(SendFailure(CancellationError()), .transient, "a deadline is not a full iCloud")
         XCTAssertEqual(SendFailure(SyncError.saveUnconfirmed), .transient)

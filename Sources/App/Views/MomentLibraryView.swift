@@ -194,16 +194,19 @@ private struct LibraryThumbnail: View {
                 .fill(Color.primary.opacity(0.06))
                 .overlay {
                     if unavailable {
-                        Image(systemName: "exclamationmark.icloud")
+                        Image(systemName: model.isOffline ? "wifi.slash" : "exclamationmark.icloud")
                             .font(.system(size: 18))
                             .foregroundStyle(.tertiary)
                     } else {
                         ProgressView().controlSize(.small)
                     }
                 }
-                .task(id: moment.id) {
+                // Keyed on the connection too: a tile that missed offline tries again on reconnect.
+                .task(id: "\(moment.id)-\(model.isOffline)") {
                     image = MomentStore.shared.thumbnail(for: moment.id)
                     guard image == nil else { return }
+                    // The spinner, not last pass's failure glyph, while this one runs.
+                    unavailable = false
                     let fetched = await model.ensureThumbnail(for: moment)
                     guard !Task.isCancelled else { return }
                     image = MomentStore.shared.thumbnail(for: moment.id)

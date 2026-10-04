@@ -228,10 +228,35 @@ delivery path. The widget and the open app still rely on:
    hourly after two (`WidgetReloadPolicy`); a widget kind that finds another
    fetched in the last minute uses that result instead of fetching again. iOS never
    reloads a widget on unlock, so this is what catches it up after one.
-4. **An `NWPathMonitor` in `AppModel`**, which fires one refresh on the
+4. **An `NWPathMonitor` in `AppModel`**, which refreshes on the
    offline→online edge — so a phone that regains signal recovers without
-   waiting to be re-opened. It reacts only to that edge, never to path churn
-   while the network stays up.
+   waiting to be re-opened. A failed first attempt (DNS or a VPN still coming
+   up) is retried after 5 and 20 seconds (`AppConfig.reconnectRetryDelays`).
+   It reacts only to that edge, never to path churn while the network stays
+   up — and only while the app is running: a suspended app catches up the
+   next time it comes to the front.
+
+### Offline
+
+The app works without a connection. Everything already on the phone stays
+readable — the home screen, the status history, the library grid (thumbnails
+are kept for the whole index) and the gallery, which shows the thumbnail with
+a "full size loads when you're back online" note for photos past the media
+cache. Anything sent is filed locally first, as always, and still *tried*:
+CloudKit fails at once with `networkUnavailable` when there's no route
+(`SendFailure.offline`), which is quiet — no alert per send — and stops a
+retry pass early. `AppModel.isOffline` (the path monitor, `.unsatisfied` only:
+`.requiresConnection` comes up on use) is display only — a "You're offline"
+card heads Home after the path has been down 1.5 s ("2 things will send when
+you're back online", its own wording when mobile data is off for the app or
+iCloud is full), the footer says when it last synced, a queued status shows
+"Waiting to send", and any successful fetch clears it. Sends never gate on it:
+the monitor doesn't run while the app is suspended, and a banner's "heart
+back" or reply wakes the app before it catches up. `networkFailure` is
+CFNetwork's catch-all (a dropped upload, TLS, a proxy), so it stays transient:
+it alerts, and a retry pass moves on to the next send. The reconnect refresh
+sends the queue; its retries stop once a fetch since the edge worked —
+whichever refresh ran it — and nothing is left queued.
 
 ### Sends that fail offline
 
@@ -245,14 +270,16 @@ only when the partner gets it. Each send type recovers its own way:
   status can't be silently reverted.
 - **Moments** carry a local-only `uploaded` flag and are re-sent by
   `Outbox.retryPendingUploads(automatic:)` — the grid badges them with a clock, and the sync
-  footer counts them ("1 waiting to send · tap to retry") until they're out;
-  tapping the footer runs the same retry at once instead of waiting for the
-  next refresh. Pending media is exempt from the cache prune, and a pending
+  footer counts them, with any unpublished status, date or date request
+  ("1 waiting to send · tap to retry"), until they're out; tapping the footer
+  runs the same retries at once instead of waiting for the next refresh. A
+  retry pass that hits no connection stops there rather than trying each
+  send in turn. Pending media is exempt from the cache prune, and a pending
   entry whose media is genuinely gone is dropped (with a log) rather than
   falsely marked sent.
 - **Nudges** are not queued — a heart is a moment-in-time gesture, so a failed
   one releases the cooldown for an immediate re-tap instead. In the app that
-  comes with an alert; on the lock screen, where the intent can't alert, the
+  comes with an alert (offline, the heart isn't tried and the alert says why); on the lock screen, where the intent can't alert, the
   heart renders slashed (`Snapshot.lastNudgeFailedAt`) for ten minutes so an
   offline tap doesn't silently pass for a sent one.
 
