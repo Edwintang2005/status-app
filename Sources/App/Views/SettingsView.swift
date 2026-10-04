@@ -32,15 +32,15 @@ struct SettingsView: View {
     /// Seven taps on the Version row reveal diagnostics in Release builds —
     /// support needs the report from real installs, not just Debug ones.
     @State private var versionTapCount = 0
-    /// A long press on the title reveals the owner's anniversary row — the
-    /// date behind the easter egg, kept out of the ordinary list.
-    @State private var showsOurDate = false
     @State private var editingOurDate = false
 
     var body: some View {
         @Bindable var model = model
 
         NavigationStack {
+            // Everyday first, danger last: Block, Unlink and Delete are the only red
+            // rows, and each confirmation carries the full consequences. One page,
+            // so every dialog below keeps its host.
             Form {
                 Section {
                     LabeledContent("Your name") {
@@ -50,14 +50,9 @@ struct SettingsView: View {
                             .submitLabel(.done)
                             .onSubmit { commitName() }
                     }
-                } footer: {
-                    Text("This is the name \(model.partnerName) sees on your status, your nudges and anything you send. Their name is theirs to set.")
-                }
-
-                Section("Notifications") {
                     LabeledContent("Nudges and moments") {
                         Text(notificationLabel)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.mutedText)
                     }
                     if notificationStatus == .denied {
                         Button("Open Settings") {
@@ -75,30 +70,87 @@ struct SettingsView: View {
                             }
                         }
                     }
+                } header: {
+                    Text("You")
+                } footer: {
+                    Text("Your name is what \(model.partnerName) sees on everything you send.")
                 }
 
-                // The home tip's instructions, kept here once it's dismissed.
                 Section {
-                    LabeledContent("Lock Screen widget") {
-                        Image(systemName: "lock.iphone").foregroundStyle(.secondary)
-                            .accessibilityHidden(true)
+                    if model.isPaired {
+                        Toggle("Read receipts", isOn: $model.readReceiptsEnabled)
                     }
+                    if model.canEditAnniversary {
+                        ourDateRow
+                    }
+                    NavigationLink("Lock Screen widget") {
+                        LockScreenWidgetHelp(partnerName: model.partnerName)
+                    }
+                } header: {
+                    Text("Together")
                 } footer: {
-                    Text("Touch and hold your Lock Screen, tap Customize, then the Lock Screen, and add \(AppConfig.appName) to the widget row: \(model.partnerName)'s status, and the heart that sends a nudge, without unlocking.")
+                    if model.isPaired {
+                        Text("Read receipts show \(model.partnerName) when you've looked, and you theirs, while you both have them on.")
+                    }
+                }
+
+                if model.role == .owner {
+                    inviteSection
+                }
+
+                if model.hasMemoriesToArchive || model.isPaired {
+                    Section {
+                        if model.hasMemoriesToArchive {
+                            Button {
+                                Task { await saveMemories(then: nil) }
+                            } label: {
+                                HStack {
+                                    Label("Save memories to iCloud…", systemImage: "square.and.arrow.down")
+                                    Spacer(minLength: 12)
+                                    if let progress = model.archiveProgress {
+                                        ProgressView(value: progress)
+                                            .progressViewStyle(.circular)
+                                            .controlSize(.small)
+                                        Text("\(Int(progress * 100))%")
+                                            .font(Theme.rounded(13))
+                                            .foregroundStyle(Theme.mutedText)
+                                            .monospacedDigit()
+                                    }
+                                }
+                            }
+                            // Primary, not accent: a Form tints buttons, and crimson read as destructive.
+                            .tint(.primary)
+                            .disabled(!model.canArchiveMemories)
+                        }
+                        if model.isPaired {
+                            NavigationLink {
+                                FreshStartView()
+                            } label: {
+                                LabeledContent("Fresh start", value: freshStartSummary)
+                            }
+                        }
+                    } header: {
+                        Text("Memories")
+                    } footer: {
+                        Text(memoriesFooter)
+                    }
                 }
 
                 Section {
                     Toggle("Hide strong language", isOn: $model.contentFilterEnabled)
-                    if model.isPaired {
-                        Button("Block \(model.partnerName)…", role: .destructive) {
-                            confirmingBlock = true
+                    if let url = Report.mailURL(subject: "\(AppConfig.appName) report", body: "") {
+                        Link(destination: url) {
+                            Label("Report a problem", systemImage: "flag")
                         }
+                        .tint(.primary)
                     }
                     NavigationLink("Terms of Use") {
                         TermsView(readOnly: true)
                     }
-                    if let url = Report.mailURL(subject: "\(AppConfig.appName) report", body: "") {
-                        Link("Report a problem", destination: url)
+                    if model.isPaired {
+                        Button("Block \(model.partnerName)…", role: .destructive) {
+                            confirmingBlock = true
+                        }
                     }
                 } header: {
                     Text("Safety")
@@ -106,73 +158,17 @@ struct SettingsView: View {
                     Text(safetyFooter)
                 }
 
-                if model.isPaired {
-                    Section {
-                        Toggle("Read receipts", isOn: $model.readReceiptsEnabled)
-                    } footer: {
-                        Text("Lets \(model.partnerName) see when you've looked at what they sent, and shows you the same for your sends while they have it on too. Turning it off stops sharing new ones.")
-                    }
-                }
-
-                if showsOurDate, model.canEditAnniversary {
-                    ourDateSection
-                }
-
-                if model.role == .owner {
-                    inviteSection
-                }
-
-                if model.isPaired {
-                    Section {
-                        NavigationLink {
-                            FreshStartView()
-                        } label: {
-                            LabeledContent("Fresh start", value: freshStartSummary)
-                        }
-                    } footer: {
-                        Text("Clears the history you share — moments, status history and read receipts — from both iPhones, and keeps the link, your statuses and the heart. \(model.partnerName) has to agree.")
-                    }
-                }
-
-                if model.hasMemoriesToArchive {
-                    Section {
-                        Button {
-                            Task { await saveMemories(then: nil) }
-                        } label: {
-                            HStack {
-                                Text("Save memories to iCloud…")
-                                Spacer(minLength: 12)
-                                if let progress = model.archiveProgress {
-                                    ProgressView(value: progress)
-                                        .progressViewStyle(.circular)
-                                        .controlSize(.small)
-                                    Text("\(Int(progress * 100))%")
-                                        .font(Theme.rounded(13))
-                                        .foregroundStyle(.secondary)
-                                        .monospacedDigit()
-                                }
-                            }
-                        }
-                        .disabled(!model.canArchiveMemories)
-                    } footer: {
-                        Text(archiveFooter)
-                    }
-                }
-
                 Section {
                     Button(unlinkLabel, role: .destructive) {
                         confirmingUnlink = true
                     }
-                } footer: {
-                    Text(unlinkFooter)
-                }
-
-                Section {
                     Button("Delete everything and start over", role: .destructive) {
                         confirmingWipe = true
                     }
+                } header: {
+                    Text("Ending the link")
                 } footer: {
-                    Text(wipeFooter)
+                    Text("Each asks first, and says exactly what goes.")
                 }
 
                 Section {
@@ -189,23 +185,11 @@ struct SettingsView: View {
                 }
             }
             .scrollContentBackground(.hidden)
+            .hardTopScrollEdge()
             .background(Theme.Background())
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text("Settings")
-                        .font(.headline)
-                        .onLongPressGesture(minimumDuration: 1.2) {
-                            guard model.canEditAnniversary else { return }
-                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                            withAnimation(.smooth) { showsOurDate = true }
-                        }
-                        .accessibilityAddTraits(.isHeader)
-                        .accessibilityAction(named: Text("Our date")) {
-                            if model.canEditAnniversary { showsOurDate = true }
-                        }
-                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
@@ -225,7 +209,7 @@ struct SettingsView: View {
             .onDisappear { commitName() }
             // RootView's copy of this alert sits underneath this sheet, where
             // it cannot present — host it here too.
-            .alert("Something went wrong",
+            .alert(model.errorAlertTitle,
                    isPresented: Binding(get: { model.errorMessage != nil },
                                         set: { if !$0 { model.errorMessage = nil } })) {
                 Button("OK", role: .cancel) { model.errorMessage = nil }
@@ -377,9 +361,11 @@ struct SettingsView: View {
                         ProgressView().controlSize(.small)
                     }
                 }
-                Button("Close the invite link", role: .destructive) {
+                // Not red: it asks first (re-seating the partner), and it reopens.
+                Button("Close the invite link") {
                     Task { await model.closeInvite() }
                 }
+                .foregroundStyle(Theme.accentText)
                 .disabled(model.isChangingInviteLink)
             }
         } header: {
@@ -406,7 +392,11 @@ struct SettingsView: View {
     }
 
     private var safetyFooter: String {
-        String(localized: "The filter hides strong language in what \(model.partnerName) sends; long-press a status or open a photo's menu to report it, which removes it from this iPhone at once. Reports and blocks go to \(AppConfig.supportEmail) and are acted on within 24 hours.")
+        String(localized: "Long-press a status or open a photo's menu to report it. Reports and blocks go to \(AppConfig.supportEmail) and are acted on within 24 hours.")
+    }
+
+    private var memoriesFooter: String {
+        String(localized: "Saving copies everything into iCloud Drive as ordinary files. A fresh start clears your shared history from both iPhones once you both agree.")
     }
 
     private var versionString: String {
@@ -423,27 +413,22 @@ struct SettingsView: View {
         #endif
     }
 
-    private var ourDateSection: some View {
-        Section {
-            Button {
-                editingOurDate = true
-            } label: {
-                LabeledContent("Our date") {
-                    if let anniversary = model.anniversary {
-                        Text(anniversary.startsAt,
-                             format: Date.FormatStyle(date: .abbreviated, time: .shortened,
-                                                      timeZone: anniversary.timeZone))
-                    } else {
-                        Text("Not set")
-                    }
+    /// The owner's date, in plain sight: the secret is the count, not the date.
+    private var ourDateRow: some View {
+        Button {
+            editingOurDate = true
+        } label: {
+            LabeledContent("Our date") {
+                if let anniversary = model.anniversary {
+                    Text(anniversary.startsAt,
+                         format: Date.FormatStyle(date: .abbreviated, time: .omitted,
+                                                  timeZone: anniversary.timeZone))
+                } else {
+                    Text("Not set")
                 }
-                .foregroundStyle(.primary)
             }
-        } header: {
-            Text("Just for you two")
-        } footer: {
-            Text("The day the hidden count starts from. \(model.partnerName) sees the same count; only you can change the date.")
         }
+        .tint(.primary)
     }
 
     private var freshStartSummary: String {
@@ -462,9 +447,6 @@ struct SettingsView: View {
         let text: String
     }
 
-    private var archiveFooter: String {
-        String(localized: "Copies every photo, drawing and voice memo — with the date, the caption and who sent it — and your status history into iCloud Drive › \(AppConfig.appName), as ordinary files that open in anything. Nothing is deleted, and the archive stays after you unlink.")
-    }
 
     /// A blank name never commits ("" means "no name" and would swap the screen
     /// under this sheet for onboarding). `model.hasName` gates it because a wipe
@@ -619,5 +601,51 @@ private struct InviteDialogs: ViewModifier {
             } message: {
                 Text(model.inviteNotice ?? "")
             }
+    }
+}
+
+/// The Lock Screen widget's how-to, a page of its own rather than a row that
+/// looked tappable and wasn't.
+private struct LockScreenWidgetHelp: View {
+    let partnerName: String
+
+    var body: some View {
+        ZStack {
+            Theme.Background()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    step(1, "Touch and hold your Lock Screen.")
+                    step(2, "Tap Customize, then the Lock Screen.")
+                    step(3, "Tap the widget row and add \(AppConfig.appName).")
+                    Text("\(partnerName)'s status, and the heart that sends a nudge, without unlocking.")
+                        .font(Theme.rounded(15))
+                        .foregroundStyle(Theme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 8)
+                }
+                .padding(20)
+                .containerRelativeFrame(.horizontal)
+            }
+        }
+        .navigationTitle("Lock Screen widget")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func step(_ number: Int, _ text: LocalizedStringKey) -> some View {
+        HStack(spacing: 14) {
+            Text("\(number)")
+                .font(Theme.rounded(16, .bold))
+                .foregroundStyle(.white)
+                .frame(width: 34, height: 34)
+                .background(Theme.accent, in: Circle())
+                .accessibilityHidden(true)
+            Text(text)
+                .font(Theme.rounded(17))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .card(padding: 16)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text("Step \(number): ") + Text(text))
     }
 }

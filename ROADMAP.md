@@ -5,6 +5,29 @@ addition requires re-deploying the schema to Production (README → "Shipping it
 
 ## Shipped (October 2026)
 
+- **UX refresh** — from the design arena in `DESIGN-BRIEF.md` (IDs refer to it).
+  The easter egg has one lock: a 0.8 s hold on the home title (a thread draws
+  while held), then tying the fox to the fish (drag, or tap one then the other)
+  opens the count, the logo flying into its header; the logo-hold stage and the
+  Settings-title secret are gone, the owner's date is a visible "Our date" row
+  (EGG-1/2). Home is partner-first with their last heart on the card (the
+  sweep on open had erased it), urgent notices above it, a hard scroll edge
+  under the title, and a soft haptic when something lands while it's in front
+  — native banners unchanged (HOME-1/2/3, NOT-1 as adjusted). The status picker
+  waits for a change before Set (a preset tap counts), shows your words as the
+  placeholder, sends words alone with 💬, has a Recent row and counters; an
+  emoji-only status shows as the emoji in the app (STA-1/2). Send failures show
+  where they happened instead of alerts, only a full iCloud alerts (once per
+  back-off), and alerts have specific titles (ERR-1). Settings is regrouped on
+  one page with danger last (SET-1). A moment banner or the photo widget opens
+  the moment (`AppModel.pendingRoute`, ROUTE-1); the gallery and the
+  celebration send a heart back (MOM-1); the footer pill says "Sent to …"
+  (SEND-1); a blank canvas draws on first touch, the voice composer shows the
+  cap, and Redo and the drawing's trash ask first (COMP-1, VOI-1); the library
+  is "Moments" (LIB-1); Terms open with what the app is (TERMS-1); an AA
+  contrast pass via `Theme.mutedText`, 44 pt targets, Reduce Motion fades
+  (A11Y-1).
+
 - **Fresh start — clear the history, both agreeing.** For a chapter that has
   ended without the link ending: one person asks (Settings → Fresh start), the
   other gets a Home card (no push, no subscription — it rides any refresh like
@@ -344,11 +367,18 @@ the home card. Reload on `pairingDidChange`, add "Report…" to partner rows
 (reuses `reportPartnerStatus` for the current one; older entries need the
 report to carry the entry's `at`).
 
-### Heart back on a moment (S)
+### Deferred from the October 2026 UX brief
 
-The banner already offers "Send a heart back" on a moment; the same one-tap
-inside the gallery is the light version of the reactions feature that never
-felt right. No schema: it's a nudge.
+See `DESIGN-BRIEF.md` for the specs.
+- **FIRST-1 (S–M)** — the owner's first run one interruption at a time: the
+  notification prompt after the link sheet, no date sheet before anyone has
+  joined (a Home card once they have), and a "Waiting for your partner" card
+  with the link. Not yet: the owner isn't ready to change first run.
+- **WID-1 (S)** — the small status widget's heart shows sent/failed, bigger target.
+- **WID-2 (S)** — status age on the status widgets (live relative time on
+  systemSmall, a coarse age on the Lock Screen, dimmed past 12 h).
+- **Emoji-only on widgets (S)** — the widgets still print "no message" for an
+  emoji-only status (STA-1's widget half).
 
 ### Offline block should still remember the partner (S)
 
@@ -500,7 +530,7 @@ a lock directory).
 
 **Docs and tooling (S)**
 - README "Shipping it" step 5 still calls the icon the old two-ring artwork;
-  CLAUDE.md lists `LogoView` as its own file (it's in `TieTheStringView.swift`).
+  (`LogoView` is gone: the tie now opens the count.)
 - Each invariant: one-line rule + "guarded by: `TestName`" or "unguarded";
   move the Shipped narrative to a CHANGELOG.
 - A CI step checking the `AppConfig` IDs against the four entitlements files,
@@ -568,8 +598,6 @@ flat grid. Sections by day plus a caption/sender search field.
   this one should too.
 - The general `noticeMessage` alert is titled "Report copied" in `RootView`
   even though the channel is generic.
-- A visible character counter near the cap in the status and caption fields
-  (the cap itself is enforced).
 - Siri's "Send a nudge" while unpaired returns success silently
   (`SendNudgeIntent` swallows the error); a spoken dialog would be kinder.
 - Old `StatusLog` entries logged before the cloud log existed are local-only

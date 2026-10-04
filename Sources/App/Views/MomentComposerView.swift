@@ -139,10 +139,11 @@ struct MomentComposerView: View {
                                      : Color.secondary)
                 }
 
-                // Always mounted so strokes survive toggling the palette; only
-                // accepts touches while drawing is on.
+                // Always mounted so strokes survive toggling the palette. Takes
+                // touches while drawing is on — or on a blank square, which the
+                // placeholder invites to draw on; a photo needs Draw first.
                 DrawingCanvas(controller: controller)
-                    .allowsHitTesting(isDrawing)
+                    .allowsHitTesting(isDrawing || (photo == nil && controller.strokeCount == 0))
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
@@ -151,6 +152,12 @@ struct MomentComposerView: View {
                 .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.10), radius: 20, y: 10)
+        // The first stroke on a blank square turns drawing on and shows the palette.
+        .onChange(of: controller.strokeCount) { old, new in
+            guard old == 0, new > 0, !isDrawing else { return }
+            withAnimation(.smooth(duration: 0.25)) { isDrawing = true }
+            captionFocused = false
+        }
     }
 
     private var sourceRow: some View {
@@ -171,7 +178,8 @@ struct MomentComposerView: View {
                 withAnimation(.smooth(duration: 0.25)) { isDrawing.toggle() }
                 captionFocused = false
             } label: {
-                sourceLabel(isDrawing ? "Done" : "Draw",
+                // Not "Done": that read as "send it", beside the toolbar's Send.
+                sourceLabel(isDrawing ? "Stop drawing" : "Draw",
                             systemImage: "scribble.variable",
                             active: isDrawing)
             }
@@ -205,6 +213,13 @@ struct MomentComposerView: View {
     }
 
     private var captionField: some View {
+        VStack(spacing: 6) {
+            captionInput
+            CharacterCount(count: caption.count, limit: AppConfig.captionMaxLength)
+        }
+    }
+
+    private var captionInput: some View {
         TextField("Add a caption (optional)", text: $caption)
             .font(Theme.rounded(16))
             .focused($captionFocused)

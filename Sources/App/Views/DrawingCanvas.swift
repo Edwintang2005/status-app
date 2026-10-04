@@ -209,6 +209,8 @@ struct DrawingPalette: View {
     /// Hidden when a photo is behind the canvas — a backdrop would never show.
     var showsBackdrop: Bool = true
 
+    @State private var confirmingClear = false
+
     /// One per entry of `DrawingController.backdrops`, in order — seven
     /// swatches all called "Background colour" were indistinguishable to VoiceOver.
     private static var backdropNames: [String] {
@@ -259,8 +261,18 @@ struct DrawingPalette: View {
             }
 
             HStack(spacing: 18) {
-                // Clear is irreversible, so it sits far from undo.
-                toolButton("trash", label: "Clear the drawing", active: false) { controller.clear() }
+                // Clear is irreversible, so it sits far from undo — and asks first.
+                toolButton("trash", label: "Clear the drawing", active: false) {
+                    if controller.strokeCount > 0 { confirmingClear = true }
+                }
+                .confirmationDialog("Clear the drawing?",
+                                    isPresented: $confirmingClear,
+                                    titleVisibility: .visible) {
+                    Button("Clear", role: .destructive) { controller.clear() }
+                    Button("Keep drawing", role: .cancel) {}
+                } message: {
+                    Text("This drawing will be lost.")
+                }
 
                 Divider().frame(height: 24)
 
