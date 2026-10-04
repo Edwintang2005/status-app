@@ -930,7 +930,7 @@ private struct FloatingHeart {
     var scale = 0.6
 }
 
-/// One of Home's one-at-a-time notices (see `HomeView.homeNotice`).
+/// One of Home's one-at-a-time notices (see `HomeView.activeNotice`).
 private struct HomeNoticeCard: View {
     let systemImage: String
     let title: LocalizedStringKey
