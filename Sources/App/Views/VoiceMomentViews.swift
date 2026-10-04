@@ -182,9 +182,10 @@ struct VoiceMemoRow: View {
             .card(padding: 14)
             .overlay(alignment: .topTrailing) {
                 if !moment.seen && !moment.fromMe {
+                    // warmDeep: `warm` is 2.3:1 on the card, too faint for the only "new" cue.
                     Circle()
-                        .fill(Theme.warm)
-                        .frame(width: 9, height: 9)
+                        .fill(Theme.warmDeep)
+                        .frame(width: 10, height: 10)
                         .offset(x: -6, y: 6)
                 }
             }

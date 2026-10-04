@@ -79,11 +79,29 @@ final class AppModel {
         let url: URL
     }
 
-    var errorMessage: String?
+    var errorMessage: String? {
+        didSet { if errorMessage == nil { errorTitle = nil } }
+    }
+    /// The alert's title for `errorMessage`; set before it. `nil` falls back to a generic one.
+    var errorTitle: String?
+    var errorAlertTitle: String { errorTitle ?? String(localized: "Something went wrong") }
     /// Informational, not a failure — shown under its own title (see `RootView`).
     var noticeMessage: String?
-    /// Set by the `redstring://compose` deep link so the widget opens straight into the composer.
-    var pendingComposer = false
+
+    /// Where a deep link, a widget or a tapped banner wants Home to go. Latched
+    /// until Home can present it — see `HomeView.consumePendingRoute`.
+    enum Route: Equatable {
+        case compose
+        /// The new-arrivals carousel, or the newest moment when caught up.
+        case newMoments
+        case moment(String)
+    }
+    var pendingRoute: Route?
+
+    /// When a send of ours was last confirmed delivered — Home's footer says so briefly.
+    private(set) var sendConfirmedAt: Date?
+    /// A status publish is in flight, so an unpublished status isn't yet "not sent".
+    var isPublishingStatus: Bool { statusSendsInFlight > 0 }
 
     /// A tapped invite held until `WelcomeView` has a display name — see `acceptInvite(name:)`.
     private(set) var pendingInvite: CKShare.Metadata?
@@ -270,6 +288,7 @@ final class AppModel {
                     await refresh()
                 }
             } else {
+                errorTitle = String(localized: "Already linked")
                 errorMessage = String(localized: "You're already linked with \(partnerName). To join a new invite, unlink first in Settings.")
             }
             return
@@ -297,7 +316,7 @@ final class AppModel {
             // Invite kept — the link is still the way in. Reload first: `acceptShare`
             // commits the pairing before its bootstrap publish, so the store may already say paired.
             reload()
-            present(error)
+            present(error, title: String(localized: "Couldn't join"))
         }
     }
 
@@ -335,7 +354,7 @@ final class AppModel {
             // Same shape as `acceptInvite`: `rejoin` commits the pairing before
             // its bootstrap publish, so the store may already say paired.
             reload()
-            present(error)
+            present(error, title: String(localized: "Couldn't rejoin"))
         }
     }
 
@@ -474,6 +493,7 @@ final class AppModel {
                                   pairing: pairing,
                                   reporterName: myDisplayName))
         if let cloudProblem {
+            errorTitle = String(localized: "Blocked, not yet unlinked")
             errorMessage = String(localized: "\(name) is blocked and everything they sent has been removed from this iPhone. iCloud couldn't be reached to finish the unlink (\(cloudProblem)), so what you sent may still be in the shared space; try Settings → Unlink later if it reappears.")
         }
     }
@@ -573,8 +593,6 @@ final class AppModel {
         }
         if cameBackOnline {
             log.notice("Network is back; refreshing.")
-            // An unread "you're offline" alert would now be wrong.
-            if errorMessage == Self.offlineNudgeMessage { errorMessage = nil }
             catchUpTask?.cancel()
             catchUpTask = Task { [weak self] in await self?.catchUpAfterReconnect() }
         }
@@ -668,6 +686,7 @@ final class AppModel {
             reload()
             if let sync = error as? SyncError, case .linkEnded = sync {
                 // The one refresh failure that is really a message from another person.
+                errorTitle = String(localized: "Link ended")
                 errorMessage = sync.errorDescription
             }
             // Other refresh failures are routine; the "Synced …" footer already shows staleness.
@@ -720,6 +739,7 @@ final class AppModel {
             reload()
         } catch {
             presentSendFailure(error, noun: String(localized: "status update"))
+            reload()
         }
     }
 
@@ -770,17 +790,11 @@ final class AppModel {
             }
             reload()
         } catch {
-            if isOffline || SendFailure(error) == .offline {
-                errorMessage = Self.offlineNudgeMessage
-            } else {
-                present(error)
-            }
+            // `CloudSync.sendNudge` stamped `lastNudgeFailedAt`: the heart itself
+            // says it didn't send, like the lock-screen one.
+            log.error("Nudge failed: \(error.localizedDescription, privacy: .public)")
             reload()
         }
-    }
-
-    private static var offlineNudgeMessage: String {
-        String(localized: "You're offline, so that heart didn't go. Hearts aren't saved for later — send one once you're back online.")
     }
 
     // MARK: - Moments
@@ -805,7 +819,7 @@ final class AppModel {
         do {
             try MomentStore.shared.write(image, id: moment.id)
         } catch {
-            present(error)
+            present(error, title: String(localized: "Couldn't save that moment"))
             return
         }
 
@@ -864,7 +878,7 @@ final class AppModel {
         do {
             try MomentStore.shared.adoptAudio(from: fileURL, id: moment.id)
         } catch {
-            present(error)
+            present(error, title: String(localized: "Couldn't save that voice memo"))
             return
         }
 
@@ -917,6 +931,7 @@ final class AppModel {
     /// Flips the pending flag once the record is confirmed on the server.
     private func markUploaded(_ moment: Moment) {
         history = MomentIndex.shared.markUploaded(ids: [moment.id])
+        sendConfirmedAt = Date()
     }
 
     // MARK: - Anniversary
@@ -1012,6 +1027,7 @@ final class AppModel {
         reload()
         // A full iCloud already names itself in the footer.
         if pendingSendCount > 0, storageFullAt == nil {
+            errorTitle = String(localized: "Not sent yet")
             errorMessage = String(localized: "Couldn't reach iCloud just now. Everything is saved on this iPhone and will send on the next sync.")
         }
     }
@@ -1053,6 +1069,16 @@ final class AppModel {
     }
 
     // MARK: - Status history
+
+    /// Your own last few distinct statuses, newest first — the picker's "Recent".
+    /// Own words only, so no moderation applies.
+    func recentOwnStatuses(limit: Int = 8) -> [StatusHistoryEntry] {
+        var seen = Set<String>()
+        return StatusHistoryLog.shared.load()
+            .filter { $0.fromMe && !$0.message.isEmpty && seen.insert("\($0.emoji)|\($0.message)").inserted }
+            .prefix(limit)
+            .map { $0 }
+    }
 
     /// The rolling status log, newest first, with a reported or filtered partner
     /// status shown as such — loaded on demand by the history sheet.
@@ -1099,7 +1125,7 @@ final class AppModel {
             // `createPairInvite` commits the pairing before its bootstrap publish;
             // reload so the store and this model can't disagree.
             reload()
-            present(error)
+            present(error, title: String(localized: "Couldn't create the link"))
         }
     }
 
@@ -1284,7 +1310,7 @@ final class AppModel {
         } catch SyncError.inviteInUse {
             confirmingInviteReseat = true
         } catch {
-            present(error)
+            present(error, title: String(localized: "Couldn't change the invite link"))
         }
     }
 
@@ -1307,7 +1333,7 @@ final class AppModel {
                 inviteNotice = String(localized: "The link is closed.")
             }
         } catch {
-            present(error)
+            present(error, title: String(localized: "Couldn't change the invite link"))
         }
         reload()
         await refreshInviteURL()
@@ -1324,7 +1350,7 @@ final class AppModel {
             try await CloudSync.shared.reopenInvite()
             inviteNotice = String(localized: "The link is open again. Anyone who has it can join, so send it only to \(partnerName) — if they lost access, they tap it to get back in.")
         } catch {
-            present(error)
+            present(error, title: String(localized: "Couldn't change the invite link"))
         }
         reload()
         await refreshInviteURL()
@@ -1378,7 +1404,7 @@ final class AppModel {
             }
             return outcome
         } catch {
-            present(error)
+            present(error, title: String(localized: "Couldn't save your memories"))
             return nil
         }
     }
@@ -1513,7 +1539,7 @@ final class AppModel {
         do {
             try await backend.unpair()
         } catch {
-            present(error)
+            present(error, title: String(localized: "Couldn't unlink"))
             return false
         }
 
@@ -1538,32 +1564,27 @@ final class AppModel {
 
     // MARK: - Errors
 
-    /// A failed upload is filed locally and retried, so the alert says that
-    /// instead of reading like the send is gone.
+    /// A failed send is filed locally and retried, and Home shows it waiting
+    /// (the status row, the footer): no alert. A full iCloud is the exception —
+    /// only someone can fix it — once per automatic-retry back-off.
     private func presentSendFailure(_ error: Error, noun: String) {
         let code = (error as? CKError).map { "CKError \($0.code.rawValue): " } ?? ""
         log.error("Send failed (\(code, privacy: .public))\(error.localizedDescription, privacy: .public)")
-        let failure = outbox.noteSendFailed(error)
-        // Offline the card already says it; an alert per send would nag.
-        if isOffline, failure != .storageFull { return }
-        switch failure {
-        case .offline:
-            // The footer and the item's clock say it's waiting.
-            break
-        case .storageFull:
-            // Whose storage it is decides who can fix it: the zone lives in the owner's iCloud.
-            errorMessage = role == .participant
-                ? String(localized: "\(partnerName)'s iCloud storage is full. Your shared space lives in their iCloud, so that \(noun) can't be sent until they free up some space. It's saved on this iPhone and will go then.")
-                : String(localized: "Your iCloud storage is full, so that \(noun) can't be sent yet. It's saved on this iPhone and will go once there's space. Your shared space lives in your iCloud, so everything either of you sends counts against it.")
-        case .transient:
-            errorMessage = String(localized: "Couldn't send that \(noun) right now — it's saved on this iPhone and will be sent the next time the app syncs.")
-        }
+        let alreadyFull = outbox.storageFullAt
+        guard outbox.noteSendFailed(error) == .storageFull else { return }
+        if let alreadyFull, Date().timeIntervalSince(alreadyFull) < AppConfig.storageFullRetryInterval { return }
+        // Whose storage it is decides who can fix it: the zone lives in the owner's iCloud.
+        errorTitle = String(localized: "iCloud is full")
+        errorMessage = role == .participant
+            ? String(localized: "\(partnerName)'s iCloud storage is full. Your shared space lives in their iCloud, so that \(noun) can't be sent until they free up some space. It's saved on this iPhone and will go then.")
+            : String(localized: "Your iCloud storage is full, so that \(noun) can't be sent yet. It's saved on this iPhone and will go once there's space. Your shared space lives in your iCloud, so everything either of you sends counts against it.")
     }
 
-    private func present(_ error: Error) {
+    private func present(_ error: Error, title: String? = nil) {
         // Log the CKError code — the message alone doesn't distinguish transient from real.
         let code = (error as? CKError).map { "CKError \($0.code.rawValue): " } ?? ""
         log.error("\(code, privacy: .public)\(error.localizedDescription, privacy: .public)")
+        errorTitle = title
         errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 }

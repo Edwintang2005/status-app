@@ -112,8 +112,8 @@ struct WelcomeView: View {
                             in: RoundedRectangle(cornerRadius: 20, style: .continuous))
 
             Text("You can change this later in Settings.")
-                .font(Theme.rounded(12))
-                .foregroundStyle(.tertiary)
+                .font(Theme.rounded(13))
+                .foregroundStyle(Theme.mutedText)
         }
     }
 
@@ -134,9 +134,15 @@ struct WelcomeView: View {
             .opacity(trimmed.isEmpty ? 0.5 : 1)
 
             if isJoining {
-                Button("Not now") { model.declineInvite() }
-                    .font(Theme.rounded(14))
-                    .foregroundStyle(.secondary)
+                Button {
+                    model.declineInvite()
+                } label: {
+                    Text("Not now")
+                        .frame(minWidth: 88, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .font(Theme.rounded(15))
+                .foregroundStyle(Theme.mutedText)
             }
 
             Label {

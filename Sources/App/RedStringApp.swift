@@ -57,9 +57,18 @@ struct RedStringApp: App {
                     Task { await model.accountDidChange() }
                 }
                 .onOpenURL { url in
-                    // Widget tap opens the composer — only when paired, so the latched
-                    // flag can't pop the composer over a first-run home screen.
-                    if url.host == "compose", model.isPaired { model.pendingComposer = true }
+                    // Only when paired, so a latched route can't pop a sheet over
+                    // a first-run screen. `moment/<id>` is the photo widget's tap.
+                    guard model.isPaired else { return }
+                    switch url.host {
+                    case "compose":
+                        model.pendingRoute = .compose
+                    case "moment":
+                        let id = url.lastPathComponent
+                        model.pendingRoute = id.isEmpty || id == "/" ? .newMoments : .moment(id)
+                    default:
+                        break
+                    }
                 }
         }
     }

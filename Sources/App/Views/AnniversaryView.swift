@@ -5,13 +5,16 @@ import SwiftUI
 /// and a celebration on milestone days. Says so while no date is set — and
 /// hands the owner the picker.
 struct AnniversaryView: View {
+    /// The tie's logo flies into this header; `nil` on the plain path.
+    var logo: Namespace.ID? = nil
+
     @Environment(AppModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
     @State private var pieces = ConfettiPiece.emitter(count: 48)
     @State private var opened = Date()
     @State private var editing = false
+    @AccessibilityFocusState private var summaryFocused: Bool
 
     var body: some View {
         ZStack {
@@ -38,18 +41,11 @@ struct AnniversaryView: View {
             VStack {
                 HStack {
                     Spacer()
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                            .font(Theme.rounded(14, .bold))
-                            .foregroundStyle(.secondary)
-                            .padding(10)
-                            .background(.ultraThinMaterial, in: Circle())
-                    }
-                    .accessibilityLabel("Close")
+                    EggCloseButton()
                 }
                 Spacer()
             }
-            .padding(20)
+            .padding(16)
         }
         .sheet(isPresented: $editing) {
             AnniversaryEditorView(mode: .edit)
@@ -57,66 +53,142 @@ struct AnniversaryView: View {
         }
         .task {
             opened = .now
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-            withAnimation(.spring(response: 0.7, dampingFraction: 0.65)) { revealed = true }
+            // The tie already buzzed; only a milestone earns a second one.
+            if model.anniversary?.milestoneToday(.now) != nil {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            }
+            reveal()
+            try? await Task.sleep(for: .milliseconds(400))
+            summaryFocused = true
         }
+        // A date that lands while the screen is open reveals in place.
+        .onChange(of: model.anniversary == nil) { _, unset in
+            guard !unset else { return }
+            revealed = false
+            Task {
+                try? await Task.sleep(for: .milliseconds(50))
+                reveal()
+            }
+        }
+    }
+
+    private func reveal() {
+        withAnimation(reduceMotion ? .easeIn(duration: 0.25) : .easeOut(duration: 0.4).delay(0.2)) {
+            revealed = true
+        }
+    }
+
+    /// The pair just tied, settled at the top of every state.
+    private var header: some View {
+        Image("Logo")
+            .resizable()
+            .scaledToFit()
+            .frame(width: 150)
+            .matchedLogo(logo)
+            .shadow(color: Theme.accent.opacity(0.25), radius: 16, y: 6)
+            .padding(.top, 40)
+            .padding(.bottom, 18)
+            .accessibilityHidden(true)
     }
 
     // MARK: - No date yet
 
     private var unset: some View {
-        VStack(spacing: 18) {
-            Spacer(minLength: 0)
-            Text("❤️")
-                .font(.system(size: 64))
-                .scaleEffect(revealed ? 1 : 0.3)
-                .accessibilityHidden(true)
-            Text("No date yet")
-                .font(Theme.rounded(30, .bold))
-            if model.canEditAnniversary {
-                Text("Tell the app when the two of you began and the count starts here — on both phones.")
-                    .font(Theme.rounded(15))
+        ScrollView {
+            VStack(spacing: 16) {
+                header
+                VStack(spacing: 16) {
+                    if model.canEditAnniversary {
+                        ownerUnset
+                    } else {
+                        partnerUnset
+                    }
+                }
+                .opacity(revealed ? 1 : 0)
+            }
+            .padding(.horizontal, 32)
+            .padding(.bottom, 24)
+            .containerRelativeFrame(.horizontal)
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    @ViewBuilder
+    private var ownerUnset: some View {
+        Text("When did you two begin?")
+            .font(Theme.rounded(28, .bold))
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityFocused($summaryFocused)
+        Text("The count starts here, on both phones.")
+            .font(Theme.rounded(15))
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+        if model.anniversaryRequestPending {
+            Label("\(model.partnerName) asked for this.", systemImage: "paperplane")
+                .font(Theme.rounded(15, .semibold))
+                .foregroundStyle(Theme.accentText)
+        }
+        Button {
+            editing = true
+        } label: {
+            Label("Set our date", systemImage: "calendar.badge.clock")
+        }
+        .buttonStyle(PrimaryButtonStyle())
+        .padding(.top, 8)
+    }
+
+    @ViewBuilder
+    private var partnerUnset: some View {
+        Text("\(model.partnerName) hasn't set your date yet")
+            .font(Theme.rounded(28, .bold))
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityFocused($summaryFocused)
+        Text("Once they do, the count appears here.")
+            .font(Theme.rounded(15))
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+        if model.canRequestAnniversary {
+            // The ask travels with the next sync and greets the owner when
+            // they next open the app — no push, by design.
+            if let asked = model.anniversaryRequestedAt {
+                Button {
+                    Task { await model.requestAnniversary() }
+                } label: {
+                    Label("Ask again", systemImage: "paperplane")
+                }
+                .buttonStyle(SecondaryButtonStyle())
+                .padding(.top, 8)
+                if model.snapshot.anniversaryRequestPublished {
+                    RelativeTime(asked) { when in
+                        Text("Asked \(when). They'll see it next time they open \(AppConfig.appName).")
+                    }
+                    .font(Theme.rounded(13))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Label("Waiting to send. It goes as soon as you're online.", systemImage: "icloud.and.arrow.up")
+                        .font(Theme.rounded(13, .semibold))
+                        .foregroundStyle(Theme.warmText)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
                 Button {
-                    editing = true
+                    Task { await model.requestAnniversary() }
                 } label: {
-                    Label("Set our date", systemImage: "calendar.badge.clock")
+                    Label("Ask \(model.partnerName) to set it", systemImage: "paperplane")
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .padding(.top, 8)
-            } else {
-                Text("\(model.partnerName) hasn't set the day the two of you began. Once they do, the count appears here.")
-                    .font(Theme.rounded(15))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                if model.canRequestAnniversary {
-                    // The ask travels with the next sync and greets the owner
-                    // when they next open the app — no push, by design.
-                    Button {
-                        Task { await model.requestAnniversary() }
-                    } label: {
-                        Label("Ask \(model.partnerName) to set it", systemImage: "hand.wave")
-                    }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .padding(.top, 8)
-                    if let asked = model.anniversaryRequestedAt {
-                        RelativeTime(asked) { when in
-                            Text("Asked \(when). They'll see it when they next open the app.")
-                        }
-                        .font(Theme.rounded(12))
-                        .foregroundStyle(.tertiary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
             }
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 36)
-        .opacity(revealed ? 1 : 0)
     }
 
     // MARK: - Content
@@ -125,78 +197,82 @@ struct AnniversaryView: View {
                          now: Date,
                          celebrating: Anniversary.Milestone?) -> some View {
         let (days, clock) = anniversary.elapsed(at: now)
+        let since = anniversary.startsAt.formatted(Date.FormatStyle(date: .long, time: .omitted, timeZone: anniversary.timeZone))
+        let digits: ContentTransition = reduceMotion ? .identity : .numericText()
 
         return ScrollView {
             VStack(spacing: 0) {
-                Text("❤️")
-                    .font(.system(size: 64))
-                    .scaleEffect(revealed ? 1 : 0.3)
-                    .rotationEffect(.degrees(revealed ? 0 : -20))
-                    .padding(.top, 36)
-                    .padding(.bottom, 22)
-                    .accessibilityHidden(true)
+                header
 
-                if let celebrating {
-                    Text("Happy \(celebrating.title)")
-                        .font(Theme.rounded(34, .bold))
-                        .foregroundStyle(Theme.accent)
-                        .multilineTextAlignment(.center)
-                        .padding(.bottom, 18)
-                }
+                VStack(spacing: 0) {
+                    if let celebrating {
+                        Text("Happy \(celebrating.title)")
+                            .font(Theme.rounded(34, .bold))
+                            .foregroundStyle(Theme.accent)
+                            .multilineTextAlignment(.center)
+                            .padding(.bottom, 18)
+                    }
 
-                Text("Tied together for")
-                    .font(Theme.rounded(12, .semibold))
-                    .tracking(1.6)
-                    .textCase(.uppercase)
-                    .foregroundStyle(.secondary)
+                    // One element for VoiceOver, minute-precise: the seconds
+                    // would re-announce every tick.
+                    VStack(spacing: 0) {
+                        Text("Tied together for")
+                            .font(Theme.rounded(12, .semibold))
+                            .tracking(1.6)
+                            .textCase(.uppercase)
+                            .foregroundStyle(.secondary)
 
-                Text("\(days)")
-                    .font(Theme.rounded(104, .bold))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.5)
-                    .contentTransition(.numericText())
-                    .animation(.smooth, value: days)
-                    .shadow(color: Theme.warm.opacity(0.35), radius: 18)
-                Text("^[\(days) day](inflect: true)")
-                    .font(Theme.rounded(20, .medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.top, -8)
-                    .accessibilityHidden(true)
+                        Text("\(days)")
+                            .font(Theme.rounded(104, .bold))
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.5)
+                            .contentTransition(digits)
+                            .animation(.smooth, value: days)
+                            .shadow(color: Theme.warm.opacity(0.35), radius: 18)
+                        Text(days == 1 ? "day" : "days")
+                            .font(Theme.rounded(20, .medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.top, -8)
 
-                Text(clockString(clock))
-                    .font(Theme.rounded(30, .medium))
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-                    .animation(.smooth(duration: 0.3), value: clock)
-                    .foregroundStyle(.primary.opacity(0.8))
-                    .padding(.top, 14)
-                    .accessibilityLabel(clockLabel(clock))
+                        Text(clockString(clock))
+                            .font(Theme.rounded(30, .medium))
+                            .monospacedDigit()
+                            .contentTransition(digits)
+                            .animation(.smooth(duration: 0.3), value: clock)
+                            .foregroundStyle(.primary.opacity(0.8))
+                            .padding(.top, 14)
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text("Tied together for ^[\(days) day](inflect: true) and ^[\(clock / 3600) hour](inflect: true). Since \(since)."))
+                    .accessibilityFocused($summaryFocused)
 
-                breakdown(anniversary, now: now)
-                    .padding(.top, 20)
+                    breakdown(anniversary, now: now)
+                        .padding(.top, 20)
 
-                VStack(spacing: 12) {
-                    sinceCard(anniversary)
-                    if let next = anniversary.nextMilestone(after: now) {
-                        nextCard(next, anniversary: anniversary, now: now)
+                    VStack(spacing: 12) {
+                        sinceCard(anniversary)
+                        if let next = anniversary.nextMilestone(after: now) {
+                            nextCard(next, anniversary: anniversary, now: now)
+                        }
+                    }
+                    .padding(.top, 30)
+
+                    // Before the partner joins there's no name to put beside ours.
+                    if model.snapshot.theirs != nil {
+                        Text("\(model.myDisplayName) & \(model.partnerName)")
+                            .font(Theme.rounded(15, .medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 28)
                     }
                 }
-                .padding(.top, 30)
-
-                Text("\(model.myDisplayName) & \(model.partnerName)")
-                    .font(Theme.rounded(15, .medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 28)
-                    .padding(.bottom, 24)
+                .opacity(revealed ? 1 : 0)
+                .padding(.bottom, 24)
             }
             .padding(.horizontal, 24)
             .containerRelativeFrame(.horizontal)
-            .opacity(revealed ? 1 : 0)
         }
         .scrollIndicators(.hidden)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Tied together for \(days) days")
     }
 
     private func breakdown(_ anniversary: Anniversary, now: Date) -> some View {
@@ -250,6 +326,11 @@ struct AnniversaryView: View {
                     .font(Theme.rounded(17, .semibold))
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
+                if !model.canEditAnniversary {
+                    Text("Set by \(model.partnerName)")
+                        .font(Theme.rounded(13))
+                        .foregroundStyle(.secondary)
+                }
             }
             Spacer(minLength: 0)
             if model.canEditAnniversary {
@@ -293,12 +374,9 @@ struct AnniversaryView: View {
 
     // MARK: - Formatting
 
+    /// Hours, minutes and seconds spelled out: "16:36:17" read as a time of day.
     private func clockString(_ seconds: Int) -> String {
-        String(format: "%02d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60)
-    }
-
-    private func clockLabel(_ seconds: Int) -> String {
-        String(localized: "and \(seconds / 3600) hours, \(seconds / 60 % 60) minutes, \(seconds % 60) seconds")
+        String(format: "%dh %02dm %02ds", seconds / 3600, seconds / 60 % 60, seconds % 60)
     }
 }
 

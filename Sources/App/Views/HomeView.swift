@@ -3,6 +3,7 @@ import SwiftUI
 struct HomeView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showingPicker = false
     @State private var showingSettings = false
     @State private var showingComposer = false
@@ -24,6 +25,17 @@ struct HomeView: View {
     /// Snapshot taken when the carousel opens — paging marks moments seen, so
     /// reading `model.carouselMoments` live would shrink the list under the user.
     @State private var carouselQueue: [Moment] = []
+    /// Where the carousel opens, when a route named one; otherwise its first.
+    @State private var carouselStart: Moment?
+    /// The title is being held: a thread draws under it until the egg opens.
+    @State private var titlePressing = false
+    /// Bumped when their heart, status or a picture lands while Home is in
+    /// front: a soft haptic and an in-place flourish, under the system banner.
+    @State private var heartArrivals = 0
+    @State private var statusArrivals = 0
+    @State private var momentArrivals = 0
+    /// "Sent to …" in the footer for a moment after a send is confirmed.
+    @State private var showsSent = false
 
     var body: some View {
         @Bindable var model = model
@@ -34,6 +46,7 @@ struct HomeView: View {
                 // over anything layered underneath.
                 Theme.Background()
                 ScrollView {
+                    // Them first: what you open the app to see, then your reply to it.
                     VStack(spacing: 12) {
                         // In the scroll content, not pinned above it: a sibling
                         // that resizes the scroll view looped layout against the bar.
@@ -43,21 +56,31 @@ struct HomeView: View {
                                           storageFull: model.storageFullAt != nil)
                                 .transition(.opacity)
                         }
+                        if let notice = activeNotice, notice.urgent {
+                            noticeCard(notice)
+                        }
+                        partnerCard
                         myStatusRow
-                        NudgeButton(lastSentAt: model.snapshot.lastNudgeSentAt) {
+                        NudgeButton(lastSentAt: model.snapshot.lastNudgeSentAt,
+                                    lastFailedAt: model.snapshot.lastNudgeFailedAt) {
                             await model.sendNudge()
                         }
                         sendRow
-                        partnerCard
-                        homeNotice
+                        if let notice = activeNotice, !notice.urgent {
+                            noticeCard(notice)
+                        }
                         if let moment = model.unseenVisualMoments.first ?? model.latestVisualMoment {
                             momentCard(moment)
+                                .id(moment.id)
+                                .transition(.opacity)
                         }
                         if let memo = model.latestReceivedVoiceMemo {
                             voiceMemoRow(memo)
                         }
                         syncFooter
                     }
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.4),
+                               value: model.unseenVisualMoments.first?.id)
                     .padding(.horizontal, 20)
                     .padding(.vertical, 14)
                     .animation(.smooth(duration: 0.3), value: model.isOffline)
@@ -68,6 +91,7 @@ struct HomeView: View {
                     .containerRelativeFrame(.horizontal)
                 }
                 .scrollIndicators(.hidden)
+                .hardTopScrollEdge()
                 .refreshable { await model.refresh() }
             }
             .navigationTitle(AppConfig.appName)
@@ -78,8 +102,14 @@ struct HomeView: View {
                 ToolbarItem(placement: .principal) {
                     Text(AppConfig.appName)
                         .font(.headline)
-                        .onLongPressGesture(minimumDuration: 1.2) {
+                        .overlay(alignment: .bottomLeading) { titleThread }
+                        .onLongPressGesture(minimumDuration: 0.8, pressing: { down in
+                            withAnimation(down && !reduceMotion ? .linear(duration: 0.8) : .easeOut(duration: 0.25)) {
+                                titlePressing = down
+                            }
+                        }) {
                             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            titlePressing = false
                             showingAnniversary = true
                         }
                         .accessibilityAddTraits(.isHeader)
@@ -94,7 +124,7 @@ struct HomeView: View {
                         Image(systemName: "photo.stack")
                     }
                     .disabled(model.history.isEmpty)
-                    .accessibilityLabel("History")
+                    .accessibilityLabel("Moments")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -109,7 +139,9 @@ struct HomeView: View {
         // Every sheet hosts the model's error alert (`presentsModelErrors`):
         // an error raised while one is up can't present from the root.
         .sheet(isPresented: $showingPicker) {
-            MoodPickerView(initialEmoji: model.snapshot.mine?.emoji ?? "") { emoji, message, isCelebration in
+            MoodPickerView(initialEmoji: model.snapshot.mine?.emoji ?? "",
+                           currentMessage: model.snapshot.mine?.message ?? "",
+                           recent: model.recentOwnStatuses()) { emoji, message, isCelebration in
                 Task {
                     await model.setStatus(emoji: emoji,
                                           message: message,
@@ -139,8 +171,8 @@ struct HomeView: View {
             .presentsModelErrors()
         }
         .sheet(isPresented: Binding(get: { !carouselQueue.isEmpty },
-                                    set: { if !$0 { carouselQueue = [] } })) {
-            if let first = carouselQueue.first {
+                                    set: { if !$0 { carouselQueue = []; carouselStart = nil } })) {
+            if let first = carouselStart ?? carouselQueue.first {
                 MomentGalleryView(moments: carouselQueue, startAt: first)
                     .environment(model)
                     .presentsModelErrors()
@@ -173,26 +205,49 @@ struct HomeView: View {
             .environment(model)
             .presentsModelErrors()
         }
-        .onChange(of: model.pendingComposer) { _, pending in
-            if pending { consumePendingComposer() }
+        .onChange(of: model.pendingRoute) { _, route in
+            if route != nil { consumePendingRoute() }
         }
-        // `onChange` misses a flag latched true while this view wasn't mounted
-        // (true→true never fires), so consume any pending flag on mount too.
-        .onAppear { consumePendingComposer() }
+        // `onChange` misses a route latched while this view wasn't mounted, so
+        // consume any pending one on mount too.
+        .onAppear { consumePendingRoute() }
         // A deep link that arrived while another sheet was up stays latched;
         // present it once that sheet closes instead of silently dropping it.
         .onChange(of: anySheetShowing) { _, showing in
             // Root-level presentations (the anniversary prompt) wait on this.
             model.homeSheetShowing = showing
             guard !showing else { return }
-            consumePendingComposer()
+            consumePendingRoute()
             // A status that landed under a sheet is seen once it's uncovered —
             // unless the queued composer just covered it again.
             model.homeSheetShowing = anySheetShowing
             model.markPartnerStatusSeen()
         }
         .onChange(of: model.rootSheetShowing) { _, showing in
-            if !showing { model.markPartnerStatusSeen() }
+            if !showing {
+                model.markPartnerStatusSeen()
+                consumePendingRoute()
+            }
+        }
+        // Arrivals while Home is in front: the card updates in place under the
+        // system banner, with a soft haptic.
+        .onChange(of: model.snapshot.theirs?.lastNudgeAt) { old, new in
+            if let new, new > old ?? .distantPast, homeInFront { heartArrivals += 1 }
+        }
+        .onChange(of: model.snapshot.theirs?.wordsAt) { old, new in
+            if let new, new > old ?? .distantPast, homeInFront { statusArrivals += 1 }
+        }
+        .onChange(of: model.unseenVisualMoments.count) { old, new in
+            if new > old, homeInFront { momentArrivals += 1 }
+        }
+        .sensoryFeedback(.impact(flexibility: .soft), trigger: heartArrivals)
+        .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.6), trigger: statusArrivals)
+        .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.6), trigger: momentArrivals)
+        .task(id: model.sendConfirmedAt) {
+            guard let at = model.sendConfirmedAt, Date().timeIntervalSince(at) < 3 else { return }
+            withAnimation(.smooth) { showsSent = true }
+            try? await Task.sleep(for: .seconds(3))
+            withAnimation(.smooth) { showsSent = false }
         }
         // Torn down with a sheet up (an unlink, a block) never fires the change
         // above; a flag left true would hold the anniversary prompt back for good.
@@ -228,10 +283,34 @@ struct HomeView: View {
 
     // MARK: - Notices
 
+    private enum Notice {
+        case extraMembers(Int), iCloud(String), freshStartStuck, freshStartRequest, closeLink, widgetTip
+
+        /// Urgent ones sit above the partner card; the rest below the send row.
+        var urgent: Bool {
+            switch self {
+            case .extraMembers, .iCloud, .freshStartStuck: true
+            case .freshStartRequest, .closeLink, .widgetTip: false
+            }
+        }
+    }
+
     /// At most one at a time, most urgent first.
+    private var activeNotice: Notice? {
+        if let count = model.extraShareMembers { return .extraMembers(count) }
+        // Offline the account check fails as a network error; the offline card covers it.
+        if let problem = model.readinessMessage, !model.isOffline { return .iCloud(problem) }
+        if model.freshStartNeedsAttention { return .freshStartStuck }
+        if model.showsFreshStartRequest { return .freshStartRequest }
+        if model.showsCloseLinkPrompt { return .closeLink }
+        if model.showsWidgetTip { return .widgetTip }
+        return nil
+    }
+
     @ViewBuilder
-    private var homeNotice: some View {
-        if let count = model.extraShareMembers {
+    private func noticeCard(_ notice: Notice) -> some View {
+        switch notice {
+        case .extraMembers(let count):
             HomeNoticeCard(systemImage: "person.2.badge.gearshape",
                            title: "Someone else has joined",
                            message: "\(count) people besides you are on your shared space, not just \(model.partnerName). Closing the invite link can't remove them. If that isn't right, unlink in Settings — it deletes the shared space for both of you — and send \(model.partnerName) a new link.",
@@ -239,7 +318,24 @@ struct HomeView: View {
                            urgent: true) {
                 showingSettings = true
             }
-        } else if model.showsFreshStartRequest {
+        case .iCloud(let problem):
+            // The footer only had room for this in 12 pt; nothing syncs until it's fixed.
+            HomeNoticeCard(systemImage: "exclamationmark.icloud",
+                           title: "iCloud needs attention",
+                           message: "\(problem)",
+                           actionTitle: "Check again",
+                           urgent: true) {
+                Task { await model.refresh() }
+            }
+        case .freshStartStuck:
+            HomeNoticeCard(systemImage: "exclamationmark.arrow.circlepath",
+                           title: "Your fresh start hasn't finished",
+                           message: "This iPhone couldn't clear its side yet. It tries again whenever the app opens.",
+                           actionTitle: "Review…",
+                           urgent: true) {
+                showingFreshStart = true
+            }
+        case .freshStartRequest:
             // The request's only delivery: no push, no banner (it rides any refresh).
             HomeNoticeCard(systemImage: "sparkles",
                            title: "\(model.partnerName) asked for a fresh start",
@@ -249,15 +345,7 @@ struct HomeView: View {
                            onDismiss: { model.dismissFreshStartRequest() }) {
                 showingFreshStart = true
             }
-        } else if model.freshStartNeedsAttention {
-            HomeNoticeCard(systemImage: "exclamationmark.arrow.circlepath",
-                           title: "Your fresh start hasn't finished",
-                           message: "This iPhone couldn't clear its side yet. It tries again whenever the app opens.",
-                           actionTitle: "Review…",
-                           urgent: true) {
-                showingFreshStart = true
-            }
-        } else if model.showsCloseLinkPrompt {
+        case .closeLink:
             HomeNoticeCard(systemImage: "lock.open",
                            title: "\(model.partnerName)'s in",
                            message: "Your invite link still lets anyone who has it join. Close it while you're together: \(model.partnerName) taps the link once more to get back in.",
@@ -267,7 +355,7 @@ struct HomeView: View {
                            onDismiss: { model.dismissCloseLinkPrompt() }) {
                 confirmingCloseLink = true
             }
-        } else if model.showsWidgetTip {
+        case .widgetTip:
             HomeNoticeCard(systemImage: "lock.iphone",
                            title: "Put \(model.partnerName) on your Lock Screen",
                            message: "Touch and hold your Lock Screen, tap Customize, then the Lock Screen, and add \(AppConfig.appName) to the widget row: their status, and the heart that sends a nudge, without unlocking.",
@@ -275,6 +363,25 @@ struct HomeView: View {
                 model.dismissWidgetTip()
             }
         }
+    }
+
+    /// Grows under the title while it's held; fades in instead under Reduce Motion.
+    private var titleThread: some View {
+        GeometryReader { geometry in
+            Capsule()
+                .fill(Theme.accent)
+                .frame(width: reduceMotion || titlePressing ? geometry.size.width : 0, height: 2)
+                .opacity(reduceMotion && !titlePressing ? 0 : 1)
+        }
+        .frame(height: 2)
+        .offset(y: 6)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    /// Nobody is looking at Home otherwise, so nothing "arrives" on it.
+    private var homeInFront: Bool {
+        scenePhase == .active && !anySheetShowing && !model.rootSheetShowing
     }
 
     /// SwiftUI drops a second concurrent presentation, so the composer deep link
@@ -285,10 +392,24 @@ struct HomeView: View {
             || showingFreshStart || !carouselQueue.isEmpty
     }
 
-    private func consumePendingComposer() {
-        guard model.pendingComposer, !anySheetShowing else { return }
-        showingComposer = true
-        model.pendingComposer = false
+    private func consumePendingRoute() {
+        guard let route = model.pendingRoute, !anySheetShowing, !model.rootSheetShowing else { return }
+        model.pendingRoute = nil
+        switch route {
+        case .compose:
+            showingComposer = true
+        case .newMoments:
+            carouselQueue = model.carouselMoments
+        case .moment(let id):
+            // Not filed yet (the widget can run ahead of the app): the new arrivals.
+            guard let moment = model.history.first(where: { $0.id == id && !$0.isVoice }) else {
+                carouselQueue = model.carouselMoments
+                return
+            }
+            let unseen = model.unseenVisualMoments
+            carouselStart = moment
+            carouselQueue = unseen.contains { $0.id == id } ? unseen : [moment]
+        }
     }
 
     // MARK: - Actions
@@ -321,6 +442,44 @@ struct HomeView: View {
             partnerCardContent
         }
         .buttonStyle(.plain)
+        .overlay {
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .strokeBorder(Theme.accent, lineWidth: 2)
+                .keyframeAnimator(initialValue: 0.0, trigger: statusArrivals + heartArrivals) { glow, opacity in
+                    glow.opacity(opacity)
+                } keyframes: { _ in
+                    KeyframeTrack {
+                        LinearKeyframe(0.7, duration: 0.15)
+                        LinearKeyframe(0, duration: 0.9)
+                    }
+                }
+                .allowsHitTesting(false)
+        }
+        .overlay(alignment: .top) {
+            if !reduceMotion {
+                Image(systemName: "heart.fill")
+                    .font(.system(size: 26))
+                    .foregroundStyle(Theme.accent)
+                    .keyframeAnimator(initialValue: FloatingHeart(), trigger: heartArrivals) { heart, value in
+                        heart.opacity(value.opacity).offset(y: value.rise).scaleEffect(value.scale)
+                    } keyframes: { _ in
+                        KeyframeTrack(\.opacity) {
+                            LinearKeyframe(1, duration: 0.15)
+                            LinearKeyframe(1, duration: 0.45)
+                            LinearKeyframe(0, duration: 0.4)
+                        }
+                        KeyframeTrack(\.rise) {
+                            CubicKeyframe(-48, duration: 1.0)
+                        }
+                        KeyframeTrack(\.scale) {
+                            SpringKeyframe(1.2, duration: 0.3)
+                            CubicKeyframe(0.9, duration: 0.7)
+                        }
+                    }
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
         .accessibilityLabel(partnerSummary)
         .accessibilityHint("Shows status history")
         .contextMenu {
@@ -363,7 +522,16 @@ struct HomeView: View {
         if partnerMessageIsFiltered && !revealFilteredStatus {
             return (ContentFilter.hiddenPlaceholder, true)
         }
-        return theirs.message.isEmpty ? (String(localized: "no message"), true) : (theirs.message, false)
+        // Emoji-only is a status, not a missing one: the emoji stands alone.
+        return (theirs.message, false)
+    }
+
+    /// Their last heart, while it's under a day old — the banner is swept when
+    /// the app opens, so otherwise nothing in the app would say it came.
+    private var partnerHeartAt: Date? {
+        guard let at = model.snapshot.theirs?.lastNudgeAt, Date().timeIntervalSince(at) < 24 * 60 * 60 else { return nil }
+        // A clock ahead of ours never reads "in 3 hours".
+        return min(at, Date())
     }
 
     /// VoiceOver's reading of the partner card: name, emoji, message, age.
@@ -374,7 +542,12 @@ struct HomeView: View {
         let when = theirs.wordsAt.relativeWording()
         // Same as the card: a reported status reads 💭 here too.
         let emoji = model.isPartnerStatusReported ? "💭" : theirs.emoji
-        return "\(model.partnerName): \(emoji) \(partnerMessage.text), \(when)"
+        let words = partnerMessage.text.isEmpty ? "" : " \(partnerMessage.text)"
+        var summary = "\(model.partnerName): \(emoji)\(words), \(when)"
+        if let heartAt = partnerHeartAt {
+            summary += String(localized: ". Thinking of you, \(heartAt.relativeWording())")
+        }
+        return summary
     }
 
     private var partnerCardContent: some View {
@@ -383,7 +556,7 @@ struct HomeView: View {
                 // A reported status loses its emoji too — a custom emoji can be
                 // the offence — matching the widget and the banner.
                 Text(model.isPartnerStatusReported ? "💭" : theirs.emoji)
-                    .font(.system(size: 46))
+                    .font(.system(size: partnerMessage.text.isEmpty ? 56 : 46))
                     .contentTransition(.opacity)
                     .animation(.smooth, value: theirs.emoji)
 
@@ -391,17 +564,30 @@ struct HomeView: View {
                     Text(model.partnerName.uppercased())
                         .font(Theme.rounded(11, .semibold))
                         .tracking(1.2)
-                        .foregroundStyle(.secondary)
-                    Text(partnerMessage.text)
-                        .font(Theme.rounded(20, .semibold))
-                        .lineLimit(2)
-                        // Wrap within the proposed width rather than reporting a
-                        // single-line ideal — see the containerRelativeFrame note.
-                        .fixedSize(horizontal: false, vertical: true)
-                        .foregroundStyle(partnerMessage.muted ? .secondary : .primary)
+                        .foregroundStyle(Theme.mutedText)
+                    if !partnerMessage.text.isEmpty {
+                        Text(partnerMessage.text)
+                            .font(Theme.rounded(20, .semibold))
+                            .lineLimit(2)
+                            // Wrap within the proposed width rather than reporting a
+                            // single-line ideal — see the containerRelativeFrame note.
+                            .fixedSize(horizontal: false, vertical: true)
+                            .foregroundStyle(partnerMessage.muted ? Theme.mutedText : .primary)
+                            .contentTransition(.opacity)
+                            .animation(.smooth, value: partnerMessage.text)
+                    }
                     RelativeTime(theirs.wordsAt)
-                        .font(Theme.rounded(11))
-                        .foregroundStyle(.secondary)
+                        .font(Theme.rounded(12))
+                        .foregroundStyle(Theme.mutedText)
+                    if let heartAt = partnerHeartAt {
+                        RelativeTime(heartAt) { when in
+                            Label("thinking of you · \(when)", systemImage: "heart.fill")
+                        }
+                        .font(Theme.rounded(13, .semibold))
+                        .foregroundStyle(Theme.accentText)
+                        .symbolEffect(.bounce, value: reduceMotion ? 0 : heartArrivals)
+                        .padding(.top, 3)
+                    }
                 }
             } else {
                 Text("💭").font(.system(size: 46)).opacity(0.4)
@@ -478,7 +664,7 @@ struct HomeView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(unseen > 1
                             ? String(localized: "\(momentLabel(moment)). \(unseen) new")
-                            : momentLabel(moment))
+                            : unseen == 1 ? String(localized: "\(momentLabel(moment)). New") : momentLabel(moment))
         .accessibilityHint("Opens it")
         // On the whole card, not the picture: zooming only the square would be
         // cut off by the card's rounded clip.
@@ -501,6 +687,7 @@ struct HomeView: View {
                 // Fetches from CloudKit first when the memo isn't cached.
                 guard await model.ensureMedia(for: memo),
                       let url = MomentStore.shared.mediaURL(for: memo) else {
+                    model.errorTitle = String(localized: "Can't play that yet")
                     model.errorMessage = model.isOffline
                         ? String(localized: "That voice memo isn't saved on this iPhone, so it can't play while you're offline. It will once you're back online.")
                         : String(localized: "Couldn't fetch that voice memo from iCloud. Try again in a moment.")
@@ -536,23 +723,21 @@ struct HomeView: View {
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(myStatusText)
-                        .font(Theme.rounded(17, .semibold))
-                        .foregroundStyle(model.snapshot.mine?.message.isEmpty == false
-                                         ? .primary
-                                         : .secondary)
+                        .font(myStatusHasWords ? Theme.rounded(17, .semibold) : Theme.rounded(16))
+                        .foregroundStyle(myStatusHasWords ? .primary : Theme.mutedText)
                         .lineLimit(1)
-                    // Ahead of the receipt: these words haven't reached the partner yet.
-                    if model.myStatusWaitingToSend {
-                        Label("Waiting to send", systemImage: "clock")
-                            .font(Theme.rounded(11))
-                            .foregroundStyle(.secondary)
+                    if myStatusUnsent {
+                        // Retried on every refresh; the footer offers it now.
+                        Label("Not sent yet · will retry", systemImage: "icloud.and.arrow.up")
+                            .font(Theme.rounded(12, .semibold))
+                            .foregroundStyle(Theme.warmText)
                     } else if let seenAt = model.myStatusSeenAt {
                         // The status read receipt — read receipts on, both sides.
                         RelativeTime(seenAt) { when in
                             Label("Seen \(when)", systemImage: "eye.fill")
                         }
-                        .font(Theme.rounded(11))
-                        .foregroundStyle(.secondary)
+                        .font(Theme.rounded(12))
+                        .foregroundStyle(Theme.mutedText)
                     }
                 }
 
@@ -571,21 +756,26 @@ struct HomeView: View {
         .accessibilityHint("Changes your status")
     }
 
-    /// An emoji-only status is a status: the emoji stands alone, rather than
-    /// "Set your status", which read as if nothing had been set.
+    /// An emoji-only status is a status: the emoji stands beside an invitation
+    /// to add words, rather than "Set your status" or a blank line.
     private var myStatusText: String {
         guard let mine = model.snapshot.mine else { return String(localized: "Set your status") }
         if !mine.message.isEmpty { return mine.message }
-        return mine.emoji.isEmpty ? String(localized: "Set your status") : ""
+        return mine.emoji.isEmpty ? String(localized: "Set your status") : String(localized: "Tap to add words")
     }
+
+    private var myStatusHasWords: Bool { model.snapshot.mine?.message.isEmpty == false }
+
+    /// Set while offline (or a publish failed) and not being sent right now.
+    private var myStatusUnsent: Bool { model.myStatusWaitingToSend }
 
     private var myStatusSummary: String {
         guard let mine = model.snapshot.mine, !mine.message.isEmpty || !mine.emoji.isEmpty else {
             return String(localized: "Set your status")
         }
         var summary = String(localized: "Your status: \(mine.emoji) \(mine.message)")
-        if model.myStatusWaitingToSend {
-            summary += String(localized: ". Waiting to send")
+        if myStatusUnsent {
+            summary += String(localized: ". Not sent yet, will retry")
         } else if let seenAt = model.myStatusSeenAt {
             summary += String(localized: ". Seen \(seenAt.relativeWording())")
         }
@@ -595,6 +785,9 @@ struct HomeView: View {
     /// Says whose storage is full when that's why sends are stuck — only the owner can fix it.
     private var pendingLabel: String {
         let count = model.pendingSendCount
+        if count == 1, myStatusUnsent, model.storageFullAt == nil {
+            return String(localized: "Your status is waiting to send · tap to retry")
+        }
         guard model.storageFullAt != nil else {
             return count == 1
                 ? String(localized: "1 waiting to send · tap to retry")
@@ -605,7 +798,7 @@ struct HomeView: View {
             : String(localized: "Your iCloud is full · \(count) waiting · tap to retry")
     }
 
-    /// How fresh the screen is; the banner up top carries what's queued.
+    /// How fresh the screen is; the offline card up top carries what's queued.
     @ViewBuilder
     private var offlineLabel: some View {
         if let synced = model.snapshot.lastSyncedAt {
@@ -615,33 +808,37 @@ struct HomeView: View {
         }
     }
 
+    /// The bottom line: sync state, and — as a pill — a send just confirmed or
+    /// one still waiting, which taps to retry.
     private var syncFooter: some View {
         HStack(spacing: 6) {
-            if model.isOffline {
-                // First: offline, a refresh fails at once and readiness reads as a network error.
+            if showsSent {
+                Label("Sent to \(model.partnerName)", systemImage: "checkmark")
+                    .modifier(FooterPill(tint: Theme.accentText))
+                    .transition(.opacity)
+            } else if model.isOffline {
+                // Ahead of the rest: offline, a refresh fails at once and readiness reads as a network error.
                 Image(systemName: "wifi.slash")
                 offlineLabel
             } else if model.isRefreshing {
                 ProgressView().controlSize(.mini)
                 Text("Syncing…")
-            } else if let problem = model.readinessMessage {
-                // Only place a paired user hears about iCloud account
-                // problems — the pairing screen isn't mounted any more.
+            } else if model.readinessMessage != nil {
+                // The full story is in the notice at the top.
                 Image(systemName: "exclamationmark.icloud")
-                Text(problem)
+                Text("iCloud needs attention")
             } else if model.isRetryingUploads || model.isSendingNow {
                 ProgressView().controlSize(.mini)
                 Text("Sending…")
             } else if model.pendingSendCount > 0 {
-                // Ahead of "Synced …", which would mislead while an upload
-                // is still sitting on this device. Tapping retries now.
+                // Ahead of "Synced …", which would mislead while a send is
+                // still sitting on this device. Tapping retries now.
                 Button {
                     Task { await model.retryPendingNow() }
                 } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: model.storageFullAt == nil ? "icloud.and.arrow.up" : "exclamationmark.icloud")
-                        Text(pendingLabel)
-                    }
+                    Label(pendingLabel,
+                          systemImage: model.storageFullAt == nil ? "icloud.and.arrow.up" : "exclamationmark.icloud")
+                        .modifier(FooterPill(tint: Theme.warmText))
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("Retries the send now")
@@ -654,7 +851,7 @@ struct HomeView: View {
             }
         }
         .font(Theme.rounded(12))
-        .foregroundStyle(.secondary)
+        .foregroundStyle(Theme.mutedText)
         .padding(.top, 4)
         // Combined into one line for VoiceOver, except while the retry
         // button is showing — combining would swallow its action.
@@ -696,7 +893,7 @@ private struct OfflineBanner: View {
                     .font(Theme.rounded(15, .semibold))
                 Text(detail)
                     .font(Theme.rounded(13))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
@@ -708,6 +905,29 @@ private struct OfflineBanner: View {
             .strokeBorder(Color.white.opacity(0.35), lineWidth: 1))
         .accessibilityElement(children: .combine)
     }
+}
+
+/// The footer's send state, as a pill rather than a line of small print.
+private struct FooterPill: ViewModifier {
+    let tint: Color
+
+    func body(content: Content) -> some View {
+        content
+            .font(Theme.rounded(13, .semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(.ultraThinMaterial, in: Capsule())
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+    }
+}
+
+/// The partner card's rising heart, one keyframe track per property.
+private struct FloatingHeart {
+    var opacity = 0.0
+    var rise = 0.0
+    var scale = 0.6
 }
 
 /// One of Home's one-at-a-time notices (see `HomeView.homeNotice`).
@@ -767,12 +987,16 @@ private struct HomeNoticeCard: View {
 }
 
 /// Owns its countdown so ticking is scoped to this button and no timer runs
-/// outside the cooldown after a nudge (`AppConfig.nudgeCooldown`).
+/// outside the cooldown after a nudge (`AppConfig.nudgeCooldown`). A failed
+/// send says so on the button for `AppConfig.nudgeFailureNotice`, like the
+/// lock-screen heart — no alert.
 private struct NudgeButton: View {
     let lastSentAt: Date?
+    let lastFailedAt: Date?
     let action: () async -> Void
 
     @State private var remaining: TimeInterval = 0
+    @State private var failed = false
 
     private var ready: Bool { remaining == 0 }
 
@@ -780,15 +1004,23 @@ private struct NudgeButton: View {
         Button {
             Task { await action() }
         } label: {
-            Label(ready ? "Thinking of you" : "Sent · \(Int(remaining))s",
-                  systemImage: ready ? "heart.fill" : "checkmark")
+            if !ready {
+                Label("Sent · \(Int(remaining))s", systemImage: "checkmark")
+            } else if failed {
+                Label("Didn't send · tap to retry", systemImage: "heart.slash.fill")
+            } else {
+                Label("Thinking of you", systemImage: "heart.fill")
+            }
         }
         // Accent, not warm: the heart wears the red string's crimson.
-        .buttonStyle(PrimaryButtonStyle(tint: ready ? Theme.accent : Color.secondary.opacity(0.4)))
+        .buttonStyle(PrimaryButtonStyle(tint: !ready ? Color.secondary.opacity(0.4)
+                                        : failed ? Theme.warmDeep : Theme.accent))
         .disabled(!ready)
-        .accessibilityLabel(ready ? "Send a nudge" : "Nudge sent")
+        .accessibilityLabel(!ready ? "Nudge sent" : failed ? "Nudge didn't send. Send again" : "Send a nudge")
         .animation(.smooth, value: ready)
+        .animation(.smooth, value: failed)
         .task(id: lastSentAt) { await countDown() }
+        .task(id: lastFailedAt) { await watchFailure() }
     }
 
     private func countDown() async {
@@ -798,6 +1030,14 @@ private struct NudgeButton: View {
             guard remaining > 0 else { return }
             try? await Task.sleep(for: .seconds(1))
         }
+    }
+
+    private func watchFailure() async {
+        let left = lastFailedAt.map { AppConfig.nudgeFailureNotice - Date().timeIntervalSince($0) } ?? 0
+        failed = left > 0
+        guard left > 0 else { return }
+        try? await Task.sleep(for: .seconds(left))
+        if !Task.isCancelled { failed = false }
     }
 }
 

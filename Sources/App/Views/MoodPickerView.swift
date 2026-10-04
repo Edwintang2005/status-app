@@ -5,6 +5,10 @@ import SwiftUI
 /// the emoji slot beside it takes any emoji from the keyboard.
 struct MoodPickerView: View {
     var initialEmoji: String = ""
+    /// The current words, shown as the placeholder so it's clear what Set replaces.
+    var currentMessage: String = ""
+    /// Your own recent statuses, newest first and distinct — the quick way back.
+    var recent: [StatusHistoryEntry] = []
     let onSelect: (String, String, Bool) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -41,6 +45,9 @@ struct MoodPickerView: View {
                     VStack(alignment: .leading, spacing: 26) {
                         customRow
                         searchField
+                        if query.isEmpty, !recent.isEmpty {
+                            recentSection
+                        }
                         if filteredGroups.isEmpty {
                             Text("No status matches \u{201C}\(query)\u{201D}")
                                 .font(Theme.rounded(15))
@@ -68,13 +75,15 @@ struct MoodPickerView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Set") { commit() }
                         .font(Theme.rounded(17, .semibold))
-                        .disabled(emoji.isEmpty)
+                        .disabled(!hasChange)
+                        .accessibilityHint(hasChange ? "" : "Pick a status or type one")
                 }
             }
         }
         .presentationDetents([.large])
-        // Opens ready for a *new* status: the emoji carries over (Set stays
-        // enabled) but the message, tile highlight and celebration flag start fresh.
+        // Opens ready for a *new* status: the emoji carries over but the message,
+        // tile highlight and celebration flag start fresh — and Set waits for a
+        // change, so one stray tap can't re-post the emoji over your words.
         .onAppear {
             emoji = initialEmoji
         }
@@ -102,7 +111,7 @@ struct MoodPickerView: View {
                 .accessibilityLabel(emoji.isEmpty ? String(localized: "Emoji") : String(localized: "Emoji: \(emoji)"))
                 .accessibilityHint("Choose any emoji")
 
-                TextField("Say anything", text: $message)
+                TextField(currentMessage.isEmpty ? String(localized: "Say anything") : currentMessage, text: $message)
                     .font(Theme.rounded(17))
                     .focused($messageFocused)
                     .submitLabel(.done)
@@ -119,9 +128,49 @@ struct MoodPickerView: View {
             .background(Color.primary.opacity(0.05),
                         in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 
+            if emoji.isEmpty, !trimmedMessage.isEmpty {
+                Text("Sends with 💬 unless you pick an emoji.")
+                    .font(Theme.rounded(13))
+                    .foregroundStyle(Theme.mutedText)
+            }
+            CharacterCount(count: message.count, limit: AppConfig.statusMessageMaxLength)
+
             if isCelebration { celebrationChip }
         }
         .animation(.smooth(duration: 0.25), value: isCelebration)
+    }
+
+    private var trimmedMessage: String { message.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    /// A tapped tile (even the current status, re-posted on purpose), a
+    /// different emoji, or words typed.
+    private var hasChange: Bool {
+        selectedPresetID != nil || emoji != initialEmoji || !trimmedMessage.isEmpty
+    }
+
+    private var recentSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("RECENT")
+                .font(Theme.rounded(12, .semibold))
+                .tracking(1.2)
+                .foregroundStyle(Theme.mutedText)
+
+            LazyVGrid(columns: columns, spacing: 12) {
+                ForEach(recent) { entry in
+                    tile(emoji: entry.emoji,
+                         label: entry.message,
+                         selected: selectedPresetID == entry.id,
+                         celebration: false) {
+                        emoji = entry.emoji
+                        message = entry.message
+                        selectedPresetID = entry.id
+                        isCelebration = false
+                        messageFocused = false
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
+                }
+            }
+        }
     }
 
     /// The only visible sign of the flag once the wording is edited — and the
@@ -181,7 +230,7 @@ struct MoodPickerView: View {
             Text(group.rawValue.uppercased())
                 .font(Theme.rounded(12, .semibold))
                 .tracking(1.2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.mutedText)
 
             LazyVGrid(columns: columns, spacing: 12) {
                 ForEach(moods) { mood in
@@ -192,9 +241,10 @@ struct MoodPickerView: View {
     }
 
     private func moodTile(_ mood: Mood) -> some View {
-        let selected = mood.id == selectedPresetID
-
-        return Button {
+        tile(emoji: mood.emoji,
+             label: mood.label,
+             selected: mood.id == selectedPresetID,
+             celebration: mood.isCelebration) {
             emoji = mood.emoji
             selectedPresetID = mood.id
             // Seed the field only when that wouldn't erase hand-typed words —
@@ -210,27 +260,37 @@ struct MoodPickerView: View {
             } else {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
             }
-        } label: {
+        }
+    }
+
+    private func tile(emoji: String,
+                      label: String,
+                      selected: Bool,
+                      celebration: Bool,
+                      action: @escaping () -> Void) -> some View {
+        Button(action: action) {
             VStack(spacing: 6) {
-                Text(mood.emoji)
+                Text(emoji)
                     .font(.system(size: 30))
                     .overlay(alignment: .topTrailing) {
-                        if mood.isCelebration {
+                        if celebration {
                             Image(systemName: "sparkles")
                                 .font(Theme.rounded(10, .bold))
                                 .foregroundStyle(Theme.warm)
                                 .offset(x: 10, y: -4)
                         }
                     }
-                Text(mood.label)
+                Text(label)
                     .font(Theme.rounded(11, .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.mutedText)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
                     .minimumScaleFactor(0.8)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 84)
+            // Grows at large text sizes rather than clipping the label.
+            .frame(minHeight: 84)
+            .padding(.vertical, 4)
             .background(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .fill(selected ? Theme.accent.opacity(0.18) : Color.primary.opacity(0.04))
@@ -243,8 +303,8 @@ struct MoodPickerView: View {
         .buttonStyle(.plain)
         .animation(.smooth(duration: 0.2), value: selected)
         // The emoji is decoration; the label is the status.
-        .accessibilityLabel(mood.label)
-        .accessibilityValue(mood.isCelebration ? "Celebration" : "")
+        .accessibilityLabel(label.isEmpty ? emoji : label)
+        .accessibilityValue(celebration ? "Celebration" : "")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
@@ -255,10 +315,30 @@ struct MoodPickerView: View {
     }
 
     private func commit() {
-        guard !emoji.isEmpty, !committed else { return }
+        guard hasChange, !committed else { return }
         committed = true
-        onSelect(emoji, message, isCelebration)
+        // Words alone go with 💬, as a banner reply does.
+        onSelect(emoji.isEmpty ? "💬" : emoji, message, isCelebration)
         dismiss()
+    }
+}
+
+// MARK: - Character count
+
+/// Appears as a field nears its cap, so the cut-off is never a surprise.
+struct CharacterCount: View {
+    let count: Int
+    let limit: Int
+
+    var body: some View {
+        if count >= limit * 3 / 4 {
+            Text("\(count) / \(limit)")
+                .font(Theme.rounded(12, .semibold))
+                .monospacedDigit()
+                .foregroundStyle(count >= limit ? Theme.warmText : Theme.mutedText)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .accessibilityLabel("\(count) of \(limit) characters")
+        }
     }
 }
 

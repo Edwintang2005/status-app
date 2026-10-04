@@ -1,99 +1,66 @@
 import SwiftUI
 
-/// The easter egg, three layers deep: tie the fox and the fish together, hold
-/// the logo they become, then the count.
+/// The easter egg: tie the fox and the fish together and the count opens, the
+/// logo they become rising into its header.
 struct EasterEggView: View {
-    private enum Stage { case tying, logo, count }
-
-    @State private var stage = Stage.tying
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
+    @Namespace private var logo
+    @State private var tied = false
 
     var body: some View {
+        // Reduce Motion and VoiceOver take the plain path: no flight, a crossfade.
+        let plain = reduceMotion || voiceOver
         ZStack {
-            switch stage {
-            case .tying:
-                TieTheStringView { stage = .logo }
+            if tied {
+                AnniversaryView(logo: plain ? nil : logo)
                     .transition(.opacity)
-            case .logo:
-                LogoView { stage = .count }
+            } else {
+                TieTheStringView(logo: plain ? nil : logo) { tied = true }
                     .transition(.opacity)
-            case .count:
-                AnniversaryView()
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
         }
-        .animation(.smooth(duration: 0.5), value: stage)
+        .animation(plain ? .easeInOut(duration: 0.3) : .smooth(duration: 0.6), value: tied)
     }
 }
 
-/// The pair, become the logo, waiting. It breathes; holding it for a moment
-/// opens the count. Laid out exactly where `TieTheStringView` left the logo
-/// so the hand-off is a still frame, not a jump.
-struct LogoView: View {
-    let onReveal: () -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var breathing = false
-    @State private var pressing = false
-
-    var body: some View {
-        ZStack {
-            Theme.Background()
-            GeometryReader { geometry in
-                let size = geometry.size
-                Image("Logo")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: min(size.width * 0.8, 340))
-                    .shadow(color: Theme.accent.opacity(pressing ? 0.55 : 0.3), radius: pressing ? 36 : 24, y: 10)
-                    .scaleEffect((breathing && !reduceMotion ? 1.03 : 1) * (pressing ? 0.94 : 1))
-                    .position(x: size.width / 2, y: size.height * 0.485)
-                    .contentShape(Rectangle())
-                    .onLongPressGesture(minimumDuration: 1.2, pressing: { down in
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) { pressing = down }
-                    }, perform: reveal)
-            }
-            .ignoresSafeArea(edges: .bottom)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(AppConfig.appName)
-            .accessibilityHint("Hold to open")
-            .accessibilityAction(named: Text("Open"), reveal)
-
-            VStack {
-                HStack {
-                    Spacer()
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                            .font(Theme.rounded(14, .bold))
-                            .foregroundStyle(.secondary)
-                            .padding(10)
-                            .background(.ultraThinMaterial, in: Circle())
-                    }
-                    .accessibilityLabel("Close")
-                }
-                Spacer()
-            }
-            .padding(20)
-        }
-        .onAppear {
-            withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true)) { breathing = true }
+extension View {
+    /// The logo's one identity across the tie and the count, so it flies from
+    /// the knot into the header; `nil` on the plain path.
+    @ViewBuilder
+    func matchedLogo(_ namespace: Namespace.ID?) -> some View {
+        if let namespace {
+            matchedGeometryEffect(id: "logo", in: namespace)
+        } else {
+            self
         }
     }
+}
 
-    private func reveal() {
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        onReveal()
+/// The close button every stage of the egg shares: a full 44 pt target.
+struct EggCloseButton: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        Button { dismiss() } label: {
+            Image(systemName: "xmark")
+                .font(Theme.rounded(14, .bold))
+                .foregroundStyle(.secondary)
+                .frame(width: 44, height: 44)
+                .background(.ultraThinMaterial, in: Circle())
+        }
+        .accessibilityLabel("Close")
     }
 }
 
 /// The fox and the fish idle on either side; dragging from one to the other
-/// draws the red string, and letting go on the far end ties it — they meet, a
-/// heart pops, and the pair becomes the logo. A miss retracts the string; two
-/// misses earn a hint.
+/// draws the red string — or tap one, then the other — and letting go on the
+/// far end ties it: they meet, a heart pops, and the pair becomes the logo.
+/// A miss retracts the string.
 struct TieTheStringView: View {
+    let logo: Namespace.ID?
     let onTied: () -> Void
 
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private enum End { case fox, fish }
@@ -101,13 +68,18 @@ struct TieTheStringView: View {
     /// Which animal the string was picked up from, and where the finger is now.
     @State private var anchor: End?
     @State private var tip: CGPoint?
+    /// Tapped once: the string waits on this animal for a tap on the other.
+    @State private var armed: End?
     @State private var tied = false
-    @State private var misses = 0
+    @State private var handedOff = false
+    @State private var hintShown = false
     @State private var heartShown = false
     /// The payoff: the pair becomes the app's own mark before the count appears.
     @State private var logoShown = false
 
     private static let grabRadius: CGFloat = 70
+    /// Under this much travel a touch is a tap, not a drag.
+    private static let tapSlop: CGFloat = 10
 
     var body: some View {
         ZStack {
@@ -119,34 +91,48 @@ struct TieTheStringView: View {
             }
             // The river runs under the home indicator rather than stopping short.
             .ignoresSafeArea(edges: .bottom)
-            // The scene is one element with a custom action; the puzzle isn't
-            // asked of VoiceOver users. The Close button stays its own element.
+            // One element whose double-tap ties; the puzzle isn't asked of
+            // VoiceOver users. The Close button stays its own element.
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("A fox and a fish")
-            .accessibilityHint("Tie the red string between them")
+            .accessibilityHint("Double-tap to tie the red string")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { tie() }
             .accessibilityAction(named: Text("Tie the string")) { tie() }
 
             VStack {
                 HStack {
                     Spacer()
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                            .font(Theme.rounded(14, .bold))
-                            .foregroundStyle(.secondary)
-                            .padding(10)
-                            .background(.ultraThinMaterial, in: Circle())
-                    }
-                    .accessibilityLabel("Close")
+                    EggCloseButton()
                 }
                 Spacer()
-                Text("Tie them together")
-                    .font(Theme.rounded(13, .medium))
-                    .foregroundStyle(.tertiary)
-                    .opacity(misses >= 2 && !tied ? 1 : 0)
-                    .animation(.smooth(duration: 0.6), value: misses)
+                Text(hintText)
+                    .font(Theme.rounded(15, .medium))
+                    .foregroundStyle(Theme.mutedText)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .opacity((hintShown || armed != nil) && !tied ? 1 : 0)
+                    .animation(.smooth(duration: 0.6), value: hintShown)
+                    .accessibilityHidden(true)
                     .padding(.bottom, 12)
             }
-            .padding(20)
+            .padding(16)
+        }
+        // A first visit shows the hint after a few idle seconds; a repeat
+        // visitor ties before it ever appears.
+        .task {
+            try? await Task.sleep(for: .seconds(3))
+            hintShown = true
+        }
+    }
+
+    private var hintText: LocalizedStringKey {
+        switch armed {
+        case .fox: "Now tap the fish"
+        case .fish: "Now tap the fox"
+        case nil: "Drag the red string from the fox to the fish"
         }
     }
 
@@ -181,6 +167,12 @@ struct TieTheStringView: View {
                     .stroke(Theme.accent,
                             style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
                     .shadow(color: Theme.accent.opacity(0.35), radius: 6, y: 3)
+            } else if !tied {
+                // At rest a slack tail hangs from the fox: the gesture, without words.
+                RedString(from: CGPoint(x: foxNow.x + 22, y: foxNow.y + 24),
+                          to: CGPoint(x: foxNow.x + 48, y: foxNow.y + 62))
+                    .stroke(Theme.accent,
+                            style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
             }
 
             Text("🦊")
@@ -194,26 +186,28 @@ struct TieTheStringView: View {
             if tied {
                 Text("❤️")
                     .font(.system(size: 34))
-                    .scaleEffect(heartShown ? 1 : 0.2)
+                    .scaleEffect(heartShown || reduceMotion ? 1 : 0.2)
                     .opacity(heartShown ? 1 : 0)
                     .position(x: midpoint.x, y: midpoint.y + RedString.sag(from: foxNow, to: fishNow) * 0.75)
             }
         }
         .opacity(logoShown ? 0 : 1)
         .overlay {
-            Image("Logo")
-                .resizable()
-                .scaledToFit()
-                .frame(width: min(size.width * 0.8, 340))
-                .shadow(color: Theme.accent.opacity(0.3), radius: 24, y: 10)
-                .scaleEffect(logoShown ? 1 : 0.7)
-                .opacity(logoShown ? 1 : 0)
-                .position(midpoint)
-                .allowsHitTesting(false)
+            if logoShown {
+                Image("Logo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: min(size.width * 0.8, 340))
+                    .matchedLogo(logo)
+                    .shadow(color: Theme.accent.opacity(0.3), radius: 24, y: 10)
+                    .transition(.scale(scale: 0.7).combined(with: .opacity))
+                    .position(midpoint)
+                    .allowsHitTesting(false)
+            }
         }
         .contentShape(Rectangle())
         .gesture(dragGesture(fox: fox, fish: fish))
-        .animation(.spring(response: 0.55, dampingFraction: 0.7), value: tied)
+        .animation(reduceMotion ? nil : .spring(response: 0.55, dampingFraction: 0.7), value: tied)
     }
 
     private func stringStart(fox: CGPoint, fish: CGPoint) -> CGPoint? {
@@ -232,9 +226,18 @@ struct TieTheStringView: View {
     // MARK: - Gesture
 
     private func dragGesture(fox: CGPoint, fish: CGPoint) -> some Gesture {
-        DragGesture(minimumDistance: 0)
+        func center(_ end: End) -> CGPoint { end == .fox ? fox : fish }
+        func other(_ end: End) -> End { end == .fox ? .fish : .fox }
+
+        return DragGesture(minimumDistance: 0)
             .onChanged { value in
                 guard !tied else { return }
+                if let armed {
+                    // Waiting for the second tap: only a touch on the armed
+                    // animal picks the string back up to drag.
+                    guard value.startLocation.distance(to: center(armed)) < Self.grabRadius else { return }
+                    self.armed = nil
+                }
                 if anchor == nil {
                     // Only a grab on one of them picks the string up.
                     if value.startLocation.distance(to: fox) < Self.grabRadius {
@@ -242,6 +245,7 @@ struct TieTheStringView: View {
                     } else if value.startLocation.distance(to: fish) < Self.grabRadius {
                         anchor = .fish
                     } else {
+                        hintShown = true
                         return
                     }
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -249,44 +253,91 @@ struct TieTheStringView: View {
                 tip = value.location
             }
             .onEnded { value in
-                guard !tied, let anchor else { return }
-                let target = anchor == .fox ? fish : fox
-                if value.location.distance(to: target) < Self.grabRadius {
+                if tied {
+                    handOff()
+                    return
+                }
+                let isTap = abs(value.translation.width) < Self.tapSlop && abs(value.translation.height) < Self.tapSlop
+                if let armed {
+                    if isTap, value.startLocation.distance(to: center(other(armed))) < Self.grabRadius {
+                        tie()
+                    } else {
+                        retract(to: center(armed))
+                    }
+                    return
+                }
+                guard let anchor else { return }
+                if value.location.distance(to: center(other(anchor))) < Self.grabRadius {
                     tie()
+                } else if isTap {
+                    arm(anchor, from: center(anchor), toward: center(other(anchor)))
                 } else {
-                    misses += 1
-                    // Retract: slide the tip home, then let go of it.
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                        tip = anchor == .fox ? fox : fish
-                    }
-                    Task {
-                        try? await Task.sleep(for: .milliseconds(400))
-                        guard !tied else { return }
-                        self.anchor = nil
-                        tip = nil
-                    }
+                    hintShown = true
+                    retract(to: center(anchor))
                 }
             }
+    }
+
+    /// A tap on one animal: the string drifts toward the other and waits.
+    private func arm(_ end: End, from: CGPoint, toward: CGPoint) {
+        armed = end
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
+            tip = CGPoint(x: from.x + (toward.x - from.x) * 0.55, y: from.y + (toward.y - from.y) * 0.55 + 30)
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(3))
+            guard armed == end, !tied else { return }
+            retract(to: from)
+        }
+    }
+
+    /// Slide the tip home, then let go of it.
+    private func retract(to home: CGPoint) {
+        armed = nil
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            tip = home
+        }
+        Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !tied, armed == nil else { return }
+            anchor = nil
+            tip = nil
+        }
     }
 
     private func tie() {
         guard !tied else { return }
         tied = true
         anchor = nil
+        armed = nil
         tip = nil
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+        if reduceMotion || logo == nil {
+            // The plain path: the heart fades in and the count crossfades.
+            withAnimation(.easeIn(duration: 0.2)) { heartShown = true }
+            Task {
+                try? await Task.sleep(for: .milliseconds(400))
+                handOff()
+            }
+            return
+        }
         withAnimation(.spring(response: 0.5, dampingFraction: 0.55).delay(0.25)) {
             heartShown = true
         }
-        withAnimation(.spring(response: 0.7, dampingFraction: 0.75).delay(1.1)) {
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.75).delay(0.6)) {
             logoShown = true
         }
-        // Hands over once the logo has fully faded in, so `LogoView` picks up
-        // the same still frame.
         Task {
-            try? await Task.sleep(for: .milliseconds(2400))
-            onTied()
+            try? await Task.sleep(for: .milliseconds(1300))
+            handOff()
         }
+    }
+
+    /// Once only: the timer, or a tap that skips the rest of the animation.
+    private func handOff() {
+        guard tied, !handedOff else { return }
+        handedOff = true
+        onTied()
     }
 }
 
@@ -484,6 +535,6 @@ private extension CGPoint {
 
 #if DEBUG
 #Preview("Tie the string") {
-    TieTheStringView {}
+    TieTheStringView(logo: nil) {}
 }
 #endif
