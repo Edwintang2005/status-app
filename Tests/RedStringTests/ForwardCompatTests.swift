@@ -8,7 +8,7 @@ import XCTest
 final class ForwardCompatTests: XCTestCase {
     private let zone = CKRecordZone.ID(zoneName: AppConfig.coupleZoneName, ownerName: CKCurrentUserDefaultName)
 
-    // MARK: Unknown moment kinds (#7)
+    // MARK: Unknown moment kinds
 
     func testAnUnknownKindIsKeptUnderItsOwnName() throws {
         let record = CKRecord(recordType: CloudSync.RecordType.moment,
@@ -42,7 +42,7 @@ final class ForwardCompatTests: XCTestCase {
         }
     }
 
-    // MARK: One bad entry (#7)
+    // MARK: One bad entry
 
     private func indexFile(_ entries: [String]) throws -> (MomentIndex, URL, () -> Int) {
         let url = temporaryFile("moments-index.json")
@@ -96,7 +96,7 @@ final class ForwardCompatTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.appendingPathExtension("corrupt").path))
     }
 
-    // MARK: Unreadable isn't empty (#14)
+    // MARK: Unreadable isn't empty
 
     func testAnUnreadableStatusLogIsLeftUntouched() throws {
         let url = temporaryFile("status-history.json")
@@ -110,7 +110,7 @@ final class ForwardCompatTests: XCTestCase {
         XCTAssertTrue(isDirectory.boolValue, "nothing was written over it")
     }
 
-    // MARK: Partner-written dates (#10)
+    // MARK: Partner-written dates
 
     func testReceiptAndRequestDatesAreBounded() throws {
         let receipt = CKRecord(recordType: CloudSync.RecordType.receipt,
@@ -172,7 +172,7 @@ final class ForwardCompatTests: XCTestCase {
         XCTAssertEqual(seen.seenAt, seen.statusUpdatedAt)
     }
 
-    // MARK: The index's cache and compact waveforms (#23)
+    // MARK: The index's cache and compact waveforms
 
     func testWaveformsAreStoredCompactlyAndReadBothWays() throws {
         let url = temporaryFile("moments-index.json")

@@ -1,6 +1,6 @@
 import XCTest
 
-/// The library grid's thumbnail batching (#22): one CloudKit request per up to
+/// The library grid's thumbnail batching: one CloudKit request per up to
 /// 50 tiles, at most two out at once, and a tile scrolled away never fetched.
 final class ThumbnailBatchQueueTests: XCTestCase {
     func testBatchesCapAtTheLimitNewestRequestFirst() {
@@ -67,13 +67,13 @@ final class ThumbnailFetcherTests: XCTestCase {
         let fetcher = fetcher(recorder)
         let moments = (0..<120).map { Fixtures.moment("m\($0)") }
 
-        let results = await withTaskGroup(of: (String, Bool).self) { group in
-            for moment in moments {
-                group.addTask { @MainActor in (moment.id, await fetcher.thumbnail(for: moment)) }
-            }
-            var results: [String: Bool] = [:]
-            for await (id, fetched) in group { results[id] = fetched }
-            return results
+        // Main-actor Tasks, not a task group: Xcode 26's region checker rejects
+        // a `@MainActor` group child.
+        let tiles = moments.map { moment in Task { (moment.id, await fetcher.thumbnail(for: moment)) } }
+        var results: [String: Bool] = [:]
+        for tile in tiles {
+            let (id, fetched) = await tile.value
+            results[id] = fetched
         }
 
         XCTAssertEqual(results.count, 120)

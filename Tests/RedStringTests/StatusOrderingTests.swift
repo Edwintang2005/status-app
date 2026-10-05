@@ -28,7 +28,7 @@ final class StatusOrderingTests: XCTestCase {
         return payload
     }
 
-    // MARK: The rename echo (#1)
+    // MARK: The rename echo
 
     func testARenamesOwnEchoKeepsWhenTheWordsBegan() {
         let echo = statusRecord(.owner, name: "Sammy", at: Fixtures.date(100))
@@ -85,7 +85,7 @@ final class StatusOrderingTests: XCTestCase {
                        "a rename isn't new words: no fresh \"seen just now\"")
     }
 
-    // MARK: Server-time ordering (#8)
+    // MARK: Server-time ordering
 
     /// The partner's clock ran three hours fast for one status, then was fixed.
     func testThePartnersStatusIsOrderedByServerSaveTime() {
@@ -159,7 +159,7 @@ final class StatusOrderingTests: XCTestCase {
         XCTAssertFalse(edited.myStatusPublished)
     }
 
-    // MARK: Nudge fields another process wrote (#15)
+    // MARK: Nudge fields another process wrote
 
     func testAPublishKeepsTheStoresNudgeFields() {
         var snapshot = Snapshot.empty
@@ -218,7 +218,7 @@ final class StatusOrderingTests: XCTestCase {
         XCTAssertEqual(snapshot.mine?.message, "coffee")
     }
 
-    // MARK: A recreated nudge counter (#13)
+    // MARK: A recreated nudge counter
 
     func testARecreatedNudgeCounterIsTakenAsItIs() {
         var snapshot = Snapshot.empty

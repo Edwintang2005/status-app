@@ -1,8 +1,8 @@
 import UserNotifications
 import XCTest
 
-/// Home's small decisions: the notifications-off notice (#28), the picker's
-/// Recent row (#33), and when the status read receipt may be stamped (#33).
+/// Home's small decisions: the notifications-off notice, the picker's
+/// Recent row, and when the status read receipt may be stamped.
 final class HomeRulesTests: XCTestCase {
     // MARK: Notifications off
 

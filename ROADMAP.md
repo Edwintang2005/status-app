@@ -5,6 +5,52 @@ addition requires re-deploying the schema to Production (README → "Shipping it
 
 ## Shipped (October 2026)
 
+- **Whole-app review round** — bugs, battery and accessibility fixes from an
+  October audit, each with a regression test (invariants 2, 8, 10, 11, 13–16,
+  22, 23 carry the rules).
+  - **Sync:** a rename's own echo keeps `wordsSince` (it erased the "Seen" line,
+    duplicated history and un-hid a reported status); the unreadable give-up
+    starts when an extension saw the records first, and an incomplete batch
+    never clears the hold (`TokenAdvancePolicy`); unknown moment kinds are kept
+    (`Moment.Kind.unsupported`) and store files decode entry by entry
+    (`LossyArray`), salvaging unsent sends from a `.corrupt` sidecar; the
+    status log mirrors `readFailed`; partner dates are bounded and `Snapshot`
+    decodes field by field; zone-level fetch errors are thrown.
+  - **Statuses:** `StatusSavePolicy` — a status after a fast clock is no longer
+    reported sent when skipped, an unreadable newer server copy isn't
+    overwritten, an identical copy isn't re-saved, a status whose log failed
+    retries only the log; the partner's copies order by server save time
+    (`serverSavedAt`, local only, ties fall back to `updatedAt`); an unpublished
+    local status survives the fold; setting or renaming no longer undoes a
+    lock-screen heart; a recreated nudge counter is detected by creation date.
+  - **Notifications:** the partner leaving is explained (`partnerLeft`, Home's
+    notice, the NSE's quiet "left your shared space", never a heart for a
+    missing count); unpaired pushes are quiet and stale subscriptions are
+    cleaned up (`subscriptionCleanup`, block and the zone-gone verdict too); a
+    >500-moment resync doesn't announce old photos; the worded banner is the
+    expiry fallback and the attachment is bounded. The branch table is
+    `PushBannerPolicy`, under test.
+  - **Sends:** no double upload during a refresh (`uploadsInFlight`); CloudKit's
+    retry-after is honoured (`SendFailure.throttled`); "Sent to …" for retried
+    sends; clipboard copies expire.
+  - **Battery:** widget reloads only when drawn fields moved and never fetch
+    after a sibling's reload; one shared refresh across widget kinds; the
+    account lookup runs alongside the fetch with a shared cache; batched,
+    off-main library thumbnails; a cached index with a dictionary merge; one
+    launch fetch; debounced receipts; a parallel, cancellable archive.
+  - **UI and accessibility:** the heart's "Sending…" and an AA "Sent" state; a
+    notifications-off notice; the invite share explains "install first, then
+    tap"; VoiceOver announcements; recording pauses on interruption and stops
+    only in the background; report/reveal as accessibility actions; a reported
+    or filtered status stamps no "Seen" until revealed; editing the date keeps
+    its time zone; text styles on the small widget; hidden-preview text;
+    AA footers in Settings.
+  - **Feature:** milestone reminders (`MilestoneReminderPlan`, opt-in per
+    device, each phone's own 9 am).
+  - **Tests:** `PushBannerPolicy`, `TokenAdvancePolicy`, `TimelinePlan`, the
+    change fetch's keys read from source, and the demo-mode UI smoke with
+    `performAccessibilityAudit()` (`make uitest`). No schema change.
+
 - **UX refresh** — from the design arena in `DESIGN-BRIEF.md` (IDs refer to it).
   The easter egg has one lock: a 0.8 s hold on the home title (a thread draws
   while held), then tying the fox to the fish (drag, or tap one then the other)
@@ -476,8 +522,8 @@ the photo (the export is the only transform; media travels byte-for-byte).
 
 - **"Update to see this" tile.** A moment of a kind from a newer build stays in
   the index but out of `AppModel.history`, so the library and gallery don't
-  show it at all; a tile saying "Update Red String to see this" is the
-  remaining half of review #7.
+  show it at all; a tile saying "Update Red String to see this" would finish
+  the tolerant decoding.
 - **`Theme.rounded` doesn't follow a live Dynamic Type change** — it reads
   `UIFontMetrics` when a view renders and nothing re-renders on a size change.
   The UI audit excludes `.dynamicType` for it; read
@@ -505,10 +551,10 @@ the photo (the export is the only transform; media travels byte-for-byte).
 
 ### From the October 2026 whole-app review (not picked yet)
 
-Raised by the October arena review (`REVIEW-2026-10.md`, item numbers kept);
-none needs a server. Milestone reminders (#41) was picked and shipped.
+Raised by the October audit; none needs a server. Milestone reminders was
+picked and shipped (above).
 
-- **Expiring statuses (M)** — #36, raised independently by all three
+- **Expiring statuses (M)** — raised independently by all three
   reviewers. "In a meeting until 3", "driving · 30 min": the picker offers
   "for 1 h / until tonight / until I change it"; after `expiresAt` the card,
   widgets and history show it dimmed ("was …"), and the widget timeline gets an
@@ -517,36 +563,37 @@ none needs a server. Milestone reminders (#41) was picked and shipped.
   `TrustedTime`, hand-written Codable fallback `nil`; older builds ignore it.
   Batch the redeploy with super nudge's `burst`.
 - **Set status from Shortcuts, Focus and Siri, plus a quick-status widget
-  (S–M)** — #37. A parameterised `SetStatusIntent` (an `AppEntity` over presets
+  (S–M)** — A parameterised `SetStatusIntent` (an `AppEntity` over presets
   and Recent) as App Shortcuts and a `SetFocusFilterIntent` ("Sleep Focus →
   😴"), Siri read-back ("What's Sam up to?" through the moderation helpers), and
   an interactive widget whose buttons are your recent statuses. Publishes
   through the existing offline queue; on failure the widget leaves
   `myStatusPublished` down for the app's republish. No schema.
-- **Control Center / Action button heart (S)** — #38. A `ControlWidget`
+- **Control Center / Action button heart (S)** — A `ControlWidget`
   (iOS 18, `@available`-gated) over `SendNudgeIntent`, showing the slashed
   heart from `lastNudgeFailedAt`. No schema.
-- **Remove a stranger without deleting the space (M)** — #39. The
+- **Remove a stranger without deleting the space (M)** — The
   "someone else has joined" card can today only say "unlink". Offer the owner a
   confirmed `removeParticipant`, choosing from the share's participant list
   (names from `userIdentity`) — not "the author of `status-participant`", which
   both participants write. Manual and confirmed only (invariant 9). No schema.
-- **Voice-memo transcripts (M)** — #40. On-device Speech under the waveform,
+- **Voice-memo transcripts (M)** — On-device Speech under the waveform,
   as the banner body without a caption, and for VoiceOver. Receiver-side
   transcription needs no schema; an encrypted `transcript` field would.
-- **Draw on their photo (S)** — #42. Gallery menu "Draw on this" opens the
+- **Draw on their photo (S)** — Gallery menu "Draw on this" opens the
   composer with the partner's full image (`ensureMedia` first) under
   `DrawingController.render(over:)`; sends a normal photo moment. No schema.
-- **Time-capsule moments (M)** — #43. An encrypted `revealAt`: a sealed tile
+- **Time-capsule moments (M)** — An encrypted `revealAt`: a sealed tile
   with a countdown, the NSE saying "sent you something for <date>", a local
   notification on the day. Client-enforced — fine for a gift, not a secret.
-- **Weekly recap card (S)** — #44. Sundays on Home: hearts, statuses, photos
+  Batch its redeploy with expiring statuses and super nudge's `burst`.
+- **Weekly recap card (S)** — Sundays on Home: hearts, statuses, photos
   and memos this week, from the local stores (nudge totals need a weekly
   baseline in `Snapshot`). No schema.
-- **Privacy lock (S–M)** — #45. Optional Face ID gate on launch, app-switcher
+- **Privacy lock (S–M)** — Optional Face ID gate on launch, app-switcher
   blur, `.privacySensitive()` on the status widgets' text (extends the
   photo-widget item below). No schema.
-- **Storage steward (M–L)** — #46. An estimate of the shared space's size from
+- **Storage steward (M–L)** — An estimate of the shared space's size from
   locally recorded asset sizes and an explicit, opt-in "make room" that drops
   old full-size media but keeps thumbnail, caption and record. Depends on
   "Delete your own moment" and changes the complete-history promise (copy).

@@ -371,7 +371,7 @@ final class OutboxTests: XCTestCase {
 
     // MARK: Review fixes (October 2026)
 
-    /// #9: a refresh's retry pass landing during a send's own upload leaves it
+    /// A refresh's retry pass landing during a send's own upload leaves it
     /// alone — it was uploaded twice — and it isn't "waiting to send" meanwhile.
     func testARetryPassSkipsASendStillUploading() async throws {
         queue(["a"])
@@ -390,7 +390,7 @@ final class OutboxTests: XCTestCase {
         XCTAssertEqual(index.load().first?.uploaded, true)
     }
 
-    /// #34: a send that went out on a retry confirms like a first one.
+    /// A send that went out on a retry confirms like a first one.
     func testARetriedSendIsConfirmed() async {
         queue(["a"])
         await outbox.retryPendingUploads(automatic: true)
@@ -410,7 +410,7 @@ final class OutboxTests: XCTestCase {
         XCTAssertNil(outbox.throttledUntil)
     }
 
-    /// #11: CloudKit's retry-after holds automatic passes; the footer's tap doesn't wait.
+    /// CloudKit's retry-after holds automatic passes; the footer's tap doesn't wait.
     func testAThrottleHoldsAutomaticRetries() async {
         queue(["a", "b"])
         let now = Date()
@@ -430,7 +430,7 @@ final class OutboxTests: XCTestCase {
         XCTAssertNil(outbox.throttledUntil)
     }
 
-    /// #12: the status landed but its log didn't — only the log is owed, and
+    /// The status landed but its log didn't — only the log is owed, and
     /// the status shows as sent meanwhile.
     func testAPendingLogIsRetriedOnItsOwn() async {
         let mine = Fixtures.status("🍜", "lunch", at: Fixtures.date(10))
@@ -446,7 +446,7 @@ final class OutboxTests: XCTestCase {
         XCTAssertFalse(again, "nothing owed once the log matches the words")
     }
 
-    /// #12: a publish that keeps failing for another reason backs off.
+    /// A publish that keeps failing for another reason backs off.
     func testRepeatedStatusFailuresBackOff() async {
         store.mutate { $0.mine = Fixtures.status(); $0.myStatusPublished = false }
         let now = Date()
@@ -462,7 +462,7 @@ final class OutboxTests: XCTestCase {
         XCTAssertEqual(Outbox.statusRetryDelay(failures: 30), AppConfig.statusRetryMaxDelay)
     }
 
-    /// #25: paging through new photos is one receipt write, not one per page.
+    /// Paging through new photos is one receipt write, not one per page.
     func testReceiptFlushesAreDebounced() async throws {
         index.insert([Fixtures.moment("seen", seen: true)])
         for _ in 0..<3 {
@@ -478,7 +478,7 @@ final class OutboxTests: XCTestCase {
         XCTAssertEqual(backend.receipts.count, 2, "backgrounding sends what the debounce held")
     }
 
-    /// #7: own sends an older build's strict decode left in the sidecar go back in the queue.
+    /// Own sends an older build's strict decode left in the sidecar go back in the queue.
     func testSalvagedSendsAreRetried() async throws {
         let url = temporaryFile("salvage/moments-index.json")
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
