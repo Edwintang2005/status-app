@@ -27,40 +27,34 @@ struct StatusProvider: TimelineProvider {
         Task {
             let result = await Self.refreshIfPossible()
             let snapshot = SharedStore.shared.snapshot
-            var entries = [StatusEntry(date: Date(), snapshot: snapshot)]
-            // Nothing else may re-render for a while, so schedule the entry
-            // that flips the heart back after the cooldown.
-            if let sent = snapshot.lastNudgeSentAt {
-                let expiry = sent.addingTimeInterval(AppConfig.nudgeCooldown)
-                if expiry > Date() {
-                    entries.append(StatusEntry(date: expiry, snapshot: snapshot))
-                }
-            }
-            // Same for the failed-nudge slashed heart.
-            if let failed = snapshot.lastNudgeFailedAt {
-                let expiry = failed.addingTimeInterval(AppConfig.nudgeFailureNotice)
-                if expiry > Date() {
-                    entries.append(StatusEntry(date: expiry, snapshot: snapshot))
-                }
-            }
             // The tally, not this refresh's result: a push the NSE couldn't read
             // is still held even when this refresh failed outright.
-            let next = WidgetReloadPolicy.nextReload(heldSince: SharedStore.shared.unreadableTally.heldSince,
-                                                     incomplete: result?.incomplete ?? false)
-            completion(Timeline(entries: entries, policy: .after(next)))
+            let plan = TimelinePlan(lastNudgeSentAt: snapshot.lastNudgeSentAt,
+                                    lastNudgeFailedAt: snapshot.lastNudgeFailedAt,
+                                    heldSince: SharedStore.shared.unreadableTally.heldSince,
+                                    incomplete: result?.incomplete ?? false)
+            let entries = plan.entries.map { StatusEntry(date: $0, snapshot: snapshot) }
+            completion(Timeline(entries: entries, policy: .after(plan.nextReload)))
         }
     }
+
+    /// Every kind's provider in this process joins the one refresh in flight.
+    private static let refreshFlight = SingleFlight<RefreshResult?>()
 
     /// Best effort — a failure here just means the cached snapshot is served.
     private static func refreshIfPossible() async -> RefreshResult? {
         guard await MainActor.run(body: { SharedStore.shared.pairing != nil }) else { return nil }
-        guard WidgetReloadPolicy.shouldFetch(lastSyncedAt: SharedStore.shared.snapshot.lastSyncedAt) else { return nil }
-        do {
-            // WidgetKit gives the provider a limited budget; give up well before it.
-            return try await withDeadline(AppConfig.widgetDeadline) { try await Backend.current.refresh() }
-        } catch {
-            log.notice("Widget refresh skipped: \(error.localizedDescription)")
-            return nil
+        let store = SharedStore.shared
+        guard WidgetReloadPolicy.shouldFetch(lastSyncedAt: store.snapshot.lastSyncedAt,
+                                             reloadRequestedAt: store.widgetReloadRequestedAt) else { return nil }
+        return await refreshFlight.run {
+            do {
+                // WidgetKit gives the provider a limited budget; give up well before it.
+                return try await withDeadline(AppConfig.widgetDeadline) { try await Backend.current.refresh() }
+            } catch {
+                log.notice("Widget refresh skipped: \(error.localizedDescription)")
+                return nil
+            }
         }
     }
 }

@@ -131,6 +131,7 @@ struct MomentComposerView: View {
                     VStack(spacing: 10) {
                         Image(systemName: "photo.on.rectangle.angled")
                             .font(.system(size: 34))
+                            .accessibilityHidden(true)
                         Text("Pick a photo, or start drawing")
                             .font(Theme.rounded(14))
                     }
@@ -202,6 +203,7 @@ struct MomentComposerView: View {
         VStack(spacing: 5) {
             Image(systemName: systemImage).font(Theme.rounded(17, .medium))
             Text(text).font(Theme.rounded(11, .medium))
+                .accessibilityIdentifier("composer.source.\(text)")
         }
         .foregroundStyle(active ? .white : Color.primary)
         .frame(maxWidth: .infinity)

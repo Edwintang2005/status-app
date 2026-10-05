@@ -12,6 +12,9 @@ final class VoiceRecorder {
         /// The user said no to the microphone. Recoverable only in Settings.
         case denied
         case recording
+        /// A call, Siri or an alarm took the microphone mid-take. The take so
+        /// far is kept; `resume()` carries on in the same file, `stop()` keeps it.
+        case paused
         /// A take exists at `fileURL` and can be previewed or sent.
         case finished
     }
@@ -32,11 +35,35 @@ final class VoiceRecorder {
     @ObservationIgnored private var ticker: Task<Void, Never>?
     @ObservationIgnored private let log = Logger(subsystem: AppConfig.appGroupID,
                                                  category: "VoiceRecorder")
+    /// Held so `deinit` can unregister it (see `VoicePlayer.observers`).
+    @ObservationIgnored nonisolated(unsafe) private var interruptionObserver: NSObjectProtocol?
 
     /// Metering interval: fine enough to move with the voice, coarse enough to stay cheap.
     private static let tick: TimeInterval = 0.05
 
     var hasTake: Bool { state == .finished && fileURL != nil }
+
+    init() {
+        // Without this the ticker reads the recorder stopping underneath it as
+        // the take's end, and a phone call finishes a memo the user wasn't done with.
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: nil, queue: .main
+        ) { [weak self] note in
+            let began = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt)
+                .flatMap(AVAudioSession.InterruptionType.init) == .began
+            MainActor.assumeIsolated {
+                guard began else { return }
+                self?.pause()
+            }
+        }
+    }
+
+    deinit {
+        if let interruptionObserver {
+            NotificationCenter.default.removeObserver(interruptionObserver)
+        }
+    }
 
     var remaining: TimeInterval {
         max(0, AppConfig.voiceMemoMaxDuration - elapsed)
@@ -59,7 +86,7 @@ final class VoiceRecorder {
     func start() async {
         // Claimed before the permission await: two quick taps both passed the
         // state check and the second recorder overwrote the first.
-        guard state != .recording, !starting else { return }
+        guard !isTaking, !starting else { return }
         starting = true
         defer { starting = false }
         errorMessage = nil
@@ -105,7 +132,7 @@ final class VoiceRecorder {
         } catch {
             log.error("Couldn't start recording: \(error.localizedDescription)")
             errorMessage = (error as? LocalizedError)?.errorDescription
-                ?? "Couldn't start recording."
+                ?? String(localized: "Couldn't start recording.")
             state = .idle
             // The session was activated before the failure and the file may
             // exist: undo both, or the user's audio stays silenced.
@@ -114,9 +141,37 @@ final class VoiceRecorder {
         }
     }
 
+    /// Holds the take where it is; only an interruption calls this.
+    private func pause() {
+        guard state == .recording, let recorder else { return }
+        ticker?.cancel()
+        ticker = nil
+        recorder.pause()
+        state = .paused
+    }
+
+    /// Carries on recording into the same file after an interruption.
+    func resume() {
+        guard state == .paused, let recorder else { return }
+        errorMessage = nil
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+            guard recorder.record() else { throw VoiceRecorderError.couldNotStart }
+            state = .recording
+            startTicking()
+        } catch {
+            log.error("Couldn't resume recording: \(error.localizedDescription)")
+            errorMessage = (error as? LocalizedError)?.errorDescription
+                ?? String(localized: "Couldn't start recording.")
+        }
+    }
+
+    /// A take is under way: recording, or paused by an interruption.
+    var isTaking: Bool { state == .recording || state == .paused }
+
     /// Ends the take and keeps it. Safe to call when nothing is recording.
     func stop() {
-        guard state == .recording else { return }
+        guard isTaking else { return }
         ticker?.cancel()
         ticker = nil
         recorder?.stop()
@@ -179,8 +234,9 @@ final class VoiceRecorder {
 
     private func sample() {
         guard let recorder, recorder.isRecording else {
-            // `record(forDuration:)` stopped us at the ceiling.
-            stopAtLimit()
+            // Short of the ceiling, an interruption whose notification trails
+            // this tick: hold the take. At it, `record(forDuration:)` stopped us.
+            if self.recorder != nil, elapsed < AppConfig.voiceMemoMaxDuration - 1 { pause() } else { stopAtLimit() }
             return
         }
         recorder.updateMeters()
@@ -198,8 +254,7 @@ final class VoiceRecorder {
         recorder?.stop()
         recorder = nil
         deactivateSession()
-        // Also reached when a call/Siri/alarm stops `AVAudioRecorder` underneath
-        // us; the same too-short rule as `stop()` applies.
+        // The same too-short rule as `stop()`.
         if fileURL == nil || elapsed < 0.6 {
             discardTake()
         } else {
@@ -242,7 +297,7 @@ enum VoiceRecorderError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .couldNotStart:
-            return "The microphone is busy. Try again in a moment."
+            return String(localized: "The microphone is busy. Try again in a moment.")
         }
     }
 }

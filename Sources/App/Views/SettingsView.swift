@@ -72,8 +72,14 @@ struct SettingsView: View {
                     }
                 } header: {
                     Text("You")
+                        .foregroundStyle(Theme.mutedText)
+                        .accessibilityIdentifier("settings.section.header")
                 } footer: {
-                    Text("Your name is what \(model.partnerName) sees on everything you send.")
+                    Group {
+                        Text("Your name is what \(model.partnerName) sees on everything you send.")
+                    }
+                    // The system footer grey is ~3.6:1 on the cream backdrop; this is AA.
+                    .foregroundStyle(Theme.mutedText)
                 }
 
                 Section {
@@ -83,15 +89,23 @@ struct SettingsView: View {
                     if model.canEditAnniversary {
                         ourDateRow
                     }
+                    if model.isPaired {
+                        Toggle("Milestone reminders", isOn: $model.milestoneRemindersEnabled)
+                    }
                     NavigationLink("Lock Screen widget") {
                         LockScreenWidgetHelp(partnerName: model.partnerName)
                     }
                 } header: {
                     Text("Together")
+                        .foregroundStyle(Theme.mutedText)
+                        .accessibilityIdentifier("settings.section.header")
                 } footer: {
-                    if model.isPaired {
-                        Text("Read receipts show \(model.partnerName) when you've looked, and you theirs, while you both have them on.")
+                    Group {
+                        if model.isPaired {
+                            Text("Read receipts show \(model.partnerName) when you've looked, and you theirs, while you both have them on. Milestone reminders send a note on the morning of each one — a month, a year — that only says there's something to celebrate.")
+                        }
                     }
+                    .foregroundStyle(Theme.mutedText)
                 }
 
                 if model.role == .owner {
@@ -121,6 +135,10 @@ struct SettingsView: View {
                             // Primary, not accent: a Form tints buttons, and crimson read as destructive.
                             .tint(.primary)
                             .disabled(!model.canArchiveMemories)
+                            if model.archiveProgress != nil {
+                                Button("Cancel saving memories") { model.cancelArchive() }
+                                    .tint(.primary)
+                            }
                         }
                         if model.isPaired {
                             NavigationLink {
@@ -131,8 +149,13 @@ struct SettingsView: View {
                         }
                     } header: {
                         Text("Memories")
+                            .foregroundStyle(Theme.mutedText)
+                            .accessibilityIdentifier("settings.section.header")
                     } footer: {
-                        Text(memoriesFooter)
+                        Group {
+                            Text(memoriesFooter)
+                        }
+                        .foregroundStyle(Theme.mutedText)
                     }
                 }
 
@@ -154,8 +177,13 @@ struct SettingsView: View {
                     }
                 } header: {
                     Text("Safety")
+                        .foregroundStyle(Theme.mutedText)
+                        .accessibilityIdentifier("settings.section.header")
                 } footer: {
-                    Text(safetyFooter)
+                    Group {
+                        Text(safetyFooter)
+                    }
+                    .foregroundStyle(Theme.mutedText)
                 }
 
                 Section {
@@ -167,21 +195,31 @@ struct SettingsView: View {
                     }
                 } header: {
                     Text("Ending the link")
+                        .foregroundStyle(Theme.mutedText)
+                        .accessibilityIdentifier("settings.section.header")
                 } footer: {
-                    Text("Each asks first, and says exactly what goes.")
+                    Group {
+                        Text("Each asks first, and says exactly what goes.")
+                    }
+                    .foregroundStyle(Theme.mutedText)
                 }
 
                 Section {
                     LabeledContent("Version", value: versionString)
                         .contentShape(Rectangle())
                         .onTapGesture { versionTapCount += 1 }
+                        // Seven taps is no way in under VoiceOver or Voice Control.
+                        .accessibilityAction(named: Text("Show diagnostics")) { versionTapCount = 7 }
                     if showsDiagnostics {
                         NavigationLink("iCloud diagnostics") {
                             DiagnosticsView()
                         }
                     }
                 } footer: {
-                    Text("Statuses are stored in your own iCloud with the text end-to-end encrypted. Photos, drawings and voice memos are CloudKit assets, which are encrypted by default.")
+                    Group {
+                        Text("Statuses are stored in your own iCloud with the text end-to-end encrypted. Photos, drawings and voice memos are CloudKit assets, which are encrypted by default.")
+                    }
+                    .foregroundStyle(Theme.mutedText)
                 }
             }
             .scrollContentBackground(.hidden)
@@ -205,6 +243,14 @@ struct SettingsView: View {
                 Task { notificationStatus = await NotificationManager.authorizationStatus() }
             }
             .onAppear { draftName = model.myDisplayName }
+            // Home's partner-left notice: straight to the dialog that saves and unlinks.
+            .task {
+                guard model.unlinkRequested else { return }
+                model.unlinkRequested = false
+                // After the sheet's own presentation: a dialog raised mid-transition is dropped.
+                try? await Task.sleep(for: .milliseconds(400))
+                confirmingUnlink = true
+            }
             // Leaving the sheet commits whatever edit was in progress.
             .onDisappear { commitName() }
             // RootView's copy of this alert sits underneath this sheet, where
@@ -335,7 +381,7 @@ struct SettingsView: View {
                 // Still worth sharing: the closed link re-admits the existing
                 // partner on a new phone, and admits nobody else.
                 if let url = model.inviteURL {
-                    ShareLink(item: url) {
+                    InviteShareLink(url: url) {
                         Label("Share link", systemImage: "square.and.arrow.up")
                     }
                     CopyLinkButton(url: url, prominent: false)
@@ -348,7 +394,7 @@ struct SettingsView: View {
                 // state, not an empty one.
                 if let url = model.inviteURL {
                     InviteLinkText(url: url)
-                    ShareLink(item: url) {
+                    InviteShareLink(url: url) {
                         Label("Share link", systemImage: "square.and.arrow.up")
                     }
                     CopyLinkButton(url: url, prominent: false)
@@ -370,8 +416,13 @@ struct SettingsView: View {
             }
         } header: {
             Text("Invite link")
+                .foregroundStyle(Theme.mutedText)
+                .accessibilityIdentifier("settings.section.header")
         } footer: {
-            Text(inviteFooter)
+            Group {
+                Text(inviteFooter)
+            }
+            .foregroundStyle(Theme.mutedText)
         }
     }
 
@@ -529,6 +580,9 @@ struct SettingsView: View {
     /// The two roles genuinely differ — the owner holds the shared space, the
     /// other person is a guest in it — so each hears exactly what leaves and stays.
     private var unlinkFooter: String {
+        if model.role == .owner, model.partnerHasLeft {
+            return String(localized: "\(model.partnerName) has already left. Deletes the shared space from your iCloud, with everything you sent. Your name stays on this iPhone, so you can send a new invite link.")
+        }
         if model.role == .owner {
             return String(localized: "Deletes the shared space from your iCloud: both your statuses, and every photo, drawing and voice memo either of you sent. \(model.partnerName)'s app unlinks itself within a few minutes of next opening. Your name stays on this iPhone, so you can pair again.")
         }

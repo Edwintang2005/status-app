@@ -41,12 +41,16 @@ extension CloudSync {
         try Self.confirmSaved(result, recordID)
     }
 
+    /// Both dates bounded like every partner-written one (invariant 23): a
+    /// negative year here once made the whole snapshot undecodable.
     static func statusSeen(from record: CKRecord) -> StatusSeen? {
         guard let seenAt = record.encryptedValues[Field.statusSeenAt] as? Date,
-              let statusUpdatedAt = record.encryptedValues[Field.statusSeenFor] as? Date else {
+              let statusUpdatedAt = record.encryptedValues[Field.statusSeenFor] as? Date,
+              seenAt.timeIntervalSince1970.isFinite, statusUpdatedAt.timeIntervalSince1970.isFinite else {
             return nil
         }
-        return StatusSeen(statusUpdatedAt: statusUpdatedAt, seenAt: seenAt)
+        return StatusSeen(statusUpdatedAt: TrustedTime.plausible(statusUpdatedAt, serverTime: record.modificationDate),
+                          seenAt: TrustedTime.plausible(seenAt, serverTime: record.modificationDate))
     }
 
     static func receiptMap(from record: CKRecord) -> [String: Date] {

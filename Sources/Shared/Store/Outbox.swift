@@ -3,8 +3,8 @@ import Observation
 import os
 
 /// The offline-send recovery loops (CLAUDE.md invariants 11, 13, 16): status,
-/// anniversary and request republishes, pending uploads, the receipt flush, and
-/// the fresh start's steps (its record's writes and this device's clear).
+/// anniversary and request republishes, uploads and their retries, the receipt
+/// flush, and the fresh start's steps (its record's writes and this device's clear).
 /// Every collaborator is injected so the loops run against a fake backend and
 /// throwaway stores under `make test`; `AppModel` owns one over the real ones.
 /// Each method returns whether local state changed, so the caller can re-read.
@@ -22,18 +22,30 @@ final class Outbox {
     @ObservationIgnored private let indexChanged: () -> Void
     /// Drops a moment's files: `MomentStore.delete` in the app.
     @ObservationIgnored private let deleteMedia: (String) -> Void
+    /// A moment reached iCloud, first time or on a retry: Home's "Sent to …".
+    @ObservationIgnored var uploaded: (Moment) -> Void
     @ObservationIgnored private let log = Logger(subsystem: AppConfig.appGroupID, category: "Outbox")
 
     /// Observed: the home footer shows "Sending…" while it runs.
     private(set) var isRetryingUploads = false
+    /// Moments being uploaded right now, by id. Observed: they aren't "waiting
+    /// to send", and a retry pass must not send them a second time.
+    private(set) var uploadsInFlight: Set<String> = []
     /// When a send last failed on a full iCloud (`SendFailure.storageFull`). In
     /// memory: after a relaunch one retry finds out again.
     private(set) var storageFullAt: Date?
+    /// Until when CloudKit asked us to hold off (`SendFailure.throttled`).
+    private(set) var throttledUntil: Date?
 
     @ObservationIgnored private var isRepublishingStatus = false
     @ObservationIgnored private var isRepublishingAnniversary = false
     @ObservationIgnored private var isRepublishingRequest = false
     @ObservationIgnored private var isFlushingReceipts = false
+    @ObservationIgnored private var receiptFlushTask: Task<Void, Never>?
+    /// Consecutive status republishes that failed for a reason other than no
+    /// route, and when automatic passes may try again.
+    @ObservationIgnored private var statusFailures = 0
+    @ObservationIgnored private var statusRetryAt: Date?
 
     /// Observed: the fresh start sheet shows "Clearing…" while it runs.
     private(set) var isClearingHistory = false
@@ -48,7 +60,8 @@ final class Outbox {
          hasMedia: @escaping (Moment) -> Bool,
          deleteMedia: @escaping (String) -> Void,
          protect: @escaping @MainActor (String, @MainActor () async throws -> Void) async throws -> Void,
-         indexChanged: @escaping () -> Void) {
+         indexChanged: @escaping () -> Void,
+         uploaded: @escaping (Moment) -> Void = { _ in }) {
         self.store = store
         self.index = index
         self.statusLog = statusLog
@@ -57,37 +70,69 @@ final class Outbox {
         self.deleteMedia = deleteMedia
         self.protect = protect
         self.indexChanged = indexChanged
+        self.uploaded = uploaded
     }
 
     // MARK: - Send outcomes
 
-    /// Stamps a full iCloud, which slows automatic retries and changes the wording.
+    /// Stamps a full iCloud or a throttle, which hold automatic retries (and a
+    /// full iCloud changes the wording).
     @discardableResult
-    func noteSendFailed(_ error: Error) -> SendFailure {
-        let failure = SendFailure(error)
-        if failure == .storageFull { storageFullAt = Date() }
+    func noteSendFailed(_ error: Error, now: Date = Date()) -> SendFailure {
+        let failure = SendFailure(error, now: now)
+        switch failure {
+        case .storageFull:
+            storageFullAt = now
+        case .throttled(let until):
+            throttledUntil = max(throttledUntil ?? .distantPast, until)
+        case .offline, .transient:
+            break
+        }
         return failure
     }
 
-    /// Anything landing proves there's room again.
+    /// Anything landing proves there's room again, and that we're let through.
     func noteSendSucceeded() {
         storageFullAt = nil
+        throttledUntil = nil
     }
 
-    nonisolated static func automaticRetryAllowed(storageFullAt: Date?, now: Date) -> Bool {
+    nonisolated static func automaticRetryAllowed(storageFullAt: Date?,
+                                                  throttledUntil: Date? = nil,
+                                                  now: Date) -> Bool {
+        if let until = throttledUntil, now < until { return false }
         guard let full = storageFullAt, full <= now else { return true }
         return now.timeIntervalSince(full) >= AppConfig.storageFullRetryInterval
     }
 
+    private func automaticRetryAllowed(now: Date) -> Bool {
+        Self.automaticRetryAllowed(storageFullAt: storageFullAt, throttledUntil: throttledUntil, now: now)
+    }
+
+    /// How long automatic status republishes wait after `failures` in a row.
+    nonisolated static func statusRetryDelay(failures: Int) -> TimeInterval {
+        guard failures > 0 else { return 0 }
+        let doubled = AppConfig.statusRetryBaseDelay * pow(2, Double(min(failures - 1, 16)))
+        return min(doubled, AppConfig.statusRetryMaxDelay)
+    }
+
     // MARK: - Republishes
 
-    /// The local status, if its last publish never landed. Safe to re-run:
-    /// `publish` overwrites a fixed record name, and only this device writes it.
+    /// The local status, if its last publish never landed — or only its
+    /// `StatusLog` record didn't, which is then all that's sent (the status
+    /// save finds its own copy already there and skips). Safe to re-run:
+    /// fixed record names, and only this device's role writes them. Automatic
+    /// passes back off after repeated failures, and wait out a full iCloud or a throttle.
     @discardableResult
-    func republishStatus() async -> Bool {
+    func republishStatus(automatic: Bool = false, now: Date = Date()) async -> Bool {
         guard store.pairing != nil, !isRepublishingStatus else { return false }
         let snapshot = store.snapshot
-        guard !snapshot.myStatusPublished, let mine = snapshot.mine else { return false }
+        guard let mine = snapshot.mine else { return false }
+        let logPending = snapshot.myStatusLoggedAt != mine.wordsAt
+        guard !snapshot.myStatusPublished || (logPending && mine.updatedAt > .distantPast) else { return false }
+        if automatic {
+            guard automaticRetryAllowed(now: now), now >= (statusRetryAt ?? .distantPast) else { return false }
+        }
         isRepublishingStatus = true
         defer { isRepublishingStatus = false }
         // Logged only if this status's log record isn't confirmed yet: a
@@ -96,12 +141,22 @@ final class Outbox {
         let backend = backend()
         do {
             try await withDeadline(AppConfig.publishDeadline) { try await backend.publish(mine, logged: logged) }
-            store.mutate(reloadWidgets: false) { $0.markStatusPublished(mine) }
+            store.mutate(reloadWidgets: false) {
+                $0.markStatusPublished(mine)
+                // A logged publish that returned wrote the log; with a null mark
+                // meaning "owed", nothing else may be left to claim it landed.
+                if logged, $0.mine?.wordsAt == mine.wordsAt { $0.myStatusLoggedAt = mine.wordsAt }
+            }
             noteSendSucceeded()
+            statusFailures = 0
+            statusRetryAt = nil
             log.info("Republished the offline status update")
             return true
         } catch {
-            noteSendFailed(error)
+            if noteSendFailed(error, now: now) != .offline {
+                statusFailures += 1
+                statusRetryAt = now.addingTimeInterval(Self.statusRetryDelay(failures: statusFailures))
+            }
             log.error("Status republish failed: \(error.localizedDescription, privacy: .public)")
             return false
         }
@@ -109,10 +164,11 @@ final class Outbox {
 
     /// Owner only: one fixed record name, and only the owner writes it.
     @discardableResult
-    func republishAnniversary() async -> Bool {
+    func republishAnniversary(automatic: Bool = false, now: Date = Date()) async -> Bool {
         guard store.pairing?.role == .owner, !isRepublishingAnniversary else { return false }
         let snapshot = store.snapshot
         guard !snapshot.anniversaryPublished else { return false }
+        if automatic, !automaticRetryAllowed(now: now) { return false }
         isRepublishingAnniversary = true
         defer { isRepublishingAnniversary = false }
         let anniversary = snapshot.anniversary
@@ -123,7 +179,7 @@ final class Outbox {
             log.info("Republished the offline anniversary update")
             return true
         } catch {
-            noteSendFailed(error)
+            noteSendFailed(error, now: now)
             log.error("Anniversary republish failed: \(error.localizedDescription, privacy: .public)")
             return false
         }
@@ -131,10 +187,11 @@ final class Outbox {
 
     /// Participant only; re-asking overwrites.
     @discardableResult
-    func republishAnniversaryRequest() async -> Bool {
+    func republishAnniversaryRequest(automatic: Bool = false, now: Date = Date()) async -> Bool {
         guard store.pairing?.role == .participant, !isRepublishingRequest else { return false }
         let snapshot = store.snapshot
         guard !snapshot.anniversaryRequestPublished, let date = snapshot.anniversaryRequestedAt else { return false }
+        if automatic, !automaticRetryAllowed(now: now) { return false }
         isRepublishingRequest = true
         defer { isRepublishingRequest = false }
         let backend = backend()
@@ -144,30 +201,51 @@ final class Outbox {
             log.info("Republished the offline anniversary request")
             return true
         } catch {
-            noteSendFailed(error)
-            log.error("Anniversary request republish failed: \(error.localizedDescription, privacy: .public)")
+            noteSendFailed(error, now: now)
+            log.error("Anniversary request publish failed: \(error.localizedDescription, privacy: .public)")
             return false
         }
     }
 
-    // MARK: - Pending uploads
+    // MARK: - Uploads
+
+    /// Sends one moment already filed in the index with its media on disk, and
+    /// marks it uploaded once the record is confirmed. While it runs, a retry
+    /// pass leaves it alone (`uploadsInFlight`). Throws without noting the
+    /// failure: the caller words it (`AppModel.presentSendFailure`) or the retry
+    /// pass notes it. A moment already in flight returns at once.
+    func upload(_ moment: Moment, taskName: String = "moment-upload") async throws {
+        guard uploadsInFlight.insert(moment.id).inserted else { return }
+        defer { uploadsInFlight.remove(moment.id) }
+        let backend = backend()
+        // Bookkeeping inside `protect`: ending the assertion lets iOS
+        // suspend, and a file lock taken after it is a 0xdead10cc kill.
+        try await protect(taskName) { [index] in
+            try await withDeadline(AppConfig.uploadDeadline) { try await backend.send(moment) }
+            _ = index.markUploaded(ids: [moment.id])
+        }
+        noteSendSucceeded()
+        uploaded(moment)
+    }
 
     /// Re-sends own moments whose upload never completed; quiet on failure (the
     /// footer says so). Safe to re-run — `send` overwrites a deterministic
-    /// record name. `automatic` passes are held off for a while after a full iCloud.
+    /// record name. `automatic` passes are held off for a while after a full
+    /// iCloud or a throttle.
     @discardableResult
     func retryPendingUploads(automatic: Bool, now: Date = Date()) async -> Bool {
         // Not while clearing: a send the clear is deleting would come straight back.
         guard store.pairing != nil, !isRetryingUploads, !isClearingHistory else { return false }
-        if automatic, !Self.automaticRetryAllowed(storageFullAt: storageFullAt, now: now) { return false }
-        let pending = index.load().filter { $0.fromMe && !$0.uploaded }
-        guard !pending.isEmpty else { return false }
+        if automatic, !automaticRetryAllowed(now: now) { return false }
+        var changed = !index.salvagePendingUploads(hasMedia: hasMedia).isEmpty
+        let pending = index.load().filter { $0.fromMe && !$0.uploaded && !uploadsInFlight.contains($0.id) }
+        guard !pending.isEmpty else { return changed }
         isRetryingUploads = true
         defer { isRetryingUploads = false }
 
-        let backend = backend()
-        var changed = false
         for moment in pending {
+            // A send that started since this list was read is its own.
+            guard !uploadsInFlight.contains(moment.id) else { continue }
             // Pruned/wiped media can never be delivered; drop the ghost entry
             // rather than retrying forever or falsely marking it uploaded.
             guard hasMedia(moment) else {
@@ -178,20 +256,16 @@ final class Outbox {
                 continue
             }
             do {
-                // Bookkeeping inside `protect`: ending the assertion lets iOS
-                // suspend, and a file lock taken after it is a 0xdead10cc kill.
-                try await protect("moment-retry") { [index] in
-                    try await withDeadline(AppConfig.uploadDeadline) { try await backend.send(moment) }
-                    _ = index.markUploaded(ids: [moment.id])
-                }
-                noteSendSucceeded()
+                try await upload(moment, taskName: "moment-retry")
                 changed = true
                 log.info("Retried upload of \(moment.id, privacy: .public) successfully")
             } catch {
                 log.error("Retry upload of \(moment.id, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
-                // The rest would hit the same full iCloud, or the same missing route.
-                let failure = noteSendFailed(error)
-                if failure == .storageFull || failure == .offline { break }
+                // The rest would hit the same full iCloud, throttle or missing route.
+                switch noteSendFailed(error, now: now) {
+                case .storageFull, .offline, .throttled: return changed
+                case .transient: continue
+                }
             }
         }
         return changed
@@ -275,7 +349,7 @@ final class Outbox {
                 }
                 guard store.pairing?.sameZone(as: pairing) == true else { return }
                 // Unreadable isn't empty (invariant 15): nothing is judged against a blank list.
-                guard let moments = index.loadReadable() else {
+                guard let moments = index.loadReadable(), let statuses = statusLog.loadReadable() else {
                     freshStartFailure = String(localized: "This iPhone's history couldn't be read just now.")
                     return
                 }
@@ -283,7 +357,7 @@ final class Outbox {
                 let keeping = Set([snapshot.mine.map { FreshStartPolicy.LogKey(fromMe: true, at: $0.wordsAt) },
                                    snapshot.theirs.map { FreshStartPolicy.LogKey(fromMe: false, at: $0.wordsAt) }]
                     .compactMap { $0 })
-                let purge = FreshStartPolicy.purge(moments: moments, log: statusLog.load(), zone: zone,
+                let purge = FreshStartPolicy.purge(moments: moments, log: statuses, zone: zone,
                                                    epoch: epoch, keeping: keeping)
                 index.remove(ids: Set(purge.momentIDs))
                 purge.momentIDs.forEach(deleteMedia)
@@ -319,6 +393,24 @@ final class Outbox {
             if map.count >= limit { break }
         }
         return map
+    }
+
+    /// Flushes the receipts `delay` after the last call: paging through new
+    /// photos marks each seen, and one write covers them all.
+    func scheduleReceiptFlush(after delay: TimeInterval = AppConfig.receiptDebounce) {
+        receiptFlushTask?.cancel()
+        receiptFlushTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            await self?.flushReceipts()
+        }
+    }
+
+    /// Now, not after the debounce — going to the background.
+    func flushReceiptsNow() async {
+        receiptFlushTask?.cancel()
+        receiptFlushTask = nil
+        await flushReceipts()
     }
 
     /// Publishes this device's receipts while they're dirty. The flag is claimed
@@ -385,12 +477,13 @@ extension Snapshot {
     }
 
     /// The status read receipt for the status `shown` on screen, forward only:
-    /// a re-delivered older status must not re-stamp. `true` when it moved (and
-    /// receipts are now dirty).
+    /// a re-delivered older status must not re-stamp. Keyed by the words' date,
+    /// so a rename neither re-stamps "seen just now" nor loses the receipt.
+    /// `true` when it moved (and receipts are now dirty).
     mutating func stampPartnerStatusSeen(_ shown: StatusPayload?, at now: Date) -> Bool {
         guard let theirs = shown, theirs.updatedAt > .distantPast,
-              (partnerStatusSeen?.statusUpdatedAt ?? .distantPast) < theirs.updatedAt else { return false }
-        partnerStatusSeen = StatusSeen(statusUpdatedAt: theirs.updatedAt, seenAt: now)
+              (partnerStatusSeen?.statusUpdatedAt ?? .distantPast) < theirs.wordsAt else { return false }
+        partnerStatusSeen = StatusSeen(statusUpdatedAt: theirs.wordsAt, seenAt: now)
         receiptsDirty = true
         return true
     }

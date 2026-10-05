@@ -3,7 +3,7 @@ SCHEME := RedString
 PROJECT := RedString.xcodeproj
 BUNDLE_ID := com.edwintang.redstring
 
-.PHONY: project build test run device archive clean
+.PHONY: project build test uitest run device archive clean
 
 ## Regenerate RedString.xcodeproj from project.yml (run after adding files)
 project:
@@ -25,6 +25,16 @@ test: project
 		-destination 'platform=iOS Simulator,name=$(SIM)' \
 		-configuration Debug CODE_SIGNING_ALLOWED=NO \
 		-only-testing:RedStringTests test
+
+## Demo-mode UI smoke + accessibility audit (Tests/RedStringUITests). Signed,
+## like `make run`: an unsigned app traps on the App Group at launch, which is
+## also why CI (unsigned) doesn't run it. Installs and launches the app on $(SIM).
+## Its own DerivedData: a signed build over `make build`'s unsigned product may not re-sign it.
+uitest: project
+	xcodebuild -project $(PROJECT) -scheme RedStringUITests \
+		-destination 'platform=iOS Simulator,name=$(SIM)' \
+		-derivedDataPath build/DerivedData-uitest \
+		-configuration Debug test
 
 ## Build signed, install and launch on the simulator. Needs DEVELOPMENT_TEAM
 ## set (project.yml or Xcode's Signing tab) — the App Group and CloudKit

@@ -29,9 +29,40 @@ enum WidgetReloadPolicy {
     /// Each widget kind runs the provider on its own; one that fetched this
     /// recently already did the round trip for all of them.
     static let sharedFetchWindow: TimeInterval = 60
+    /// A reload the app or the notification service asked for
+    /// (`SharedStore.reloadWidgets`) follows their own refresh or a local-only
+    /// change: the store is already current. Shorter than any timer reload, so
+    /// WidgetKit deferring that request past it just means a fetch, as before.
+    static let siblingReloadWindow: TimeInterval = 2 * 60
 
-    static func shouldFetch(lastSyncedAt: Date?, now: Date = Date()) -> Bool {
+    static func shouldFetch(lastSyncedAt: Date?, reloadRequestedAt: Date? = nil, now: Date = Date()) -> Bool {
+        if let requested = reloadRequestedAt, requested <= now,
+           now.timeIntervalSince(requested) < siblingReloadWindow {
+            return false
+        }
         guard let lastSyncedAt else { return true }
         return now.timeIntervalSince(lastSyncedAt) >= sharedFetchWindow || lastSyncedAt > now
+    }
+}
+
+/// One `getTimeline` answer: the entry dates (all rendering the same snapshot)
+/// and when WidgetKit should ask again. Nothing else may re-render for a while,
+/// so the heart's cooldown and failure notice each get an entry where they end.
+struct TimelinePlan: Equatable, Sendable {
+    var entries: [Date]
+    var nextReload: Date
+
+    init(lastNudgeSentAt: Date?,
+         lastNudgeFailedAt: Date?,
+         heldSince: Date?,
+         incomplete: Bool,
+         now: Date = Date()) {
+        var entries = [now]
+        for expiry in [lastNudgeSentAt?.addingTimeInterval(AppConfig.nudgeCooldown),
+                       lastNudgeFailedAt?.addingTimeInterval(AppConfig.nudgeFailureNotice)] {
+            if let expiry, expiry > now { entries.append(expiry) }
+        }
+        self.entries = entries.sorted()
+        nextReload = WidgetReloadPolicy.nextReload(heldSince: heldSince, incomplete: incomplete, now: now)
     }
 }

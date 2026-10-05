@@ -14,6 +14,27 @@ struct Anniversary: Codable, Hashable, Sendable {
         self.timeZoneID = timeZoneID
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case startsAt, timeZoneID
+    }
+
+    /// Hand-written (invariant 5): new fields must fall back, not fail the snapshot.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        startsAt = try container.decode(Date.self, forKey: .startsAt)
+        timeZoneID = try container.decodeIfPresent(String.self, forKey: .timeZoneID) ?? TimeZone.current.identifier
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(startsAt, forKey: .startsAt)
+        try container.encode(timeZoneID, forKey: .timeZoneID)
+    }
+
+    /// The earliest date accepted from the zone: older than any couple, and
+    /// still inside what ISO-8601 reads back (a negative year isn't).
+    static let earliest = Date(timeIntervalSince1970: -2_208_988_800)  // 1900-01-01
+
     var timeZone: TimeZone { TimeZone(identifier: timeZoneID) ?? .current }
 
     var calendar: Calendar {

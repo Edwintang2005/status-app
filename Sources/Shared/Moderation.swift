@@ -71,6 +71,15 @@ extension StatusPayload {
         }
         return shown
     }
+
+    /// Whether the words themselves are on screen — the status read receipt's
+    /// gate. Reported, or hidden by the filter and not revealed, they weren't read.
+    func wordsShown(reportedAt: Date?,
+                    revealed: Bool,
+                    filterEnabled: Bool = SharedStore.shared.contentFilterEnabled) -> Bool {
+        if let reportedAt, wordsAt == reportedAt || updatedAt == reportedAt { return false }
+        return revealed || !ContentFilter.hides(message, enabled: filterEnabled)
+    }
 }
 
 extension StatusHistoryEntry {

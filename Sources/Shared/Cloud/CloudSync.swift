@@ -240,8 +240,10 @@ actor CloudSync: SyncBackend {
         try await container.accountStatus()
     }
 
-    func noteAccountChanged() {
+    func noteAccountChanged() async {
         accountCheckPending = true
+        // Extensions trust the shared copy for a few minutes; not past a switch.
+        await MainActor.run { SharedStore.shared.verifiedAccount = nil }
     }
 
     func readiness() async -> BackendReadiness {
@@ -250,6 +252,7 @@ actor CloudSync: SyncBackend {
         // the cache aged out — see `currentUserRecordName`).
         if accountCheckPending {
             cachedUserRecordName = nil
+            await MainActor.run { SharedStore.shared.verifiedAccount = nil }
             accountCheckPending = false
         }
         do {
@@ -277,14 +280,30 @@ actor CloudSync: SyncBackend {
 
     /// The signed-in account's user record name, or `nil` when it can't be
     /// fetched (offline, no account).
+    /// A cold extension first tries the copy another process verified
+    /// (`SharedStore.verifiedAccount`): within the same lifetime it is no
+    /// weaker than a failed lookup, which also counts as a match.
     func currentUserRecordName() async -> String? {
+        let now = Date()
         if let cached = cachedUserRecordName,
-           Date().timeIntervalSince(cached.fetchedAt) < Self.accountCacheLifetime {
+           Self.isFresh(cached.fetchedAt, now: now) {
             return cached.name
         }
+        if !accountCheckPending,
+           let shared = await MainActor.run(body: { SharedStore.shared.verifiedAccount }),
+           Self.isFresh(shared.verifiedAt, now: now) {
+            cachedUserRecordName = (shared.name, shared.verifiedAt)
+            return shared.name
+        }
         guard let name = try? await container.userRecordID().recordName else { return nil }
-        cachedUserRecordName = (name, Date())
+        cachedUserRecordName = (name, now)
+        await MainActor.run { SharedStore.shared.verifiedAccount = .init(name: name, verifiedAt: now) }
         return name
+    }
+
+    /// A lookup no older than the lifetime, and not stamped in the future.
+    static func isFresh(_ verifiedAt: Date, now: Date) -> Bool {
+        verifiedAt <= now && now.timeIntervalSince(verifiedAt) < accountCacheLifetime
     }
 
     /// `false` only on positive proof of a different account. Errors and legacy
@@ -328,10 +347,12 @@ actor CloudSync: SyncBackend {
     /// and its nudge counter often arrive separately.
     /// `fromPartner: false` for our own records (our devices wrote them): their
     /// text isn't capped, or a long name would be truncated on its own phone.
+    /// `savedAt` is the status record's server save time (injectable for tests).
     static func payload(from record: CKRecord?,
-                                nudge: CKRecord?,
-                                existing: StatusPayload?,
-                                fromPartner: Bool = true) -> StatusPayload? {
+                        nudge: CKRecord?,
+                        existing: StatusPayload?,
+                        fromPartner: Bool = true,
+                        savedAt: Date? = nil) -> StatusPayload? {
         guard record != nil || nudge != nil else { return nil }
 
         var payload = existing ?? StatusPayload(emoji: "💭",
@@ -369,12 +390,19 @@ actor CloudSync: SyncBackend {
                 (record.encryptedValues[Field.isCelebration] as? Int).map { $0 != 0 } ?? false
             // A rename restamps the record without new words; keep when they began.
             // Same words *and* a new name: re-picking the same status is a new
-            // status (a fresh "3 min ago", a celebration that plays again).
-            if let existing, existing.sameWords(as: payload), existing.displayName != payload.displayName {
+            // status (a fresh "3 min ago", a celebration that plays again). The
+            // same stamp is the same version — a rename's own echo, a resync —
+            // and keeps what was known about it.
+            if let existing, existing.sameWords(as: payload), existing.updatedAt == payload.updatedAt {
+                payload.wordsSince = existing.wordsSince
+            } else if let existing, existing.sameWords(as: payload), existing.displayName != payload.displayName {
                 payload.wordsSince = existing.wordsAt
             } else {
                 payload.wordsSince = nil
             }
+            payload.serverSavedAt = (savedAt ?? record.modificationDate)
+                .flatMap { $0.timeIntervalSince1970.isFinite ? $0 : nil }
+                .map { Date(timeIntervalSince1970: $0.timeIntervalSince1970.rounded(.down)) }
         }
 
         if let nudge {

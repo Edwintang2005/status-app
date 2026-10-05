@@ -21,7 +21,9 @@ struct RedStringApp: App {
         WindowGroup {
             RootView()
                 .environment(model)
-                .tint(Theme.accent)
+                // The text shade: system-tinted controls are mostly words (toolbar
+                // buttons, Form rows), and `accent` itself is 4.25:1 on cream.
+                .tint(Theme.accentText)
                 .task { await model.onLaunch() }
                 .onChange(of: scenePhase) { _, phase in
                     switch phase {
@@ -32,6 +34,9 @@ struct RedStringApp: App {
                         // user had not read.
                         NotificationManager.clearDelivered()
                         Task { await model.refresh() }
+                    case .background:
+                        // Receipts wait out a short debounce; leaving sends them now.
+                        Task { await model.flushReceiptsForBackground() }
                     default:
                         break
                     }

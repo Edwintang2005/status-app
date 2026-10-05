@@ -757,6 +757,9 @@ extension CloudSync {
             // Unsent media survives: if this was the close handshake after all,
             // tapping the link again rejoins the same zone and re-sends it.
             SharedStore.shared.eraseLocalMedia(keepingPendingUploads: true)
+            // The subscriptions outlive the zone: until they're gone, every
+            // write anyone makes under them still pushes here.
+            SharedStore.shared.subscriptionCleanup = .init(userRecordName: pairing.userRecordName, since: now)
             SharedStore.shared.clearPairing(keepingName: true)
         }
         return .linkEnded

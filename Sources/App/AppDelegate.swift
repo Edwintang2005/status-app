@@ -103,9 +103,10 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
         case UNNotificationDefaultActionIdentifier:
             // Tapping a moment's banner opens the moment, not just Home; the
             // route waits for Home to be free to show it.
-            if response.notification.request.content.categoryIdentifier == NotificationCategory.moment,
-               let model = AppModel.current, model.isPaired {
-                model.pendingRoute = .newMoments
+            let category = response.notification.request.content.categoryIdentifier
+            if let model = AppModel.current, model.isPaired {
+                if category == NotificationCategory.moment { model.pendingRoute = .newMoments }
+                if category == NotificationCategory.milestone { model.pendingRoute = .anniversary }
             }
         default:
             break

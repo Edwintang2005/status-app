@@ -165,6 +165,23 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
 
+  # Demo-mode smoke over Home and each sheet with `performAccessibilityAudit()`.
+  # Needs a *signed* Debug app (unsigned, it traps on the App Group at launch),
+  # so it has its own scheme: CI's unsigned build and test never touch it. `make uitest`.
+  RedStringUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests/RedStringUITests
+    dependencies:
+      - target: RedString
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.edwintang.redstring.uitests
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: RedString
+
 schemes:
   RedString:
     build:
@@ -181,3 +198,12 @@ schemes:
         - RedStringTests
     archive:
       config: Release
+  RedStringUITests:
+    build:
+      targets:
+        RedString: all
+        RedStringUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - RedStringUITests

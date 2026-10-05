@@ -5,6 +5,7 @@ import SwiftUI
 struct StatusHistoryView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var entries: [StatusHistoryEntry] = []
     @State private var filter: HistoryFilter = .all
@@ -43,10 +44,22 @@ struct StatusHistoryView: View {
                     } else {
                         List {
                             ForEach(byDay, id: \.day) { group in
-                                Section(dayLabel(group.day)) {
+                                Section {
                                     ForEach(group.entries) { entry in
                                         row(entry)
                                     }
+                                } header: {
+                                    // On the cards' wash, not bare: over the backdrop's crimson
+                                    // corner no text colour clears 4.5:1 (the UI audit's finding).
+                                    Text(dayLabel(group.day))
+                                        .foregroundStyle(Color.primary)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 3)
+                                        .background {
+                                            Capsule().fill(colorScheme == .dark ? Color.white.opacity(0.07)
+                                                                                : Color.white.opacity(0.72))
+                                            Capsule().fill(.ultraThinMaterial)
+                                        }
                                 }
                             }
                         }

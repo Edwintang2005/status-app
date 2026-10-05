@@ -145,6 +145,9 @@ struct StatusWidgetView: View {
 
     // MARK: Home screen
 
+    /// Text styles, so Dynamic Type reaches the Home Screen tile (the accessory
+    /// families stay fixed: the Lock Screen sizes them). Capped where two lines
+    /// and the heart still fit the tile.
     private var small: some View {
         VStack(alignment: .leading, spacing: 6) {
             if isPaired {
@@ -154,6 +157,7 @@ struct StatusWidgetView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 
     /// Same layout whether or not they've posted — a structurally blank tile
@@ -162,7 +166,7 @@ struct StatusWidgetView: View {
     private var paired: some View {
         if let heading = knownName?.uppercased() {
             Text(heading)
-                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .font(.system(.caption2, design: .rounded, weight: .bold))
                 .tracking(0.8)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -173,7 +177,7 @@ struct StatusWidgetView: View {
             .opacity(status == nil ? 0.55 : 1)
 
         Text(smallMessage)
-            .font(.system(size: 15, weight: .semibold, design: .rounded))
+            .font(.system(.subheadline, design: .rounded, weight: .semibold))
             .foregroundStyle(isWaiting ? .secondary : .primary)
             .lineLimit(2)
             .minimumScaleFactor(0.85)
@@ -185,7 +189,7 @@ struct StatusWidgetView: View {
 
             Button(intent: SendNudgeIntent()) {
                 Image(systemName: "heart.fill")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(.caption, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(6)
                     // Matches the in-app nudge button's crimson.
@@ -202,11 +206,14 @@ struct StatusWidgetView: View {
     }
 
     private var notPaired: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        let homeScreen = family == .systemSmall
+        return VStack(alignment: .leading, spacing: 3) {
             Text(AppConfig.appName)
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .font(homeScreen ? .system(.footnote, design: .rounded, weight: .semibold)
+                                 : .system(size: 13, weight: .semibold, design: .rounded))
             Text("Open to pair")
-                .font(.system(size: 12, design: .rounded))
+                .font(homeScreen ? .system(.caption, design: .rounded)
+                                 : .system(size: 12, design: .rounded))
                 .foregroundStyle(.secondary)
         }
     }

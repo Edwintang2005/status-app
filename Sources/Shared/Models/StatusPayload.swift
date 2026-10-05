@@ -24,9 +24,13 @@ struct StatusPayload: Codable, Hashable {
     /// stamp. Reports, celebrations, receipts and history key on `wordsAt`.
     var wordsSince: Date?
 
+    /// Local only: the record's server save time, whole seconds. Orders the
+    /// partner's copies (`RefreshDelta`), since `updatedAt` is their phone's clock.
+    var serverSavedAt: Date?
+
     private enum CodingKeys: String, CodingKey {
         case emoji, message, displayName, updatedAt, nudgeCount, lastNudgeAt
-        case isCelebration, wordsSince
+        case isCelebration, wordsSince, serverSavedAt
     }
 
     init(emoji: String,
@@ -58,6 +62,7 @@ struct StatusPayload: Codable, Hashable {
         isCelebration = try container.decodeIfPresent(Bool.self, forKey: .isCelebration) ?? false
         // Absent for pre-field payloads: their words date from `updatedAt`.
         wordsSince = try container.decodeIfPresent(Date.self, forKey: .wordsSince)
+        serverSavedAt = try container.decodeIfPresent(Date.self, forKey: .serverSavedAt)
     }
 
     /// When the words shown were set — `updatedAt` minus any later renames.
@@ -202,6 +207,8 @@ struct PairingInfo: Codable, Hashable {
 /// A read receipt for a status: which version (`statusUpdatedAt`, the
 /// status's own whole-second stamp) was on screen, and when.
 struct StatusSeen: Codable, Hashable, Sendable {
+    /// The status's `wordsAt`; a receipt from an older build may carry its
+    /// `updatedAt`, which `Snapshot.myStatusSeenAt` still accepts.
     var statusUpdatedAt: Date
     var seenAt: Date
 
@@ -209,6 +216,23 @@ struct StatusSeen: Codable, Hashable, Sendable {
         // Whole seconds on both, like every persisted date — see `StatusHistoryEntry.at`.
         self.statusUpdatedAt = Date(timeIntervalSince1970: statusUpdatedAt.timeIntervalSince1970.rounded(.down))
         self.seenAt = Date(timeIntervalSince1970: seenAt.timeIntervalSince1970.rounded(.down))
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case statusUpdatedAt, seenAt
+    }
+
+    /// Hand-written (invariant 5): it rides in two snapshot fields.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        statusUpdatedAt = try container.decode(Date.self, forKey: .statusUpdatedAt)
+        seenAt = try container.decodeIfPresent(Date.self, forKey: .seenAt) ?? statusUpdatedAt
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(statusUpdatedAt, forKey: .statusUpdatedAt)
+        try container.encode(seenAt, forKey: .seenAt)
     }
 }
 
@@ -305,6 +329,17 @@ struct Snapshot: Codable, Hashable {
     /// Its `clearedBefore` keeps cleared history out of every later delta.
     var freshStart = FreshStart()
 
+    /// Server creation time of the partner's nudge record, whole seconds. A
+    /// different one is a new counter (they unlinked and rejoined), restarting at 1.
+    var partnerNudgeCreatedAt: Date?
+    /// Local only: when this device saw the partner's status record deleted —
+    /// how a participant unlinks — and the name they went by then. Cleared if
+    /// their status comes back (`RefreshDelta.fold`).
+    var partnerLeftAt: Date?
+    var partnerLeftName: String?
+    /// A banner has said they left — the NSE's or the app's, whichever first.
+    var partnerLeftAnnounced = false
+
     static let empty = Snapshot(
         mine: nil,
         theirs: nil,
@@ -332,64 +367,67 @@ struct Snapshot: Codable, Hashable {
         case lastAnnouncedMomentSentAt
         case myStatusLoggedAt, lastBreakthroughNudgeAt
         case freshStart
+        case partnerNudgeCreatedAt
+        case partnerLeftAt, partnerLeftName, partnerLeftAnnounced
     }
 
     /// Hand-written: synthesised `Codable` errors on missing keys, so a snapshot
     /// from an earlier build would reset the widget to blank. Every field falls back.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        mine = try container.decodeIfPresent(StatusPayload.self, forKey: .mine)
-        theirs = try container.decodeIfPresent(StatusPayload.self, forKey: .theirs)
-        isPaired = try container.decodeIfPresent(Bool.self, forKey: .isPaired) ?? false
-        lastSyncedAt = try container.decodeIfPresent(Date.self, forKey: .lastSyncedAt)
-        lastSeenPartnerNudgeCount = try container
-            .decodeIfPresent(Int.self, forKey: .lastSeenPartnerNudgeCount) ?? 0
-        lastNudgeSentAt = try container.decodeIfPresent(Date.self, forKey: .lastNudgeSentAt)
-        latestPartnerMoment = try container.decodeIfPresent(Moment.self, forKey: .latestPartnerMoment)
-        latestOwnMoment = try container.decodeIfPresent(Moment.self, forKey: .latestOwnMoment)
-        lastNotifiedMomentID = try container.decodeIfPresent(String.self, forKey: .lastNotifiedMomentID)
+        // Field by field, `try?`: one unreadable value (a crafted date from the
+        // zone, a type from a newer build) costs that field, never the whole
+        // snapshot and every watermark with it.
+        func value<T: Decodable>(_ type: T.Type, _ key: CodingKeys) -> T? {
+            (try? container.decodeIfPresent(type, forKey: key)) ?? nil
+        }
+        mine = value(StatusPayload.self, .mine)
+        theirs = value(StatusPayload.self, .theirs)
+        isPaired = value(Bool.self, .isPaired) ?? false
+        lastSyncedAt = value(Date.self, .lastSyncedAt)
+        lastSeenPartnerNudgeCount = value(Int.self, .lastSeenPartnerNudgeCount) ?? 0
+        lastNudgeSentAt = value(Date.self, .lastNudgeSentAt)
+        latestPartnerMoment = value(Moment.self, .latestPartnerMoment)
+        latestOwnMoment = value(Moment.self, .latestOwnMoment)
+        lastNotifiedMomentID = value(String.self, .lastNotifiedMomentID)
         // Absent key = legacy snapshot; explicit null = the only picture was
         // deleted. Folding the two resurrected deleted photos in the widget.
         if container.contains(.latestPartnerVisualMoment) {
-            latestPartnerVisualMoment = try container
-                .decodeIfPresent(Moment.self, forKey: .latestPartnerVisualMoment)
+            latestPartnerVisualMoment = value(Moment.self, .latestPartnerVisualMoment)
         } else {
             // Legacy fallback: pre-voice-memo, every moment was a picture.
             latestPartnerVisualMoment = latestPartnerMoment.flatMap { $0.isVoice ? nil : $0 }
         }
-        unheardVoiceMemoCount = try container
-            .decodeIfPresent(Int.self, forKey: .unheardVoiceMemoCount) ?? 0
-        lastCelebratedAt = try container.decodeIfPresent(Date.self, forKey: .lastCelebratedAt)
-        notifiedMomentIDs = try container
-            .decodeIfPresent([String].self, forKey: .notifiedMomentIDs) ?? []
-        lastNudgeFailedAt = try container.decodeIfPresent(Date.self, forKey: .lastNudgeFailedAt)
+        unheardVoiceMemoCount = value(Int.self, .unheardVoiceMemoCount) ?? 0
+        lastCelebratedAt = value(Date.self, .lastCelebratedAt)
+        notifiedMomentIDs = value([String].self, .notifiedMomentIDs) ?? []
+        lastNudgeFailedAt = value(Date.self, .lastNudgeFailedAt)
         // Assume published for pre-field snapshots to avoid re-pushing an old status.
-        myStatusPublished = try container
-            .decodeIfPresent(Bool.self, forKey: .myStatusPublished) ?? true
-        lastAnnouncedPartnerStatusAt = try container
-            .decodeIfPresent(Date.self, forKey: .lastAnnouncedPartnerStatusAt)
-        receiptsDirty = try container.decodeIfPresent(Bool.self, forKey: .receiptsDirty) ?? false
-        partnerStatusSeen = try container.decodeIfPresent(StatusSeen.self, forKey: .partnerStatusSeen)
-        myStatusSeenByPartner = try container
-            .decodeIfPresent(StatusSeen.self, forKey: .myStatusSeenByPartner)
-        anniversary = try container.decodeIfPresent(Anniversary.self, forKey: .anniversary)
-        anniversaryPublished = try container
-            .decodeIfPresent(Bool.self, forKey: .anniversaryPublished) ?? true
-        lastAnnouncedPartnerStatus = try container
-            .decodeIfPresent(StatusPayload.self, forKey: .lastAnnouncedPartnerStatus)
+        myStatusPublished = value(Bool.self, .myStatusPublished) ?? true
+        lastAnnouncedPartnerStatusAt = value(Date.self, .lastAnnouncedPartnerStatusAt)
+        receiptsDirty = value(Bool.self, .receiptsDirty) ?? false
+        partnerStatusSeen = value(StatusSeen.self, .partnerStatusSeen)
+        myStatusSeenByPartner = value(StatusSeen.self, .myStatusSeenByPartner)
+        anniversary = value(Anniversary.self, .anniversary)
+        anniversaryPublished = value(Bool.self, .anniversaryPublished) ?? true
+        lastAnnouncedPartnerStatus = value(StatusPayload.self, .lastAnnouncedPartnerStatus)
         // Pre-field: a published status was logged by the old build (or was a
         // rename it deliberately didn't log) — either way, don't log it again.
         // Unpublished, it's still owed, and the republish logs it.
-        myStatusLoggedAt = try container.decodeIfPresent(Date.self, forKey: .myStatusLoggedAt)
-            ?? (myStatusPublished ? mine?.wordsAt : nil)
-        lastBreakthroughNudgeAt = try container.decodeIfPresent(Date.self, forKey: .lastBreakthroughNudgeAt)
-        anniversaryRequestedAt = try container.decodeIfPresent(Date.self, forKey: .anniversaryRequestedAt)
-        anniversaryRequestPublished = try container
-            .decodeIfPresent(Bool.self, forKey: .anniversaryRequestPublished) ?? true
-        anniversaryRequestDismissedAt = try container
-            .decodeIfPresent(Date.self, forKey: .anniversaryRequestDismissedAt)
-        lastAnnouncedMomentSentAt = try container.decodeIfPresent(Date.self, forKey: .lastAnnouncedMomentSentAt)
-        freshStart = try container.decodeIfPresent(FreshStart.self, forKey: .freshStart) ?? FreshStart()
+        // A written null means "owed" (a first status whose log didn't land).
+        myStatusLoggedAt = container.contains(.myStatusLoggedAt)
+            ? value(Date.self, .myStatusLoggedAt)
+            : (myStatusPublished ? mine?.wordsAt : nil)
+        lastBreakthroughNudgeAt = value(Date.self, .lastBreakthroughNudgeAt)
+        anniversaryRequestedAt = value(Date.self, .anniversaryRequestedAt)
+        anniversaryRequestPublished = value(Bool.self, .anniversaryRequestPublished) ?? true
+        anniversaryRequestDismissedAt = value(Date.self, .anniversaryRequestDismissedAt)
+        lastAnnouncedMomentSentAt = value(Date.self, .lastAnnouncedMomentSentAt)
+        freshStart = value(FreshStart.self, .freshStart) ?? FreshStart()
+        partnerNudgeCreatedAt = value(Date.self, .partnerNudgeCreatedAt)
+        partnerLeftAt = value(Date.self, .partnerLeftAt)
+        partnerLeftName = value(String.self, .partnerLeftName)
+        partnerLeftAnnounced = value(Bool.self, .partnerLeftAnnounced) ?? false
     }
 
     /// Hand-written: `latestPartnerVisualMoment`'s nil must be written as an
@@ -427,9 +465,18 @@ struct Snapshot: Codable, Hashable {
         try container.encode(anniversaryRequestPublished, forKey: .anniversaryRequestPublished)
         try container.encodeIfPresent(anniversaryRequestDismissedAt, forKey: .anniversaryRequestDismissedAt)
         try container.encodeIfPresent(lastAnnouncedMomentSentAt, forKey: .lastAnnouncedMomentSentAt)
-        try container.encodeIfPresent(myStatusLoggedAt, forKey: .myStatusLoggedAt)
+        // Always written, null included: only a missing key is the pre-field upgrade.
+        if let myStatusLoggedAt {
+            try container.encode(myStatusLoggedAt, forKey: .myStatusLoggedAt)
+        } else {
+            try container.encodeNil(forKey: .myStatusLoggedAt)
+        }
         try container.encodeIfPresent(lastBreakthroughNudgeAt, forKey: .lastBreakthroughNudgeAt)
         try container.encode(freshStart, forKey: .freshStart)
+        try container.encodeIfPresent(partnerNudgeCreatedAt, forKey: .partnerNudgeCreatedAt)
+        try container.encodeIfPresent(partnerLeftAt, forKey: .partnerLeftAt)
+        try container.encodeIfPresent(partnerLeftName, forKey: .partnerLeftName)
+        try container.encode(partnerLeftAnnounced, forKey: .partnerLeftAnnounced)
     }
 
     init(mine: StatusPayload?,
@@ -517,10 +564,14 @@ struct Snapshot: Codable, Hashable {
     }
 
     /// The name as it may be shown — a name the word filter hides falls back
-    /// like an unset one. Every surface that prints it uses this.
+    /// like an unset one. Every surface that prints it uses this. Once they've
+    /// left, the name they went by.
     var moderatedPartnerName: String {
-        ContentFilter.displayName(theirs?.displayName ?? "", fallback: String(localized: "Partner"))
+        ContentFilter.displayName(theirs?.displayName ?? partnerLeftName ?? "", fallback: String(localized: "Partner"))
     }
+
+    /// The partner unlinked from their side and hasn't come back.
+    var partnerHasLeft: Bool { partnerLeftAt != nil && theirs == nil }
 
     /// Owner side: the partner has asked for the date and this device hasn't
     /// answered or dismissed that ask; moot once a date is set.

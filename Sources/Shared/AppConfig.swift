@@ -146,8 +146,43 @@ enum AppConfig {
     /// After a send fails on a full iCloud, automatic retries wait this long;
     /// the home footer's tap still retries at once.
     static let storageFullRetryInterval: TimeInterval = 60 * 60
+    /// A throttled request (`requestRateLimited`, `zoneBusy`, `serviceUnavailable`)
+    /// without a retry-after of its own waits this long before automatic retries.
+    static let throttleDefaultDelay: TimeInterval = 30
+    /// A status republish that keeps failing for another reason backs off from
+    /// this, doubling per failure up to `statusRetryMaxDelay`.
+    static let statusRetryBaseDelay: TimeInterval = 30
+    static let statusRetryMaxDelay: TimeInterval = 60 * 60
+
+    /// How far ahead of this phone's clock a server status stamp may sit and
+    /// still count as a status set later than ours. Past it, a clock that ran
+    /// ahead wrote it, and ours — set now — is the newer one.
+    static let statusStampLeeway: TimeInterval = 2 * 60
+
+    /// Receipts wait this long after the last moment marked seen, so paging
+    /// through a carousel is one write, not one per page; backgrounding flushes.
+    static let receiptDebounce: TimeInterval = 5
+
+    /// Launch re-asserts the push subscriptions at most this often (a pairing
+    /// change and a reinstall start over).
+    static let subscriptionCheckInterval: TimeInterval = 24 * 60 * 60
+    /// A readiness answer this fresh is reused by the next fetch: launch checks
+    /// it, then refreshes straight after.
+    static let readinessReuseWindow: TimeInterval = 15
+    /// Launch skips its own fetch when one finished this recently (the scene
+    /// becoming active also refreshes).
+    static let launchRefreshCoalesceWindow: TimeInterval = 10
+
+    /// The memories archive fetches this many moments' media at once, and gives
+    /// each this long before listing it as unrecovered.
+    static let archiveFetchConcurrency = 4
+    static let archiveItemDeadline: TimeInterval = 60
 
     /// How often the owner's refresh pass re-counts who is on the share —
     /// one share fetch, for the "someone else joined" warning.
     static let shareMemberCheckInterval: TimeInterval = 60 * 60
+
+    /// How long a copied invite link, report or diagnostics report stays on
+    /// the clipboard — long enough to paste, not to linger for any app to read.
+    static let clipboardLifetime: TimeInterval = 10 * 60
 }

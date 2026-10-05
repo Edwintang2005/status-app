@@ -108,6 +108,30 @@ final class IngestTests: XCTestCase {
         XCTAssertEqual(payload?.wordsAt, Fixtures.date(86_400), "the card says just now, not a day ago")
     }
 
+    /// Every field a record carries is asked for by the change fetch: one left
+    /// out of `desiredKeys` silently reads nil on every phone. Read from the
+    /// source, so a new `Field` can't be forgotten in a hand-kept list too.
+    func testTheChangeFetchAsksForEveryNonAssetField() throws {
+        let source = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/Shared/Cloud/CloudSync.swift")
+        let text = try String(contentsOf: source, encoding: .utf8)
+        let start = try XCTUnwrap(text.range(of: "enum Field {"))
+        let end = try XCTUnwrap(text.range(of: "\n    }\n", range: start.upperBound..<text.endIndex))
+        let block = String(text[start.upperBound..<end.lowerBound])
+        let pattern = try NSRegularExpression(pattern: #"static let \w+ = "([^"]+)""#)
+        let values = pattern.matches(in: block, range: NSRange(block.startIndex..., in: block)).compactMap {
+            Range($0.range(at: 1), in: block).map { String(block[$0]) }
+        }
+        XCTAssertGreaterThan(values.count, 20, "the Field block was found and read")
+        let assets: Set<String> = [CloudSync.Field.image, CloudSync.Field.thumb, CloudSync.Field.audio]
+        let fetched = Set(CloudSync.changeFetchKeys)
+        for value in values where !assets.contains(value) {
+            XCTAssertTrue(fetched.contains(value), "\(value) is missing from the change fetch's desiredKeys")
+        }
+        XCTAssertTrue(fetched.isDisjoint(with: assets), "assets are fetched on demand, never with the delta")
+    }
+
     /// Our own records aren't capped: a long name must survive its own echo.
     func testOwnRecordTextIsNotCapped() {
         let longName = String(repeating: "n", count: 60)

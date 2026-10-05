@@ -3,6 +3,7 @@ import Foundation
 import Network
 import Observation
 import SwiftUI
+import UserNotifications
 import WidgetKit
 import os
 
@@ -95,6 +96,8 @@ final class AppModel {
         /// The new-arrivals carousel, or the newest moment when caught up.
         case newMoments
         case moment(String)
+        /// A milestone reminder was tapped: the count, which names the milestone.
+        case anniversary
     }
     var pendingRoute: Route?
 
@@ -121,9 +124,38 @@ final class AppModel {
     @ObservationIgnored private var shareMembersCheckedAt: Date?
     private(set) var closeLinkPromptDismissed: Bool
     private(set) var widgetTipDismissed: Bool
+    /// Home's "notifications are off" card, re-read on every foregrounding.
+    private(set) var notificationsNotice: NotificationsNotice?
+    /// A heart is on its way. The app's nudge has no deadline (its cooldown
+    /// release lives in `CloudSync.sendNudge`), so the button holds still meanwhile.
+    private(set) var isSendingNudge = false
+    /// `wordsAt` of the partner status whose filter-hidden words were revealed
+    /// here — until they change it.
+    private var revealedPartnerWordsAt: Date?
+    /// Library tiles' missing thumbnails, batched (`ThumbnailFetcher`).
+    @ObservationIgnored private let thumbnailFetcher: ThumbnailFetcher
     /// `createInvite` found this account's old space still has someone in it;
     /// the pairing screen asks before deleting it (`createInvite(replacingExisting:)`).
     var confirmingReplacePairing = false
+    /// Home's partner-left notice asked Settings to open on the unlink dialog.
+    var unlinkRequested = false
+    /// Opt-in milestone reminders on this phone — see `MilestoneReminderPlan`.
+    var milestoneRemindersEnabled: Bool {
+        didSet {
+            guard oldValue != milestoneRemindersEnabled else { return }
+            store.milestoneRemindersEnabled = milestoneRemindersEnabled
+            if milestoneRemindersEnabled {
+                Task { await NotificationManager.requestAuthorizationIfNeeded() }
+            }
+            syncMilestoneReminders()
+        }
+    }
+    /// What was last handed to the system, so `reload` reschedules only on change.
+    @ObservationIgnored private var scheduledReminders: [MilestoneReminderPlan.Reminder]?
+    @ObservationIgnored private var reminderSync: Task<Void, Never>?
+    @ObservationIgnored private var isCleaningSubscriptions = false
+    /// The gallery marked moments seen without reloading the widgets each page.
+    @ObservationIgnored private var widgetReloadOwed = false
 
     /// Store and backend are injectable so previews run against a throwaway
     /// defaults suite; `nil` backend is `Backend.current`, looked up per call.
@@ -141,6 +173,16 @@ final class AppModel {
                              deleteMedia: { MomentStore.shared.delete(id: $0) },
                              protect: { name, body in try await AppModel.withUploadProtection(name, body) },
                              indexChanged: { store.refreshDerived() })
+        let log = log
+        self.thumbnailFetcher = ThumbnailFetcher { moments in
+            let backend = backendProvider()
+            do {
+                try await withDeadline(AppConfig.publishDeadline) { try await backend.fetchThumbnails(for: moments) }
+            } catch {
+                log.error("Couldn't fetch \(moments.count) thumbnail(s): \(error.localizedDescription)")
+            }
+            return Set(moments.lazy.map(\.id).filter { MomentStore.shared.hasThumbnail(for: $0) })
+        }
         self.snapshot = store.snapshot
         self.isPaired = store.pairing != nil
         self.role = store.pairing?.role
@@ -153,6 +195,10 @@ final class AppModel {
         self.anniversaryPromptPending = store.anniversaryPromptPending
         self.closeLinkPromptDismissed = store.closeLinkPromptDismissed
         self.widgetTipDismissed = store.widgetTipDismissed
+        self.partnerLeftNoticeDismissed = store.partnerLeftNoticeDismissed
+        self.milestoneRemindersEnabled = store.milestoneRemindersEnabled
+        // A retried send confirms like a first one.
+        outbox.uploaded = { [weak self] _ in self?.noteUploaded() }
     }
 
     // MARK: - Derived
@@ -164,6 +210,19 @@ final class AppModel {
     var anniversary: Anniversary? { snapshot.anniversary }
     /// Only the zone owner sets the date; the participant just receives it.
     var canEditAnniversary: Bool { isPaired && role == .owner }
+
+    /// The partner unlinked from their side; the space is still here.
+    var partnerHasLeft: Bool { isPaired && snapshot.partnerHasLeft }
+    /// The urgent card, until waved away for this departure; the partner card keeps saying it.
+    var showsPartnerLeftNotice: Bool {
+        partnerHasLeft && snapshot.partnerLeftAt != partnerLeftNoticeDismissed
+    }
+    private(set) var partnerLeftNoticeDismissed: Date?
+
+    func dismissPartnerLeftNotice() {
+        store.partnerLeftNoticeDismissed = snapshot.partnerLeftAt
+        partnerLeftNoticeDismissed = snapshot.partnerLeftAt
+    }
 
     /// Whether this person has ever set a name — the one gate before the rest
     /// of the app, since everything sent carries it and there's no sensible default.
@@ -186,12 +245,12 @@ final class AppModel {
     /// Newest photo or doodle *the partner sent* — what the home card shows.
     /// Own sends must not replace it; voice memos get their own row instead.
     var latestVisualMoment: Moment? {
-        history.first { !$0.fromMe && !$0.isVoice }
+        history.first { !$0.fromMe && $0.isPicture }
     }
 
     /// Partner's unviewed pictures, newest first — the same order the home card previews.
     var unseenVisualMoments: [Moment] {
-        history.filter { !$0.fromMe && !$0.seen && !$0.isVoice }
+        history.filter { !$0.fromMe && !$0.seen && $0.isPicture }
     }
 
     /// The last memo the partner sent, heard or not — kept playable on the home screen.
@@ -199,9 +258,11 @@ final class AppModel {
         history.first { !$0.fromMe && $0.isVoice }
     }
 
-    /// Own moments not yet in CloudKit — the outbox's retry set.
+    /// Own moments not yet in CloudKit and not uploading right now — the
+    /// outbox's retry set. A first upload under way isn't "waiting to send".
     var pendingUploadCount: Int {
-        history.count { $0.fromMe && !$0.uploaded }
+        let inFlight = outbox.uploadsInFlight
+        return history.count { $0.fromMe && !$0.uploaded && !inFlight.contains($0.id) }
     }
 
     /// The status on screen hasn't reached iCloud and no publish is under way.
@@ -231,15 +292,17 @@ final class AppModel {
     }
 
     /// Looked at, or — for a memo — listened to.
-    func markSeen(_ moment: Moment) {
+    /// `reloadWidgets: false` while paging the gallery: one reload when it
+    /// closes (`flushWidgetReload`), not one per page.
+    func markSeen(_ moment: Moment, reloadWidgets: Bool = true) {
         guard !moment.seen, !moment.fromMe else { return }
-        history = MomentIndex.shared.markSeen(ids: [moment.id])
+        history = Self.shownHistory(MomentIndex.shared.markSeen(ids: [moment.id]))
         // The widget's unheard-memo badge is a snapshot field; this is what clears it.
-        store.refreshDerived()
+        if store.refreshDerived(reloadWidgets: reloadWidgets), !reloadWidgets { widgetReloadOwed = true }
         snapshot = store.snapshot
         if readReceiptsEnabled, isPaired {
             store.mutate(reloadWidgets: false) { $0.receiptsDirty = true }
-            Task { await flushReceiptsIfNeeded() }
+            outbox.scheduleReceiptFlush()
         }
     }
 
@@ -366,16 +429,35 @@ final class AppModel {
         if let invite = InviteInbox.shared.take() {
             receiveInvite(invite)
         }
-        await refreshReadiness()
-        guard isPaired else { return }
         // One receipt publish per launch even when nothing marked itself dirty:
         // covers moments seen before receipts existed and heals lost publishes —
         // with receipts off too, so a retraction a stale write overtook is re-sent.
-        store.mutate(reloadWidgets: false) { $0.receiptsDirty = true }
-        // Subscriptions are cheap to re-assert and easy to lose across reinstalls.
-        let backend = backend
-        try? await withDeadline(AppConfig.publishDeadline) { try await backend.registerSubscription() }
-        await refresh()
+        // Before any await: the scene's own refresh may run its recovery pass first.
+        if isPaired { store.mutate(reloadWidgets: false) { $0.receiptsDirty = true } }
+        await refreshReadiness()
+        guard isPaired else { return }
+        // Easy to lose across reinstalls, but re-asserted daily rather than on
+        // every launch, and never ahead of the fetch.
+        if Date().timeIntervalSince(store.subscriptionsVerifiedAt ?? .distantPast) >= AppConfig.subscriptionCheckInterval {
+            let backend = backend
+            let store = store
+            Task {
+                do {
+                    try await withDeadline(AppConfig.publishDeadline) { try await backend.registerSubscription() }
+                    store.subscriptionsVerifiedAt = Date()
+                } catch {
+                    self.log.error("Subscription check failed: \(error.localizedDescription, privacy: .public)")
+                }
+            }
+        }
+        // The scene turning active refreshes too: one fetch between them, and
+        // the recovery pass (the receipts above) either way.
+        if let fetched = lastFetchSucceededAt,
+           Date().timeIntervalSince(fetched) < AppConfig.launchRefreshCoalesceWindow {
+            Task { await recoverAfterRefresh() }
+        } else {
+            await refresh(noteIfBusy: false)
+        }
     }
 
     /// Called when the scene delegate has accepted an invite.
@@ -406,7 +488,8 @@ final class AppModel {
             shareMembersCheckedAt = nil
             invitePostureChecked = false
         }
-        history = MomentIndex.shared.load()
+        history = Self.shownHistory(MomentIndex.shared.load())
+        syncMilestoneReminders()
     }
 
     // MARK: - Safety (guideline 1.2)
@@ -429,6 +512,18 @@ final class AppModel {
     var isPartnerStatusReported: Bool {
         guard let theirs = snapshot.theirs, let hidden = hiddenPartnerStatusAt else { return false }
         return theirs.wordsAt == hidden || theirs.updatedAt == hidden
+    }
+
+    /// The filter-hidden words of their current status were revealed on this iPhone.
+    var partnerStatusRevealed: Bool {
+        guard let revealed = revealedPartnerWordsAt else { return false }
+        return snapshot.theirs?.wordsAt == revealed
+    }
+
+    /// "Show hidden text": the words are on screen now, so the read receipt may go.
+    func revealPartnerStatus() {
+        revealedPartnerWordsAt = snapshot.theirs?.wordsAt
+        markPartnerStatusSeen()
     }
 
     /// Removes the moment from this device for good and mails the report.
@@ -499,15 +594,15 @@ final class AppModel {
     }
 
     /// Opens Mail with the report. Without a mail account the text goes to the
-    /// clipboard instead, with the address to send it to.
+    /// clipboard instead (this iPhone only, expiring), with the address to send it to.
     private func sendReport(_ details: Report.Details) {
         let body = Report.body(for: details)
         guard let url = Report.mailURL(for: details) else { return }
         UIApplication.shared.open(url) { opened in
             guard !opened else { return }
             Task { @MainActor in
-                UIPasteboard.general.string = body
-                self.noticeMessage = String(localized: "Mail isn't set up on this iPhone, so the report has been copied to your clipboard. Please email it to \(AppConfig.supportEmail).")
+                Clipboard.copy(text: body, localOnly: true)
+                self.noticeMessage = String(localized: "Mail isn't set up on this iPhone, so the report has been copied to your clipboard for the next \(Clipboard.lifetimeMinutes) minutes. Please email it to \(AppConfig.supportEmail).")
             }
         }
     }
@@ -537,18 +632,12 @@ final class AppModel {
     }
 
     /// The library grid's version of `ensureMedia`: just the thumbnail, fetched
-    /// as the tile scrolls into view. `false` when it still isn't on disk.
+    /// as the tile scrolls into view, batched with its neighbours. Bounded per
+    /// batch: the recovery pass awaits this. `false` when it still isn't on disk.
     func ensureThumbnail(for moment: Moment) async -> Bool {
         if MomentStore.shared.hasThumbnail(for: moment.id) { return true }
-        do {
-            // Bounded: the recovery pass awaits this, and a stall would hold it.
-            let backend = backend
-            try await withDeadline(AppConfig.publishDeadline) { try await backend.fetchThumbnail(for: moment) }
-            return MomentStore.shared.hasThumbnail(for: moment.id)
-        } catch {
-            log.error("Couldn't fetch thumbnail for \(moment.id): \(error.localizedDescription)")
-            return false
-        }
+        guard !moment.isVoice else { return false }
+        return await thumbnailFetcher.thumbnail(for: moment)
     }
 
     // MARK: - Sync
@@ -561,7 +650,11 @@ final class AppModel {
         } else {
             readinessMessage = nil
         }
+        readinessCheckedAt = Date()
     }
+
+    /// When readiness was last asked; `nil` forces the next fetch to ask again.
+    @ObservationIgnored private var readinessCheckedAt: Date?
 
     /// Refreshes on the offline→online edge — `refresh()` already handles
     /// offline calls and re-entrancy; the job here is ignoring path churn while up.
@@ -625,13 +718,14 @@ final class AppModel {
     /// check look the account up for real, then refresh.
     func accountDidChange() async {
         await backend.noteAccountChanged()
+        readinessCheckedAt = nil
         await refresh()
     }
 
     /// Returns once the fetch lands; the recovery pass it unlocks runs on after,
     /// so pull-to-refresh doesn't wait on uploads.
-    func refresh() async {
-        guard refreshGate.begin() else { return }
+    func refresh(noteIfBusy: Bool = true) async {
+        guard refreshGate.begin(noteIfBusy: noteIfBusy) else { return }
         var fetched = false
         repeat {
             if await fetchOnce() { fetched = true }
@@ -659,9 +753,9 @@ final class AppModel {
     /// Everything queued, in order, re-read after each step: the footer, the
     /// status row and the tiles' clocks follow along.
     private func sendQueued(automatic: Bool) async {
-        if await outbox.republishStatus() { reload() }
-        if await outbox.republishAnniversary() { reload() }
-        if await outbox.republishAnniversaryRequest() { reload() }
+        if await outbox.republishStatus(automatic: automatic) { reload() }
+        if await outbox.republishAnniversary(automatic: automatic) { reload() }
+        if await outbox.republishAnniversaryRequest(automatic: automatic) { reload() }
         // Before the upload retry: the clear and a retry never overlap.
         if await outbox.advanceFreshStart() { reload() }
         if await outbox.retryPendingUploads(automatic: automatic) { reload() }
@@ -669,9 +763,15 @@ final class AppModel {
 
     /// One fetch and reload; `false` when it failed or there was nothing to fetch for.
     private func fetchOnce() async -> Bool {
-        // Re-checked when paired too: this is what notices an iCloud account switch.
-        await refreshReadiness()
-        guard isPaired else { return false }
+        // Re-checked when paired too: this is what notices an iCloud account
+        // switch (which drops the reused answer). One just asked is reused.
+        if Date().timeIntervalSince(readinessCheckedAt ?? .distantPast) >= AppConfig.readinessReuseWindow {
+            await refreshReadiness()
+        }
+        guard isPaired else {
+            await cleanUpSubscriptionsIfNeeded()
+            return false
+        }
         do {
             try await SyncRunner.refresh()
             reload()
@@ -720,9 +820,14 @@ final class AppModel {
 
         // Show it immediately; marked unpublished in the same mutate so a crash
         // between the two writes can't strand a status that looks delivered.
+        // The nudge fields are the store's: the lock-screen heart may have
+        // written them since this model last read it.
         let paired = isPaired
         store.mutate {
-            $0.mine = payload
+            var current = payload
+            current.nudgeCount = $0.mine?.nudgeCount ?? payload.nudgeCount
+            current.lastNudgeAt = $0.mine?.lastNudgeAt ?? payload.lastNudgeAt
+            $0.mine = current
             $0.myStatusPublished = !paired
         }
         StatusHistoryLog.shared.record(payload, fromMe: true)
@@ -737,25 +842,32 @@ final class AppModel {
             store.mutate(reloadWidgets: false) { $0.markStatusPublished(payload) }
             outbox.noteSendSucceeded()
             reload()
+            AccessibilityNotification.Announcement(String(localized: "Status sent to \(partnerName)")).post()
         } catch {
             presentSendFailure(error, noun: String(localized: "status update"))
             reload()
+            AccessibilityNotification.Announcement(String(localized: "Status saved. It sends once iCloud can be reached.")).post()
         }
     }
 
     private func updateMyDisplayName(_ newValue: String) {
         let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        var payload = snapshot.mine ?? .initial(displayName: trimmed)
-        payload.displayName = trimmed
-        // The words keep their own date; only the record's stamp moves.
-        payload.wordsSince = payload.wordsAt
-        // Fresh stamp: the resync revert-guard orders by `updatedAt`, and a stale one would lose.
-        payload.updatedAt = statusTimestamp()
+        let stamp = statusTimestamp()
         let paired = isPaired
-        store.mutate {
-            $0.mine = payload
+        // Built from the store's copy inside the lock: the model's may predate a
+        // heart sent from the lock screen, or a status another device set.
+        let payload = store.mutate {
+            var renamed = $0.mine ?? .initial(displayName: trimmed)
+            renamed.displayName = trimmed
+            // The words keep their own date; only the record's stamp moves.
+            renamed.wordsSince = renamed.wordsAt
+            // Fresh stamp: the resync revert-guard orders by `updatedAt`, and a stale one would lose.
+            renamed.updatedAt = stamp
+            // A local edit, not the server's copy: nothing to order it by yet.
+            renamed.serverSavedAt = nil
+            $0.mine = renamed
             $0.myStatusPublished = !paired
-        }
+        }.mine ?? .initial(displayName: trimmed)
         reload()
 
         guard paired else { return }
@@ -783,16 +895,22 @@ final class AppModel {
 
     /// Never queued: a heart is a moment-in-time gesture.
     func sendNudge() async {
-        guard canNudge else { return }
+        // Claimed before the await: the store's cooldown only reaches this
+        // model when the call returns, and a second tap meanwhile sent a second heart.
+        guard canNudge, !isSendingNudge else { return }
+        isSendingNudge = true
+        defer { isSendingNudge = false }
         do {
             if try await backend.sendNudge() {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
+                AccessibilityNotification.Announcement(String(localized: "Nudge sent")).post()
             }
             reload()
         } catch {
             // `CloudSync.sendNudge` stamped `lastNudgeFailedAt`: the heart itself
             // says it didn't send, like the lock-screen one.
             log.error("Nudge failed: \(error.localizedDescription, privacy: .public)")
+            AccessibilityNotification.Announcement(String(localized: "Nudge didn't send")).post()
             reload()
         }
     }
@@ -829,12 +947,7 @@ final class AppModel {
 
         guard isPaired else { return }
         do {
-            let backend = backend
-            try await Self.withUploadProtection("moment-upload") {
-                try await withDeadline(AppConfig.uploadDeadline) { try await backend.send(moment) }
-                markUploaded(moment)
-            }
-            outbox.noteSendSucceeded()
+            try await outbox.upload(moment, taskName: "moment-upload")
         } catch {
             presentSendFailure(error, noun: moment.noun)
         }
@@ -888,12 +1001,7 @@ final class AppModel {
 
         guard isPaired else { return }
         do {
-            let backend = backend
-            try await Self.withUploadProtection("voice-memo-upload") {
-                try await withDeadline(AppConfig.uploadDeadline) { try await backend.send(moment) }
-                markUploaded(moment)
-            }
-            outbox.noteSendSucceeded()
+            try await outbox.upload(moment, taskName: "voice-memo-upload")
         } catch {
             presentSendFailure(error, noun: moment.noun)
         }
@@ -928,10 +1036,16 @@ final class AppModel {
         return found
     }
 
-    /// Flips the pending flag once the record is confirmed on the server.
-    private func markUploaded(_ moment: Moment) {
-        history = MomentIndex.shared.markUploaded(ids: [moment.id])
+    /// A send of ours is confirmed on the server (the outbox marked it).
+    private func noteUploaded() {
+        history = Self.shownHistory(MomentIndex.shared.load())
         sendConfirmedAt = Date()
+    }
+
+    /// What the screens list: a kind from a newer build stays in the index, so
+    /// an update shows it, but there's nothing here to draw it with.
+    private static func shownHistory(_ all: [Moment]) -> [Moment] {
+        all.filter(\.kind.isSupported)
     }
 
     // MARK: - Anniversary
@@ -1055,11 +1169,23 @@ final class AppModel {
               UIApplication.shared.applicationState == .active else { return }
         // The status this screen shows, not whatever the store has since taken in.
         let shown = snapshot.theirs
+        // Reported, or filter-hidden and not revealed: nobody read these words.
+        if let shown, !shown.wordsShown(reportedAt: hiddenPartnerStatusAt,
+                                        revealed: partnerStatusRevealed,
+                                        filterEnabled: contentFilterEnabled) { return }
         var changed = false
         store.mutate(reloadWidgets: false) { changed = $0.stampPartnerStatusSeen(shown, at: Date()) }
         guard changed else { return }
         snapshot = store.snapshot
-        Task { await flushReceiptsIfNeeded() }
+        outbox.scheduleReceiptFlush()
+    }
+
+    /// Going to the background: what the debounce was holding goes now,
+    /// inside a background task so suspension can't cut it off.
+    func flushReceiptsForBackground() async {
+        guard isPaired else { return }
+        let outbox = outbox
+        await Self.withUploadProtection("receipts") { await outbox.flushReceiptsNow() }
     }
 
     /// Publishes this device's receipts when they're dirty; the outbox claims
@@ -1073,11 +1199,7 @@ final class AppModel {
     /// Your own last few distinct statuses, newest first — the picker's "Recent".
     /// Own words only, so no moderation applies.
     func recentOwnStatuses(limit: Int = 8) -> [StatusHistoryEntry] {
-        var seen = Set<String>()
-        return StatusHistoryLog.shared.load()
-            .filter { $0.fromMe && !$0.message.isEmpty && seen.insert("\($0.emoji)|\($0.message)").inserted }
-            .prefix(limit)
-            .map { $0 }
+        StatusHistoryEntry.recentOwn(in: StatusHistoryLog.shared.load(), limit: limit)
     }
 
     /// The rolling status log, newest first, with a reported or filtered partner
@@ -1193,6 +1315,27 @@ final class AppModel {
         } catch {
             log.error("Couldn't count the share's members: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    // MARK: - Notifications off
+
+    /// Re-read on every foregrounding: the fix happens in the Settings app.
+    func checkNotificationSettings() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        let current = NotificationsNotice.current(authorization: settings.authorizationStatus,
+                                                  banners: settings.alertStyle,
+                                                  lockScreen: settings.lockScreenSetting,
+                                                  notificationCenter: settings.notificationCenterSetting,
+                                                  timeSensitive: settings.timeSensitiveSetting)
+        let (shown, dismissed) = NotificationsNotice.reconcile(current: current,
+                                                               dismissed: store.notificationsNoticeDismissed)
+        if store.notificationsNoticeDismissed != dismissed { store.notificationsNoticeDismissed = dismissed }
+        if notificationsNotice != shown { notificationsNotice = shown }
+    }
+
+    func dismissNotificationsNotice() {
+        store.notificationsNoticeDismissed = notificationsNotice
+        notificationsNotice = nil
     }
 
     // MARK: - Lock-screen widget tip
@@ -1360,6 +1503,10 @@ final class AppModel {
 
     /// `0...1` while an archive is being written, `nil` otherwise.
     private(set) var archiveProgress: Double?
+    @ObservationIgnored private var archiveTask: Task<MemoryArchive.Outcome?, Never>?
+    /// Bumped per archive and by a cancel: a cancelled run winding down in the
+    /// background no longer reports progress or offers a share.
+    @ObservationIgnored private var archiveRun = 0
     /// The last archive that only reached this device — must be offered for sharing before any delete.
     var archiveToShare: URL?
 
@@ -1375,9 +1522,28 @@ final class AppModel {
     /// offer: Settings presents `archiveToShare`, and a view pushed over it can't.
     @discardableResult
     func archiveMemories(offeringShare: Bool = true) async -> MemoryArchive.Outcome? {
+        archiveRun += 1
+        let run = archiveRun
         archiveProgress = 0
-        defer { archiveProgress = nil }
+        let task = Task { await writeArchive(offeringShare: offeringShare, run: run) }
+        archiveTask = task
+        let outcome = await task.value
+        if archiveRun == run {
+            archiveProgress = nil
+            archiveTask = nil
+        }
+        return outcome
+    }
 
+    /// Settings' and the fresh start's Cancel: stops the archive, removing what it staged.
+    func cancelArchive() {
+        archiveTask?.cancel()
+        archiveTask = nil
+        archiveRun += 1
+        archiveProgress = nil
+    }
+
+    private func writeArchive(offeringShare: Bool, run: Int) async -> MemoryArchive.Outcome? {
         let backend = self.backend
         var zone: ArchiveContents.Zone?
         do {
@@ -1396,14 +1562,21 @@ final class AppModel {
                                                         myName: myDisplayName,
                                                         partnerName: partnerName,
                                                         reportedStatusAt: hiddenPartnerStatusAt) { fraction in
-                Task { @MainActor in self.archiveProgress = fraction }
+                Task { @MainActor in
+                    guard self.archiveRun == run else { return }
+                    self.archiveProgress = fraction
+                }
             }
+            guard archiveRun == run else { return nil }
             if outcome.destination == .deviceOnly, offeringShare {
                 // Nothing is safe yet: the folder only exists here until the user saves it somewhere.
                 archiveToShare = outcome.folder
             }
             return outcome
+        } catch is CancellationError {
+            return nil
         } catch {
+            guard archiveRun == run else { return nil }
             present(error, title: String(localized: "Couldn't save your memories"))
             return nil
         }
@@ -1554,6 +1727,9 @@ final class AppModel {
     }
 
     private func finishUnlink(startingOver: Bool) {
+        // Until both databases confirm, the ex's writes may keep pushing here.
+        store.subscriptionCleanup = .init(userRecordName: store.pairing?.userRecordName, since: Date())
+        Task { await cleanUpSubscriptionsIfNeeded() }
         store.eraseLocalMedia()
         store.clearPairing(keepingName: !startingOver)
         inviteURL = nil  // `clearPairing` already cleared the stored copy.
@@ -1586,6 +1762,67 @@ final class AppModel {
         log.error("\(code, privacy: .public)\(error.localizedDescription, privacy: .public)")
         errorTitle = title
         errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+    }
+}
+
+// MARK: - Notification upkeep
+
+/// Local notification upkeep that follows the model's state: milestone
+/// reminders, the unpaired subscription cleanup, the gallery's deferred reload.
+extension AppModel {
+    /// Reschedules only when the plan moved — the date changed, reminders were
+    /// toggled, the pair unlinked — since `reload` runs after nearly everything.
+    func syncMilestoneReminders() {
+        let plan = MilestoneReminderPlan.reminders(for: snapshot.anniversary,
+                                                   enabled: milestoneRemindersEnabled,
+                                                   paired: isPaired)
+        guard plan != scheduledReminders else { return }
+        scheduledReminders = plan
+        // Chained: a remove-then-add overlapping another could leave stale ones behind.
+        let previous = reminderSync
+        reminderSync = Task {
+            await previous?.value
+            await NotificationManager.scheduleMilestoneReminders(plan)
+        }
+    }
+
+    /// While unpaired, retries removing the old pairing's subscriptions until
+    /// both databases confirm (`SharedStore.subscriptionCleanup`). Bounded per
+    /// try; a different iCloud account keeps it pending for when they're back.
+    func cleanUpSubscriptionsIfNeeded() async {
+        #if DEBUG
+        if DemoMode.isActive { return }
+        #endif
+        guard !isPaired, !isCleaningSubscriptions, let pending = store.subscriptionCleanup else { return }
+        isCleaningSubscriptions = true
+        defer { isCleaningSubscriptions = false }
+        do {
+            try await withDeadline(AppConfig.publishDeadline) {
+                try await CloudSync.shared.deleteAllSubscriptions(ownedBy: pending.userRecordName)
+            }
+        } catch {
+            log.notice("Subscription cleanup still pending: \(error.localizedDescription)")
+            // A partial delete may have taken a new pairing's subscriptions with it.
+            await reregisterIfPairedMeanwhile()
+            return
+        }
+        if store.subscriptionCleanup == pending { store.subscriptionCleanup = nil }
+        await reregisterIfPairedMeanwhile()
+    }
+
+    /// Paired again while a cleanup's delete was in flight: the subscription IDs
+    /// are fixed, so the new pairing's may be gone too — put them back.
+    private func reregisterIfPairedMeanwhile() async {
+        guard store.pairing != nil else { return }
+        let backend = backend
+        try? await withDeadline(AppConfig.publishDeadline) { try await backend.registerSubscription() }
+    }
+
+    /// The gallery closed: the one reload its pages deferred.
+    func flushWidgetReload() {
+        guard widgetReloadOwed else { return }
+        widgetReloadOwed = false
+        SharedStore.reloadWidgets()
     }
 }
 

@@ -3,10 +3,36 @@ import Foundation
 /// A photo, doodle, or voice memo sent to the other person — a one-off send,
 /// unlike the always-on `StatusPayload`.
 struct Moment: Codable, Hashable, Identifiable {
-    enum Kind: String, Codable {
+    enum Kind: Hashable, Sendable {
         case photo
         case drawing
         case voice
+        /// A kind from a newer build. Filed under its own name, so the build
+        /// that knows it reads the entry back as itself, but never shown here.
+        case unsupported(String)
+
+        init(rawValue: String) {
+            switch rawValue {
+            case "photo": self = .photo
+            case "drawing": self = .drawing
+            case "voice": self = .voice
+            default: self = .unsupported(rawValue)
+            }
+        }
+
+        var rawValue: String {
+            switch self {
+            case .photo: return "photo"
+            case .drawing: return "drawing"
+            case .voice: return "voice"
+            case .unsupported(let raw): return raw
+            }
+        }
+
+        var isSupported: Bool {
+            if case .unsupported = self { return false }
+            return true
+        }
     }
 
     let id: String
@@ -66,7 +92,12 @@ struct Moment: Codable, Hashable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case id, kind, caption, senderName, sentAt, fromMe, seen, uploaded, duration, waveform
         case seenAt, seenByPartnerAt
+        /// The waveform as one byte per sample, base64 — the index's compact form.
+        case waveformBytes
     }
+
+    /// Set on the moment index's encoder: waveforms go out as bytes, a fifth of the doubles.
+    static let compactWaveformsKey = CodingUserInfoKey(rawValue: "compactWaveforms")!
 
     /// Hand-written: synthesised `Codable` errors on keys missing from entries
     /// written by older builds, which would wipe the history. Newer fields fall back.
@@ -85,7 +116,46 @@ struct Moment: Codable, Hashable, Identifiable {
         // re-uploading the whole history.
         uploaded = try container.decodeIfPresent(Bool.self, forKey: .uploaded) ?? true
         duration = try container.decodeIfPresent(TimeInterval.self, forKey: .duration) ?? 0
-        waveform = try container.decodeIfPresent([Double].self, forKey: .waveform) ?? []
+        if let bytes = try container.decodeIfPresent(String.self, forKey: .waveformBytes)
+            .flatMap({ Data(base64Encoded: $0) }) {
+            waveform = bytes.map { Double($0) / 255 }
+        } else {
+            waveform = try container.decodeIfPresent([Double].self, forKey: .waveform) ?? []
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(caption, forKey: .caption)
+        try container.encode(senderName, forKey: .senderName)
+        try container.encode(sentAt, forKey: .sentAt)
+        try container.encode(fromMe, forKey: .fromMe)
+        try container.encode(seen, forKey: .seen)
+        try container.encodeIfPresent(seenAt, forKey: .seenAt)
+        try container.encodeIfPresent(seenByPartnerAt, forKey: .seenByPartnerAt)
+        try container.encode(uploaded, forKey: .uploaded)
+        try container.encode(duration, forKey: .duration)
+        if encoder.userInfo[Self.compactWaveformsKey] as? Bool == true {
+            if !waveform.isEmpty {
+                let bytes = waveform.map { UInt8(($0.isFinite ? min(max($0, 0), 1) : 0) * 255 + 0.5) }
+                try container.encode(Data(bytes).base64EncodedString(), forKey: .waveformBytes)
+            }
+        } else {
+            try container.encode(waveform, forKey: .waveform)
+        }
+    }
+}
+
+extension Moment.Kind: Codable {
+    init(from decoder: Decoder) throws {
+        self.init(rawValue: try decoder.singleValueContainer().decode(String.self))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 
@@ -95,12 +165,16 @@ extension Moment {
     /// Voice memos are audio rather than an image, which most screens branch on.
     var isVoice: Bool { kind == .voice }
 
+    /// A photo or a doodle — what the home card, the widget and the gallery draw.
+    var isPicture: Bool { kind == .photo || kind == .drawing }
+
     /// What to call this in a sentence: "sent you a …".
     var noun: String {
         switch kind {
         case .photo: return String(localized: "photo")
         case .drawing: return String(localized: "drawing")
         case .voice: return String(localized: "voice memo")
+        case .unsupported: return String(localized: "moment")
         }
     }
 
@@ -110,6 +184,7 @@ extension Moment {
         case .photo: return "camera.fill"
         case .drawing: return "scribble"
         case .voice: return "waveform"
+        case .unsupported: return "questionmark.square.dashed"
         }
     }
 
@@ -130,6 +205,7 @@ extension Moment.Kind {
         case .photo: return String(localized: "sent you a photo 📷")
         case .drawing: return String(localized: "sent you a drawing ✏️")
         case .voice: return String(localized: "sent you a voice memo 🎙️")
+        case .unsupported: return String(localized: "sent you something new: update \(AppConfig.appName) to see it")
         }
     }
 }

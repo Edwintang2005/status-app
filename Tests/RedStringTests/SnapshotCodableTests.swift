@@ -163,4 +163,53 @@ final class SnapshotCodableTests: XCTestCase {
                                  #"{"isPaired":true,"myStatusPublished":false,"mine":\#(legacyTheirs)}"#)
         XCTAssertNil(pending.myStatusLoggedAt)
     }
+
+    /// Every field, set away from its default, survives a round trip: a field
+    /// left out of the hand-written encoder or decoder would reset on relaunch.
+    func testEveryFieldRoundTrips() throws {
+        var mine = Fixtures.status("☕️", "coffee", at: Fixtures.date(100), nudges: 3)
+        mine.wordsSince = Fixtures.date(50)
+        mine.serverSavedAt = Fixtures.date(101)
+        var theirs = Fixtures.status("🌙", "late", at: Fixtures.date(200), nudges: 7)
+        theirs.serverSavedAt = Fixtures.date(201)
+        let moment = Moment(kind: .photo, caption: "hi", senderName: "Sam", sentAt: Fixtures.date(300), fromMe: false)
+        let own = Moment(kind: .voice, caption: "", senderName: "Alex", sentAt: Fixtures.date(310), fromMe: true)
+
+        var snapshot = Snapshot.empty
+        snapshot.mine = mine
+        snapshot.theirs = theirs
+        snapshot.isPaired = true
+        snapshot.lastSyncedAt = Fixtures.date(1)
+        snapshot.lastSeenPartnerNudgeCount = 6
+        snapshot.lastNudgeSentAt = Fixtures.date(2)
+        snapshot.lastNudgeFailedAt = Fixtures.date(3)
+        snapshot.myStatusPublished = false
+        snapshot.myStatusLoggedAt = Fixtures.date(4)
+        snapshot.lastBreakthroughNudgeAt = Fixtures.date(5)
+        snapshot.latestPartnerMoment = moment
+        snapshot.latestOwnMoment = own
+        snapshot.lastNotifiedMomentID = moment.id
+        snapshot.notifiedMomentIDs = [moment.id]
+        snapshot.lastAnnouncedMomentSentAt = Fixtures.date(6)
+        snapshot.latestPartnerVisualMoment = moment
+        snapshot.unheardVoiceMemoCount = 2
+        snapshot.lastCelebratedAt = Fixtures.date(7)
+        snapshot.lastAnnouncedPartnerStatusAt = Fixtures.date(8)
+        snapshot.lastAnnouncedPartnerStatus = theirs
+        snapshot.receiptsDirty = true
+        snapshot.partnerStatusSeen = StatusSeen(statusUpdatedAt: Fixtures.date(9), seenAt: Fixtures.date(10))
+        snapshot.myStatusSeenByPartner = StatusSeen(statusUpdatedAt: Fixtures.date(11), seenAt: Fixtures.date(12))
+        snapshot.anniversary = Anniversary(startsAt: Fixtures.date(13), timeZoneID: "Australia/Sydney")
+        snapshot.anniversaryPublished = false
+        snapshot.anniversaryRequestedAt = Fixtures.date(14)
+        snapshot.anniversaryRequestPublished = false
+        snapshot.anniversaryRequestDismissedAt = Fixtures.date(15)
+        snapshot.partnerNudgeCreatedAt = Fixtures.date(16)
+        snapshot.partnerLeftAt = Fixtures.date(17)
+        snapshot.partnerLeftName = "Sam"
+        snapshot.partnerLeftAnnounced = true
+
+        let decoded = try JSONDecoder.shared.decode(Snapshot.self, from: JSONEncoder.shared.encode(snapshot))
+        XCTAssertEqual(decoded, snapshot)
+    }
 }

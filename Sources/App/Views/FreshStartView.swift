@@ -31,13 +31,18 @@ struct FreshStartView: View {
             Section {
                 phaseContent
             } footer: {
-                Text(footer)
+                Group {
+                    Text(footer)
+                }
+                // The system footer grey is ~3.6:1 on the cream backdrop; this is AA.
+                .foregroundStyle(Theme.mutedText)
             }
             if let progress = model.archiveProgress {
                 Section {
                     LabeledContent("Saving memories") {
                         Text("\(Int(progress * 100))%").monospacedDigit()
                     }
+                    Button("Cancel saving memories") { model.cancelArchive() }
                 }
             }
             actions

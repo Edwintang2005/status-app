@@ -13,6 +13,7 @@ struct CelebrationOverlay: View {
     /// Fixed at init so the confetti doesn't reshuffle on every redraw.
     @State private var pieces = ConfettiPiece.emitter()
     @State private var start = Date()
+    @State private var confirmingReport = false
 
     /// Their text, or a stand-in if they armed a celebration and sent no words
     /// — or the filter hides them; this fills the screen, so it goes through it too.
@@ -46,6 +47,19 @@ struct CelebrationOverlay: View {
                 await model.sendNudge()
                 finish()
             }
+        }
+        // Guideline 1.2: their words fill the screen, so they can be reported from here.
+        .accessibilityAction(named: "Report…") { confirmingReport = true }
+        .confirmationDialog("Report this status?",
+                            isPresented: $confirmingReport,
+                            titleVisibility: .visible) {
+            Button("Report", role: .destructive) {
+                model.reportPartnerStatus()
+                finish()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Its text is hidden on this iPhone straight away, and the details go to us by email. We act on reports within 24 hours.")
         }
         .task {
             start = .now
@@ -119,6 +133,13 @@ struct CelebrationOverlay: View {
                 .font(Theme.rounded(13))
                 .foregroundStyle(Theme.mutedText)
                 .padding(.top, 12)
+                .opacity(revealed ? 1 : 0)
+                .animation(.smooth(duration: 0.4).delay(1.1), value: revealed)
+
+            Button("Report...") { confirmingReport = true }
+                .font(Theme.rounded(13, .medium))
+                .foregroundStyle(Theme.mutedText)
+                .frame(minWidth: 44, minHeight: 44)
                 .opacity(revealed ? 1 : 0)
                 .animation(.smooth(duration: 0.4).delay(1.1), value: revealed)
         }

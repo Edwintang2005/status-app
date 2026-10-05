@@ -51,7 +51,7 @@ struct MoodPickerView: View {
                         if filteredGroups.isEmpty {
                             Text("No status matches \u{201C}\(query)\u{201D}")
                                 .font(Theme.rounded(15))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Theme.mutedText)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 40)
                         } else {
@@ -91,10 +91,12 @@ struct MoodPickerView: View {
 
     private var customRow: some View {
         VStack(alignment: .leading, spacing: 10) {
+            // Section heads in plain primary: grey small caps fell under 4.5:1
+            // over the backdrop's crimson corner, where this sheet starts.
             Text("IN YOUR WORDS")
                 .font(Theme.rounded(12, .semibold))
                 .tracking(1.2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.primary)
 
             HStack(spacing: 12) {
                 // Any emoji at all: tapping opens the emoji keyboard, and a
@@ -153,7 +155,7 @@ struct MoodPickerView: View {
             Text("RECENT")
                 .font(Theme.rounded(12, .semibold))
                 .tracking(1.2)
-                .foregroundStyle(Theme.mutedText)
+                .foregroundStyle(Color.primary)
 
             LazyVGrid(columns: columns, spacing: 12) {
                 ForEach(recent) { entry in
@@ -230,7 +232,7 @@ struct MoodPickerView: View {
             Text(group.rawValue.uppercased())
                 .font(Theme.rounded(12, .semibold))
                 .tracking(1.2)
-                .foregroundStyle(Theme.mutedText)
+                .foregroundStyle(Color.primary)
 
             LazyVGrid(columns: columns, spacing: 12) {
                 ForEach(moods) { mood in
@@ -280,12 +282,17 @@ struct MoodPickerView: View {
                                 .offset(x: 10, y: -4)
                         }
                     }
-                Text(label)
-                    .font(Theme.rounded(11, .medium))
-                    .foregroundStyle(Theme.mutedText)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                    .minimumScaleFactor(0.8)
+                // A recent emoji-only status has no label: the emoji stands alone.
+                if !label.isEmpty {
+                    Text(label)
+                        .font(Theme.rounded(11, .medium))
+                        .foregroundStyle(Color.primary)
+                        // Three lines rather than shrinking: the audit reads a
+                        // shrunk label as clipped, and the tile grows to fit.
+                        .lineLimit(3)
+                        .multilineTextAlignment(.center)
+                        .accessibilityIdentifier("status.tile.label")
+                }
             }
             .frame(maxWidth: .infinity)
             // Grows at large text sizes rather than clipping the label.

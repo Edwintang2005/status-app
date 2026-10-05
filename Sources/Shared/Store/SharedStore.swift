@@ -32,6 +32,13 @@ final class SharedStore: @unchecked Sendable {
         static let lastPairing = "lastPairing"
         static let closeLinkPromptDismissed = "closeLinkPromptDismissed"
         static let widgetTipDismissed = "widgetTipDismissed"
+        static let partnerLeftNoticeDismissed = "partnerLeftNoticeDismissed"
+        static let subscriptionsVerified = "subscriptionsVerifiedAt"
+        static let widgetReloadRequestedAt = "widgetReloadRequestedAt"
+        static let verifiedAccount = "verifiedAccount"
+        static let subscriptionCleanup = "subscriptionCleanup"
+        static let milestoneReminders = "milestoneRemindersEnabled"
+        static let notificationsNoticeDismissed = "notificationsNoticeDismissed"
     }
 
     init(store: GroupKeyValueStore = GroupFileStore()) {
@@ -63,7 +70,7 @@ final class SharedStore: @unchecked Sendable {
             snapshot = current
             return current
         }
-        if reloadWidgets { Self.reloadWidgets() }
+        if reloadWidgets { requestWidgetReload() }
         return result
     }
 
@@ -195,11 +202,93 @@ final class SharedStore: @unchecked Sendable {
         set { store.setBool(newValue, forKey: Key.closeLinkPromptDismissed) }
     }
 
+    /// When this device last confirmed its push subscriptions with the server,
+    /// so launch re-asserts them daily rather than every time. Per pairing.
+    var subscriptionsVerifiedAt: Date? {
+        get { decode(Date.self, forKey: Key.subscriptionsVerified) }
+        set {
+            if let newValue {
+                encode(newValue, forKey: Key.subscriptionsVerified)
+            } else {
+                store.setData(nil, forKey: Key.subscriptionsVerified)
+            }
+        }
+    }
+
     /// The home card on adding the lock-screen widget was dismissed, or a
     /// widget was seen installed. Per device, and kept across unlinks.
     var widgetTipDismissed: Bool {
         get { store.bool(forKey: Key.widgetTipDismissed) }
         set { store.setBool(newValue, forKey: Key.widgetTipDismissed) }
+    }
+
+    /// The `partnerLeftAt` whose Home notice was waved away; a later departure shows again.
+    var partnerLeftNoticeDismissed: Date? {
+        get { decode(Date.self, forKey: Key.partnerLeftNoticeDismissed) }
+        set {
+            if let newValue {
+                encode(newValue, forKey: Key.partnerLeftNoticeDismissed)
+            } else {
+                store.setData(nil, forKey: Key.partnerLeftNoticeDismissed)
+            }
+        }
+    }
+
+    /// Opt-in local reminders on milestone mornings (`MilestoneReminderPlan`).
+    /// Off by default, per device.
+    var milestoneRemindersEnabled: Bool {
+        get { store.data(forKey: Key.milestoneReminders).map { $0.first == 1 } ?? false }
+        set { store.setData(Data([newValue ? 1 : 0]), forKey: Key.milestoneReminders) }
+    }
+
+    /// The signed-in account's user record name as a process last verified it,
+    /// so a cold extension can skip the lookup round trip inside its budget.
+    /// Trusted only for `CloudSync.accountCacheLifetime`, like the per-process
+    /// cache, and cleared on an account change.
+    struct VerifiedAccount: Codable, Equatable, Sendable {
+        var name: String
+        var verifiedAt: Date
+    }
+
+    var verifiedAccount: VerifiedAccount? {
+        get { decode(VerifiedAccount.self, forKey: Key.verifiedAccount) }
+        set {
+            if let newValue {
+                encode(newValue, forKey: Key.verifiedAccount)
+            } else {
+                store.setData(nil, forKey: Key.verifiedAccount)
+            }
+        }
+    }
+
+    /// The old pairing's subscriptions may still be registered: an unlink that
+    /// never reached iCloud (an offline block, a local-only reset) left them, and
+    /// the ex's every write would keep pushing here. Retried while unpaired
+    /// (`AppModel.cleanUpSubscriptionsIfNeeded`) until both databases confirm.
+    struct SubscriptionCleanup: Codable, Equatable, Sendable {
+        /// The account the subscriptions belong to; `nil` for a legacy pairing.
+        var userRecordName: String?
+        var since: Date
+    }
+
+    var subscriptionCleanup: SubscriptionCleanup? {
+        get { decode(SubscriptionCleanup.self, forKey: Key.subscriptionCleanup) }
+        set {
+            if let newValue {
+                encode(newValue, forKey: Key.subscriptionCleanup)
+            } else {
+                store.setData(nil, forKey: Key.subscriptionCleanup)
+            }
+        }
+    }
+
+    /// Which "notifications are off" notice Home's card was waved away for —
+    /// per device; `NotificationsNotice.reconcile` forgets it once that changes.
+    var notificationsNoticeDismissed: NotificationsNotice? {
+        get { store.data(forKey: Key.notificationsNoticeDismissed)
+                .flatMap { String(data: $0, encoding: .utf8) }
+                .flatMap(NotificationsNotice.init(rawValue:)) }
+        set { store.setData(newValue?.rawValue.data(using: .utf8), forKey: Key.notificationsNoticeDismissed) }
     }
 
     /// Forgets the pairing, both statuses and the sync cursors. `keepingName`
@@ -222,6 +311,7 @@ final class SharedStore: @unchecked Sendable {
             hiddenPartnerStatusAt = nil
             anniversaryPromptPending = false
             zoneGoneSeenAt = nil
+            subscriptionsVerifiedAt = nil
             store.setData(nil, forKey: Key.unreadable)
             for key in ["private", "shared"] { setChangeToken(nil, for: key) }
             snapshot = Snapshot(
@@ -236,7 +326,7 @@ final class SharedStore: @unchecked Sendable {
                 lastNotifiedMomentID: nil
             )
         }
-        Self.reloadWidgets()
+        requestWidgetReload()
     }
 
     /// Erases every cached moment file and the index that lists them. With
@@ -285,7 +375,7 @@ final class SharedStore: @unchecked Sendable {
         let keep = all.prefix(AppConfig.momentImageCacheLimit).map(\.id)
             + all.filter { $0.fromMe && !$0.uploaded }.map(\.id)
         MomentStore.shared.prune(keeping: keep, thumbnailsFor: all.map(\.id))
-        Self.reloadWidgets()
+        requestWidgetReload()
     }
 
     func record(_ moment: Moment) {
@@ -296,11 +386,41 @@ final class SharedStore: @unchecked Sendable {
     /// the index changes. The index is read *inside* the locked mutate: a list
     /// captured earlier can be applied after another process's newer one, and
     /// the widget would regress to an older moment.
-    func refreshDerived(reloadWidgets: Bool = true) {
-        mutate(reloadWidgets: reloadWidgets) { snapshot in
+    /// Reloads the widgets only when a derived field moved: a moment marked
+    /// seen deep in the history changes nothing they draw.
+    @discardableResult
+    func refreshDerived(reloadWidgets: Bool = true) -> Bool {
+        var changed = false
+        mutate(reloadWidgets: false) { snapshot in
             // Unreadable isn't empty; the widget keeps what it last showed.
             guard let all = MomentIndex.shared.loadReadable() else { return }
+            let before = Derived(snapshot)
             Self.fillDerived(&snapshot, from: all)
+            changed = Derived(snapshot) != before
+        }
+        if changed, reloadWidgets { requestWidgetReload() }
+        return changed
+    }
+
+    /// What the widgets draw from the fields `fillDerived` owns. Not whole
+    /// moments: marking one seen changes no pixel and must not cost a reload.
+    struct Derived: Equatable {
+        struct Drawn: Equatable {
+            var id: String, kind: Moment.Kind, caption: String, senderName: String
+
+            init?(_ moment: Moment?) {
+                guard let moment else { return nil }
+                (id, kind, caption, senderName) = (moment.id, moment.kind, moment.caption, moment.senderName)
+            }
+        }
+        var partner, own, visual: Drawn?
+        var unheard: Int
+
+        init(_ snapshot: Snapshot) {
+            partner = Drawn(snapshot.latestPartnerMoment)
+            own = Drawn(snapshot.latestOwnMoment)
+            visual = Drawn(snapshot.latestPartnerVisualMoment)
+            unheard = snapshot.unheardVoiceMemoCount
         }
     }
 
@@ -315,7 +435,7 @@ final class SharedStore: @unchecked Sendable {
         // last moment in its direction is deleted.
         snapshot.latestPartnerMoment = all.first { !$0.fromMe }
         snapshot.latestOwnMoment = all.first { $0.fromMe }
-        snapshot.latestPartnerVisualMoment = all.first { !$0.fromMe && !$0.isVoice }
+        snapshot.latestPartnerVisualMoment = all.first { !$0.fromMe && $0.isPicture }
         snapshot.unheardVoiceMemoCount = all
             .filter { !$0.fromMe && $0.isVoice && !$0.seen }
             .count
@@ -381,18 +501,24 @@ final class SharedStore: @unchecked Sendable {
     /// behind it — forever. So only the *app with the phone unlocked*, which has
     /// the keys, counts; after `AppConfig.unreadableHoldLimit` separate looks at
     /// the same names it gives up on them. Returns `true` to advance.
+    /// `process` and `protectedData` are injectable for tests.
     @discardableResult
-    func noteUnreadableRecords(_ names: [String], now: Date = Date()) -> Bool {
+    func noteUnreadableRecords(_ names: [String],
+                               now: Date = Date(),
+                               process: String = SharedStore.processLabel,
+                               protectedData: Bool = SharedStore.protectedDataAvailable) -> Bool {
         guard !names.isEmpty else { return false }
         return Self.tallyLock.withLock {
             var tally = unreadableTally
-            tally.counts[Self.processLabel, default: 0] += names.count
+            tally.counts[process, default: 0] += names.count
             tally.lastAt = now
 
             var advance = false
-            if Self.processLabel == "app", Self.protectedDataAvailable {
+            if process == "app", protectedData {
                 let sameRecords = Set(names).isSubset(of: tally.heldNames)
-                if !sameRecords {
+                // The app's first counting look starts the streak even when an
+                // extension (or a locked phone) noted these names first.
+                if !sameRecords || tally.heldAt == nil {
                     tally.heldStreak = 1
                     tally.heldAt = now
                 } else if let held = tally.heldAt,
@@ -464,15 +590,67 @@ final class SharedStore: @unchecked Sendable {
         store.setData(data, forKey: "changeToken-\(key)")
     }
 
-    static func reloadWidgets() {
+    /// `widgetNeedsFetch: false` (the usual case) stamps `widgetReloadRequestedAt`:
+    /// whoever asked has just applied the delta or changed only local state, so
+    /// the widget renders the store without a fetch of its own
+    /// (`WidgetReloadPolicy.shouldFetch`). Absorbed while this process holds reloads.
+    static func reloadWidgets(widgetNeedsFetch: Bool = false) {
+        shared.requestWidgetReload(widgetNeedsFetch: widgetNeedsFetch)
+    }
+
+    /// The same, stamping this store — a test's own, never the real container.
+    func requestWidgetReload(widgetNeedsFetch: Bool = false) {
         #if canImport(WidgetKit)
         // A reload from inside the widget process would re-enter the timeline
         // provider; WidgetKit already refreshes after interactive intents.
-        guard !isRunningInWidgetExtension else { return }
+        guard !Self.isRunningInWidgetExtension else { return }
+        guard Self.reloadHolds.withLock({ $0 }) == 0 else { return }
+        widgetReloadRequestedAt = widgetNeedsFetch ? nil : Date()
         WidgetCenter.shared.reloadTimelines(ofKind: AppConfig.widgetKind)
         WidgetCenter.shared.reloadTimelines(ofKind: AppConfig.momentWidgetKind)
         WidgetCenter.shared.reloadTimelines(ofKind: AppConfig.nudgeWidgetKind)
         #endif
+    }
+
+    /// When the app or the notification service last asked for a reload it
+    /// didn't need the widget to fetch for; `nil` when the last one did.
+    var widgetReloadRequestedAt: Date? {
+        get { decode(Date.self, forKey: Key.widgetReloadRequestedAt) }
+        set {
+            if let newValue {
+                encode(newValue, forKey: Key.widgetReloadRequestedAt)
+            } else {
+                store.setData(nil, forKey: Key.widgetReloadRequestedAt)
+            }
+        }
+    }
+
+    /// Open holds in this process. While any is open, `reloadWidgets` is
+    /// absorbed; each hold's release reloads once.
+    private static let reloadHolds = OSAllocatedUnfairLock(initialState: 0)
+
+    /// Collapses a run's reloads into one: the notification service's refresh
+    /// asked for three per push, each a WidgetKit budget spend per kind. The
+    /// hold is process-wide; the release's reload stamps this store.
+    func holdWidgetReloads() -> WidgetReloadHold {
+        Self.reloadHolds.withLock { $0 += 1 }
+        return WidgetReloadHold(store: self)
+    }
+
+    /// Released at most once — the expiry callback and the task's own exit both try.
+    final class WidgetReloadHold: Sendable {
+        private let store: SharedStore
+        private let open = OSAllocatedUnfairLock(initialState: true)
+
+        fileprivate init(store: SharedStore) {
+            self.store = store
+        }
+
+        func release(widgetNeedsFetch: Bool) {
+            guard open.withLock({ isOpen in defer { isOpen = false }; return isOpen }) else { return }
+            SharedStore.reloadHolds.withLock { $0 = max(0, $0 - 1) }
+            store.requestWidgetReload(widgetNeedsFetch: widgetNeedsFetch)
+        }
     }
 
     // MARK: - Codable plumbing

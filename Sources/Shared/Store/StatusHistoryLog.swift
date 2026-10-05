@@ -52,7 +52,7 @@ struct StatusHistoryEntry: Codable, Hashable, Identifiable {
 /// it changes, and the per-change `StatusLog` records, which is what makes the
 /// log come back on a reinstall. Written from every process that notices a
 /// status change, hence the cross-process lock; dedup is by `(fromMe, at)`.
-/// `@unchecked`: the file is only touched under `lock`.
+/// `@unchecked`: the file and `readFailed` are only touched under `lock`.
 final class StatusHistoryLog: @unchecked Sendable {
     static let shared = StatusHistoryLog()
 
@@ -60,6 +60,10 @@ final class StatusHistoryLog: @unchecked Sendable {
     private let lock = NSLock()
     private let crossLock: CrossProcessLock
     private let fileURL: URL?
+    /// The file exists but couldn't be read (before first unlock, an I/O
+    /// error): nothing is saved over it — only the newest 150 a side come
+    /// back from the zone — like `MomentIndex.readFailed`.
+    private(set) var readFailed = false
 
     /// `fileURL` defaults to the App Group file; tests pass a temporary one.
     init(fileURL: URL? = nil) {
@@ -76,6 +80,14 @@ final class StatusHistoryLog: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return loadUnlocked()
+    }
+
+    /// `nil` when the file exists but couldn't be read, judged under the lock.
+    func loadReadable() -> [StatusHistoryEntry]? {
+        lock.lock()
+        defer { lock.unlock() }
+        let all = loadUnlocked()
+        return readFailed ? nil : all
     }
 
     /// Appends the payload unless an entry with the same `(fromMe, updatedAt)`
@@ -97,7 +109,7 @@ final class StatusHistoryLog: @unchecked Sendable {
         defer { lock.unlock() }
 
         crossLock.withLock {
-            var all = loadUnlocked()
+            var all = loadUnlocked(writing: true)
             var known = Set(all.map(\.id))
             var changed = false
             let isCleared = cleared?() ?? { _ in false }
@@ -121,7 +133,7 @@ final class StatusHistoryLog: @unchecked Sendable {
         crossLock.withLock {
             // `Int(exactly:)`, so a non-finite date can never trap here.
             let targets = Set(dates.compactMap { Int(exactly: $0.timeIntervalSince1970.rounded(.down)) })
-            var all = loadUnlocked()
+            var all = loadUnlocked(writing: true)
             let before = all.count
             all.removeAll {
                 guard $0.fromMe == fromMe,
@@ -141,14 +153,32 @@ final class StatusHistoryLog: @unchecked Sendable {
         }
     }
 
-    private func loadUnlocked() -> [StatusHistoryEntry] {
-        guard let fileURL, let data = try? Data(contentsOf: fileURL) else { return [] }
+    /// `writing` only under `crossLock`: entries that failed to decode then
+    /// leave their bytes in the sidecar before the next save drops them.
+    private func loadUnlocked(writing: Bool = false) -> [StatusHistoryEntry] {
+        guard let fileURL else { return [] }
+        let data: Data
         do {
-            let entries = try JSONDecoder.shared.decode([StatusHistoryEntry].self, from: data)
+            data = try Data(contentsOf: fileURL)
+            readFailed = false
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            readFailed = false
+            return []
+        } catch {
+            readFailed = true
+            log.error("Status history unreadable, leaving it untouched: \(error.localizedDescription, privacy: .public)")
+            return []
+        }
+        do {
+            let decoded = try JSONDecoder.shared.decode(LossyArray<StatusHistoryEntry>.self, from: data)
+            if decoded.dropped > 0 {
+                log.error("Status history: \(decoded.dropped) unreadable entries skipped.")
+                if writing { try? data.write(to: fileURL.appendingPathExtension("corrupt"), options: .atomic) }
+            }
             // Self-heal duplicates written before dedup dates were second-
             // normalized; the next save persists the cleaned list.
             var seen = Set<String>()
-            return entries.filter { seen.insert($0.id).inserted }
+            return decoded.elements.filter { seen.insert($0.id).inserted }
         } catch {
             log.error("Corrupt status history: \(error.localizedDescription)")
             // Preserve the bytes; unlike the moment index there is no server copy
@@ -161,7 +191,7 @@ final class StatusHistoryLog: @unchecked Sendable {
     }
 
     private func saveUnlocked(_ entries: [StatusHistoryEntry]) {
-        guard let fileURL else { return }
+        guard let fileURL, !readFailed else { return }
         do {
             let trimmed = Array(entries.prefix(AppConfig.statusHistoryLimit))
             try JSONEncoder.shared.encode(trimmed).write(to: fileURL, options: .atomic)

@@ -210,6 +210,24 @@ per ten minutes breaks through Focus (`AnnouncementPolicy.nudgeInterruption`):
 the rest still alert, just not through Focus, so repeated taps can't keep
 piercing it.
 
+Every branch of that decision is one pure function, `PushBannerPolicy.decide`,
+which makes the claims and words the banner under one lock, so the whole table
+runs under `make test`. A few rows worth knowing:
+
+- **Your partner unlinks.** Each push their unlink fires says, quietly,
+  *"Sam left your shared space"*, and Home shows an urgent card explaining what
+  happened, with a way to save your memories and unlink before inviting
+  someone new (or Dismiss).
+- **After a Block, or "remove from this iPhone only", while offline.** The old
+  subscriptions may still be registered, so the ex's writes still push here:
+  those pushes arrive silent, neutral and without actions, and the app keeps
+  trying to remove the subscriptions (both databases) until iCloud confirms.
+- **A long voice memo on slow signal.** The worded banner becomes the timeout
+  fallback before the attachment downloads, and the download is bounded, so
+  the words always arrive even when the recording doesn't.
+- **Hidden previews.** With "Show Previews: When Unlocked", a locked banner
+  reads *"Something new 💛"* rather than a bare "Notification".
+
 ### The remaining paths
 
 Every subscription sends a visible push now, so the extension is the main
@@ -226,8 +244,13 @@ delivery path. The widget and the open app still rely on:
    Hourly when caught up; while a locked phone's pushes sit undecrypted it
    retries every 10 minutes, then every 20 after half an hour, and back to
    hourly after two (`WidgetReloadPolicy`); a widget kind that finds another
-   fetched in the last minute uses that result instead of fetching again. iOS never
-   reloads a widget on unlock, so this is what catches it up after one.
+   fetched in the last minute uses that result instead of fetching again, and
+   the kinds in one process share a single refresh. A reload the app or the
+   extension asked for doesn't fetch at all for two minutes — they just wrote
+   what it shows — so marking photos seen or filing a push no longer costs the
+   widget's daily budget; only timer reloads (and a batch left incomplete)
+   fetch. iOS never reloads a widget on unlock, so this is what catches it up
+   after one.
 4. **An `NWPathMonitor` in `AppModel`**, which refreshes on the
    offline→online edge — so a phone that regains signal recovers without
    waiting to be re-opened. A failed first attempt (DNS or a VPN still coming
@@ -258,6 +281,11 @@ it alerts, and a retry pass moves on to the next send. The reconnect refresh
 sends the queue; its retries stop once a fetch since the edge worked —
 whichever refresh ran it — and nothing is left queued.
 
+When iCloud asks the app to slow down (`requestRateLimited`, `zoneBusy`,
+`serviceUnavailable`), automatic retries wait for as long as it says, at most
+an hour; tapping "waiting to send" still tries at once. A status whose history
+record failed to save shows as sent, and only the history record is retried.
+
 ### Sends that fail offline
 
 Everything is written locally first, so nothing is ever lost — the question is
@@ -278,10 +306,11 @@ only when the partner gets it. Each send type recovers its own way:
   entry whose media is genuinely gone is dropped (with a log) rather than
   falsely marked sent.
 - **Nudges** are not queued — a heart is a moment-in-time gesture, so a failed
-  one releases the cooldown for an immediate re-tap instead. In the app that
-  comes with an alert (offline, the heart isn't tried and the alert says why); on the lock screen, where the intent can't alert, the
-  heart renders slashed (`Snapshot.lastNudgeFailedAt`) for ten minutes so an
-  offline tap doesn't silently pass for a sent one.
+  one releases the cooldown for an immediate re-tap instead. It is always
+  tried, offline too, and a failure raises no alert: the heart itself shows it
+  didn't send — "Didn't send · tap to retry" in the app, slashed on the lock
+  screen (`Snapshot.lastNudgeFailedAt`, for ten minutes) — so an offline tap
+  never silently passes for a sent one.
 
 A nudge or a moment arriving also runs a full refresh in the extension, so in
 practice status tends to ride along with them.
@@ -363,6 +392,15 @@ they open the app, once per ask ("Not now" dismisses that ask;
 `Snapshot.anniversaryRequestDismissedAt`). Setting the date answers every
 standing ask. Offline edits and asks recover like statuses do
 (`Snapshot.anniversaryPublished`, `Snapshot.anniversaryRequestPublished`).
+
+**Milestone reminders** (Settings → Together, off by default, per phone) are
+local notifications on the morning of each coming milestone — one, two, three,
+six and nine months, a year, then yearly — at 9 am on that phone's clock
+(`MilestoneReminderPlan`, the next 12 scheduled). The lock screen only says
+*"Something to celebrate today 💛"*, so the egg stays hidden; tapping opens
+the count. They're rescheduled whenever the app runs and the date or the
+setting changed, and removed on unlink — a date changed while the app hasn't
+run since is picked up on its next launch. No schema change.
 
 ### Read receipts
 
@@ -752,6 +790,7 @@ file timestamps MomentStore.prune reads inside the app's own container
 | `make project` | regenerate the Xcode project from `project.yml` |
 | `make build` | compile check for the Simulator (unsigned — don't launch it) |
 | `make test` | unit tests over `Sources/Shared` (unsigned; no host app or App Group needed) |
+| `make uitest` | demo-mode UI smoke with `performAccessibilityAudit()` on Home and every main sheet (signed, like `make run`; not in CI — about three minutes) |
 | `make run` | build signed, install and launch on the Simulator |
 | `make device` | build signed and install the Debug config on a connected iPhone — the only route to the CloudKit Development schema |
 | `make archive` | archive the Release config for TestFlight / the App Store |

@@ -10,7 +10,13 @@ extension CloudSync {
     /// the entire zone back — which is how a reinstall recovers the full history.
     @discardableResult
     func refresh() async throws -> RefreshResult {
-        let pairing = try await requirePairing()
+        guard let pairing = await MainActor.run(body: { SharedStore.shared.pairing }) else {
+            throw SyncError.notPaired
+        }
+        // `requirePairing`'s account check, alongside the fetch rather than before
+        // it — a cold extension's lookup is a round trip of its own. Judged before
+        // anything is applied, so nothing is filed under another account.
+        async let sameAccount = isPairingAccount(pairing)
         let database = self.database(for: pairing)
         let zone = zoneID(for: pairing)
         let tokenKey = pairing.role == .owner ? "private" : "shared"
@@ -33,9 +39,11 @@ extension CloudSync {
             await MainActor.run { SharedStore.shared.setChangeToken(nil, for: tokenKey) }
             changes = try await fetchZoneChanges(zone: zone, in: database, since: nil, oneBatch: oneBatch)
         } catch let error as CKError where Self.isAlreadyGone(error) {
+            guard await sameAccount else { throw SyncError.differentAccount }
             // The other side unlinked, or the zone is briefly gone mid-handshake.
             throw try await zoneGoneVerdict(pairing)
         }
+        guard await sameAccount else { throw SyncError.differentAccount }
         // A deadline landing here (the widget's) must stop before anything is
         // applied: a half-applied delta must not be followed by its token.
         try Task.checkCancellation()
@@ -48,7 +56,7 @@ extension CloudSync {
         // Apply first, then advance the token: the other order can persist the token
         // without the records (the extension gets killed on a deadline), losing them
         // forever. Re-applying the same delta twice is tolerated everywhere here.
-        let applied = await apply(changes, pairing: pairing)
+        let applied = await apply(changes, pairing: pairing, fullResync: previous == nil)
         var result = applied.result
         result.incomplete = changes.moreComing
 
@@ -82,29 +90,33 @@ extension CloudSync {
         // one exception is the app giving up on records it has failed to read on
         // several separate looks — otherwise a single unreadable record pins the
         // token, and the whole delta behind it, forever (`noteUnreadableRecords`).
-        var advanceToken = true
-        if !result.unreadableRecordNames.isEmpty {
-            let names = result.unreadableRecordNames
-            advanceToken = await MainActor.run { SharedStore.shared.noteUnreadableRecords(names) }
-            if !advanceToken {
+        // One batch of a larger delta (an extension's) that read everything
+        // still leaves the hold: the held records may be in the rest.
+        var readable = true
+        switch TokenAdvancePolicy.holdStep(unreadable: result.unreadableRecordNames, incomplete: changes.moreComing) {
+        case .note(let names):
+            readable = await MainActor.run { SharedStore.shared.noteUnreadableRecords(names) }
+            if !readable {
                 log.notice("\(names.count) records arrived unreadable; keeping the change token so they're fetched again.")
             }
-        } else {
+        case .clear:
             await MainActor.run { SharedStore.shared.clearUnreadableHold() }
+        case .keep:
+            break
         }
-        if advanceToken, let token = changes.token {
+        if let token = changes.token {
             let encoded = Self.encodeToken(token)
             let hadToken = previous != nil
+            let readable = readable
             await MainActor.run {
                 let store = SharedStore.shared
-                // An unlink (or unlink + re-pair) mid-refresh: writing this token
-                // would hand the next pairing a cursor into a zone that's gone.
-                guard store.pairing?.sameZone(as: pairing) == true else { return }
-                // A corrupt moment index found during `apply` cleared the tokens
-                // so the next refresh rebuilds the history from the whole zone;
-                // writing this one back would leave the index truncated for good.
-                if hadToken, store.changeToken(for: tokenKey) == nil {
-                    log.notice("Change token was cleared during apply (index rebuild); not advancing it.")
+                let persists = TokenAdvancePolicy.persists(fetchedToken: true,
+                                                           readable: readable,
+                                                           samePairing: store.pairing?.sameZone(as: pairing) == true,
+                                                           hadToken: hadToken,
+                                                           tokenStillStored: store.changeToken(for: tokenKey) != nil)
+                guard persists else {
+                    if readable { log.notice("Not advancing the change token: the pairing or the stored token changed during apply.") }
                     return
                 }
                 store.setChangeToken(encoded, for: tokenKey)
@@ -117,7 +129,11 @@ extension CloudSync {
         // their own, so announcing and the recovery pass don't wait on them.
         if Self.prefetchProcess == .app {
             let arrived = applied.arrived
-            Task { await self.prefetchMedia(for: arrived, pairing: pairing) }
+            let fullResync = previous == nil && !changes.moreComing
+            Task {
+                await self.prefetchMedia(for: arrived, pairing: pairing)
+                if fullResync { await self.prefetchMissingThumbnails(pairing: pairing) }
+            }
         } else {
             await prefetchMedia(for: applied.arrived, pairing: pairing)
         }
@@ -141,7 +157,24 @@ extension CloudSync {
         var token: CKServerChangeToken?
         /// `oneBatch` stopped short; `token` continues from where it stopped.
         var moreComing = false
+        /// The zone's own failure. It can arrive only here, with the operation
+        /// "succeeding" — an empty delta that looked complete.
+        var zoneError: Error?
     }
+
+    /// Every field a refresh reads; assets stay out (see `fetchZoneChanges`).
+    /// `IngestTests` checks every non-asset `Field` is here: one missing reads nil.
+    static let changeFetchKeys: [String] = [
+        Field.emoji, Field.message, Field.displayName, Field.updatedAt,
+        Field.isCelebration,
+        Field.count,
+        Field.momentID, Field.kind, Field.caption, Field.senderName, Field.sentAt,
+        Field.duration, Field.waveform,
+        Field.seenMap, Field.statusSeenAt, Field.statusSeenFor,
+        Field.startsAt, Field.timeZone,
+        Field.requestedAt,
+        Field.stage, Field.epoch, Field.clearedBefore,
+    ]
 
     /// Records an extension takes per refresh before handing over to the app.
     static let extensionBatchLimit = 150
@@ -160,17 +193,7 @@ extension CloudSync {
         let configuration = CKFetchRecordZoneChangesOperation.ZoneConfiguration(
             previousServerChangeToken: previous,
             resultsLimit: oneBatch ? Self.extensionBatchLimit : nil,
-            desiredKeys: [
-                Field.emoji, Field.message, Field.displayName, Field.updatedAt,
-                Field.isCelebration,
-                Field.count,
-                Field.momentID, Field.kind, Field.caption, Field.senderName, Field.sentAt,
-                Field.duration, Field.waveform,
-                Field.seenMap, Field.statusSeenAt, Field.statusSeenFor,
-                Field.startsAt, Field.timeZone,
-                Field.requestedAt,
-                Field.stage, Field.epoch, Field.clearedBefore,
-            ]
+            desiredKeys: Self.changeFetchKeys
         )
 
         let operation = CKFetchRecordZoneChangesOperation(
@@ -187,9 +210,12 @@ extension CloudSync {
             changes.deletedIDs.append(recordID)
         }
         operation.recordZoneFetchResultBlock = { _, result in
-            if case .success(let value) = result {
+            switch result {
+            case .success(let value):
                 changes.token = value.serverChangeToken
                 changes.moreComing = value.moreComing
+            case .failure(let error):
+                changes.zoneError = error
             }
         }
 
@@ -199,7 +225,12 @@ extension CloudSync {
             try await withCheckedThrowingContinuation { continuation in
                 operation.fetchRecordZoneChangesResultBlock = { result in
                     switch result {
-                    case .success: continuation.resume(returning: changes)
+                    case .success:
+                        if let zoneError = changes.zoneError {
+                            continuation.resume(throwing: zoneError)
+                        } else {
+                            continuation.resume(returning: changes)
+                        }
                     case .failure(let error): continuation.resume(throwing: error)
                     }
                 }
@@ -214,9 +245,11 @@ extension CloudSync {
     /// `ParsedDelta`'s (pure, tested); this performs its writes, in this order.
     /// `arrived` is every new moment, own and partner's, for `prefetchMedia`.
     func apply(_ changes: ZoneChanges,
-               pairing: PairingInfo) async -> (result: RefreshResult, arrived: [Moment]) {
-        let (hidden, freshStart) = await MainActor.run {
-            (SharedStore.shared.hiddenMomentIDs, SharedStore.shared.snapshot.freshStart)
+               pairing: PairingInfo,
+               fullResync: Bool = false) async -> (result: RefreshResult, arrived: [Moment]) {
+        let (hidden, freshStart, announcedFloor) = await MainActor.run {
+            let snapshot = SharedStore.shared.snapshot
+            return (SharedStore.shared.hiddenMomentIDs, snapshot.freshStart, snapshot.lastAnnouncedMomentSentAt)
         }
         let names = myRecordNames(pairing)
         var metadata = RecordMetadata.server
@@ -239,7 +272,10 @@ extension CloudSync {
 
         // Captured before the deletions and the insert below, so "new" can mean
         // "not already stored".
-        let alreadyKnown = MomentIndex.shared.knownIDs()
+        let held = MomentIndex.shared.load()
+        let alreadyKnown = Set(held.map(\.id))
+        let oldestRetained = held.count >= AppConfig.momentHistoryLimit
+            ? held[AppConfig.momentHistoryLimit - 1].sentAt : nil
 
         for id in parsed.removedMomentIDs {
             MomentIndex.shared.remove(id: id)
@@ -258,7 +294,10 @@ extension CloudSync {
                                      previousTheirs: previousTheirs,
                                      minePublished: minePublished,
                                      alreadyKnown: alreadyKnown,
-                                     hidden: hidden)
+                                     hidden: hidden,
+                                     oldestRetained: oldestRetained,
+                                     fullResync: fullResync,
+                                     announcedFloor: announcedFloor)
         // Bound to `let`s before crossing actors.
         let fold = outcome.fold
         let complete = !changes.moreComing
@@ -298,7 +337,7 @@ extension CloudSync {
             if !parsed.removedMomentIDs.isEmpty {
                 // A deletions-only delta still invalidates snapshot fields derived from
                 // the index — otherwise the photo widget points at deleted files.
-                await MainActor.run { store.refreshDerived() }
+                await MainActor.run { _ = store.refreshDerived() }
             } else {
                 SharedStore.reloadWidgets()
             }
@@ -375,7 +414,9 @@ extension CloudSync {
         let store = MomentStore.shared
         let process = Self.prefetchProcess
         let recent = process == .app ? Array(MomentIndex.shared.load().prefix(MediaPrefetchPlan.appLimit)) : []
-        let items = MediaPrefetchPlan.items(for: arrived, recent: recent, in: process,
+        // A kind from a newer build has no media this build knows to fetch.
+        let items = MediaPrefetchPlan.items(for: arrived.filter(\.kind.isSupported),
+                                            recent: recent.filter(\.kind.isSupported), in: process,
                                             hasMedia: store.hasMedia,
                                             hasThumbnail: { store.hasThumbnail(for: $0.id) })
         guard !items.isEmpty else { return }

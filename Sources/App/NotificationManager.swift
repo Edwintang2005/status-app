@@ -35,13 +35,18 @@ enum NotificationManager {
             icon: UNNotificationActionIcon(systemImageName: "text.bubble"),
             textInputButtonTitle: String(localized: "Set"),
             textInputPlaceholder: String(localized: "Say anything"))
+        // With previews hidden on a locked phone, this instead of a bare
+        // "Notification" — and nothing of what it says, nor whose it is.
+        let hidden = String(localized: "Something new 💛")
         UNUserNotificationCenter.current().setNotificationCategories([
-            UNNotificationCategory(identifier: NotificationCategory.status,
-                                   actions: [heart, reply], intentIdentifiers: []),
-            UNNotificationCategory(identifier: NotificationCategory.nudge,
-                                   actions: [heart], intentIdentifiers: []),
-            UNNotificationCategory(identifier: NotificationCategory.moment,
-                                   actions: [heart], intentIdentifiers: []),
+            UNNotificationCategory(identifier: NotificationCategory.status, actions: [heart, reply],
+                                   intentIdentifiers: [], hiddenPreviewsBodyPlaceholder: hidden),
+            UNNotificationCategory(identifier: NotificationCategory.nudge, actions: [heart],
+                                   intentIdentifiers: [], hiddenPreviewsBodyPlaceholder: hidden),
+            UNNotificationCategory(identifier: NotificationCategory.moment, actions: [heart],
+                                   intentIdentifiers: [], hiddenPreviewsBodyPlaceholder: hidden),
+            UNNotificationCategory(identifier: NotificationCategory.milestone, actions: [],
+                                   intentIdentifiers: [], hiddenPreviewsBodyPlaceholder: hidden),
         ])
     }
 
@@ -109,6 +114,48 @@ enum NotificationManager {
             try await UNUserNotificationCenter.current().add(request)
         } catch {
             log.error("Failed to post moment notification: \(error.localizedDescription)")
+        }
+    }
+
+    /// The partner unlinked and no push said so: quiet, since nothing can be
+    /// done about it from a banner — Home's notice carries what to do next.
+    static func postPartnerLeft(name: String) async {
+        let content = UNMutableNotificationContent()
+        content.title = name
+        content.body = String(localized: "left your shared space")
+        content.threadIdentifier = "partner-left"
+        content.interruptionLevel = .passive
+        let request = UNNotificationRequest(identifier: "partner-left", content: content, trigger: nil)
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+        } catch {
+            log.error("Failed to post partner-left notification: \(error.localizedDescription)")
+        }
+    }
+
+    /// Replaces every pending milestone reminder with `reminders` — empty
+    /// removes them all (reminders off, the date cleared, unlinked).
+    static func scheduleMilestoneReminders(_ reminders: [MilestoneReminderPlan.Reminder]) async {
+        let center = UNUserNotificationCenter.current()
+        let pending = await center.pendingNotificationRequests()
+            .map(\.identifier)
+            .filter { $0.hasPrefix(MilestoneReminderPlan.identifierPrefix) }
+        center.removePendingNotificationRequests(withIdentifiers: pending)
+        for reminder in reminders {
+            let content = UNMutableNotificationContent()
+            content.title = AppConfig.appName
+            // The lock screen may be seen by anyone; which milestone shows on opening.
+            content.body = String(localized: "Something to celebrate today 💛")
+            content.sound = .default
+            content.categoryIdentifier = NotificationCategory.milestone
+            content.threadIdentifier = "milestones"
+            let trigger = UNCalendarNotificationTrigger(dateMatching: reminder.fireAt, repeats: false)
+            let request = UNNotificationRequest(identifier: reminder.identifier, content: content, trigger: trigger)
+            do {
+                try await center.add(request)
+            } catch {
+                log.error("Failed to schedule a milestone reminder: \(error.localizedDescription)")
+            }
         }
     }
 

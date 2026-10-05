@@ -59,6 +59,14 @@ enum MediaPrefetchPlan {
         }
     }
 
+    /// The library's backlog after a complete full resync: every picture in the
+    /// index without its thumbnail, newest first. An own send still waiting to
+    /// upload isn't on the server to fetch.
+    static func missingThumbnails(in index: [Moment], hasThumbnail: (Moment) -> Bool) -> [Moment] {
+        index.filter { !$0.isVoice && ($0.uploaded || !$0.fromMe) && !hasThumbnail($0) }
+            .sorted { $0.sentAt > $1.sentAt }
+    }
+
     /// What one banner attaches (`MomentStore.temporaryAttachmentCopy`): the
     /// thumbnail for a photo or doodle, the recording for a memo.
     static func attachment(for moment: Moment) -> Fetch {

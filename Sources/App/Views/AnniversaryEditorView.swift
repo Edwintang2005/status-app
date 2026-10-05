@@ -2,7 +2,9 @@ import SwiftUI
 
 /// Owner only: when the two of them began. Shown as a prompt once the invite
 /// link exists, from the "Our date" row in Settings, and from the count screen.
-/// Saves in the owner's current time zone.
+/// A new date takes the owner's current time zone; an edit keeps the stored
+/// one, shown and picked in it, so editing while travelling doesn't move the
+/// monthly mark on both phones.
 struct AnniversaryEditorView: View {
     enum Mode { case prompt, edit }
 
@@ -43,7 +45,16 @@ struct AnniversaryEditorView: View {
                                    in: ...Date(),
                                    displayedComponents: [.date, .hourAndMinute])
                             .datePickerStyle(.graphical)
+                            .environment(\.timeZone, timeZone)
                             .card(padding: 12)
+
+                        if timeZone.identifier != TimeZone.current.identifier {
+                            Text("Times are in \(zoneName), where you set the date.")
+                                .font(Theme.rounded(13))
+                                .foregroundStyle(Theme.mutedText)
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
 
                         // Names the door, so the owner can tell the partner.
                         Text("Hold \(AppConfig.appName) at the top of Home to find the count. Only the two of you will know.")
@@ -109,9 +120,16 @@ struct AnniversaryEditorView: View {
         .onAppear { date = model.anniversary?.startsAt ?? Date() }
     }
 
+    /// The stored date's zone when there is one, else this phone's.
+    private var timeZone: TimeZone { model.anniversary?.timeZone ?? .current }
+
+    private var zoneName: String {
+        timeZone.localizedName(for: .generic, locale: .current) ?? timeZone.identifier
+    }
+
     private func save() {
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        let anniversary = Anniversary(startsAt: date)
+        let anniversary = Anniversary(startsAt: date, timeZoneID: timeZone.identifier)
         // Saved locally before the network call; the sheet needn't wait for it.
         Task { await model.setAnniversary(anniversary) }
         dismiss()

@@ -4,6 +4,7 @@ struct HomeView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
     @State private var showingPicker = false
     @State private var showingSettings = false
     @State private var showingComposer = false
@@ -16,8 +17,6 @@ struct HomeView: View {
     @State private var showingFreshStart = false
     /// Owned here so leaving the screen or starting a second memo stops playback.
     @State private var voicePlayer = VoicePlayer()
-    /// The user chose to see a filter-hidden status message this once.
-    @State private var revealFilteredStatus = false
     @State private var confirmingStatusReport = false
     /// Local, not `model.confirmingInviteReseat`: Settings hosts that one, and
     /// two views presenting from one flag collide.
@@ -62,7 +61,8 @@ struct HomeView: View {
                         partnerCard
                         myStatusRow
                         NudgeButton(lastSentAt: model.snapshot.lastNudgeSentAt,
-                                    lastFailedAt: model.snapshot.lastNudgeFailedAt) {
+                                    lastFailedAt: model.snapshot.lastNudgeFailedAt,
+                                    sending: model.isSendingNudge) {
                             await model.sendNudge()
                         }
                         sendRow
@@ -83,7 +83,7 @@ struct HomeView: View {
                                value: model.unseenVisualMoments.first?.id)
                     .padding(.horizontal, 20)
                     .padding(.vertical, 14)
-                    .animation(.smooth(duration: 0.3), value: model.isOffline)
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: model.isOffline)
                     // Pin the scrollable content to the viewport: a child with a
                     // wide *ideal* size (a long single-line Text) can otherwise
                     // inflate the content's horizontal extent on some OS builds,
@@ -246,6 +246,7 @@ struct HomeView: View {
         .task(id: model.sendConfirmedAt) {
             guard let at = model.sendConfirmedAt, Date().timeIntervalSince(at) < 3 else { return }
             withAnimation(.smooth) { showsSent = true }
+            AccessibilityNotification.Announcement(String(localized: "Sent to \(model.partnerName)")).post()
             try? await Task.sleep(for: .seconds(3))
             withAnimation(.smooth) { showsSent = false }
         }
@@ -258,7 +259,20 @@ struct HomeView: View {
         .onAppear { model.markPartnerStatusSeen() }
         .onChange(of: model.snapshot.theirs?.updatedAt) { _, _ in model.markPartnerStatusSeen() }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { model.markPartnerStatusSeen() }
+            guard phase == .active else { return }
+            model.markPartnerStatusSeen()
+            Task { await model.checkNotificationSettings() }
+        }
+        .task { await model.checkNotificationSettings() }
+        // The card and the footer change silently; VoiceOver hears both.
+        .onChange(of: model.isOffline) { _, offline in
+            guard offline else { return }
+            AccessibilityNotification.Announcement(String(localized: "You're offline. What you send waits on this iPhone.")).post()
+        }
+        .onChange(of: model.freshStartPhase) { old, new in
+            guard case .clearing = old else { return }
+            if case .clearing = new { return }
+            AccessibilityNotification.Announcement(String(localized: "Your shared history is cleared on this iPhone.")).post()
         }
         .confirmationDialog("Close the invite link?",
                             isPresented: $confirmingCloseLink,
@@ -284,24 +298,27 @@ struct HomeView: View {
     // MARK: - Notices
 
     private enum Notice {
-        case extraMembers(Int), iCloud(String), freshStartStuck, freshStartRequest, closeLink, widgetTip
+        case partnerLeft, extraMembers(Int), iCloud(String), freshStartStuck, freshStartRequest
+        case notificationsOff(NotificationsNotice), closeLink, widgetTip
 
         /// Urgent ones sit above the partner card; the rest below the send row.
         var urgent: Bool {
             switch self {
-            case .extraMembers, .iCloud, .freshStartStuck: true
-            case .freshStartRequest, .closeLink, .widgetTip: false
+            case .partnerLeft, .extraMembers, .iCloud, .freshStartStuck: true
+            case .freshStartRequest, .notificationsOff, .closeLink, .widgetTip: false
             }
         }
     }
 
     /// At most one at a time, most urgent first.
     private var activeNotice: Notice? {
+        if model.showsPartnerLeftNotice { return .partnerLeft }
         if let count = model.extraShareMembers { return .extraMembers(count) }
         // Offline the account check fails as a network error; the offline card covers it.
         if let problem = model.readinessMessage, !model.isOffline { return .iCloud(problem) }
         if model.freshStartNeedsAttention { return .freshStartStuck }
         if model.showsFreshStartRequest { return .freshStartRequest }
+        if let problem = model.notificationsNotice { return .notificationsOff(problem) }
         if model.showsCloseLinkPrompt { return .closeLink }
         if model.showsWidgetTip { return .widgetTip }
         return nil
@@ -310,6 +327,21 @@ struct HomeView: View {
     @ViewBuilder
     private func noticeCard(_ notice: Notice) -> some View {
         switch notice {
+        case .partnerLeft:
+            // Settings' unlink dialog already offers "Save memories, then unlink".
+            // The space is the owner's: only they have something left to delete.
+            HomeNoticeCard(systemImage: "person.crop.circle.badge.xmark",
+                           title: "\(model.partnerName) left your shared space",
+                           message: model.role == .owner
+                               ? "They unlinked on their iPhone, so what they sent has gone from here too. What you sent is still in your iCloud. Save your memories and unlink, then send a new invite link — to them or someone new."
+                               : "They unlinked, so what they sent has gone from here too. Save your memories, then unlink to leave the shared space.",
+                           actionTitle: "Save and unlink…",
+                           dismissTitle: "Dismiss",
+                           urgent: true,
+                           onDismiss: { model.dismissPartnerLeftNotice() }) {
+                model.unlinkRequested = true
+                showingSettings = true
+            }
         case .extraMembers(let count):
             HomeNoticeCard(systemImage: "person.2.badge.gearshape",
                            title: "Someone else has joined",
@@ -345,6 +377,17 @@ struct HomeView: View {
                            onDismiss: { model.dismissFreshStartRequest() }) {
                 showingFreshStart = true
             }
+        case .notificationsOff(let problem):
+            HomeNoticeCard(systemImage: problem == .focusBlocked ? "moon" : "bell.slash",
+                           title: notificationsTitle(problem),
+                           message: notificationsMessage(problem),
+                           actionTitle: "Open Settings",
+                           dismissTitle: "Not now",
+                           onDismiss: { model.dismissNotificationsNotice() }) {
+                if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
         case .closeLink:
             HomeNoticeCard(systemImage: "lock.open",
                            title: "\(model.partnerName)'s in",
@@ -362,6 +405,22 @@ struct HomeView: View {
                            actionTitle: "Got it") {
                 model.dismissWidgetTip()
             }
+        }
+    }
+
+    private func notificationsTitle(_ problem: NotificationsNotice) -> LocalizedStringKey {
+        switch problem {
+        case .off: "Notifications are off"
+        case .bannersOff: "Banners are off"
+        case .focusBlocked: "Hearts wait out your Focus"
+        }
+    }
+
+    private func notificationsMessage(_ problem: NotificationsNotice) -> LocalizedStringKey {
+        switch problem {
+        case .off: "You won't know when \(model.partnerName) sends a heart, a status or a moment until you open the app. Turn notifications on for \(AppConfig.appName) in Settings."
+        case .bannersOff: "\(model.partnerName)'s hearts and moments arrive silently in Notification Center. Turn on banners for \(AppConfig.appName) in Settings."
+        case .focusBlocked: "Time Sensitive notifications are off for \(AppConfig.appName), so a heart from \(model.partnerName) waits until a Focus ends."
         }
     }
 
@@ -398,6 +457,8 @@ struct HomeView: View {
         switch route {
         case .compose:
             showingComposer = true
+        case .anniversary:
+            showingAnniversary = true
         case .newMoments:
             carouselQueue = model.carouselMoments
         case .moment(let id):
@@ -482,22 +543,9 @@ struct HomeView: View {
         }
         .accessibilityLabel(partnerSummary)
         .accessibilityHint("Shows status history")
-        .contextMenu {
-            if model.snapshot.theirs != nil, !model.isPartnerStatusReported {
-                Button(role: .destructive) {
-                    confirmingStatusReport = true
-                } label: {
-                    Label("Report this status…", systemImage: "flag")
-                }
-            }
-            if partnerMessageIsFiltered, !revealFilteredStatus {
-                Button {
-                    revealFilteredStatus = true
-                } label: {
-                    Label("Show hidden text", systemImage: "eye")
-                }
-            }
-        }
+        .contextMenu { moderationActions }
+        // Guideline 1.2: reachable under VoiceOver and Voice Control, not only by long-press.
+        .accessibilityActions { moderationActions }
         .confirmationDialog("Report this status?",
                             isPresented: $confirmingStatusReport,
                             titleVisibility: .visible) {
@@ -506,7 +554,24 @@ struct HomeView: View {
         } message: {
             Text("Its text is hidden on this iPhone straight away, and the details go to us by email. We act on reports within 24 hours.")
         }
-        .onChange(of: model.snapshot.theirs?.updatedAt) { _, _ in revealFilteredStatus = false }
+    }
+
+    @ViewBuilder
+    private var moderationActions: some View {
+        if model.snapshot.theirs != nil, !model.isPartnerStatusReported {
+            Button(role: .destructive) {
+                confirmingStatusReport = true
+            } label: {
+                Label("Report this status…", systemImage: "flag")
+            }
+        }
+        if partnerMessageIsFiltered, !model.partnerStatusRevealed, !model.isPartnerStatusReported {
+            Button {
+                model.revealPartnerStatus()
+            } label: {
+                Label("Show hidden text", systemImage: "eye")
+            }
+        }
     }
 
     private var partnerMessageIsFiltered: Bool {
@@ -519,7 +584,7 @@ struct HomeView: View {
     private var partnerMessage: (text: String, muted: Bool) {
         guard let theirs = model.snapshot.theirs else { return ("", true) }
         if model.isPartnerStatusReported { return (String(localized: "Reported"), true) }
-        if partnerMessageIsFiltered && !revealFilteredStatus {
+        if partnerMessageIsFiltered && !model.partnerStatusRevealed {
             return (ContentFilter.hiddenPlaceholder, true)
         }
         // Emoji-only is a status, not a missing one: the emoji stands alone.
@@ -596,7 +661,7 @@ struct HomeView: View {
                         .font(Theme.rounded(11, .semibold))
                         .tracking(1.2)
                         .foregroundStyle(.secondary)
-                    Text("Waiting for their first status")
+                    (model.partnerHasLeft ? Text("Left your shared space") : Text("Waiting for their first status"))
                         .font(Theme.rounded(16, .medium))
                         .foregroundStyle(.secondary)
                 }
@@ -724,7 +789,8 @@ struct HomeView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(myStatusText)
                         .font(myStatusHasWords ? Theme.rounded(17, .semibold) : Theme.rounded(16))
-                        .foregroundStyle(myStatusHasWords ? .primary : Theme.mutedText)
+                        // `Color.primary`: the hierarchical style goes vibrant on the material.
+                        .foregroundStyle(myStatusHasWords ? Color.primary : Theme.mutedText)
                         .lineLimit(1)
                     if myStatusUnsent {
                         // Retried on every refresh; the footer offers it now.
@@ -748,7 +814,12 @@ struct HomeView: View {
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 12)
-            .background(.ultraThinMaterial, in: Capsule())
+            // The cards' opaque wash under the material: on material alone the
+            // backdrop's crimson corner bled through under the text.
+            .background {
+                Capsule().fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.72))
+                Capsule().fill(.ultraThinMaterial)
+            }
             .overlay(Capsule().strokeBorder(Color.white.opacity(0.35), lineWidth: 1))
         }
         .buttonStyle(.plain)
@@ -952,9 +1023,13 @@ private struct HomeNoticeCard: View {
                 .font(Theme.rounded(16, .semibold))
                 .foregroundStyle(tint)
                 .accessibilityAddTraits(.isHeader)
+            // A plain colour, not the hierarchical `.primary`, which turns vibrant
+            // (and under 4.5:1) on the card's material.
             Text(message)
                 .font(Theme.rounded(14))
+                .foregroundStyle(Color.primary)
                 .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("home.notice.message")
             HStack(spacing: 20) {
                 Button(action: action) {
                     HStack(spacing: 6) {
@@ -974,7 +1049,7 @@ private struct HomeNoticeCard: View {
                             .contentShape(Rectangle())
                     }
                     .font(Theme.rounded(15))
-                    .foregroundStyle(.primary.opacity(0.7))
+                    .foregroundStyle(Theme.mutedText)
                     .disabled(busy)
                 }
             }
@@ -993,6 +1068,8 @@ private struct HomeNoticeCard: View {
 private struct NudgeButton: View {
     let lastSentAt: Date?
     let lastFailedAt: Date?
+    /// On its way: shown, and not tappable again, until the call returns.
+    let sending: Bool
     let action: () async -> Void
 
     @State private var remaining: TimeInterval = 0
@@ -1004,7 +1081,12 @@ private struct NudgeButton: View {
         Button {
             Task { await action() }
         } label: {
-            if !ready {
+            if sending {
+                HStack(spacing: 8) {
+                    ProgressView().tint(Theme.accentText)
+                    Text("Sending…")
+                }
+            } else if !ready {
                 Label("Sent · \(Int(remaining))s", systemImage: "checkmark")
             } else if failed {
                 Label("Didn't send · tap to retry", systemImage: "heart.slash.fill")
@@ -1012,13 +1094,16 @@ private struct NudgeButton: View {
                 Label("Thinking of you", systemImage: "heart.fill")
             }
         }
-        // Accent, not warm: the heart wears the red string's crimson.
-        .buttonStyle(PrimaryButtonStyle(tint: !ready ? Color.secondary.opacity(0.4)
-                                        : failed ? Theme.warmDeep : Theme.accent))
-        .disabled(!ready)
-        .accessibilityLabel(!ready ? "Nudge sent" : failed ? "Nudge didn't send. Send again" : "Send a nudge")
+        // Accent, not warm: the heart wears the red string's crimson. In flight
+        // and sent it steps back to the secondary look, which is AA in both modes.
+        .buttonStyle(NudgeButtonStyle(calm: sending || !ready,
+                                      tint: failed ? Theme.warmDeep : Theme.accent))
+        .disabled(sending || !ready)
+        .accessibilityLabel(sending ? "Sending a nudge" : !ready ? "Nudge sent"
+                            : failed ? "Nudge didn't send. Send again" : "Send a nudge")
         .animation(.smooth, value: ready)
         .animation(.smooth, value: failed)
+        .animation(.smooth, value: sending)
         .task(id: lastSentAt) { await countDown() }
         .task(id: lastFailedAt) { await watchFailure() }
     }
@@ -1038,6 +1123,28 @@ private struct NudgeButton: View {
         guard left > 0 else { return }
         try? await Task.sleep(for: .seconds(left))
         if !Task.isCancelled { failed = false }
+    }
+}
+
+/// The heart's look: the primary crimson while it can be tapped, the
+/// secondary tint (crimson text, AA) while it's sending or cooling down.
+private struct NudgeButtonStyle: ButtonStyle {
+    let calm: Bool
+    let tint: Color
+
+    @ViewBuilder
+    func makeBody(configuration: Configuration) -> some View {
+        if calm {
+            // The primary's metrics, so the button doesn't change size between states.
+            configuration.label
+                .font(Theme.rounded(17, .semibold))
+                .foregroundStyle(Theme.accentText)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 15)
+                .background(Theme.accent.opacity(0.12), in: Capsule())
+        } else {
+            PrimaryButtonStyle(tint: tint).makeBody(configuration: configuration)
+        }
     }
 }
 

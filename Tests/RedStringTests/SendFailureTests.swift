@@ -35,9 +35,25 @@ final class SendFailureTests: XCTestCase {
 
     func testOtherFailuresAreTransient() {
         XCTAssertEqual(SendFailure(CKError(.networkFailure)), .transient, "a dropped upload isn't no route")
-        XCTAssertEqual(SendFailure(CKError(.serviceUnavailable)), .transient)
         XCTAssertEqual(SendFailure(partial([.serverRecordChanged])), .transient)
         XCTAssertEqual(SendFailure(CancellationError()), .transient, "a deadline is not a full iCloud")
         XCTAssertEqual(SendFailure(SyncError.saveUnconfirmed), .transient)
+    }
+
+    /// CloudKit's retry-after is honoured, bare or per item, and bounded.
+    func testThrottlingCarriesTheServersDelay() {
+        let now = Fixtures.t0
+        let limited = CKError(.requestRateLimited, userInfo: [CKErrorRetryAfterKey: NSNumber(value: 90)])
+        XCTAssertEqual(SendFailure(limited, now: now), .throttled(until: now.addingTimeInterval(90)))
+        XCTAssertEqual(SendFailure(CKError(.zoneBusy), now: now),
+                       .throttled(until: now.addingTimeInterval(AppConfig.throttleDefaultDelay)))
+        XCTAssertEqual(SendFailure(CKError(.serviceUnavailable), now: now),
+                       .throttled(until: now.addingTimeInterval(AppConfig.throttleDefaultDelay)))
+        let item = CKRecord.ID(recordName: "moment-owner-a")
+        let partial = CKError(.partialFailure, userInfo: [CKPartialErrorsByItemIDKey: [item: limited]])
+        XCTAssertEqual(SendFailure(partial, now: now), .throttled(until: now.addingTimeInterval(90)))
+        let absurd = CKError(.requestRateLimited, userInfo: [CKErrorRetryAfterKey: NSNumber(value: 9e9)])
+        XCTAssertEqual(SendFailure(absurd, now: now),
+                       .throttled(until: now.addingTimeInterval(AppConfig.storageFullRetryInterval)))
     }
 }

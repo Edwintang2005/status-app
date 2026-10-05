@@ -89,12 +89,76 @@ extension CloudSync {
         try await downloadMedia(for: moment, pairing: pairing, in: database)
     }
 
-    /// The thumbnail alone, by `desiredKeys` so the full-size asset never
-    /// leaves the server for a tile that only needs the small one.
-    func fetchThumbnail(for moment: Moment) async throws {
-        guard !moment.isVoice else { return }
+    /// Thumbnails alone, by `desiredKeys` so the full-size asset never leaves
+    /// the server for a tile that only needs the small one.
+    func fetchThumbnails(for moments: [Moment]) async throws {
+        let visual = moments.filter { !$0.isVoice }
+        guard !visual.isEmpty else { return }
         let pairing = try await requirePairing()
-        try await downloadThumbnail(for: moment, pairing: pairing, in: database(for: pairing))
+        try await downloadThumbnails(for: visual, pairing: pairing, in: database(for: pairing))
+    }
+
+    /// One `records(for:)` per `ThumbnailBatchQueue.batchLimit`. A record that
+    /// fails (gone, unreadable) is skipped, not the batch. `wifiOnly` leaves
+    /// the work to on-demand tiles while on mobile data.
+    func downloadThumbnails(for moments: [Moment],
+                            pairing: PairingInfo,
+                            in database: CKDatabase,
+                            wifiOnly: Bool = false) async throws {
+        let zone = zoneID(for: pairing)
+        var byRecord: [CKRecord.ID: Moment] = [:]
+        for moment in moments where !moment.isVoice {
+            let role = moment.fromMe ? pairing.role : pairing.role.other
+            byRecord[CKRecord.ID(recordName: role.momentRecordName(id: moment.id), zoneID: zone)] = moment
+        }
+        let ids = Array(byRecord.keys)
+        for start in stride(from: 0, to: ids.count, by: ThumbnailBatchQueue.batchLimit) {
+            try Task.checkCancellation()
+            let chunk = Array(ids[start..<min(start + ThumbnailBatchQueue.batchLimit, ids.count)])
+            let configuration = CKOperation.Configuration()
+            configuration.allowsCellularAccess = !wifiOnly
+            let results = try await database.configuredWith(configuration: configuration) { configured in
+                try await configured.records(for: chunk, desiredKeys: [Field.thumb])
+            }
+            for (recordID, result) in results {
+                guard case .success(let record) = result, let moment = byRecord[recordID] else { continue }
+                do {
+                    try Self.copyAsset(record[Field.thumb] as? CKAsset, to: MomentStore.shared.thumbURL(for: moment.id))
+                } catch {
+                    log.error("Couldn't store the thumbnail for \(moment.id): \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    /// After a complete full resync in the app (a reinstall, an expired token):
+    /// the index's history whose thumbnails aren't here, so the library opens
+    /// filled, on Wi-Fi. Stops at the first failure — tiles still fetch on demand — and,
+    /// like `prefetchMedia`, when the pairing changes underneath.
+    func prefetchMissingThumbnails(pairing: PairingInfo) async {
+        let store = MomentStore.shared
+        let missing = MediaPrefetchPlan.missingThumbnails(in: MomentIndex.shared.load(),
+                                                          hasThumbnail: { store.hasThumbnail(for: $0.id) })
+        guard !missing.isEmpty else { return }
+        let samePairing = { await MainActor.run { SharedStore.shared.pairing?.sameZone(as: pairing) == true } }
+        for start in stride(from: 0, to: missing.count, by: ThumbnailBatchQueue.batchLimit) {
+            guard !Task.isCancelled, await samePairing() else { return }
+            let batch = Array(missing[start..<min(start + ThumbnailBatchQueue.batchLimit, missing.count)])
+            do {
+                try await withDeadline(AppConfig.publishDeadline) {
+                    try await self.downloadThumbnails(for: batch, pairing: pairing,
+                                                      in: self.database(for: pairing), wifiOnly: true)
+                }
+            } catch {
+                log.notice("Thumbnail backfill stopped: \(error.localizedDescription)")
+                return
+            }
+            // Landed after an unlink's wipe: not this pairing's any more.
+            if await !samePairing() {
+                batch.forEach { store.delete(id: $0.id) }
+                return
+            }
+        }
     }
 
     /// Only the file a push banner attaches (`MediaPrefetchPlan.attachment`) —
@@ -157,10 +221,13 @@ extension CloudSync {
             return nil
         }
 
+        // A kind from a newer build is kept (`.unsupported`), not dropped: the
+        // token moves past it, so dropping it here lost it until a resync.
         guard let id = record[Field.momentID] as? String,
               isSafeMomentID(id),
               let kindRaw = record[Field.kind] as? String,
-              let kind = Moment.Kind(rawValue: kindRaw) else { return nil }
+              !kindRaw.isEmpty, kindRaw.count <= 32 else { return nil }
+        let kind = Moment.Kind(rawValue: kindRaw)
 
         // Everything below is sanitised on the way in: a NaN in the waveform
         // made the whole index unsavable, a negative-year date unloadable.

@@ -409,6 +409,10 @@ successful refresh (or `inviteState()`), so the block has something to write.
 
 ### Heartbeat moment (M) — feasibility only, not started
 
+(The receiving side's prerequisite is done: an older build files an unknown
+kind as `Moment.Kind.unsupported` — "update Red String to see it" — instead of
+losing it past the change token.)
+
 Send your heart rate as a moment; the partner opens it and the phone plays a
 synthesised lub-dub at that tempo under an animating heart (Digital Touch did
 exactly this). Investigated September 2026; the shape that fits the app:
@@ -468,6 +472,91 @@ roughly in order of value:
 Checked September 2026: strokes already reach the partner pixel-aligned with
 the photo (the export is the only transform; media travels byte-for-byte).
 
+### Follow-ups from the October 2026 implementation round (S each)
+
+- **"Update to see this" tile.** A moment of a kind from a newer build stays in
+  the index but out of `AppModel.history`, so the library and gallery don't
+  show it at all; a tile saying "Update Red String to see this" is the
+  remaining half of review #7.
+- **`Theme.rounded` doesn't follow a live Dynamic Type change** — it reads
+  `UIFontMetrics` when a view renders and nothing re-renders on a size change.
+  The UI audit excludes `.dynamicType` for it; read
+  `@Environment(\.dynamicTypeSize)` in a modifier (or `@ScaledMetric`), then
+  re-enable it in `DemoSmokeTests`. The 1.35× cap is a separate decision.
+- **UI audit exclusions** for screenshot-checked misreads (wrapped small text,
+  the composer's "Camera", navigation-bar glass buttons): re-check on each new
+  iOS/Xcode and drop the ones the audit stops raising.
+- **App tint** is now `Theme.accentText` (AA crimson for text) app-wide, which
+  also darkens toggle tracks and date-picker selection; revert the one line in
+  `RedStringApp` if the brighter crimson is preferred there.
+- **App Store link in the invite message** once the app's ID is known
+  (`AppConfig.appStoreURL`).
+- **The lock-screen heart's account lookup** still precedes its write when the
+  shared cache is stale (`sendNudge` → `requirePairing`); running it alongside
+  the record fetch needs a `saveNudge` restructure. The app's own refresh can
+  still request two widget reloads (apply, then the media prefetch's).
+- **The status read receipt** is forward-only by the words' date; after a
+  partner's clock ran ahead, a later status with an earlier stamp isn't
+  stamped "seen" until the stored stamp is in the past (rare; would need a
+  local-only order key on `StatusSeen`).
+- **"Invite again" from the partner-left card** opens Settings (a new link
+  needs the unlink first); a one-tap unlink-and-reinvite would need the unlink
+  confirmation hosted on Home.
+
+### From the October 2026 whole-app review (not picked yet)
+
+Raised by the October arena review (`REVIEW-2026-10.md`, item numbers kept);
+none needs a server. Milestone reminders (#41) was picked and shipped.
+
+- **Expiring statuses (M)** — #36, raised independently by all three
+  reviewers. "In a meeting until 3", "driving · 30 min": the picker offers
+  "for 1 h / until tonight / until I change it"; after `expiresAt` the card,
+  widgets and history show it dimmed ("was …"), and the widget timeline gets an
+  entry at the expiry instant. Receivers decide locally. *Schema:* one
+  encrypted `expiresAt` on `Status` (and `StatusLog`), capped through
+  `TrustedTime`, hand-written Codable fallback `nil`; older builds ignore it.
+  Batch the redeploy with super nudge's `burst`.
+- **Set status from Shortcuts, Focus and Siri, plus a quick-status widget
+  (S–M)** — #37. A parameterised `SetStatusIntent` (an `AppEntity` over presets
+  and Recent) as App Shortcuts and a `SetFocusFilterIntent` ("Sleep Focus →
+  😴"), Siri read-back ("What's Sam up to?" through the moderation helpers), and
+  an interactive widget whose buttons are your recent statuses. Publishes
+  through the existing offline queue; on failure the widget leaves
+  `myStatusPublished` down for the app's republish. No schema.
+- **Control Center / Action button heart (S)** — #38. A `ControlWidget`
+  (iOS 18, `@available`-gated) over `SendNudgeIntent`, showing the slashed
+  heart from `lastNudgeFailedAt`. No schema.
+- **Remove a stranger without deleting the space (M)** — #39. The
+  "someone else has joined" card can today only say "unlink". Offer the owner a
+  confirmed `removeParticipant`, choosing from the share's participant list
+  (names from `userIdentity`) — not "the author of `status-participant`", which
+  both participants write. Manual and confirmed only (invariant 9). No schema.
+- **Voice-memo transcripts (M)** — #40. On-device Speech under the waveform,
+  as the banner body without a caption, and for VoiceOver. Receiver-side
+  transcription needs no schema; an encrypted `transcript` field would.
+- **Draw on their photo (S)** — #42. Gallery menu "Draw on this" opens the
+  composer with the partner's full image (`ensureMedia` first) under
+  `DrawingController.render(over:)`; sends a normal photo moment. No schema.
+- **Time-capsule moments (M)** — #43. An encrypted `revealAt`: a sealed tile
+  with a countdown, the NSE saying "sent you something for <date>", a local
+  notification on the day. Client-enforced — fine for a gift, not a secret.
+- **Weekly recap card (S)** — #44. Sundays on Home: hearts, statuses, photos
+  and memos this week, from the local stores (nudge totals need a weekly
+  baseline in `Snapshot`). No schema.
+- **Privacy lock (S–M)** — #45. Optional Face ID gate on launch, app-switcher
+  blur, `.privacySensitive()` on the status widgets' text (extends the
+  photo-widget item below). No schema.
+- **Storage steward (M–L)** — #46. An estimate of the shared space's size from
+  locally recorded asset sizes and an explicit, opt-in "make room" that drops
+  old full-size media but keeps thumbnail, caption and record. Depends on
+  "Delete your own moment" and changes the complete-history promise (copy).
+  Optional plaintext `bytes` on `Moment`.
+- Also considered: heart variants (adjacent to super nudge; one plaintext Int
+  on `Nudge`), an Apple Watch target (heartbeat already scopes it), a Lock
+  Screen doodle glyph (legibility unproven). Rejected: Live Activities
+  (push-to-start needs a server), location sharing, view-once photos,
+  `CKSyncEngine` (owns the change token, against invariant 2).
+
 ### From the September 2026 arena review (not picked yet)
 
 Verified in code by the review; ordered by value over cost within each group.
@@ -491,10 +580,12 @@ Verified in code by the review; ordered by value over cost within each group.
   change tokens *before* erasing media in the wipe; let extensions only stamp
   the sighting.
 
-**Coverage still missing (M)** — `SyncRunner`'s announce path and the NSE's
-branch table (both need a seam over `UNUserNotificationCenter`); `SharedStore`'s
-static locks still resolve the real container in tests (lock files only; inject
-a lock directory).
+**Coverage still missing (M)** — `SharedStore`'s static locks still resolve the
+real container in tests (lock files only; inject a lock directory); `CloudSync`
+itself has no `CKDatabase` seam, so the per-zone fetch error path (#16 of the
+October review) and the CloudKit calls behind the pure policies are untested.
+(The NSE's branch table and `SyncRunner`'s choice are now `PushBannerPolicy`,
+under test.)
 
 **Left from the change review (S each)**
 - A replaced zone keeps its zone ID, so a partner rejoining it skips the media
@@ -514,8 +605,8 @@ a lock directory).
   `.empty` over the snapshot after a transient read error.
 - Store I/O and `flock` waits run on the main actor from `CloudSync`; now that
   the stores are `Sendable`, drop the `MainActor.run` hops (profile a resync).
-- Home footer reads "1 waiting to send · tap to retry" during the *first*
-  upload; one shared `isBusy` spans nine overlapping operations.
+- One shared `isBusy` spans nine overlapping operations. (The footer's
+  "1 waiting to send" during a first upload is fixed: `Outbox.uploadsInFlight`.)
 
 **UI/UX (S each unless noted)**
 - The default-on word filter hides ordinary names ("Dick" → "Partner"): exempt
@@ -588,8 +679,6 @@ Found by the audit and deliberately left for now; numbers are the audit's.
 - #37 Diagnostics' "Copy report" puts participant names/emails on the clipboard.
 - #38 A playing memo bleeds into a new recording; closing the composer stops
   other audio; after granting the microphone the sheet must be reopened.
-- #40 `Anniversary` and `StatusSeen` use synthesised Codable — adding a field
-  would fail the whole snapshot decode (invariant 5).
 - #41 Privacy manifest: reading the App Group's UserDefaults suite (the
   one-time migration) needs reason `1C8F.1`; only `CA92.1` is declared. (S)
 - #43 remainder: in the hours before the start's time of day, the count's
@@ -601,10 +690,7 @@ Found by the audit and deliberately left for now; numbers are the audit's.
   goes out passive if an *older* generic/held moment banner is still in
   Notification Centre (stamp the moment id to match exactly); a lock-screen
   heart whose save lands after the 8 s deadline shows as failed although it
-  sent (the trade for never showing a failed one as sent); receipt,
-  anniversary and request dates from the zone aren't yet run through
-  `TrustedTime` (the anniversary can legitimately predate 1970, so it needs
-  its own bounds).
+  sent (the trade for never showing a failed one as sent).
 
 ### Library grouped by day, and search (M)
 

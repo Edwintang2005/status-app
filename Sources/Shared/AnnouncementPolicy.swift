@@ -10,6 +10,8 @@ enum AnnouncementPolicy {
         var nudge = false
         /// The newest partner moment in the delta not yet announced.
         var moment: Moment?
+        /// The partner unlinked in this delta and no banner has said so yet.
+        var partnerLeft = false
     }
 
     /// What a refresh should announce. A first sight of the partner's status
@@ -26,11 +28,32 @@ enum AnnouncementPolicy {
         // One notification for the newest, but every moment in the burst is
         // marked announced — otherwise the push banner's index fallback would
         // later describe an older one from this batch as new.
-        if let moment = result.newestPartnerMoment, !snapshot.hasAnnounced(moment.id) {
+        let floor = snapshot.lastAnnouncedMomentSentAt
+        let news = result.newPartnerMoments.filter { isNews($0, fullResync: result.fullResync, floor: floor) }
+        if let moment = news.last, !snapshot.hasAnnounced(moment.id) {
             claims.moment = moment
         }
-        for moment in result.newPartnerMoments { snapshot.recordAnnounced(moment) }
+        for moment in news { snapshot.recordAnnounced(moment) }
+        claims.partnerLeft = result.partnerLeft && claimPartnerLeft(in: &snapshot)
         return claims
+    }
+
+    /// The one banner saying the partner left: `false` once claimed, or when
+    /// the snapshot doesn't say they left (their status is back).
+    static func claimPartnerLeft(in snapshot: inout Snapshot) -> Bool {
+        guard snapshot.partnerHasLeft, !snapshot.partnerLeftAnnounced else { return false }
+        snapshot.partnerLeftAnnounced = true
+        return true
+    }
+
+    /// Whether an unknown moment is news. A full resync returns everything the
+    /// index doesn't hold — past its cap, after a rebuild — so there only what
+    /// is newer than the last announced moment counts. An incremental delta's
+    /// unknown moment always does: a send that waited offline arrives late.
+    static func isNews(_ moment: Moment, fullResync: Bool, floor: Date?, now: Date = Date()) -> Bool {
+        guard fullResync, let floor else { return true }
+        // A floor stuck in the future is read as now, like `claimMomentBanner`'s.
+        return moment.sentAt > (TrustedTime.isFuture(floor, now: now) ? now : floor)
     }
 
     /// What a status push banner should say, or `nil` when this status has
@@ -48,11 +71,18 @@ enum AnnouncementPolicy {
     static func claimStatusBanner(for status: StatusPayload,
                                   in snapshot: inout Snapshot,
                                   now: Date = Date()) -> StatusBanner? {
-        // A mark left in the future by a skewed clock would silence every later status.
-        let announced = snapshot.lastAnnouncedPartnerStatusAt
-            .flatMap { TrustedTime.isFuture($0, now: now) ? nil : $0 } ?? .distantPast
-        guard status.updatedAt > announced else { return nil }
         let previous = snapshot.lastAnnouncedPartnerStatus
+        if let saved = status.serverSavedAt, let previousSaved = previous?.serverSavedAt, saved != previousSaved {
+            // Server time when both have it: a sender whose clock ran fast
+            // earlier would otherwise have every later status judged old. A
+            // tie (two saves in one whole second) falls to the stamps below.
+            guard saved > previousSaved else { return nil }
+        } else {
+            // A mark left in the future by a skewed clock would silence every later status.
+            let announced = snapshot.lastAnnouncedPartnerStatusAt
+                .flatMap { TrustedTime.isFuture($0, now: now) ? nil : $0 } ?? .distantPast
+            guard status.updatedAt > announced else { return nil }
+        }
         snapshot.lastAnnouncedPartnerStatusAt = status.updatedAt
         snapshot.lastAnnouncedPartnerStatus = status
         if let previous,

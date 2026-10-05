@@ -6,6 +6,8 @@ enum NotificationCategory {
     static let status = "status"
     static let nudge = "nudge"
     static let moment = "moment"
+    /// A local milestone reminder (`MilestoneReminderPlan`); opens the count.
+    static let milestone = "milestone"
 
     /// userInfo key the notification service stamps (value: the category) on a
     /// banner worded from unencrypted fields alone, so the app's sweep supersedes it.

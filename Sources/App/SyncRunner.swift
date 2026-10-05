@@ -22,13 +22,12 @@ enum SyncRunner {
         store.mutate(reloadWidgets: false) {
             claims = AnnouncementPolicy.claim(result, previousStatus: previousStatus, in: &$0)
         }
-        if announce {
-            let name = store.snapshot.moderatedPartnerName
-            if claims.nudge {
-                await NotificationManager.postNudge(from: name, sentAt: result.partnerStatus?.lastNudgeAt)
-            }
-            if let moment = claims.moment {
-                await NotificationManager.postMoment(moment, from: name)
+        let name = store.snapshot.moderatedPartnerName
+        for post in PushBannerPolicy.appAnnouncements(claims, result: result, announce: announce) {
+            switch post {
+            case .partnerLeft: await NotificationManager.postPartnerLeft(name: name)
+            case .nudge(let sentAt): await NotificationManager.postNudge(from: name, sentAt: sentAt)
+            case .moment(let moment): await NotificationManager.postMoment(moment, from: name)
             }
         }
 

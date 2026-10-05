@@ -190,14 +190,14 @@ struct PairingView: View {
         VStack(spacing: 16) {
             Text("Send this to your partner")
                 .font(Theme.rounded(17, .semibold))
-            Text("They tap it once. That's the whole setup.")
+            Text("They tap it to join. If they don't have \(AppConfig.appName) yet, they install it, then tap the link again.")
                 .font(Theme.rounded(13))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
             InviteLinkText(url: url)
 
-            ShareLink(item: url) {
+            InviteShareLink(url: url) {
                 Label("Share invite link", systemImage: "square.and.arrow.up")
                     .font(Theme.rounded(17, .semibold))
                     .foregroundStyle(.white)

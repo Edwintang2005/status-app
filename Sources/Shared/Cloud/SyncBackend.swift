@@ -27,6 +27,12 @@ struct RefreshResult: Sendable {
     /// Moment records deleted in this delta (either side's) — a fresh start
     /// clearing, an unlink, never news.
     var removedMoments = 0
+    /// Fetched from no token: the whole zone came back, so "not stored here"
+    /// isn't "new" (`AnnouncementPolicy.isNews`).
+    var fullResync = false
+    /// The partner's status record was deleted in this delta — how a
+    /// participant unlinks. Never news to announce loudly.
+    var partnerLeft = false
 
     var unreadableRecords: Int { unreadableRecordNames.count }
     var newestPartnerMoment: Moment? { newPartnerMoments.last }
@@ -54,9 +60,10 @@ protocol SyncBackend: Sendable {
     /// Pulls the media files for a history entry whose photo or recording
     /// isn't cached locally any more. No-op for backends that never evict.
     func fetchMedia(for moment: Moment) async throws
-    /// Pulls only the thumbnail — what a library tile needs when it scrolls into
-    /// view past the cache window. No-op for voice memos and for backends that never evict.
-    func fetchThumbnail(for moment: Moment) async throws
+    /// Pulls only the thumbnails — what library tiles need when they scroll into
+    /// view past the cache window, batched by `ThumbnailFetcher`. Skips voice
+    /// memos; a no-op for backends that never evict.
+    func fetchThumbnails(for moments: [Moment]) async throws
     /// Every readable moment and status log in the zone, for the memories
     /// archive. Touches no local state or change token.
     func archiveZone() async throws -> ArchiveContents.Zone
@@ -166,7 +173,7 @@ struct DemoBackend: SyncBackend {
     }
     func send(_ moment: Moment) async throws {}
     func fetchMedia(for moment: Moment) async throws {}
-    func fetchThumbnail(for moment: Moment) async throws {}
+    func fetchThumbnails(for moments: [Moment]) async throws {}
     func archiveZone() async throws -> ArchiveContents.Zone {
         ArchiveContents.Zone(moments: [], statuses: [], unreadable: 0)
     }

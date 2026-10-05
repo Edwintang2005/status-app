@@ -105,4 +105,20 @@ final class MediaPrefetchPlanTests: XCTestCase {
         XCTAssertEqual(MediaPrefetchPlan.attachment(for: Fixtures.moment("d", kind: .drawing)), .thumbnail)
         XCTAssertEqual(MediaPrefetchPlan.attachment(for: Fixtures.moment("v", kind: .voice)), .full)
     }
+
+    // MARK: The library's backfill after a full resync
+
+    func testBackfillTakesEveryMissingPictureNewestFirst() {
+        let index = [
+            Fixtures.moment("old", at: Fixtures.date(-600)),
+            Fixtures.moment("memo", kind: .voice, at: Fixtures.date(-60)),
+            Fixtures.moment("cached", at: Fixtures.date(-30)),
+            Fixtures.moment("pending", at: Fixtures.date(-20), fromMe: true, uploaded: false),
+            Fixtures.moment("mine", kind: .drawing, at: Fixtures.date(-10), fromMe: true),
+            Fixtures.moment("new", at: Fixtures.t0),
+        ]
+        let missing = MediaPrefetchPlan.missingThumbnails(in: index, hasThumbnail: { $0.id == "cached" })
+        XCTAssertEqual(missing.map(\.id), ["new", "mine", "old"],
+                       "no memos, nothing on disk, and no unsent own send — the server hasn't got it")
+    }
 }

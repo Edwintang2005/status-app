@@ -141,9 +141,13 @@ struct MomentGalleryView: View {
                 guard playing, let moment = current, moment.isVoice,
                       let url = MomentStore.shared.mediaURL(for: moment),
                       player.currentURL == url else { return }
-                model.markSeen(moment)
+                model.markSeen(moment, reloadWidgets: false)
             }
-            .onDisappear { player.stop() }
+            .onDisappear {
+                player.stop()
+                // One widget reload for the pages seen, not one per page.
+                model.flushWidgetReload()
+            }
             .alert("Couldn't save", isPresented: saveFailedBinding) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -199,6 +203,7 @@ struct MomentGalleryView: View {
             } else {
                 // Own view with its own load, so a page decodes only when it appears.
                 GalleryImageView(momentID: moment.id,
+                                 summary: String(localized: "\(moment.noun) from \(attribution(moment))"),
                                  isLoading: loading.contains(moment.id),
                                  isUnavailable: unavailable.contains(moment.id),
                                  isOffline: model.isOffline)
@@ -245,6 +250,8 @@ struct MomentGalleryView: View {
     /// file (past the media cache, offline) the kept thumbnail stands in, labelled.
     private struct GalleryImageView: View {
         let momentID: String
+        /// What VoiceOver reads for the picture itself; the caption is read below it.
+        let summary: String
         let isLoading: Bool
         let isUnavailable: Bool
         let isOffline: Bool
@@ -257,7 +264,10 @@ struct MomentGalleryView: View {
             ZStack {
                 if let image {
                     // Always the centred square, whatever frame the file keeps.
-                    SquareFill { Image(uiImage: image).resizable().scaledToFill() }
+                    SquareFill {
+                        Image(uiImage: image).resizable().scaledToFill()
+                            .accessibilityLabel(summary)
+                    }
                         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
                         // Over the photo, not under it: the page centres its content,
                         // and a note coming and going would shift the picture.
@@ -371,7 +381,7 @@ struct MomentGalleryView: View {
     private func markCurrentPhotoSeen() {
         guard let moment = current, !moment.isVoice,
               MomentStore.shared.hasImage(for: moment.id) else { return }
-        model.markSeen(moment)
+        model.markSeen(moment, reloadWidgets: false)
     }
 
     // MARK: - Lazy loading
@@ -497,7 +507,7 @@ struct HeartBackButton: View {
             }
         }
         .buttonStyle(styled)
-        .disabled(remaining > 0 || !model.canNudge)
+        .disabled(remaining > 0 || !model.canNudge || model.isSendingNudge)
         .task(id: model.snapshot.lastNudgeSentAt) {
             while !Task.isCancelled {
                 let elapsed = Date().timeIntervalSince(model.snapshot.lastNudgeSentAt ?? .distantPast)

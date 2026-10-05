@@ -9,6 +9,8 @@ struct RecordMetadata: Sendable {
     var savedAt: @Sendable (CKRecord) -> Date?
     /// Positively written by another iCloud account than this one.
     var isForeign: @Sendable (CKRecord) -> Bool
+    /// Creation only, no fallback: a counter's identity (`Snapshot.partnerNudgeCreatedAt`).
+    var firstSavedAt: @Sendable (CKRecord) -> Date? = { $0.creationDate }
 
     static let server = RecordMetadata(createdAt: { $0.creationDate ?? $0.modificationDate },
                                        savedAt: { $0.modificationDate },
@@ -26,6 +28,13 @@ struct ParsedDelta {
     var myNudge: CKRecord?
     var theirNudge: CKRecord?
     var theirReceipts: CKRecord?
+    /// The status records' server save times — how the partner's copies are ordered.
+    var myStatusSavedAt: Date?
+    var theirStatusSavedAt: Date?
+    /// When the partner's nudge counter was created: a new one restarts at 1.
+    var theirNudgeCreatedAt: Date?
+    /// The partner's nudge counter was deleted (an unlink on their side).
+    var theirNudgeErased = false
     var anniversaryRecord: CKRecord?
     var requestRecord: CKRecord?
     /// Readable moments; reported ones (`hidden`) are already dropped — the
@@ -114,11 +123,22 @@ struct ParsedDelta {
             }
             switch record.recordType {
             case CloudSync.RecordType.status:
-                if name == mineRole.statusRecordName { delta.myStatus = record }
-                if name == theirsRole.statusRecordName { delta.theirStatus = record }
+                if name == mineRole.statusRecordName {
+                    delta.myStatus = record
+                    delta.myStatusSavedAt = metadata.savedAt(record)
+                }
+                if name == theirsRole.statusRecordName {
+                    delta.theirStatus = record
+                    delta.theirStatusSavedAt = metadata.savedAt(record)
+                }
             case CloudSync.RecordType.nudge:
                 if name == mineRole.nudgeRecordName { delta.myNudge = record }
-                if name == theirsRole.nudgeRecordName { delta.theirNudge = record }
+                if name == theirsRole.nudgeRecordName {
+                    delta.theirNudge = record
+                    delta.theirNudgeCreatedAt = metadata.firstSavedAt(record)
+                        .flatMap { $0.timeIntervalSince1970.isFinite ? $0 : nil }
+                        .map { Date(timeIntervalSince1970: $0.timeIntervalSince1970.rounded(.down)) }
+                }
             case CloudSync.RecordType.receipt:
                 if name == theirsRole.receiptRecordName { delta.theirReceipts = record }
             case CloudSync.RecordType.anniversary:
@@ -142,6 +162,7 @@ struct ParsedDelta {
         for recordID in deletedIDs {
             let name = recordID.recordName
             if name == theirsRole.statusRecordName { delta.partnerErased = true }
+            if name == theirsRole.nudgeRecordName { delta.theirNudgeErased = true }
             if name == CloudSync.anniversaryRecordName { delta.anniversaryErased = true }
             if name == CloudSync.anniversaryRequestRecordName { delta.requestErased = true }
             if let id = mineRole.momentID(fromRecordName: name) ?? theirsRole.momentID(fromRecordName: name),
@@ -156,6 +177,7 @@ struct ParsedDelta {
         }
         // A delete and a recreation can share one delta; the record that exists now wins.
         if delta.theirStatus != nil { delta.partnerErased = false }
+        if delta.theirNudge != nil { delta.theirNudgeErased = false }
         if delta.anniversaryRecord != nil { delta.anniversaryErased = false }
         if delta.requestRecord != nil { delta.requestErased = false }
         return delta
@@ -175,37 +197,52 @@ struct ParsedDelta {
 
     /// `alreadyKnown` is the index's IDs captured *before* this delta is filed,
     /// so "new" means not already stored — a full resync re-delivers everything.
+    /// `oldestRetained` is the index's oldest kept `sentAt` once it's at its
+    /// cap: an unknown moment older than that is history past the cap, not
+    /// news, and would be trimmed straight back out. `fullResync` (no token)
+    /// with `announcedFloor` keeps re-fetched history from being announced.
     func outcome(mineRole: PairRole,
                  previousMine: StatusPayload?,
                  previousTheirs: StatusPayload?,
                  minePublished: Bool,
                  alreadyKnown: Set<String>,
-                 hidden: Set<String>) -> Outcome {
+                 hidden: Set<String>,
+                 oldestRetained: Date? = nil,
+                 fullResync: Bool = false,
+                 announcedFloor: Date? = nil,
+                 now: Date = Date()) -> Outcome {
         // A status record and its nudge counter arrive independently; fold
         // each into what was already known.
-        let mine = CloudSync.payload(from: myStatus, nudge: myNudge, existing: previousMine, fromPartner: false)
+        let mine = CloudSync.payload(from: myStatus, nudge: myNudge, existing: previousMine,
+                                     fromPartner: false, savedAt: myStatusSavedAt)
         let theirs = partnerErased ? nil : CloudSync.payload(from: theirStatus, nudge: theirNudge,
-                                                             existing: previousTheirs)
+                                                             existing: previousTheirs, savedAt: theirStatusSavedAt)
+        let pastCap = { (moment: Moment) in
+            !alreadyKnown.contains(moment.id) && (oldestRetained.map { moment.sentAt < $0 } ?? false)
+        }
+        let unknown = moments.filter { !alreadyKnown.contains($0.id) && !pastCap($0) }
         // Our own records moved on the server — another device on this iCloud
         // account did it. Judged against what was held, not "arrived": a full
         // resync re-delivers everything and changes nothing. An unpublished
         // local edit legitimately differs from the server copy, so it doesn't count.
         let ownRecordsChanged = (myStatus != nil && minePublished && mine?.updatedAt != previousMine?.updatedAt)
             || (myNudge != nil && mine?.nudgeCount != previousMine?.nudgeCount)
-            || moments.contains { $0.fromMe && !alreadyKnown.contains($0.id) }
+            || (!fullResync && unknown.contains { $0.fromMe })
 
         let fold = RefreshDelta(
             mine: mine,
             theirs: theirs,
             partnerErased: partnerErased,
-            anniversary: anniversaryRecord.flatMap(CloudSync.anniversary(from:)),
+            anniversary: anniversaryRecord.flatMap { CloudSync.anniversary(from: $0, now: now) },
             anniversaryErased: anniversaryErased,
             receiptReadable: theirReceipts != nil,
             statusSeen: theirReceipts.flatMap(CloudSync.statusSeen(from:)),
             anniversaryRequestedAt: requestRecord.flatMap(CloudSync.anniversaryRequestDate(from:)),
             anniversaryRequestErased: requestErased,
             freshStart: freshStart,
-            unreadableRecords: unreadable.count
+            unreadableRecords: unreadable.count,
+            partnerNudgeCreatedAt: partnerErased ? nil : theirNudgeCreatedAt,
+            partnerNudgeErased: theirNudgeErased && !partnerErased
         )
 
         // Gated on the status *record* changing (not a nudge-only delta). A
@@ -225,11 +262,15 @@ struct ParsedDelta {
             myToLog = mine
         }
 
-        let arrived = moments.sorted { $0.sentAt < $1.sentAt }
-        let newFromPartner = arrived.filter { !$0.fromMe && !alreadyKnown.contains($0.id) }
+        let arrived = moments.filter { !pastCap($0) }.sorted { $0.sentAt < $1.sentAt }
+        let isNews = { (moment: Moment) in
+            !alreadyKnown.contains(moment.id) && !pastCap(moment)
+                && AnnouncementPolicy.isNews(moment, fullResync: fullResync, floor: announcedFloor, now: now)
+        }
+        let newFromPartner = arrived.filter { !$0.fromMe && isNews($0) }
         // Same "new" test: a resync re-delivering history unreadable is not news.
         let heldKinds = heldMoments
-            .filter { !alreadyKnown.contains($0.id) && !hidden.contains($0.id) }
+            .filter { isNews($0) && !hidden.contains($0.id) }
             .sorted { $0.sentAt < $1.sentAt }
             .map(\.kind)
 
@@ -240,6 +281,8 @@ struct ParsedDelta {
                                    heldPartnerMomentKinds: heldKinds,
                                    heldPartnerStatus: unreadable.contains(mineRole.other.statusRecordName))
         result.removedMoments = removedMomentIDs.count
+        result.fullResync = fullResync
+        result.partnerLeft = partnerErased
         return Outcome(fold: fold,
                        partnerStatusToLog: partnerToLog,
                        myStatusToLog: myToLog,

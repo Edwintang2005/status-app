@@ -116,6 +116,29 @@ struct MomentStore {
         return image
     }
 
+    /// The library grid's decodes, kept apart from the widget's 512 px ones and
+    /// costed by their own (smaller) pixel size. App only.
+    nonisolated(unsafe) private static let gridCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 300
+        cache.totalCostLimit = 48 * 1_024 * 1_024
+        return cache
+    }()
+
+    /// A library tile: decoded off the main thread at the tile's pixel size
+    /// (`maxPixel`, capped at the stored 512).
+    func gridThumbnail(for id: String, maxPixel: CGFloat) async -> UIImage? {
+        if let cached = Self.gridCache.object(forKey: id as NSString) { return cached }
+        guard let url = thumbURL(for: id) else { return nil }
+        let side = min(maxPixel, Self.thumbMaxDimension)
+        let image = await Task.detached(priority: .userInitiated) { Self.decoded(url, maxPixel: side) }.value
+        if let image {
+            let pixels = image.size.width * image.scale * image.size.height * image.scale
+            Self.gridCache.setObject(image, forKey: id as NSString, cost: Int(pixels * 4))
+        }
+        return image
+    }
+
     func hasThumbnail(for id: String) -> Bool {
         guard let url = thumbURL(for: id) else { return false }
         return FileManager.default.fileExists(atPath: url.path)
@@ -125,10 +148,12 @@ struct MomentStore {
     /// cache keeps serving an image whose files are gone.
     private static func evictThumbnail(id: String) {
         thumbnailCache.removeObject(forKey: id as NSString)
+        gridCache.removeObject(forKey: id as NSString)
     }
 
     static func clearThumbnailCache() {
         thumbnailCache.removeAllObjects()
+        gridCache.removeAllObjects()
     }
 
     private static func jpeg(_ image: UIImage,

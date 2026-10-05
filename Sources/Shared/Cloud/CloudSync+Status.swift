@@ -12,29 +12,49 @@ extension CloudSync {
         let recordID = CKRecord.ID(recordName: pairing.role.statusRecordName,
                                    zoneID: zoneID(for: pairing))
 
-        try await withZoneRecovery(pairing) {
+        let outcome = try await withZoneRecovery(pairing) {
             // Another device of ours, or an overlapping publish, may write first.
             try await retryingConflicts("Status") {
                 try await saveStatus(payload, to: recordID, in: database)
             }
-            // Separate save: the log wants overwrite semantics (`allKeys`), the
-            // status a conflict check. A failure here still fails the publish,
-            // so `Outbox.republishStatus` retries both — each is idempotent.
-            if logged {
-                try await saveStatusLog(payload, role: pairing.role, zone: recordID.zoneID, in: database)
-            }
         }
 
+        if case .superseded(let server) = outcome {
+            // Surfaced, not swallowed: marking ours sent would show a status the
+            // partner never gets. The newer one is adopted in its place.
+            await MainActor.run {
+                _ = SharedStore.shared.mutate { $0.adoptSupersedingStatus(server, over: payload) }
+            }
+            return
+        }
+
+        // The record is there: the status counts as sent from here, whatever
+        // its log does — a failed log is retried alone (`Outbox.republishStatus`).
         await MainActor.run {
-            _ = SharedStore.shared.mutate {
-                if logged { $0.myStatusLoggedAt = payload.wordsAt }
-                // A publish finishing late must not revert a newer local status —
-                // it would also pass `markStatusPublished`'s currency check for it.
-                guard payload.updatedAt >= ($0.mine?.updatedAt ?? .distantPast) else { return }
-                $0.mine = payload
+            _ = SharedStore.shared.mutate { $0.recordPublished(payload, savedAt: outcome.savedAt) }
+        }
+        if logged {
+            // Separate save: the log wants overwrite semantics (`allKeys`), the
+            // status a conflict check. A failure still fails the publish.
+            try await withZoneRecovery(pairing) {
+                try await saveStatusLog(payload, role: pairing.role, zone: recordID.zoneID, in: database)
+            }
+            await MainActor.run {
+                _ = SharedStore.shared.mutate(reloadWidgets: false) { $0.myStatusLoggedAt = payload.wordsAt }
             }
         }
         await pruneStatusLog(pairing, in: database)
+    }
+
+    enum StatusSaveOutcome: Sendable {
+        /// Written now, or already there: the server's save time.
+        case saved(Date?)
+        case superseded(StatusPayload)
+
+        var savedAt: Date? {
+            if case .saved(let date) = self { return date }
+            return nil
+        }
     }
 
     /// The per-change history record. Named by when the words were set (not a
@@ -100,19 +120,26 @@ extension CloudSync {
     }
 
     func saveStatus(_ payload: StatusPayload,
-                            to recordID: CKRecord.ID,
-                            in database: CKDatabase) async throws {
-        let record = try await fetchRecord(recordID, in: database)
-            ?? CKRecord(recordType: RecordType.status, recordID: recordID)
+                    to recordID: CKRecord.ID,
+                    in database: CKDatabase) async throws -> StatusSaveOutcome {
+        let existing = try await fetchRecord(recordID, in: database)
         // Never regress the server copy: a slow publish (or a republish from a
         // second device on the account) must lose to a newer status already there.
-        // Judged against the server's save time too, so a copy a fast clock
-        // stamped in the future doesn't block every later status.
-        if let current = record[Field.updatedAt] as? Date,
-           TrustedTime.plausible(current, serverTime: record.modificationDate) > payload.updatedAt {
+        let server = existing.flatMap { Self.payload(from: $0, nudge: nil, existing: nil, fromPartner: false) }
+        let readable = existing.map(Self.isReadable) ?? true
+        switch StatusSavePolicy.decide(server: server, serverReadable: readable, payload: payload, now: Date()) {
+        case .unreadableNewer:
+            log.notice("Status save waiting: the server's newer copy couldn't be read here.")
+            throw SyncError.saveUnconfirmed
+        case .alreadySaved:
+            return .saved(existing?.modificationDate)
+        case .superseded:
             log.notice("Status save skipped: the server already has a newer status.")
-            return
+            if let server { return .superseded(server) }
+        case .save:
+            break
         }
+        let record = existing ?? CKRecord(recordType: RecordType.status, recordID: recordID)
         record.encryptedValues[Field.emoji] = payload.emoji
         record.encryptedValues[Field.message] = payload.message
         record.encryptedValues[Field.displayName] = payload.displayName
@@ -123,6 +150,35 @@ extension CloudSync {
         let result = try await database.modifyRecords(saving: [record],
                                                       deleting: [],
                                                       savePolicy: .ifServerRecordUnchanged)
-        try Self.confirmSaved(result, recordID)
+        return .saved(try Self.confirmSaved(result, recordID).modificationDate)
+    }
+}
+
+extension Snapshot {
+    /// `payload` reached the server. A late finish never reverts a newer local
+    /// status, and the nudge fields stay the store's: another process (the
+    /// lock-screen heart) may have written them since `payload` was built.
+    mutating func recordPublished(_ payload: StatusPayload, savedAt: Date?) {
+        markStatusPublished(payload)
+        guard payload.updatedAt >= (mine?.updatedAt ?? .distantPast) else { return }
+        var published = payload
+        published.serverSavedAt = savedAt.map { Date(timeIntervalSince1970: $0.timeIntervalSince1970.rounded(.down)) }
+        if let mine {
+            published.nudgeCount = mine.nudgeCount
+            published.lastNudgeAt = mine.lastNudgeAt
+        }
+        mine = published
+    }
+
+    /// Our save lost to a newer status on the server: that one is ours now —
+    /// unless a newer local edit landed meanwhile, which publishes on its own.
+    mutating func adoptSupersedingStatus(_ server: StatusPayload, over payload: StatusPayload) {
+        guard let held = mine, held.updatedAt == payload.updatedAt else { return }
+        var adopted = server
+        adopted.nudgeCount = held.nudgeCount
+        adopted.lastNudgeAt = held.lastNudgeAt
+        mine = adopted
+        myStatusPublished = true
+        myStatusLoggedAt = adopted.wordsAt
     }
 }

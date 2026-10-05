@@ -7,6 +7,10 @@ struct MomentLibraryView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var opened: Moment?
+    /// Failed tiles and their retry count — held here, not in the tile, so the
+    /// cell can offer Retry to VoiceOver (it reads the cell as one element).
+    @State private var failedTiles: Set<String> = []
+    @State private var retries: [String: Int] = [:]
     @State private var filter: HistoryFilter = .all
     @State private var kind: MomentKindFilter = .all
     @State private var reporting: Moment?
@@ -136,13 +140,23 @@ struct MomentLibraryView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel(for: moment))
         .accessibilityHint("Opens it")
-        .contextMenu {
-            if !moment.fromMe {
-                Button(role: .destructive) {
-                    reporting = moment
-                } label: {
-                    Label("Report…", systemImage: "flag")
-                }
+        .contextMenu { reportAction(moment) }
+        // Guideline 1.2: reachable under VoiceOver and Voice Control, not only by long-press.
+        .accessibilityActions {
+            if failedTiles.contains(moment.id) {
+                Button("Retry") { retry(moment) }
+            }
+            reportAction(moment)
+        }
+    }
+
+    @ViewBuilder
+    private func reportAction(_ moment: Moment) -> some View {
+        if !moment.fromMe {
+            Button(role: .destructive) {
+                reporting = moment
+            } label: {
+                Label("Report…", systemImage: "flag")
             }
         }
     }
@@ -177,20 +191,38 @@ struct MomentLibraryView: View {
         if moment.isVoice {
             VoiceMomentTile(moment: moment)
         } else {
-            LibraryThumbnail(moment: moment)
+            LibraryThumbnail(moment: moment,
+                             attempt: retries[moment.id, default: 0],
+                             unavailable: Binding(get: { failedTiles.contains(moment.id) },
+                                                  set: { failed in
+                                                      if failed { failedTiles.insert(moment.id) } else { failedTiles.remove(moment.id) }
+                                                  }),
+                             retry: { retry(moment) })
         }
+    }
+
+    private func retry(_ moment: Moment) {
+        retries[moment.id, default: 0] += 1
     }
 }
 
 /// A photo or drawing tile. Past the media cache window the thumbnail is
 /// fetched as the tile scrolls into view — the grid is lazy, so only what's on
-/// screen is asked for, and scrolling away cancels the task.
+/// screen is asked for, batched with its neighbours (`ThumbnailFetcher`), and
+/// scrolling away withdraws it. Decoded off the main thread at tile size.
 private struct LibraryThumbnail: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.displayScale) private var displayScale
     let moment: Moment
+    /// Bumped by a retry; the load re-runs on it.
+    let attempt: Int
+    @Binding var unavailable: Bool
+    let retry: () -> Void
 
     @State private var image: UIImage?
-    @State private var unavailable = false
+
+    /// The grid's widest column, in pixels: no tile draws bigger.
+    private var maxPixel: CGFloat { 140 * displayScale }
 
     var body: some View {
         if let image {
@@ -200,25 +232,39 @@ private struct LibraryThumbnail: View {
                 .fill(Color.primary.opacity(0.06))
                 .overlay {
                     if unavailable {
-                        Image(systemName: model.isOffline ? "wifi.slash" : "exclamationmark.icloud")
-                            .font(.system(size: 18))
-                            .foregroundStyle(.tertiary)
+                        // Its own button over the tile's: retrying beats opening a blank page.
+                        Button(action: retry) {
+                            VStack(spacing: 4) {
+                                Image(systemName: model.isOffline ? "wifi.slash" : "arrow.clockwise")
+                                    .font(.system(size: 18))
+                                Text("Retry")
+                                    .font(Theme.rounded(11, .semibold))
+                            }
+                            .foregroundStyle(Theme.mutedText)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Couldn't load. Retry")
                     } else {
                         ProgressView().controlSize(.small)
                     }
                 }
                 // Keyed on the connection too: a tile that missed offline tries again on reconnect.
-                .task(id: "\(moment.id)-\(model.isOffline)") {
-                    image = MomentStore.shared.thumbnail(for: moment.id)
-                    guard image == nil else { return }
-                    // The spinner, not last pass's failure glyph, while this one runs.
-                    unavailable = false
-                    let fetched = await model.ensureThumbnail(for: moment)
-                    guard !Task.isCancelled else { return }
-                    image = MomentStore.shared.thumbnail(for: moment.id)
-                    unavailable = !fetched && image == nil
-                }
+                .task(id: "\(moment.id)-\(model.isOffline)-\(attempt)") { await load() }
         }
+    }
+
+    private func load() async {
+        image = await MomentStore.shared.gridThumbnail(for: moment.id, maxPixel: maxPixel)
+        guard image == nil, !Task.isCancelled else { return }
+        // The spinner, not last pass's failure glyph, while this one runs.
+        unavailable = false
+        _ = await model.ensureThumbnail(for: moment)
+        guard !Task.isCancelled else { return }
+        image = await MomentStore.shared.gridThumbnail(for: moment.id, maxPixel: maxPixel)
+        guard !Task.isCancelled else { return }
+        unavailable = image == nil
     }
 }
 

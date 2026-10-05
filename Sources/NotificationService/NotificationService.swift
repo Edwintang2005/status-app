@@ -2,52 +2,63 @@ import CloudKit
 import UserNotifications
 import os
 
-#if canImport(WidgetKit)
-import WidgetKit
-#endif
-
 /// Handles CloudKit's visible pushes (which survive force-quit) in the ~30s
 /// mutable-content window: fetch, decrypt on-device, update the App Group and
-/// widget, and replace the generic wording — CloudKit can't read the encrypted fields.
-/// `@unchecked`: the expiry callback and the enrich task race on delivery,
-/// which `deliveryLock` serialises; the other state is set before the task starts.
+/// widget, and replace the generic wording — CloudKit can't read the encrypted
+/// fields. What the banner says is `PushBannerPolicy`'s; this only applies it.
+/// `@unchecked`: the expiry callback and the enrich task race on delivery and
+/// on `fallback`, which `deliveryLock` serialises; the rest is set before the task starts.
 final class NotificationService: UNNotificationServiceExtension, @unchecked Sendable {
     private let log = Logger(subsystem: AppConfig.appGroupID, category: "NotificationService")
 
     private var contentHandler: ((UNNotificationContent) -> Void)?
-    /// Its own copy, never the one `enrich` is rewriting — expiry must not
-    /// deliver a half-rewritten banner.
-    private var fallback: UNMutableNotificationContent?
+    /// What expiry delivers: CloudKit's version until the banner is worded, then
+    /// that wording — a copy, never the content `enrich` is still changing.
+    private var fallback: UNNotificationContent?
     private var work: Task<Void, Never>?
     private let deliveryLock = NSLock()
     private var delivered = false
+    private var receivedAt = Date()
+    /// One widget reload per push, however many the refresh asks for.
+    private var reloadHold: SharedStore.WidgetReloadHold?
 
     override func didReceive(_ request: UNNotificationRequest,
                              withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
         self.contentHandler = contentHandler
+        receivedAt = Date()
+        let push = PushBannerPolicy.Push(
+            subscriptionID: CKNotification(fromRemoteNotificationDictionary: request.content.userInfo)?.subscriptionID)
         // Category up front, so every exit — enriched, unclaimed, refresh failed,
         // or the expiry fallback — carries the banner actions.
-        let category = Self.category(for: request.content.userInfo)
         let fallback = request.content.mutableCopy() as? UNMutableNotificationContent
-        fallback?.categoryIdentifier = category
+        fallback?.categoryIdentifier = push.category
         self.fallback = fallback
+        reloadHold = SharedStore.shared.holdWidgetReloads()
         // Handed to the task; only the category is set on it here first.
         nonisolated(unsafe) let original = request.content
         nonisolated(unsafe) let mutable = original.mutableCopy() as? UNMutableNotificationContent
-        mutable?.categoryIdentifier = category
+        mutable?.categoryIdentifier = push.category
 
+        let hold = reloadHold
         work = Task { [weak self] in
-            guard let self else { return }
-            let enriched = await self.enrich(mutable, userInfo: original.userInfo)
+            guard let self else {
+                hold?.release(widgetNeedsFetch: true)
+                return
+            }
+            let enriched = await self.enrich(mutable, push: push, userInfo: original.userInfo)
             self.deliver(enriched ?? original)
         }
     }
 
-    /// Out of time — show CloudKit's generic version rather than nothing.
+    /// Out of time — show the worded banner if there is one, else CloudKit's.
     override func serviceExtensionTimeWillExpire() {
         work?.cancel()
-        // The refresh may have landed records before the deadline — reload anyway.
-        SharedStore.reloadWidgets()
+        // The refresh may have landed records before the deadline — reload anyway,
+        // and let the widget fetch: this pass may not have finished.
+        reloadHold?.release(widgetNeedsFetch: true)
+        deliveryLock.lock()
+        let fallback = self.fallback
+        deliveryLock.unlock()
         if let fallback {
             deliver(fallback)
         }
@@ -63,247 +74,96 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         contentHandler?(content)
     }
 
-    private static func category(for userInfo: [AnyHashable: Any]) -> String {
-        switch CKNotification(fromRemoteNotificationDictionary: userInfo)?.subscriptionID {
-        case CloudSync.SubscriptionID.status?: return NotificationCategory.status
-        case CloudSync.SubscriptionID.nudge?: return NotificationCategory.nudge
-        case CloudSync.SubscriptionID.moment?: return NotificationCategory.moment
-        default: return ""
-        }
+    private func setFallback(_ content: UNMutableNotificationContent) {
+        let copy = content.copy() as? UNNotificationContent
+        deliveryLock.lock()
+        if let copy { fallback = copy }
+        deliveryLock.unlock()
     }
 
     // MARK: - Enrichment
 
     private func enrich(_ content: UNMutableNotificationContent?,
+                        push: PushBannerPolicy.Push,
                         userInfo: [AnyHashable: Any]) async -> UNNotificationContent? {
+        // A refresh that throws midway may still have applied records, and the
+        // widget must not miss them — but one that didn't finish leaves it to fetch.
+        // Ahead of every return: a hold left open silences a reused process's reloads.
+        var widgetNeedsFetch = true
+        defer { reloadHold?.release(widgetNeedsFetch: widgetNeedsFetch) }
         guard let content else { return nil }
-        guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) else {
+        guard CKNotification(fromRemoteNotificationDictionary: userInfo) != nil else { return content }
+
+        // Unpaired with the old subscriptions still registered (an offline block,
+        // a local-only reset): never at full volume, never a heart to send back.
+        guard await MainActor.run(body: { SharedStore.shared.pairing != nil }) else {
+            widgetNeedsFetch = false
+            apply(PushBannerPolicy.unpaired, to: content)
             return content
         }
-
-        // Deferred so it runs on *every* exit — a refresh that throws midway
-        // may still have applied records, and the widget must not miss them.
-        defer { SharedStore.reloadWidgets() }
 
         let result: RefreshResult
         do {
             result = try await CloudSync.shared.refresh()
+        } catch SyncError.notPaired {
+            apply(PushBannerPolicy.unpaired, to: content)
+            return content
         } catch {
             log.error("Refresh failed in service extension: \(error.localizedDescription)")
             return content
         }
+        widgetNeedsFetch = result.incomplete
 
-        let (partnerName, reportedAt, freshStarted) = await MainActor.run {
-            (SharedStore.shared.snapshot.moderatedPartnerName, SharedStore.shared.hiddenPartnerStatusAt,
-             SharedStore.shared.snapshot.freshStart.clearedBefore != nil)
-        }
-
-        // Dispatch by subscriptionID, never by the sync delta: whichever
-        // process refreshes first consumes the delta, so it can't classify the
-        // push. Each branch claims against the watermarks; an unclaimed push is
-        // either our own write from another device on this account, or an event
-        // some other process already announced — neither is news from the partner.
-        // Unless this process simply couldn't decrypt the delta (a locked phone),
-        // or only took the first batch of a large one: then the event is real
-        // and unannounced, and CloudKit's generic words must stay at full volume.
-        let couldNotRead = !result.unreadableRecordNames.isEmpty || result.incomplete
         // Out of time: the expiry fallback is (or is about to be) delivered, and
         // a claim now would mark announced an event whose rich banner never shows.
         if Task.isCancelled { return content }
-        switch notification.subscriptionID {
-        case CloudSync.SubscriptionID.moment?:
-            // Picked and claimed inside one `mutate` under the cross-process lock —
-            // see `AnnouncementPolicy.claimMomentBanner`.
-            let fromDelta = result.newPartnerMoments
-            let fromIndex = MomentIndex.shared.load()
-            let moment = await MainActor.run { () -> Moment? in
-                var chosen: Moment?
-                _ = SharedStore.shared.mutate(reloadWidgets: false) {
-                    chosen = AnnouncementPolicy.claimMomentBanner(delta: fromDelta, index: fromIndex, in: &$0)
-                }
-                return chosen
+        let index = push == .moment ? MomentIndex.shared.load() : []
+        let plan = await MainActor.run { () -> PushBannerPolicy.Plan in
+            let reportedAt = SharedStore.shared.hiddenPartnerStatusAt
+            var plan = PushBannerPolicy.Plan.unchanged
+            // Check-and-claim in one `mutate` under the cross-process lock, so
+            // concurrent instances and the app never both announce one event.
+            _ = SharedStore.shared.mutate(reloadWidgets: false) {
+                plan = PushBannerPolicy.decide(push, result: result, index: index, reportedAt: reportedAt, in: &$0)
             }
-            if let moment {
-                await apply(moment, to: content, partnerName: partnerName)
-            } else if let body = AnnouncementPolicy.heldMomentBody(kinds: result.heldPartnerMomentKinds) {
-                applyHeld(body, category: NotificationCategory.moment, to: content, partnerName: partnerName)
-            } else if freshStarted, result.removedMoments > 0, !couldNotRead {
-                // A fresh start's deletions fire the moment subscription; the push
-                // can't be dropped, so it says what happened, quietly.
-                content.title = AppConfig.appName
-                content.body = String(localized: "Moments were cleared for your fresh start.")
-                content.threadIdentifier = "fresh-start"
-                quieten(content)
-            } else {
-                applyUnclaimed(to: content, ownWrite: result.ownRecordsChanged, couldNotRead: couldNotRead,
-                               ownBody: String(localized: "You sent something from another device."))
-            }
-        case CloudSync.SubscriptionID.nudge?:
-            let count: Int? = if let known = result.partnerStatus?.nudgeCount {
-                known
-            } else {
-                await MainActor.run { SharedStore.shared.snapshot.theirs?.nudgeCount }
-            }
-            let sentAt: Date? = if let known = result.partnerStatus?.lastNudgeAt {
-                known
-            } else {
-                await MainActor.run { SharedStore.shared.snapshot.theirs?.lastNudgeAt }
-            }
-            let claim = await MainActor.run { () -> AnnouncementPolicy.NudgeInterruption? in
-                guard let count else { return nil }
-                var interruption: AnnouncementPolicy.NudgeInterruption?
-                _ = SharedStore.shared.mutate(reloadWidgets: false) {
-                    guard AnnouncementPolicy.claimNudgeBanner(count: count, in: &$0) else { return }
-                    interruption = AnnouncementPolicy.nudgeInterruption(sentAt: sentAt, in: &$0)
-                }
-                return interruption
-            }
-            if let claim {
-                applyNudge(to: content, partnerName: partnerName, interruption: claim)
-            } else if result.ownRecordsChanged {
-                applyUnclaimed(to: content, ownWrite: true, couldNotRead: false,
-                               ownBody: String(localized: "You sent a nudge from another device."))
-            } else if couldNotRead {
-                // The nudge record wasn't in what this process could read (one
-                // batch of a large delta): real and unannounced, so full volume.
-            } else {
-                // Already announced by the app or a sibling instance: keep the
-                // words, drop the interruption so it doesn't read as a second tap.
-                applyNudge(to: content, partnerName: partnerName,
-                           interruption: .init(stale: false, breaksThroughFocus: false))
-                quieten(content)
-            }
-        case CloudSync.SubscriptionID.status?:
-            // Check-and-claim in one `mutate` under the cross-process lock so
-            // concurrent pushes don't both rewrite — see `AnnouncementPolicy.claimStatusBanner`.
-            var banner: AnnouncementPolicy.StatusBanner?
-            // An unreadable status record leaves `partnerStatus` at the *previous*
-            // status; claiming that would announce old words as news.
-            if let status = result.partnerStatus, !result.heldPartnerStatus {
-                banner = await MainActor.run { () -> AnnouncementPolicy.StatusBanner? in
-                    var claimed: AnnouncementPolicy.StatusBanner?
-                    _ = SharedStore.shared.mutate(reloadWidgets: false) {
-                        claimed = AnnouncementPolicy.claimStatusBanner(for: status, in: &$0)
-                    }
-                    return claimed
-                }
-            }
-            switch (banner, result.partnerStatus) {
-            case (.rename(let previousName)?, let status?):
-                applyRename(status, to: content, previousName: previousName)
-            case (.update?, let status?):
-                applyStatus(status, to: content, partnerName: partnerName, reportedAt: reportedAt)
-            default:
-                if result.heldPartnerStatus {
-                    applyHeld(String(localized: "updated their status"), category: NotificationCategory.status,
-                              to: content, partnerName: partnerName)
-                    content.threadIdentifier = "status-updates"
-                } else {
-                    applyUnclaimed(to: content, ownWrite: result.ownRecordsChanged, couldNotRead: couldNotRead,
-                                   ownBody: String(localized: "You changed your status from another device."))
-                }
-            }
-        default:
-            // Legacy silent push or unknown subscription — the refresh already ran.
-            break
+            return plan
         }
-
-        return content
-    }
-
-    /// Nothing claimable. Our own write from a second device on this account
-    /// says so; an event another process already announced keeps CloudKit's
-    /// generic words but stops interrupting — the push itself can't be dropped.
-    /// A delta this process couldn't decrypt is left exactly as CloudKit sent
-    /// it: the partner's event is real, and nobody else has announced it.
-    private func applyUnclaimed(to content: UNMutableNotificationContent,
-                                ownWrite: Bool,
-                                couldNotRead: Bool,
-                                ownBody: String) {
-        if ownWrite {
-            content.title = AppConfig.appName
-            content.body = ownBody
-            quieten(content)
-        } else if !couldNotRead {
-            quieten(content)
-        }
-    }
-
-    /// Couldn't decrypt, but the record's name says it's the partner's: their
-    /// name and what the unencrypted fields allow, at full volume — nobody else
-    /// can have announced it. Stamped so the app's sweep supersedes it later.
-    private func applyHeld(_ body: String,
-                           category: String,
-                           to content: UNMutableNotificationContent,
-                           partnerName: String) {
-        content.title = partnerName
-        content.body = body
-        content.userInfo[NotificationCategory.heldBannerKey] = category
-    }
-
-    private func quieten(_ content: UNMutableNotificationContent) {
-        content.sound = nil
-        content.interruptionLevel = .passive
-    }
-
-    private func applyStatus(_ status: StatusPayload,
-                             to content: UNMutableNotificationContent,
-                             partnerName: String,
-                             reportedAt: Date?) {
-        content.title = partnerName
-        // Same rule as every screen: a reported or filtered status shows no words.
-        let shown = status.moderated(reportedAt: reportedAt)
-        if shown.message != status.message {
-            content.body = String(localized: "updated their status")
-        } else if shown.message.isEmpty {
-            content.body = shown.emoji
-        } else {
-            content.body = "\(shown.emoji) \(shown.message)"
-        }
-        // Each update stays individually in Notification Centre as history.
-        content.threadIdentifier = "status-updates"
-    }
-
-    /// The status record changed but its words didn't: the partner renamed
-    /// themselves. The push can't be suppressed, so say what actually happened.
-    private func applyRename(_ status: StatusPayload,
-                             to content: UNMutableNotificationContent,
-                             previousName: String) {
-        let fallback = String(localized: "Your partner")
-        content.title = ContentFilter.displayName(previousName, fallback: fallback)
-        content.body = String(localized: "is now going by \(ContentFilter.displayName(status.displayName, fallback: String(localized: "a new name")))")
-        content.threadIdentifier = "status-updates"
-    }
-
-    private func apply(_ moment: Moment,
-                       to content: UNMutableNotificationContent,
-                       partnerName: String) async {
-        // `partnerName` covers records written before the sender set a name.
-        content.title = moment.displaySenderName(fallback: partnerName)
-        content.body = moment.displayCaption ?? moment.arrivalSummary
-
-        // The refresh above fetched at most the widget's thumbnail; pull only
-        // what the banner attaches — the thumbnail, or a memo's recording — never
-        // the full photo, which would eat the 30 s window for nothing shown.
+        apply(plan, to: content)
+        // Worded and claimed: from here on expiry delivers these words, not
+        // CloudKit's — the claim stands, so nothing would ever re-announce it.
+        setFallback(content)
+        guard let moment = plan.attachment else { return content }
+        // The refresh fetched at most the widget's thumbnail; pull only what the
+        // banner attaches — the thumbnail, or a memo's recording — and only while
+        // there's time left for the words to go out anyway.
         var attachment = MomentAttachment.make(for: moment, suffix: "push")
-        if attachment == nil {
-            try? await CloudSync.shared.fetchAttachment(for: moment)
+        if attachment == nil,
+           let deadline = PushBannerPolicy.attachmentDeadline(elapsed: Date().timeIntervalSince(receivedAt)) {
+            try? await withDeadline(deadline) { try await CloudSync.shared.fetchAttachment(for: moment) }
             attachment = MomentAttachment.make(for: moment, suffix: "push")
         }
         if let attachment {
             content.attachments = [attachment]
         }
+        return content
     }
 
-    /// The watermark was already advanced by the claim above, under the lock.
-    /// Same wording rules as `NotificationManager.postNudge`.
-    private func applyNudge(to content: UNMutableNotificationContent,
-                            partnerName: String,
-                            interruption: AnnouncementPolicy.NudgeInterruption) {
-        content.title = partnerName
-        content.body = interruption.stale
-            ? String(localized: "was thinking of you earlier 💭")
-            : String(localized: "is thinking of you 💭")
-        content.interruptionLevel = interruption.breaksThroughFocus ? .timeSensitive : .active
+    private func apply(_ plan: PushBannerPolicy.Plan, to content: UNMutableNotificationContent) {
+        if let title = plan.title { content.title = title }
+        if let body = plan.body { content.body = body }
+        if let thread = plan.thread { content.threadIdentifier = thread }
+        if let category = plan.heldCategory { content.userInfo[NotificationCategory.heldBannerKey] = category }
+        if plan.dropsCategory { content.categoryIdentifier = "" }
+        switch plan.volume {
+        case .asSent:
+            break
+        case .quiet:
+            content.sound = nil
+            content.interruptionLevel = .passive
+        case .active:
+            content.interruptionLevel = .active
+        case .timeSensitive:
+            content.interruptionLevel = .timeSensitive
+        }
     }
 }

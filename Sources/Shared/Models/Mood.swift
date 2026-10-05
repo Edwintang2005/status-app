@@ -172,3 +172,16 @@ enum MoodGroup: String, CaseIterable, Identifiable {
     /// The celebration preset, so callers don't hard-code the emoji.
     static var celebration: Mood? { allMoods.first(where: \.isCelebration) }
 }
+
+extension StatusHistoryEntry {
+    /// The picker's "Recent": own distinct statuses, newest first. Emoji-only
+    /// counts — it is a status — but an entry with neither emoji nor words doesn't.
+    static func recentOwn(in log: [StatusHistoryEntry], limit: Int) -> [StatusHistoryEntry] {
+        var seen = Set<String>()
+        return log
+            .filter { $0.fromMe && !($0.emoji.isEmpty && $0.message.isEmpty)
+                && seen.insert("\($0.emoji)|\($0.message)").inserted }
+            .prefix(limit)
+            .map { $0 }
+    }
+}

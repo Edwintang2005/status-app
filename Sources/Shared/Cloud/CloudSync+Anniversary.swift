@@ -65,15 +65,21 @@ extension CloudSync {
         }
     }
 
+    /// Bounded (invariant 23) and whole seconds: compared against its own stored copy.
     static func anniversaryRequestDate(from record: CKRecord) -> Date? {
-        guard let date = record.encryptedValues[Field.requestedAt] as? Date else { return nil }
-        // Whole seconds, like every persisted date: compared against its own stored copy.
-        return Date(timeIntervalSince1970: date.timeIntervalSince1970.rounded(.down))
+        guard let date = record.encryptedValues[Field.requestedAt] as? Date,
+              date.timeIntervalSince1970.isFinite else { return nil }
+        return TrustedTime.plausible(date, serverTime: record.modificationDate)
     }
 
-    static func anniversary(from record: CKRecord) -> Anniversary? {
-        guard let startsAt = record.encryptedValues[Field.startsAt] as? Date else { return nil }
-        let zone = record.encryptedValues[Field.timeZone] as? String
-        return Anniversary(startsAt: startsAt, timeZoneID: zone ?? TimeZone.current.identifier)
+    /// The date may predate 1970, so it has its own floor (`Anniversary.earliest`)
+    /// rather than `TrustedTime`'s; the ceiling is the same.
+    static func anniversary(from record: CKRecord, now: Date = Date()) -> Anniversary? {
+        guard let startsAt = record.encryptedValues[Field.startsAt] as? Date,
+              startsAt.timeIntervalSince1970.isFinite else { return nil }
+        let ceiling = (record.modificationDate ?? now).addingTimeInterval(AppConfig.clockSkewAllowance)
+        let bounded = min(max(startsAt, Anniversary.earliest), ceiling)
+        let zone = (record.encryptedValues[Field.timeZone] as? String).map { String($0.prefix(64)) }
+        return Anniversary(startsAt: bounded, timeZoneID: zone ?? TimeZone.current.identifier)
     }
 }

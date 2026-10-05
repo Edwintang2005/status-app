@@ -18,7 +18,7 @@ struct VoiceMemoComposerView: View {
 
     /// A take in progress or in hand, or words typed for it.
     private var hasContent: Bool {
-        recorder.state == .recording || recorder.hasTake || !caption.isEmpty
+        recorder.state == .recording || recorder.state == .paused || recorder.hasTake || !caption.isEmpty
     }
 
     var body: some View {
@@ -43,7 +43,7 @@ struct VoiceMemoComposerView: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
             }
-            .navigationTitle("Send a voice memo")
+            .navigationTitle("Voice memo")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -73,8 +73,10 @@ struct VoiceMemoComposerView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             // Backgrounding stops the take — never record behind the user's back.
-            if phase != .active { recorder.stop() }
+            // Not `.inactive`: Control Centre or a banner pulled down would cut it short.
+            if phase == .background { recorder.stop() }
         }
+        .onChange(of: recorder.state) { old, new in announce(from: old, to: new) }
     }
 
     // MARK: - Stage
@@ -84,6 +86,8 @@ struct VoiceMemoComposerView: View {
             Text(statusLine)
                 .font(Theme.rounded(15, .medium))
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
                 .contentTransition(.opacity)
 
             WaveformBars(levels: displayedLevels,
@@ -108,7 +112,7 @@ struct VoiceMemoComposerView: View {
     /// While recording, a fixed-width window on the tail of the take (left-padded
     /// so bars scroll in at constant width); afterwards, the condensed whole take.
     private var displayedLevels: [Double] {
-        guard recorder.state == .recording else { return recorder.waveform }
+        guard recorder.state == .recording || recorder.state == .paused else { return recorder.waveform }
         let slots = AppConfig.voiceWaveformSampleCount
         let tail = Array(recorder.levels.suffix(slots))
         return Array(repeating: 0, count: max(0, slots - tail.count)) + tail
@@ -124,6 +128,7 @@ struct VoiceMemoComposerView: View {
     private var waveformTint: Color {
         switch recorder.state {
         case .recording: return Theme.warm
+        case .paused: return Theme.warm.opacity(0.5)
         case .finished: return Theme.accent
         case .idle, .denied: return Color.primary.opacity(0.16)
         }
@@ -137,6 +142,8 @@ struct VoiceMemoComposerView: View {
             return String(localized: "\(AppConfig.appName) needs the microphone")
         case .recording:
             return String(localized: "Recording…")
+        case .paused:
+            return String(localized: "Recording paused · tap Resume to carry on")
         case .finished:
             return player.isPlaying ? String(localized: "Playing") : String(localized: "Listen back, or send it")
         }
@@ -146,7 +153,7 @@ struct VoiceMemoComposerView: View {
         if recorder.hasTake, player.isPlaying {
             return Self.timeLabel(player.elapsed)
         }
-        if recorder.state == .recording {
+        if recorder.state == .recording || recorder.state == .paused {
             return "\(recorder.elapsedLabel) / \(Self.timeLabel(AppConfig.voiceMemoMaxDuration))"
         }
         return recorder.elapsedLabel
@@ -173,6 +180,23 @@ struct VoiceMemoComposerView: View {
                 }
             }
             .buttonStyle(PrimaryButtonStyle())
+
+        case .paused:
+            HStack(spacing: 12) {
+                Button {
+                    recorder.resume()
+                } label: {
+                    Label("Resume", systemImage: "mic.fill")
+                }
+                .buttonStyle(PrimaryButtonStyle())
+
+                Button {
+                    recorder.stop()
+                } label: {
+                    Label("Stop", systemImage: "stop.fill")
+                }
+                .buttonStyle(SecondaryButtonStyle())
+            }
 
         case .finished:
             HStack(spacing: 12) {
@@ -227,6 +251,24 @@ struct VoiceMemoComposerView: View {
     private func redo() {
         player.stop()
         recorder.discardTake()
+    }
+
+    /// The status line changes silently; VoiceOver hears the take start and end.
+    private func announce(from old: VoiceRecorder.State, to new: VoiceRecorder.State) {
+        let words: String
+        switch new {
+        case .recording:
+            words = old == .paused ? String(localized: "Recording again") : String(localized: "Recording")
+        case .paused:
+            words = String(localized: "Recording paused. Resume to carry on.")
+        case .finished:
+            words = String(localized: "Recording stopped at \(recorder.elapsedLabel)")
+        case .idle where old == .recording:
+            words = String(localized: "Too short to keep. Record again.")
+        default:
+            return
+        }
+        AccessibilityNotification.Announcement(words).post()
     }
 
     private var captionField: some View {

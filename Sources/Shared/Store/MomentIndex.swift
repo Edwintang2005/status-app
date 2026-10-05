@@ -4,8 +4,8 @@ import os
 /// The full moment history, as a JSON file in the App Group. Kept out of
 /// `Snapshot` so widget renders stay small. Entries are metadata only; media
 /// files live in `MomentStore` and may not be on this device.
-/// `@unchecked`: the file and `readFailed` are only written under `lock` (the
-/// getter is for tests).
+/// `@unchecked`: the file, `readFailed` and the cache are only touched under
+/// `lock` (the getter is for tests).
 final class MomentIndex: @unchecked Sendable {
     static let shared = MomentIndex()
 
@@ -23,6 +23,24 @@ final class MomentIndex: @unchecked Sendable {
     /// unlock, an I/O error). Writing then would replace the whole history with
     /// one delta, and pruning against it would delete media, so both wait.
     private(set) var readFailed = false
+    /// The last list read or written, keyed by the file's identity: a refresh
+    /// loads the index several times, and only another process's write (an
+    /// atomic replace, so a new inode and mtime) makes decoding it again worth it.
+    private var cache: (key: FileKey, moments: [Moment])?
+
+    private struct FileKey: Equatable {
+        let modified: Date?
+        let size: Int?
+        let inode: Int?
+    }
+
+    /// Waveforms as bytes: the index is rewritten whole on every change.
+    private static let encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.userInfo[Moment.compactWaveformsKey] = true
+        return encoder
+    }()
 
     /// `fileURL` defaults to the App Group file; tests pass a temporary one.
     init(fileURL: URL? = nil, onCorrupt: (() -> Void)? = nil) {
@@ -52,22 +70,40 @@ final class MomentIndex: @unchecked Sendable {
         return readFailed ? nil : all
     }
 
-    private func loadUnlocked() -> [Moment] {
+    private func fileKey(_ url: URL) -> FileKey? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else { return nil }
+        return FileKey(modified: attributes[.modificationDate] as? Date,
+                       size: (attributes[.size] as? NSNumber)?.intValue,
+                       inode: (attributes[.systemFileNumber] as? NSNumber)?.intValue)
+    }
+
+    /// `writing` only under `crossLock`: entries that failed to decode are then
+    /// dealt with for good — bytes kept, the zone asked to refill them, the
+    /// rest saved — where a plain read just leaves the file be.
+    private func loadUnlocked(writing: Bool = false) -> [Moment] {
         guard let fileURL else { return [] }
+        let key = fileKey(fileURL)
+        if let key, let cache, cache.key == key {
+            readFailed = false
+            return cache.moments
+        }
         let data: Data
         do {
             data = try Data(contentsOf: fileURL)
             readFailed = false
         } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
             readFailed = false
+            cache = nil
             return []
         } catch {
             readFailed = true
+            cache = nil
             log.error("Moment index unreadable, leaving it untouched: \(error.localizedDescription, privacy: .public)")
             return []
         }
+        let decoded: LossyArray<Moment>
         do {
-            return try JSONDecoder.shared.decode([Moment].self, from: data)
+            decoded = try JSONDecoder.shared.decode(LossyArray<Moment>.self, from: data)
         } catch {
             log.error("Corrupt moment index: \(error.localizedDescription)")
             // Preserve the bytes rather than letting the next save overwrite them,
@@ -76,9 +112,23 @@ final class MomentIndex: @unchecked Sendable {
             let sidecar = fileURL.appendingPathExtension("corrupt")
             try? FileManager.default.removeItem(at: sidecar)
             try? FileManager.default.moveItem(at: fileURL, to: sidecar)
+            cache = nil
             onCorrupt()
             return []
         }
+        guard decoded.dropped == 0 else {
+            // One bad entry costs itself, not the history — and never the
+            // unsent sends beside it, which exist nowhere else.
+            log.error("Moment index: \(decoded.dropped) unreadable entries skipped.")
+            if writing {
+                try? data.write(to: fileURL.appendingPathExtension("corrupt"), options: .atomic)
+                onCorrupt()
+                saveUnlocked(decoded.elements)
+            }
+            return decoded.elements
+        }
+        if let key { cache = (key, decoded.elements) }
+        return decoded.elements
     }
 
     private func saveUnlocked(_ moments: [Moment]) {
@@ -89,10 +139,17 @@ final class MomentIndex: @unchecked Sendable {
             let pendingBeyondCap = moments.dropFirst(AppConfig.momentHistoryLimit)
                 .filter { $0.fromMe && !$0.uploaded }
             let trimmed = Array(moments.prefix(AppConfig.momentHistoryLimit)) + pendingBeyondCap
-            try JSONEncoder.shared.encode(trimmed).write(to: fileURL, options: .atomic)
+            try Self.encoder.encode(trimmed).write(to: fileURL, options: .atomic)
+            cache = fileKey(fileURL).map { ($0, trimmed) }
         } catch {
+            cache = nil
             log.error("Failed to write moment index: \(error.localizedDescription)")
         }
+    }
+
+    /// Newest first; ties by id, so the order never depends on how a merge went.
+    private static func newestFirst(_ a: Moment, _ b: Moment) -> Bool {
+        a.sentAt != b.sentAt ? a.sentAt > b.sentAt : a.id > b.id
     }
 
     /// Inserts or replaces by id, keeping the list ordered newest first.
@@ -111,13 +168,14 @@ final class MomentIndex: @unchecked Sendable {
         defer { lock.unlock() }
 
         return crossLock.withLock {
-            var all = loadUnlocked()
+            var byID: [String: Moment] = [:]
+            for moment in loadUnlocked(writing: true) where byID[moment.id] == nil { byID[moment.id] = moment }
             let isCleared = cleared?() ?? { _ in false }
             for moment in moments where !isCleared(moment) {
                 var moment = moment
                 // `seen` is local-only; a full resync re-inserts everything, and
                 // without this merge heard voice memos would re-badge as new.
-                if let existing = all.first(where: { $0.id == moment.id }) {
+                if let existing = byID[moment.id] {
                     moment.seen = moment.seen || existing.seen
                     // All local-only fields are sticky: a copy rebuilt from a
                     // CloudKit record carries none of them, and every delta that
@@ -132,16 +190,16 @@ final class MomentIndex: @unchecked Sendable {
                     if moment.senderName.isEmpty { moment.senderName = existing.senderName }
                     if moment.waveform.isEmpty { moment.waveform = existing.waveform }
                 }
-                all.removeAll { $0.id == moment.id }
-                all.append(moment)
+                byID[moment.id] = moment
             }
+            var all = Array(byID.values)
             // A date a skewed clock stamped in the future would pin that entry
             // as newest for good; healed to now, which keeps it in place today.
             let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
             for index in all.indices where TrustedTime.isFuture(all[index].sentAt, now: now) {
                 all[index].sentAt = now
             }
-            all.sort { $0.sentAt > $1.sentAt }
+            all.sort(by: Self.newestFirst)
             saveUnlocked(all)
             return readFailed ? nil : all
         }
@@ -155,7 +213,7 @@ final class MomentIndex: @unchecked Sendable {
 
         return crossLock.withLock {
             let targets = Set(ids)
-            var all = loadUnlocked()
+            var all = loadUnlocked(writing: true)
             var changed = false
             // Whole seconds, like every persisted date: the value is compared
             // against its own ISO-8601 copy once it comes back in a receipt.
@@ -178,7 +236,7 @@ final class MomentIndex: @unchecked Sendable {
         defer { lock.unlock() }
 
         return crossLock.withLock {
-            var all = loadUnlocked()
+            var all = loadUnlocked(writing: true)
             var changed = false
             for index in all.indices where all[index].fromMe {
                 guard let seenAt = map[all[index].id],
@@ -199,7 +257,7 @@ final class MomentIndex: @unchecked Sendable {
 
         return crossLock.withLock {
             let targets = Set(ids)
-            var all = loadUnlocked()
+            var all = loadUnlocked(writing: true)
             var changed = false
             for index in all.indices where targets.contains(all[index].id) && !all[index].uploaded {
                 all[index].uploaded = true
@@ -225,7 +283,7 @@ final class MomentIndex: @unchecked Sendable {
         defer { lock.unlock() }
 
         return crossLock.withLock {
-            var all = loadUnlocked()
+            var all = loadUnlocked(writing: true)
             var requeued: [Moment] = []
             for index in all.indices
             where all[index].fromMe && all[index].uploaded
@@ -244,7 +302,7 @@ final class MomentIndex: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         crossLock.withLock {
-            var all = loadUnlocked()
+            var all = loadUnlocked(writing: true)
             all.removeAll { $0.id == id }
             saveUnlocked(all)
         }
@@ -256,7 +314,7 @@ final class MomentIndex: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         crossLock.withLock {
-            var all = loadUnlocked()
+            var all = loadUnlocked(writing: true)
             let before = all.count
             all.removeAll { ids.contains($0.id) }
             if all.count != before { saveUnlocked(all) }
@@ -274,7 +332,7 @@ final class MomentIndex: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return crossLock.withLock {
-            let kept = loadUnlocked().filter { $0.fromMe && !$0.uploaded }
+            let kept = loadUnlocked(writing: true).filter { $0.fromMe && !$0.uploaded }
             saveUnlocked(kept)
             return kept
         }
@@ -287,7 +345,67 @@ final class MomentIndex: @unchecked Sendable {
         // Locked: an extension's in-flight `insert` could otherwise rewrite the
         // file right after the delete, undoing the wipe.
         crossLock.withLock {
-            try? FileManager.default.removeItem(at: fileURL)
+            // The sidecars too: salvage must never bring an ex's unsent sends back.
+            let sidecar = fileURL.appendingPathExtension("corrupt")
+            for url in [fileURL, sidecar, sidecar.appendingPathExtension("salvaged")] {
+                try? FileManager.default.removeItem(at: url)
+            }
+            cache = nil
+        }
+    }
+
+    /// Own sends an older build's strict decode took with it into the `.corrupt`
+    /// sidecar: those whose media is still here go back in the retry queue.
+    /// Looked at once — the sidecar is then kept as `.corrupt.salvaged`.
+    @discardableResult
+    func salvagePendingUploads(hasMedia: (Moment) -> Bool) -> [Moment] {
+        guard let fileURL else { return [] }
+        let sidecar = fileURL.appendingPathExtension("corrupt")
+        guard FileManager.default.fileExists(atPath: sidecar.path) else { return [] }
+        lock.lock()
+        defer { lock.unlock() }
+        return crossLock.withLock {
+            guard let data = try? Data(contentsOf: sidecar) else { return [] }
+            var all = loadUnlocked(writing: true)
+            guard !readFailed else { return [] }
+            let known = Set(all.map(\.id))
+            let salvaged = ((try? JSONDecoder.shared.decode(LossyArray<Moment>.self, from: data))?.elements ?? [])
+                .filter { $0.fromMe && !$0.uploaded && !known.contains($0.id) && hasMedia($0) }
+            let done = sidecar.appendingPathExtension("salvaged")
+            try? FileManager.default.removeItem(at: done)
+            try? FileManager.default.moveItem(at: sidecar, to: done)
+            guard !salvaged.isEmpty else { return [] }
+            all += salvaged
+            all.sort(by: Self.newestFirst)
+            saveUnlocked(all)
+            log.notice("Recovered \(salvaged.count) unsent moment(s) from a corrupt index.")
+            return salvaged
+        }
+    }
+}
+
+/// Decodes an array element by element, skipping any that fail: one bad entry
+/// (or one a newer build wrote) costs itself, not the whole file.
+struct LossyArray<Element: Decodable>: Decodable {
+    var elements: [Element] = []
+    var dropped = 0
+
+    init(from decoder: Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        while !container.isAtEnd {
+            if let element = try container.decode(Lossy.self).value {
+                elements.append(element)
+            } else {
+                dropped += 1
+            }
+        }
+    }
+
+    /// Always decodes, so the container moves past a bad element.
+    private struct Lossy: Decodable {
+        let value: Element?
+        init(from decoder: Decoder) throws {
+            value = try? Element(from: decoder)
         }
     }
 }

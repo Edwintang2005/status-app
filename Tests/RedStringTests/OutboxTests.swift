@@ -23,6 +23,8 @@ final class FakeBackend: SyncBackend, @unchecked Sendable {
     /// Runs inside the call, before it returns — a write landing mid-flight.
     var duringPublish: (@Sendable () -> Void)?
     var duringReceipts: (@Sendable () -> Void)?
+    /// Runs inside `send`, before it lands — a refresh's retry pass mid-upload.
+    var duringSend: (@Sendable (String) async -> Void)?
 
     var published: [(payload: StatusPayload, logged: Bool)] { lock.withLock { _published } }
     var sent: [String] { lock.withLock { _sent } }
@@ -62,11 +64,12 @@ final class FakeBackend: SyncBackend, @unchecked Sendable {
     @discardableResult func refresh() async throws -> RefreshResult { .empty }
     @discardableResult func sendNudge() async throws -> Bool { true }
     func send(_ moment: Moment) async throws {
+        await duringSend?(moment.id)
         try check("send")
         lock.withLock { _sent.append(moment.id) }
     }
     func fetchMedia(for moment: Moment) async throws {}
-    func fetchThumbnail(for moment: Moment) async throws {}
+    func fetchThumbnails(for moments: [Moment]) async throws {}
     func archiveZone() async throws -> ArchiveContents.Zone {
         ArchiveContents.Zone(moments: [], statuses: [], unreadable: 0)
     }
@@ -128,6 +131,8 @@ final class OutboxTests: XCTestCase {
     private var media: Set<String> = []
     /// Times the outbox told the store its index lost an entry.
     private var indexChanges = 0
+    /// Moments the outbox reported delivered, first time or on a retry.
+    private var confirmed: [String] = []
     private var statusLog: StatusHistoryLog!
     /// Moment ids whose files the outbox deleted.
     private var deletedMedia: [String] = []
@@ -140,6 +145,7 @@ final class OutboxTests: XCTestCase {
         backend = FakeBackend()
         media = []
         indexChanges = 0
+        confirmed = []
         deletedMedia = []
         statusLog = StatusHistoryLog(fileURL: temporaryFile("status-history.json"))
         let backend = backend!
@@ -150,7 +156,8 @@ final class OutboxTests: XCTestCase {
                         hasMedia: { [unowned self] in self.media.contains($0.id) },
                         deleteMedia: { [unowned self] in self.deletedMedia.append($0) },
                         protect: { _, body in try await body() },
-                        indexChanged: { [unowned self] in self.indexChanges += 1 })
+                        indexChanged: { [unowned self] in self.indexChanges += 1 },
+                        uploaded: { [unowned self] in self.confirmed.append($0.id) })
     }
 
     private var quota: CKError { CKError(.quotaExceeded) }
@@ -252,7 +259,7 @@ final class OutboxTests: XCTestCase {
     /// Only a full iCloud stops the pass; anything else is that one send's problem.
     func testATransientFailureMovesOnToTheNextSend() async {
         queue(["a", "b"])
-        backend.fail("send", with: CKError(.serviceUnavailable))
+        backend.fail("send", with: CKError(.internalError))
         await outbox.retryPendingUploads(automatic: true)
         XCTAssertEqual(backend.sent.count, 1)
         XCTAssertEqual(index.load().filter { !$0.uploaded }.count, 1, "the failed one stays queued")
@@ -362,6 +369,131 @@ final class OutboxTests: XCTestCase {
         XCTAssertEqual(backend.statusSeen.last, .some(nil))
     }
 
+    // MARK: Review fixes (October 2026)
+
+    /// #9: a refresh's retry pass landing during a send's own upload leaves it
+    /// alone — it was uploaded twice — and it isn't "waiting to send" meanwhile.
+    func testARetryPassSkipsASendStillUploading() async throws {
+        queue(["a"])
+        let outbox = outbox!
+        let moment = try XCTUnwrap(index.load().first)
+        let seenInFlight = Flag()
+        backend.duringSend = { id in
+            guard id == "a" else { return }
+            await MainActor.run { seenInFlight.value = outbox.uploadsInFlight.contains("a") }
+            await outbox.retryPendingUploads(automatic: true)
+        }
+        try await outbox.upload(moment)
+        XCTAssertEqual(backend.sent, ["a"], "one upload, not two")
+        XCTAssertTrue(seenInFlight.value)
+        XCTAssertTrue(outbox.uploadsInFlight.isEmpty)
+        XCTAssertEqual(index.load().first?.uploaded, true)
+    }
+
+    /// #34: a send that went out on a retry confirms like a first one.
+    func testARetriedSendIsConfirmed() async {
+        queue(["a"])
+        await outbox.retryPendingUploads(automatic: true)
+        XCTAssertEqual(confirmed, ["a"])
+    }
+
+    func testAFailedUploadIsNotConfirmedAndStaysQueued() async throws {
+        queue(["a"])
+        let moment = try XCTUnwrap(index.load().first)
+        backend.fail("send", with: CKError(.networkFailure))
+        do {
+            try await outbox.upload(moment)
+            XCTFail("the failure reaches the caller, which words it")
+        } catch {}
+        XCTAssertTrue(confirmed.isEmpty)
+        XCTAssertEqual(index.load().first?.uploaded, false)
+        XCTAssertNil(outbox.throttledUntil)
+    }
+
+    /// #11: CloudKit's retry-after holds automatic passes; the footer's tap doesn't wait.
+    func testAThrottleHoldsAutomaticRetries() async {
+        queue(["a", "b"])
+        let now = Date()
+        backend.fail("send", with: CKError(.requestRateLimited, userInfo: [CKErrorRetryAfterKey: NSNumber(value: 120)]))
+        await outbox.retryPendingUploads(automatic: true, now: now)
+        XCTAssertTrue(backend.sent.isEmpty, "the rest would be throttled too")
+        XCTAssertEqual(outbox.throttledUntil, now.addingTimeInterval(120))
+
+        await outbox.retryPendingUploads(automatic: true, now: now.addingTimeInterval(60))
+        XCTAssertTrue(backend.sent.isEmpty, "inside the server's window")
+        store.mutate { $0.mine = Fixtures.status(); $0.myStatusPublished = false }
+        await outbox.republishStatus(automatic: true, now: now.addingTimeInterval(60))
+        XCTAssertTrue(backend.published.isEmpty, "every automatic loop waits it out")
+
+        await outbox.retryPendingUploads(automatic: true, now: now.addingTimeInterval(121))
+        XCTAssertEqual(Set(backend.sent), ["a", "b"])
+        XCTAssertNil(outbox.throttledUntil)
+    }
+
+    /// #12: the status landed but its log didn't — only the log is owed, and
+    /// the status shows as sent meanwhile.
+    func testAPendingLogIsRetriedOnItsOwn() async {
+        let mine = Fixtures.status("🍜", "lunch", at: Fixtures.date(10))
+        store.mutate { $0.mine = mine; $0.myStatusPublished = true; $0.myStatusLoggedAt = Fixtures.t0 }
+        XCTAssertEqual(store.snapshot.unpublishedCount(role: .owner), 0, "the status itself is sent")
+        let changed = await outbox.republishStatus()
+        XCTAssertTrue(changed)
+        XCTAssertEqual(backend.published.first?.logged, true)
+
+        let rename = Fixtures.status("🍜", "lunch", at: Fixtures.date(10))
+        store.mutate { $0.mine = rename; $0.myStatusLoggedAt = rename.wordsAt }
+        let again = await outbox.republishStatus()
+        XCTAssertFalse(again, "nothing owed once the log matches the words")
+    }
+
+    /// #12: a publish that keeps failing for another reason backs off.
+    func testRepeatedStatusFailuresBackOff() async {
+        store.mutate { $0.mine = Fixtures.status(); $0.myStatusPublished = false }
+        let now = Date()
+        backend.fail("publish", with: CKError(.internalError), times: 2)
+        await outbox.republishStatus(automatic: true, now: now)
+        await outbox.republishStatus(automatic: true, now: now.addingTimeInterval(1))
+        XCTAssertEqual(backend.published.count, 0)
+        let delay = Outbox.statusRetryDelay(failures: 1)
+        await outbox.republishStatus(automatic: true, now: now.addingTimeInterval(delay + 1))
+        XCTAssertEqual(backend.published.count, 0, "the second attempt failed too")
+        await outbox.republishStatus(automatic: false, now: now.addingTimeInterval(delay + 2))
+        XCTAssertEqual(backend.published.count, 1, "the footer's tap doesn't wait")
+        XCTAssertEqual(Outbox.statusRetryDelay(failures: 30), AppConfig.statusRetryMaxDelay)
+    }
+
+    /// #25: paging through new photos is one receipt write, not one per page.
+    func testReceiptFlushesAreDebounced() async throws {
+        index.insert([Fixtures.moment("seen", seen: true)])
+        for _ in 0..<3 {
+            store.mutate { $0.receiptsDirty = true }
+            outbox.scheduleReceiptFlush(after: 0.05)
+        }
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertEqual(backend.receipts.count, 1)
+
+        store.mutate { $0.receiptsDirty = true }
+        outbox.scheduleReceiptFlush(after: 60)
+        await outbox.flushReceiptsNow()
+        XCTAssertEqual(backend.receipts.count, 2, "backgrounding sends what the debounce held")
+    }
+
+    /// #7: own sends an older build's strict decode left in the sidecar go back in the queue.
+    func testSalvagedSendsAreRetried() async throws {
+        let url = temporaryFile("salvage/moments-index.json")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let lost = Fixtures.moment("lost", fromMe: true, uploaded: false)
+        try JSONEncoder.shared.encode([lost]).write(to: url.appendingPathExtension("corrupt"))
+        let index = MomentIndex(fileURL: url, onCorrupt: {})
+        let backend = backend!
+        let outbox = Outbox(store: store, index: index, statusLog: statusLog, backend: { backend },
+                            hasMedia: { _ in true }, deleteMedia: { _ in },
+                            protect: { _, body in try await body() }, indexChanged: {})
+        await outbox.retryPendingUploads(automatic: true)
+        XCTAssertEqual(backend.sent, ["lost"])
+        XCTAssertEqual(index.load().first?.uploaded, true)
+    }
+
     func testNothingIsSentWhileUnpaired() async {
         store.pairing = nil
         store.mutate { $0.mine = Fixtures.status(); $0.myStatusPublished = false; $0.receiptsDirty = true }
@@ -371,4 +503,9 @@ final class OutboxTests: XCTestCase {
         await outbox.flushReceipts()
         XCTAssertTrue(backend.published.isEmpty && backend.sent.isEmpty && backend.receipts.isEmpty)
     }
+}
+
+/// A flag a `@Sendable` test hook can set.
+private final class Flag: @unchecked Sendable {
+    var value = false
 }

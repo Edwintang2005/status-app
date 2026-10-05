@@ -40,15 +40,30 @@ struct CopyLinkButton: View {
     /// Both representations deliberately: Messages/Mail want the URL type so
     /// the link arrives tappable; plenty of apps only read plain text.
     private func copy() {
-        UIPasteboard.general.items = [[
+        Clipboard.copy([
             UTType.url.identifier: url,
             UTType.utf8PlainText.identifier: url.absoluteString,
-        ]]
+        ], localOnly: false)
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         copied = true
         Task {
             try? await Task.sleep(for: .seconds(2))
             copied = false
+        }
+    }
+}
+
+/// The share sheet with a message around the link: a partner without the app
+/// lands on iCloud's web page, and nothing there says to come back and tap it again.
+struct InviteShareLink<Label: View>: View {
+    let url: URL
+    @ViewBuilder var label: Label
+
+    var body: some View {
+        ShareLink(item: url,
+                  subject: Text("Join me on \(AppConfig.appName)"),
+                  message: Text("Get \(AppConfig.appName) from the App Store first, then come back and tap this link to join me.")) {
+            label
         }
     }
 }
@@ -92,7 +107,7 @@ struct InviteLinkSheet: View {
                             .font(Theme.rounded(24, .bold))
                             .multilineTextAlignment(.center)
 
-                        Text("They tap it once and you're linked. That's the whole setup — no accounts, nothing to type.")
+                        Text("They tap it and you're linked — no accounts, nothing to type. If they don't have \(AppConfig.appName) yet, they install it first, then tap the link again.")
                             .font(Theme.rounded(15))
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -101,7 +116,7 @@ struct InviteLinkSheet: View {
                         VStack(spacing: 14) {
                             InviteLinkText(url: url)
 
-                            ShareLink(item: url) {
+                            InviteShareLink(url: url) {
                                 Label("Share link", systemImage: "square.and.arrow.up")
                                     .font(Theme.rounded(17, .semibold))
                                     .foregroundStyle(.white)

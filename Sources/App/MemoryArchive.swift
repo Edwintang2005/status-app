@@ -40,6 +40,7 @@ enum MemoryArchive {
 
     /// The partner's words go through the presentation helpers, like every other
     /// surface (invariant 20): `reportedStatusAt` hides a reported status.
+    /// Cancellable: the task's cancellation stops it and removes what it staged.
     /// - Parameter progress: called with `0...1` as media is gathered.
     static func write(_ contents: ArchiveContents,
                       myName: String,
@@ -55,23 +56,24 @@ enum MemoryArchive {
         let fileManager = FileManager.default
 
         let folderName = Self.folderName(partnerName: partnerName)
-        let staging = fileManager.temporaryDirectory.appendingPathComponent(folderName,
-                                                                           isDirectory: true)
-        try? fileManager.removeItem(at: staging)
+        // Per run: a cancelled run still winding down must not touch the next one's files.
+        let stagingRoot = fileManager.temporaryDirectory
+            .appendingPathComponent("archive-\(UUID().uuidString)", isDirectory: true)
+        let staging = stagingRoot.appendingPathComponent(folderName, isDirectory: true)
         try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
+        var finished = false
+        defer { if !finished { try? fileManager.removeItem(at: stagingRoot) } }
+
+        // Most of a long archive is fetched back from CloudKit rather than copied.
+        let missing = ordered.filter { $0.kind.isSupported && store.mediaURL(for: $0) == nil }
+        await fetchMedia(for: missing, progress: progress)
+        try Task.checkCancellation()
 
         var entries: [Entry] = []
         var unrecovered = 0
 
-        for (index, moment) in ordered.enumerated() {
-            progress(Double(index) / Double(ordered.count))
-
-            // Most of a long archive is fetched back from CloudKit rather than copied.
-            // Best effort: one missing photo shouldn't cost the rest.
-            if store.mediaURL(for: moment) == nil {
-                try? await Backend.current.fetchMedia(for: moment)
-            }
-
+        for moment in ordered {
+            try Task.checkCancellation()
             guard let source = store.mediaURL(for: moment) else {
                 unrecovered += 1
                 entries.append(Entry(moment: moment, relativePath: nil))
@@ -110,6 +112,7 @@ enum MemoryArchive {
 
         guard let container else {
             log.notice("No iCloud Drive; archive left on the device for sharing.")
+            finished = true
             return Outcome(folder: staging, destination: .deviceOnly,
                            momentCount: ordered.count, statusCount: statuses.count,
                            unrecovered: unrecovered, isComplete: contents.isComplete,
@@ -119,13 +122,48 @@ enum MemoryArchive {
         let documents = container.appendingPathComponent("Documents", isDirectory: true)
         try? fileManager.createDirectory(at: documents, withIntermediateDirectories: true)
         let final = Self.unusedURL(in: documents, named: folderName)
+        try Task.checkCancellation()
         try fileManager.moveItem(at: staging, to: final)
+        finished = true
+        try? fileManager.removeItem(at: stagingRoot)
 
         log.notice("Archived \(ordered.count) moments and \(statuses.count) statuses to iCloud Drive.")
         return Outcome(folder: final, destination: .iCloudDrive,
                        momentCount: ordered.count, statusCount: statuses.count,
                        unrecovered: unrecovered, isComplete: contents.isComplete,
                        includesZone: contents.includesZone, unreadable: contents.unreadable)
+    }
+
+    /// A few at a time, each bounded: one stalled download can't hold the rest,
+    /// and a missing photo is listed as unrecovered rather than costing the archive.
+    /// Stops starting new ones once cancelled.
+    private static func fetchMedia(for moments: [Moment],
+                                   progress: @escaping @Sendable (Double) -> Void) async {
+        guard !moments.isEmpty else { return }
+        let backend = Backend.current
+        let total = Double(moments.count)
+        await withTaskGroup(of: Void.self) { group in
+            var queue = moments[...]
+            var done = 0
+            func start(_ moment: Moment) {
+                group.addTask {
+                    try? await withDeadline(AppConfig.archiveItemDeadline) { try await backend.fetchMedia(for: moment) }
+                }
+            }
+            for _ in 0..<AppConfig.archiveFetchConcurrency {
+                guard let next = queue.popFirst() else { break }
+                start(next)
+            }
+            for await _ in group {
+                done += 1
+                progress(Double(done) / total)
+                if Task.isCancelled {
+                    queue.removeAll()
+                } else if let next = queue.popFirst() {
+                    start(next)
+                }
+            }
+        }
     }
 
     // MARK: - Naming
@@ -154,6 +192,7 @@ enum MemoryArchive {
         case .photo: return "Photos"
         case .drawing: return "Drawings"
         case .voice: return "Voice memos"
+        case .unsupported: return "Other"
         }
     }
 
