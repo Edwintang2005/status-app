@@ -223,7 +223,7 @@ struct SettingsView: View {
                 }
             }
             .scrollContentBackground(.hidden)
-            .hardTopScrollEdge()
+            .topBarBacking()
             .background(Theme.Background())
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)

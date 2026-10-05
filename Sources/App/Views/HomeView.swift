@@ -91,7 +91,7 @@ struct HomeView: View {
                     .containerRelativeFrame(.horizontal)
                 }
                 .scrollIndicators(.hidden)
-                .hardTopScrollEdge()
+                .topBarBacking()
                 .refreshable { await model.refresh() }
             }
             .navigationTitle(AppConfig.appName)

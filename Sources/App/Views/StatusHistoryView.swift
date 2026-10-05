@@ -33,6 +33,7 @@ struct StatusHistoryView: View {
                     HistoryFilterPicker(filter: $filter, partnerName: model.partnerName)
                         .padding(.horizontal, 16)
                         .padding(.bottom, 8)
+                        .zIndex(1)
 
                     if filtered.isEmpty {
                         ContentUnavailableView {
@@ -55,9 +56,10 @@ struct StatusHistoryView: View {
                             }
                         }
                         .scrollContentBackground(.hidden)
-                        .hardTopScrollEdge()
+                        .topBarBacking()
                     }
                 }
+                .topBarBackingCeiling()
             }
             .navigationTitle("Status history")
             .navigationBarTitleDisplayMode(.inline)

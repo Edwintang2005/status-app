@@ -57,8 +57,8 @@ addition requires re-deploying the schema to Production (README → "Shipping it
   opens the count, the logo flying into its header; the logo-hold stage and the
   Settings-title secret are gone, the owner's date is a visible "Our date" row
   (EGG-1/2). Home is partner-first with their last heart on the card (the
-  sweep on open had erased it), urgent notices above it, a hard scroll edge
-  under the title, and a soft haptic when something lands while it's in front
+  sweep on open had erased it), urgent notices above it, a bar backing that
+  fades in under the title, and a soft haptic when something lands while it's in front
   — native banners unchanged (HOME-1/2/3, NOT-1 as adjusted). The status picker
   waits for a change before Set (a preset tap counts), shows your words as the
   placeholder, sends words alone with 💬, has a Recent row and counters; an

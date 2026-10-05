@@ -160,15 +160,101 @@ struct SecondaryButtonStyle: ButtonStyle {
 
 // MARK: - Scroll edge
 
+// The bar backing, drawn by hand on iOS 26: the system's hard edge stops flush
+// with the bar's buttons, and its soft one let the title draw over the content
+// beneath it. Solid past the top of the content, then a short fade; it fades
+// in as the content scrolls under. Overlays only, so nothing resizes a scroll
+// view (invariant 21).
 extension View {
-    /// A scrolled title sits on a hard edge: iOS 26's soft one let the title
-    /// draw over the content beneath it (the heart button's label).
+    /// On the scroll view.
     @ViewBuilder
-    func hardTopScrollEdge() -> some View {
+    func topBarBacking() -> some View {
         if #available(iOS 26, *) {
-            scrollEdgeEffectStyle(.hard, for: .top)
+            modifier(TopBarBacking())
         } else {
             self
         }
+    }
+
+    /// On a stack with a header pinned above its scroll view: the backing then
+    /// reaches up over the header, which needs `.zIndex(1)` to stay above it.
+    func topBarBackingCeiling() -> some View {
+        modifier(TopBarBackingCeiling())
+    }
+}
+
+private struct TopBarCeilingKey: EnvironmentKey {
+    static let defaultValue: CGFloat? = nil
+}
+
+private extension EnvironmentValues {
+    /// The global y of the top of the stack's screen area, bar included.
+    var topBarCeiling: CGFloat? {
+        get { self[TopBarCeilingKey.self] }
+        set { self[TopBarCeilingKey.self] = newValue }
+    }
+}
+
+private struct TopBarBackingCeiling: ViewModifier {
+    @State private var ceiling: CGFloat?
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.topBarCeiling, ceiling)
+            .background {
+                Color.clear
+                    .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { ceiling = $0 }
+                    .ignoresSafeArea(edges: .top)
+            }
+    }
+}
+
+@available(iOS 26, *)
+private struct TopBarBacking: ViewModifier {
+    /// Solid this far past the content's top, so nothing sits on the cut; then the fade.
+    private static let margin: CGFloat = 8
+    private static let fade: CGFloat = 20
+    /// Scroll distance over which the backing fades in.
+    private static let reveal: CGFloat = 40
+
+    private struct Scroll: Equatable {
+        /// What the scroll view insets for a bar it runs under.
+        var inset: CGFloat = 0
+        /// 0 at rest, 1 once content is `reveal` under; clamped, so a longer scroll stops updating it.
+        var opacity: CGFloat = 0
+    }
+    @State private var scroll = Scroll()
+    @State private var minY: CGFloat = 0
+    @Environment(\.topBarCeiling) private var ceiling
+
+    func body(content: Content) -> some View {
+        content
+            .scrollEdgeEffectHidden(true, for: .top)
+            .onScrollGeometryChange(for: Scroll.self) {
+                Scroll(inset: $0.contentInsets.top,
+                       opacity: min(max(($0.contentOffset.y + $0.contentInsets.top) / Self.reveal, 0), 1))
+            } action: { _, now in
+                scroll = now
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { minY = $0 }
+            .overlay(alignment: .top) {
+                // Without a ceiling the scroll view already runs under the bar.
+                let above = ceiling.map { max(minY - $0, 0) } ?? 0
+                let solid = above + scroll.inset + Self.margin
+                let total = solid + Self.fade
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .frame(height: total)
+                    .mask {
+                        LinearGradient(stops: [.init(color: .black, location: solid / total),
+                                               .init(color: .clear, location: 1)],
+                                       startPoint: .top, endPoint: .bottom)
+                    }
+                    .offset(y: -above)
+                    .opacity(scroll.opacity)
+                    .ignoresSafeArea(edges: .top)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
     }
 }

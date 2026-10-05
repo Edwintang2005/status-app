@@ -31,6 +31,7 @@ struct MomentLibraryView: View {
                     HistoryFilterPicker(filter: $filter, partnerName: model.partnerName)
                         .padding(.horizontal, 16)
                         .padding(.bottom, 8)
+                        .zIndex(1)
 
                     if filtered.isEmpty {
                         ContentUnavailableView {
@@ -49,9 +50,10 @@ struct MomentLibraryView: View {
                             }
                             .padding(12)
                         }
-                        .hardTopScrollEdge()
+                        .topBarBacking()
                     }
                 }
+                .topBarBackingCeiling()
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
