@@ -97,6 +97,9 @@ final class VoiceRecorder {
         }
 
         discardTake()
+        // Recording re-categorises the session; a memo left playing would stall
+        // under it and keep showing as playing.
+        VoicePlayer.stopActive()
 
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("memo-\(UUID().uuidString).m4a")
@@ -191,6 +194,8 @@ final class VoiceRecorder {
     func discardTake() {
         ticker?.cancel()
         ticker = nil
+        // Like `VoicePlayer.stop()`: an idle composer closing mustn't silence a memo.
+        let ownedSession = recorder != nil
         recorder?.stop()
         recorder = nil
         if let fileURL {
@@ -200,7 +205,7 @@ final class VoiceRecorder {
         elapsed = 0
         levels = []
         state = state == .denied ? .denied : .idle
-        deactivateSession()
+        if ownedSession { deactivateSession() }
     }
 
     /// Called when the composer goes away with a take still unsent.

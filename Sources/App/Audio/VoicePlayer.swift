@@ -85,8 +85,13 @@ final class VoicePlayer {
             try session.setActive(true)
 
             let player = try AVAudioPlayer(contentsOf: url)
-            guard player.play() else { return }
+            // Held before `play()`, so a refusal releases the session through `stop()`.
             self.player = player
+            guard player.play() else {
+                log.error("Couldn't start \(url.lastPathComponent)")
+                stop()
+                return
+            }
             currentURL = url
             isPlaying = true
             progress = 0
@@ -94,7 +99,10 @@ final class VoicePlayer {
             startTicking()
         } catch {
             log.error("Couldn't play \(url.lastPathComponent): \(error.localizedDescription)")
-            stop()
+            // No player took the session, so `stop()` wouldn't release it — and
+            // a scrub retries this on every drag sample.
+            try? AVAudioSession.sharedInstance().setActive(false,
+                                                           options: .notifyOthersOnDeactivation)
         }
     }
 
@@ -112,14 +120,26 @@ final class VoicePlayer {
     func stop() {
         ticker?.cancel()
         ticker = nil
+        // Only the player that loaded audio may release the session: an idle
+        // one (the gallery opening over Home's memo) silenced the other
+        // player mid-file, which never learns of it and still shows playing.
+        let ownedSession = player != nil
         player?.stop()
         player = nil
         currentURL = nil
         isPlaying = false
         progress = 0
         elapsed = 0
-        try? AVAudioSession.sharedInstance().setActive(false,
-                                                       options: .notifyOthersOnDeactivation)
+        if ownedSession {
+            try? AVAudioSession.sharedInstance().setActive(false,
+                                                           options: .notifyOthersOnDeactivation)
+        }
+    }
+
+    /// Stops whichever memo is playing anywhere — before something else
+    /// (a recording) takes the audio session over.
+    static func stopActive() {
+        active?.stop()
     }
 
     private func resume(_ player: AVAudioPlayer) {
@@ -144,6 +164,9 @@ final class VoicePlayer {
     /// waveform. Loads and starts `url` if it isn't the current file, so
     /// scrubbing an idle memo begins playback from that point.
     func seek(_ url: URL, to fraction: Double) {
+        // Ran out since the last tick: settle it as the tick would, or the new
+        // head reads there as an interruption and a playing memo pauses.
+        if let player, isPlaying, !player.isPlaying, !Self.isMidFile(player) { stop() }
         if currentURL != url || player == nil {
             play(url)
         }
@@ -156,9 +179,16 @@ final class VoicePlayer {
         progress = player.duration > 0 ? target / player.duration : 0
     }
 
+    /// The ticker and `seek` must read a stopped player the same way.
+    private static func isMidFile(_ player: AVAudioPlayer) -> Bool {
+        player.currentTime > 0.05 && player.currentTime < player.duration - 0.1
+    }
+
     /// Polled rather than delegate-driven: the same tick has to advance the
     /// progress fill anyway, so it may as well notice the end of the file.
     private func startTicking() {
+        // A resume while the model still says playing (a double-tapped play) would orphan the old one.
+        ticker?.cancel()
         ticker = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(0.05))
@@ -173,9 +203,7 @@ final class VoicePlayer {
                     guard self.isPlaying else { return }
                     // Stopped mid-file = an interruption whose notification
                     // hasn't landed yet; hold the place. (A genuine end rewinds to 0.)
-                    let midFile = player.currentTime > 0.05
-                        && player.currentTime < player.duration - 0.1
-                    if midFile {
+                    if Self.isMidFile(player) {
                         self.pause()
                         return
                     }

@@ -216,7 +216,12 @@ struct HomeView: View {
         .onChange(of: anySheetShowing) { _, showing in
             // Root-level presentations (the anniversary prompt) wait on this.
             model.homeSheetShowing = showing
-            guard !showing else { return }
+            guard !showing else {
+                // Otherwise the memo plays on under the sheet with no control in sight;
+                // paused, not stopped, so it keeps its place.
+                voicePlayer.pause()
+                return
+            }
             consumePendingRoute()
             // A status that landed under a sheet is seen once it's uncovered —
             // unless the queued composer just covered it again.
@@ -224,7 +229,9 @@ struct HomeView: View {
             model.markPartnerStatusSeen()
         }
         .onChange(of: model.rootSheetShowing) { _, showing in
-            if !showing {
+            if showing {
+                voicePlayer.pause()
+            } else {
                 model.markPartnerStatusSeen()
                 consumePendingRoute()
             }

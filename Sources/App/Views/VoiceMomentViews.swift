@@ -50,6 +50,9 @@ struct VoicePlaybackCard: View {
         return player.isPlaying(audioURL)
     }
 
+    /// Playing or paused: the counter follows the playhead, a paused scrub included.
+    private var isLoaded: Bool { audioURL != nil && player.currentURL == audioURL }
+
     var body: some View {
         VStack(spacing: 26) {
             // Tap or swipe anywhere on the waveform to scrub.
@@ -79,7 +82,7 @@ struct VoicePlaybackCard: View {
                 .accessibilityLabel(isPlaying ? "Pause" : "Play")
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(isPlaying ? timeLabel(player.elapsed) : moment.durationLabel)
+                    Text(isLoaded ? timeLabel(player.elapsed) : moment.durationLabel)
                         .font(Theme.rounded(28, .semibold))
                         .monospacedDigit()
                         .contentTransition(.numericText())
@@ -120,6 +123,9 @@ struct VoiceMemoRow: View {
         return player.isPlaying(audioURL)
     }
 
+    /// Playing or paused: the counter follows the playhead, a paused scrub included.
+    private var isLoaded: Bool { audioURL != nil && player.currentURL == audioURL }
+
     // Not a Button: a wrapping Button claims touches before the waveform's
     // scrub gesture can, so the card takes a tap gesture instead.
     var body: some View {
@@ -141,7 +147,11 @@ struct VoiceMemoRow: View {
     }
 
     private var accessibilityValue: String {
-        if isPlaying { return String(localized: "Playing") }
+        // The adjustable action's only feedback, so it names the position.
+        if isLoaded {
+            let at = timeLabel(player.elapsed)
+            return isPlaying ? String(localized: "Playing, \(at)") : String(localized: "Paused, \(at)")
+        }
         return !moment.seen && !moment.fromMe ? String(localized: "New") : ""
     }
 
@@ -159,7 +169,7 @@ struct VoiceMemoRow: View {
                             .font(Theme.rounded(15, .semibold))
                             .lineLimit(1)
                         Spacer(minLength: 0)
-                        Text(isPlaying ? timeLabel(player.elapsed) : moment.durationLabel)
+                        Text(isLoaded ? timeLabel(player.elapsed) : moment.durationLabel)
                             .font(Theme.rounded(13))
                             .monospacedDigit()
                             .foregroundStyle(.secondary)

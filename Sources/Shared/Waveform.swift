@@ -63,6 +63,16 @@ struct WaveformBars: View {
         }
     }
 
+    /// `0...1` along the bars as drawn at `x` in a `width`-wide frame — the same
+    /// condense and width rules as `body`, so a scrub lands on the bar under the finger.
+    func fraction(atX x: CGFloat, in width: CGFloat) -> Double {
+        let capacity = max(1, Int((width + spacing) / (1 + spacing)))
+        let count = min(bars.count, capacity)
+        let span = barWidth(for: count, in: width) * CGFloat(count) + spacing * CGFloat(count - 1)
+        guard span > 0 else { return 0 }
+        return Double(min(1, max(0, (x - (width - span) / 2) / span)))
+    }
+
     private func barWidth(for count: Int, in available: CGFloat) -> CGFloat {
         guard count > 0 else { return 0 }
         let gaps = spacing * CGFloat(count - 1)

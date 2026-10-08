@@ -42,8 +42,8 @@ struct ScrubbableWaveform: View {
             Group {
                 if scrollSafe {
                     bars.overlay {
-                        HorizontalScrub { fraction in
-                            scrub(to: fraction)
+                        HorizontalScrub { x, width in
+                            scrub(atX: x, in: width)
                         } onEnded: {
                             isScrubbing = false
                         }
@@ -51,12 +51,14 @@ struct ScrubbableWaveform: View {
                 } else {
                     // High priority: a plain `.gesture` loses to the gallery pager's
                     // pan and to an enclosing Button, and the scrub never fires.
+                    // Off until the file is here, or an inert scrub still claims the page swipe.
                     bars.highPriorityGesture(
                         DragGesture(minimumDistance: minimumDragDistance)
                             .onChanged { value in
-                                scrub(to: value.location.x / max(1, geometry.size.width))
+                                scrub(atX: value.location.x, in: geometry.size.width)
                             }
-                            .onEnded { _ in isScrubbing = false }
+                            .onEnded { _ in isScrubbing = false },
+                        including: audioURL == nil ? .subviews : .all
                     )
                 }
             }
@@ -73,13 +75,15 @@ struct ScrubbableWaveform: View {
 }
 
 extension ScrubbableWaveform {
-    private func scrub(to fraction: CGFloat) {
+    private func scrub(atX x: CGFloat, in width: CGFloat) {
         guard let audioURL else { return }
         if !isScrubbing {
             isScrubbing = true
             onScrubStart?()
         }
-        player.seek(audioURL, to: fraction)
+        // Mapped onto the bars as drawn: on a wide row they stop at `maxBarWidth` and centre.
+        let bars = WaveformBars(levels: moment.waveform, spacing: spacing, maxBarWidth: maxBarWidth)
+        player.seek(audioURL, to: bars.fraction(atX: x, in: width))
     }
 }
 
@@ -88,8 +92,8 @@ extension ScrubbableWaveform {
 /// has claimed the touch the enclosing ScrollView never scrolls. Taps pass
 /// through to SwiftUI gestures on the ancestors.
 struct HorizontalScrub: UIViewRepresentable {
-    /// `0...1` across the view's width, on begin and every change.
-    var onChanged: (CGFloat) -> Void
+    /// The touch's x and the view's width, on begin and every change.
+    var onChanged: (CGFloat, CGFloat) -> Void
     var onEnded: () -> Void
 
     func makeUIView(context: Context) -> UIView {
@@ -115,9 +119,8 @@ struct HorizontalScrub: UIViewRepresentable {
 
         @objc func pan(_ gesture: UIPanGestureRecognizer) {
             guard let view = gesture.view else { return }
-            let fraction = gesture.location(in: view).x / max(1, view.bounds.width)
             switch gesture.state {
-            case .began, .changed: parent.onChanged(min(1, max(0, fraction)))
+            case .began, .changed: parent.onChanged(gesture.location(in: view).x, view.bounds.width)
             case .ended, .cancelled, .failed: parent.onEnded()
             default: break
             }
