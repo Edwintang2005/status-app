@@ -5,7 +5,7 @@ import SwiftUI
 /// The moment camera: timer, flash, lens buttons, tap to focus, pinch to zoom,
 /// and the hardware shutters (volume buttons, AirPods, Camera Control).
 /// `UIImagePickerController` offered none of the first three. Shows the 4:3
-/// frame that's sent, with the square every surface crops to marked on it.
+/// frame that's sent.
 struct CameraView: View {
     var onCapture: (UIImage) -> Void
 
@@ -86,7 +86,6 @@ struct CameraView: View {
             focusPoint = point
         }
         .aspectRatio(3 / 4, contentMode: .fit)
-        .overlay { SquareGuide().allowsHitTesting(false) }
         .overlay { focusRing }
         .overlay { countdownOverlay }
         .overlay(alignment: .bottom) { statusLine }
@@ -95,7 +94,6 @@ struct CameraView: View {
         .accessibilityElement()
         .accessibilityLabel("Viewfinder")
         .accessibilityValue(statusText.map { Text($0) } ?? Text(""))
-        .accessibilityHint("The square shows what the widget shows.")
     }
 
     private var statusText: LocalizedStringKey? {
@@ -300,26 +298,6 @@ struct CameraView: View {
         }
         .foregroundStyle(.white)
         .padding(32)
-    }
-}
-
-/// Dims the 4:3 frame outside the centred square the widgets and tiles show.
-private struct SquareGuide: View {
-    var body: some View {
-        GeometryReader { geo in
-            let side = min(geo.size.width, geo.size.height)
-            let square = CGRect(x: (geo.size.width - side) / 2, y: (geo.size.height - side) / 2,
-                                width: side, height: side)
-            ZStack {
-                Path { path in
-                    path.addRect(CGRect(origin: .zero, size: geo.size))
-                    path.addRect(square)
-                }
-                .fill(.black.opacity(0.35), style: FillStyle(eoFill: true))
-                Path { $0.addRect(square) }
-                    .stroke(.white.opacity(0.5), lineWidth: 1)
-            }
-        }
     }
 }
 

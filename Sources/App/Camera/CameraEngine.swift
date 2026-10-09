@@ -187,14 +187,13 @@ final class CameraEngine: NSObject, @unchecked Sendable {
 
     // MARK: - Zoom, focus, timer
 
-    /// `ramp` for the lens buttons; a pinch sets it directly, every frame.
-    func setZoom(_ zoom: CGFloat, ramp: Bool) {
+    /// Set outright, never ramped: a lens button cuts straight to its lens,
+    /// as the system camera does, and a pinch sets it every frame.
+    func setZoom(_ zoom: CGFloat) {
         queue.async {
             guard let device = self.input?.device, let lenses = self.lenses else { return }
             let target = lenses.clamped(zoom)
-            self.configure(device) {
-                if ramp { $0.ramp(toVideoZoomFactor: target, withRate: 8) } else { $0.videoZoomFactor = target }
-            }
+            self.configure(device) { $0.videoZoomFactor = target }
         }
     }
 

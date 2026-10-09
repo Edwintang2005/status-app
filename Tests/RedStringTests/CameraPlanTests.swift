@@ -50,7 +50,7 @@ final class CameraPlanTests: XCTestCase {
     func testActivePresetIsTheWidestLensAtOrBelowTheZoom() {
         XCTAssertEqual(triple.activePreset(for: 1), 1)
         XCTAssertEqual(triple.activePreset(for: 2.8), 2, "1.4× lights the 1× button")
-        XCTAssertEqual(triple.activePreset(for: 3.99), 4, "a ramp landing a hair short still counts")
+        XCTAssertEqual(triple.activePreset(for: 3.99), 4, "a zoom a hair short of a lens still counts")
         XCTAssertEqual(triple.activePreset(for: 30), 10)
     }
 

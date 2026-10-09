@@ -8,10 +8,9 @@ addition requires re-deploying the schema to Production (README → "Shipping it
 - **Custom moment camera** — `UIImagePickerController` replaced by an
   AVFoundation camera (`CameraEngine`/`CameraModel`/`CameraView`): 3 s / 10 s
   self-timer, flash (incl. front screen flash), lens buttons from the device's
-  real cameras plus a 2× crop (`CameraLensPlan`), pinch zoom, tap to focus, a
-  square guide over the sent 4:3 frame, quality-prioritised capture (the
-  multi-frame low-light processing apps can get — Night mode itself has no
-  public API), and hardware shutters: volume buttons and AirPods stem
+  real cameras plus a 2× crop (`CameraLensPlan`), pinch zoom, tap to focus,
+  quality-prioritised capture (the multi-frame low-light processing apps can
+  get — Night mode itself has no public API), and hardware shutters: volume buttons and AirPods stem
   (`AVCaptureEventInteraction`, 17.2+), the Camera Control's click plus zoom,
   exposure and timer controls (`AVCaptureControl`, 18+). Device-only: the
   Simulator has no camera, so the UI smoke doesn't reach it. The last camera,

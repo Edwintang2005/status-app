@@ -132,7 +132,7 @@ final class CameraModel {
 
     func selectLens(_ preset: CGFloat) {
         zoom = preset
-        engine.setZoom(preset, ramp: true)
+        engine.setZoom(preset)
     }
 
     func pinchChanged(_ scale: CGFloat) {
@@ -140,7 +140,7 @@ final class CameraModel {
         let start = pinchStart ?? zoom
         pinchStart = start
         zoom = lenses.clamped(start * scale)
-        engine.setZoom(zoom, ramp: false)
+        engine.setZoom(zoom)
     }
 
     func pinchEnded() {
