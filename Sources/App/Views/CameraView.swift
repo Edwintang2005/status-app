@@ -39,6 +39,9 @@ struct CameraView: View {
         }
         .onDisappear { model.stop() }
         .sensoryFeedback(.impact(weight: .light), trigger: model.countdown) { _, new in new != nil }
+        // A dark shot is in: the phone can move.
+        .sensoryFeedback(.impact(weight: .light), trigger: model.isHoldingStill) { old, new in old && !new }
+        .animation(.easeOut(duration: 0.2), value: model.isLowLight)
     }
 
     // MARK: - Camera
@@ -89,17 +92,51 @@ struct CameraView: View {
         .overlay { focusRing }
         .overlay { countdownOverlay }
         .overlay(alignment: .bottom) { statusLine }
+        .overlay(alignment: .top) { debugFormat }
+        .overlay(alignment: .topLeading) { lowLightBadge }
         .overlay { shutterBlink }
         .clipped()
         .accessibilityElement()
         .accessibilityLabel("Viewfinder")
-        .accessibilityValue(statusText.map { Text($0) } ?? Text(""))
+        .accessibilityValue(statusText.map { Text($0) } ?? Text(model.isLowLight ? "Low light" : ""))
+    }
+
+    /// Debug only: what the camera is really running, to compare with the system camera.
+    @ViewBuilder
+    private var debugFormat: some View {
+        #if DEBUG
+        Text(verbatim: "\(model.formatSummary) · zoom \(String(format: "%.2f", model.zoom))"
+             + (model.isLandscape ? " · sideways" : " · upright"))
+            .font(.caption2.monospaced())
+            .foregroundStyle(.white)
+            .padding(4)
+            .background(.black.opacity(0.5))
+            .padding(.top, 6)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        #endif
     }
 
     private var statusText: LocalizedStringKey? {
         if model.isInterrupted { "Camera unavailable" }
+        else if model.isHoldingStill { "Hold still…" }
         else if model.captureFailed { "Couldn't take the photo. Try again." }
         else { nil }
+    }
+
+    /// Like the system camera's moon: the shot will take a moment.
+    @ViewBuilder
+    private var lowLightBadge: some View {
+        if model.isLowLight {
+            Image(systemName: "moon.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.black)
+                .frame(width: 28, height: 28)
+                .background(Theme.warm, in: Circle())
+                .padding(10)
+                .transition(.opacity)
+                .allowsHitTesting(false)
+        }
     }
 
     /// Black for a beat as the sensor fires, like the system camera.

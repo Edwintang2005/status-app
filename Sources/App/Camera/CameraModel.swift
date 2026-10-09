@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreMotion
 import Observation
 import SwiftUI
 
@@ -34,6 +35,14 @@ final class CameraModel {
     /// Bumped as the sensor fires, for the shutter blink.
     private(set) var shutterCount = 0
     private(set) var captureFailed = false
+    /// Debug builds show it on the viewfinder: device, field of view, photo size.
+    private(set) var formatSummary = ""
+    /// The scene is dark: shots gather frames after the press (the moon badge).
+    private(set) var isLowLight = false
+    /// A dark shot is still being gathered: "Hold still".
+    private(set) var isHoldingStill = false
+    /// Held sideways, from the accelerometer (no permission needed).
+    private(set) var isLandscape = false
 
     @ObservationIgnored var onCapture: (UIImage) -> Void = { _ in }
     /// Lazy: `@State` builds a throwaway model each time the view is re-created.
@@ -42,6 +51,7 @@ final class CameraModel {
     @ObservationIgnored private var countdownTask: Task<Void, Never>?
     @ObservationIgnored private var pinchStart: CGFloat?
     @ObservationIgnored private let store: SharedStore
+    @ObservationIgnored private let motion = CMMotionManager()
 
     init(store: SharedStore = .shared) {
         self.store = store
@@ -75,22 +85,49 @@ final class CameraModel {
             state = .denied
             return
         }
+        startTiltUpdates()
         state = await engine.start(position: position) ? .running : .failed
     }
 
     func stop() {
         cancelCountdown(announce: false)
+        motion.stopAccelerometerUpdates()
         engine.stop()
+    }
+
+    private func startTiltUpdates() {
+        guard motion.isAccelerometerAvailable, !motion.isAccelerometerActive else { return }
+        motion.accelerometerUpdateInterval = 0.2
+        motion.startAccelerometerUpdates(to: .main) { [weak self] data, _ in
+            guard let g = data?.acceleration else { return }
+            MainActor.assumeIsolated { self?.tilted(x: g.x, y: g.y, z: g.z) }
+        }
+    }
+
+    private func tilted(x: Double, y: Double, z: Double) {
+        let landscape = CameraTilt.isLandscape(x: x, y: y, z: z, was: isLandscape)
+        guard landscape != isLandscape else { return }
+        isLandscape = landscape
+        // Like the system camera: turning the phone re-frames a selfie, over
+        // whatever the button or a pinch had chosen.
+        if let lenses, lenses.selfieNarrowZoom != nil {
+            selectLens(lenses.openingZoom(landscape: landscape))
+        }
     }
 
     private func handle(_ event: CameraEngine.Event) {
         switch event {
-        case let .configured(position, lenses, zoom, flashModes):
+        case let .configured(position, lenses, zoom, flashModes, format):
+            formatSummary = format
             self.position = position
             self.lenses = lenses
             self.zoom = zoom
             self.flashModes = flashModes
             saveSettings()
+            // The engine opens upright; a selfie started sideways goes wide.
+            if isLandscape, lenses.selfieNarrowZoom != nil {
+                selectLens(lenses.openingZoom(landscape: true))
+            }
         case let .zoomChanged(zoom):
             self.zoom = zoom
         case let .timerPicked(timer):
@@ -103,11 +140,10 @@ final class CameraModel {
             if on { cancelCountdown(announce: false) }
         case .willCapture:
             shutterCount += 1
-        case let .orientationChanged(landscape):
-            // Like the system camera: turning the phone re-frames a selfie,
-            // over whatever the button or a pinch had chosen.
-            guard let lenses, lenses.selfieNarrowZoom != nil else { return }
-            selectLens(lenses.openingZoom(landscape: landscape))
+        case .didCapture:
+            isHoldingStill = false
+        case let .lowLight(dark):
+            isLowLight = dark
         }
     }
 
@@ -200,8 +236,15 @@ final class CameraModel {
         guard canShoot else { return }
         isCapturing = true
         captureFailed = false
+        if isLowLight {
+            isHoldingStill = true
+            AccessibilityNotification.Announcement(String(localized: "Hold still")).post()
+        }
         Task {
-            defer { isCapturing = false }
+            defer {
+                isCapturing = false
+                isHoldingStill = false
+            }
             do {
                 let data = try await engine.capture(flash: flash)
                 guard let image = UIImage(data: data) else { throw CameraEngine.CaptureError.noData }

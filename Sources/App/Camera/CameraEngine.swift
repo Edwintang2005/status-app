@@ -7,7 +7,7 @@ import os
 final class CameraEngine: NSObject, @unchecked Sendable {
     enum Event: Sendable {
         case configured(position: AVCaptureDevice.Position, lenses: CameraLensPlan,
-                        zoom: CGFloat, flashModes: [CameraFlash])
+                        zoom: CGFloat, flashModes: [CameraFlash], format: String)
         /// The Camera Control moved the zoom (raw factor).
         case zoomChanged(CGFloat)
         case timerPicked(CameraTimer)
@@ -15,8 +15,10 @@ final class CameraEngine: NSObject, @unchecked Sendable {
         case controlsFullscreen(Bool)
         case interrupted(Bool)
         case willCapture
-        /// The phone turned between upright and sideways (the UI itself never rotates).
-        case orientationChanged(landscape: Bool)
+        /// The sensor has every frame of the shot; processing goes on, but
+        /// the phone can move.
+        case didCapture
+        case lowLight(Bool)
     }
 
     enum CaptureError: Error { case notRunning, noData }
@@ -30,13 +32,13 @@ final class CameraEngine: NSObject, @unchecked Sendable {
     private var input: AVCaptureDeviceInput?
     private var lenses: CameraLensPlan?
     private var rotation: AVCaptureDevice.RotationCoordinator?
-    private var rotationObservation: NSKeyValueObservation?
-    private var isLandscape = false
     private var captures: [Int64: PhotoCapture] = [:]
     /// `AVCaptureIndexPicker` (iOS 18), kept to mirror the on-screen timer.
     private var timerPicker: AnyObject?
     private var timer: CameraTimer = .off
     private var wantsRunning = false
+    private var lightSampler: DispatchSourceTimer?
+    private var isDark = false
     private var configured = false
     private var observers: [NSObjectProtocol] = []
     private let log = Logger(subsystem: AppConfig.appGroupID, category: "Camera")
@@ -97,6 +99,7 @@ final class CameraEngine: NSObject, @unchecked Sendable {
                 }
                 guard self.configured else { return done.resume(returning: false) }
                 if !self.session.isRunning { self.session.startRunning() }
+                self.startSamplingLight()
                 done.resume(returning: true)
             }
         }
@@ -105,8 +108,33 @@ final class CameraEngine: NSObject, @unchecked Sendable {
     func stop() {
         queue.async {
             self.wantsRunning = false
+            self.lightSampler?.cancel()
+            self.lightSampler = nil
             if self.session.isRunning { self.session.stopRunning() }
         }
+    }
+
+    /// Twice a second, not KVO: exposure and ISO change every frame.
+    private func startSamplingLight() {
+        guard lightSampler == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 0.5, repeating: 0.5)
+        timer.setEventHandler { [weak self] in self?.sampleLight() }
+        timer.resume()
+        lightSampler = timer
+    }
+
+    private func sampleLight() {
+        guard let device = input?.device else { return }
+        let format = device.activeFormat
+        let dark = CameraLowLight.isDark(
+            exposure: device.exposureDuration.seconds,
+            maxExposure: device.activeMaxExposureDuration.seconds,
+            iso: Double(device.iso), minISO: Double(format.minISO), maxISO: Double(format.maxISO),
+            was: isDark)
+        guard dark != isDark else { return }
+        isDark = dark
+        continuation.yield(.lowLight(dark))
     }
 
     func switchCamera(to position: AVCaptureDevice.Position) {
@@ -132,14 +160,17 @@ final class CameraEngine: NSObject, @unchecked Sendable {
         session.addInput(newInput)
         input = newInput
 
+        // After the input is in, or the session's preset overrides it.
+        if let format = Self.photoFormat(for: device) {
+            configure(device) { $0.activeFormat = format }
+        }
         // Multi-frame fusion on every shot: the nearest thing to Night mode a
-        // third-party app can ask for. No bigger than a 12 MP frame, since
+        // third-party app can ask for. Up to 12 MP (4032 px), never less:
         // `MomentStore` keeps 2048 px anyway and 48 MP slows each capture.
         photoOutput.maxPhotoQualityPrioritization = .quality
-        if let dims = device.activeFormat.supportedMaxPhotoDimensions
-            .sorted(by: { $0.width * $0.height < $1.width * $1.height })
-            .first(where: { max($0.width, $0.height) >= 3000 })
-            ?? device.activeFormat.supportedMaxPhotoDimensions.last {
+        let sizes = device.activeFormat.supportedMaxPhotoDimensions
+            .sorted { $0.width * $0.height < $1.width * $1.height }
+        if let dims = sizes.last(where: { max($0.width, $0.height) <= 4100 }) ?? sizes.first {
             photoOutput.maxPhotoDimensions = dims
         }
         if photoOutput.isResponsiveCaptureSupported {
@@ -157,13 +188,14 @@ final class CameraEngine: NSObject, @unchecked Sendable {
             offersTwoTimes: position == .back,
             isSelfie: position == .front)
         lenses = plan
-        let zoom = plan.openingZoom(landscape: isLandscape)
+        let zoom = plan.openingZoom(landscape: false)
         configure(device) {
             $0.videoZoomFactor = zoom
             if $0.isFocusModeSupported(.continuousAutoFocus) { $0.focusMode = .continuousAutoFocus }
             if $0.isExposureModeSupported(.continuousAutoExposure) { $0.exposureMode = .continuousAutoExposure }
         }
-        observeRotation(of: device)
+        // Only for the shot's own rotation; `CameraModel` reads the tilt itself.
+        rotation = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
         if #available(iOS 18.0, *) { installControls(for: device) }
 
         let flashModes = photoOutput.supportedFlashModes.compactMap { mode -> CameraFlash? in
@@ -174,39 +206,39 @@ final class CameraEngine: NSObject, @unchecked Sendable {
             @unknown default: nil
             }
         }
-        continuation.yield(.configured(position: position, lenses: plan,
-                                       zoom: zoom, flashModes: flashModes))
+        let dims = photoOutput.maxPhotoDimensions
+        let format = "\(device.localizedName) · \(String(format: "%.1f", device.activeFormat.videoFieldOfView))° · "
+            + "\(dims.width)×\(dims.height)"
+        continuation.yield(.configured(position: position, lenses: plan, zoom: zoom,
+                                       flashModes: flashModes, format: format))
         return true
     }
 
-    /// Gravity, not the interface: the app is portrait-only. Lying flat keeps
-    /// the last reading.
-    private func observeRotation(of device: AVCaptureDevice) {
-        let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
-        rotation = coordinator
-        rotationObservation = coordinator.observe(\.videoRotationAngleForHorizonLevelCapture,
-                                                  options: [.initial, .new]) { [weak self] coordinator, _ in
-            let landscape = coordinator.videoRotationAngleForHorizonLevelCapture
-                .truncatingRemainder(dividingBy: 180) == 0
-            guard let self else { return }
-            self.queue.async {
-                guard landscape != self.isLandscape else { return }
-                self.isLandscape = landscape
-                self.continuation.yield(.orientationChanged(landscape: landscape))
-            }
-        }
-    }
-
     /// The virtual multi-lens camera where there is one, so zoom crosses lenses
-    /// the way the system camera does.
+    /// the way the system camera does. At the front, the plain camera, not the
+    /// TrueDepth one, whose formats are shaped around depth.
     private static func device(at position: AVCaptureDevice.Position) -> AVCaptureDevice? {
         let types: [AVCaptureDevice.DeviceType] = position == .front
-            ? [.builtInTrueDepthCamera, .builtInWideAngleCamera]
+            ? [.builtInWideAngleCamera, .builtInTrueDepthCamera]
             : [.builtInTripleCamera, .builtInDualWideCamera, .builtInDualCamera, .builtInWideAngleCamera]
         for type in types {
             if let device = AVCaptureDevice.default(type, for: .video, position: position) { return device }
         }
         return nil
+    }
+
+    /// The widest 4:3 view that still takes full-quality photos, as the system
+    /// camera shoots; the `.photo` preset doesn't promise the widest.
+    private static func photoFormat(for device: AVCaptureDevice) -> AVCaptureDevice.Format? {
+        func largestPhoto(_ format: AVCaptureDevice.Format) -> Int32 {
+            format.supportedMaxPhotoDimensions.map { $0.width * $0.height }.max() ?? 0
+        }
+        return device.formats
+            .filter { format in
+                let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+                return format.isHighestPhotoQualitySupported && dims.width * 3 == dims.height * 4
+            }
+            .max { ($0.videoFieldOfView, largestPhoto($0)) < ($1.videoFieldOfView, largestPhoto($1)) }
     }
 
     // MARK: - Zoom, focus, timer
@@ -311,6 +343,7 @@ final class CameraEngine: NSObject, @unchecked Sendable {
                 let capture = PhotoCapture(
                     done: done,
                     willCapture: { [continuation = self.continuation] in continuation.yield(.willCapture) },
+                    didCapture: { [continuation = self.continuation] in continuation.yield(.didCapture) },
                     finished: { self.queue.async { self.captures[id] = nil } })
                 // The output doesn't keep its delegate alive.
                 self.captures[id] = capture
@@ -352,13 +385,16 @@ extension CameraTimer {
 private final class PhotoCapture: NSObject, AVCapturePhotoCaptureDelegate, @unchecked Sendable {
     private let done: OSAllocatedUnfairLock<CheckedContinuation<Data, Error>?>
     private let willCapture: @Sendable () -> Void
+    private let didCapture: @Sendable () -> Void
     private let finished: @Sendable () -> Void
 
     init(done: CheckedContinuation<Data, Error>,
          willCapture: @escaping @Sendable () -> Void,
+         didCapture: @escaping @Sendable () -> Void,
          finished: @escaping @Sendable () -> Void) {
         self.done = OSAllocatedUnfairLock(initialState: done)
         self.willCapture = willCapture
+        self.didCapture = didCapture
         self.finished = finished
     }
 
@@ -369,6 +405,11 @@ private final class PhotoCapture: NSObject, AVCapturePhotoCaptureDelegate, @unch
     func photoOutput(_ output: AVCapturePhotoOutput,
                      willCapturePhotoFor resolvedSettings: AVCaptureResolvedPhotoSettings) {
         willCapture()
+    }
+
+    func photoOutput(_ output: AVCapturePhotoOutput,
+                     didCapturePhotoFor resolvedSettings: AVCaptureResolvedPhotoSettings) {
+        didCapture()
     }
 
     func photoOutput(_ output: AVCapturePhotoOutput,

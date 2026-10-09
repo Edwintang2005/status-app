@@ -132,4 +132,27 @@ final class CameraPlanTests: XCTestCase {
         XCTAssertNil(plan.selfieNarrowZoom)
         XCTAssertEqual(plan.openingZoom(landscape: false), 1)
     }
+
+    func testTiltReadsGravityWithHysteresis() {
+        XCTAssertFalse(CameraTilt.isLandscape(x: 0, y: -1, z: 0, was: true), "upright")
+        XCTAssertTrue(CameraTilt.isLandscape(x: -1, y: 0, z: 0, was: false), "sideways, either way round")
+        XCTAssertTrue(CameraTilt.isLandscape(x: 0.95, y: 0.1, z: 0.2, was: false))
+        XCTAssertTrue(CameraTilt.isLandscape(x: 0.6, y: 0.55, z: 0.3, was: true), "near 45° keeps the last")
+        XCTAssertFalse(CameraTilt.isLandscape(x: 0.6, y: 0.55, z: 0.3, was: false))
+        XCTAssertTrue(CameraTilt.isLandscape(x: 0, y: -0.1, z: -0.99, was: true), "flat keeps the last")
+    }
+
+    func testLowLightNeedsShutterAndGainSpent() {
+        func dark(_ exposure: Double, _ iso: Double, was: Bool) -> Bool {
+            CameraLowLight.isDark(exposure: exposure, maxExposure: 1.0 / 30,
+                                  iso: iso, minISO: 50, maxISO: 2050, was: was)
+        }
+        XCTAssertFalse(dark(1.0 / 120, 1500, was: false), "fast shutter: there's light to spare")
+        XCTAssertFalse(dark(1.0 / 30, 400, was: false), "slow shutter, low gain: a dim room, not dark")
+        XCTAssertTrue(dark(1.0 / 30, 800, was: false))
+        XCTAssertTrue(dark(1.0 / 33, 500, was: true), "stays dark down to a fifth of the gain")
+        XCTAssertFalse(dark(1.0 / 33, 400, was: true))
+        XCTAssertFalse(CameraLowLight.isDark(exposure: 1, maxExposure: 0, iso: 1, minISO: 1, maxISO: 1, was: true),
+                       "a format with no ranges never reads dark")
+    }
 }

@@ -98,6 +98,35 @@ struct CameraLensPlan: Equatable, Sendable {
     }
 }
 
+/// Upright or sideways, from gravity: the app is portrait-only, and Portrait
+/// Orientation Lock freezes the interface's own idea of it.
+enum CameraTilt {
+    /// Flat on a table keeps the last reading; between the two, the margin
+    /// stops a 45° hold flickering.
+    static func isLandscape(x: Double, y: Double, z: Double, was: Bool) -> Bool {
+        guard abs(z) < 0.8 else { return was }
+        if abs(x) > abs(y) + 0.25 { return true }
+        if abs(y) > abs(x) + 0.25 { return false }
+        return was
+    }
+}
+
+/// Whether the scene is dark enough that "best quality" capture gathers
+/// frames for a while after the press, so the phone must be held still.
+enum CameraLowLight {
+    /// Dark once auto-exposure has run out of shutter (its longest allowed
+    /// exposure) and pushed gain a third of the way up; light again only
+    /// below a fifth, so a scene on the edge doesn't flicker.
+    static func isDark(exposure: Double, maxExposure: Double,
+                       iso: Double, minISO: Double, maxISO: Double,
+                       was: Bool) -> Bool {
+        guard maxExposure > 0, maxISO > minISO else { return false }
+        let gain = (iso - minISO) / (maxISO - minISO)
+        let shutterSpent = exposure >= maxExposure * (was ? 0.7 : 0.9)
+        return shutterSpent && gain >= (was ? 0.2 : 1.0 / 3)
+    }
+}
+
 enum CameraFlash: String, CaseIterable, Codable, Sendable {
     case auto, on, off
 
