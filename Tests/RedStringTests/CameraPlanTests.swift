@@ -97,4 +97,39 @@ final class CameraPlanTests: XCTestCase {
         XCTAssertEqual(try decode(CameraSettings.self, "{}"), CameraSettings())
         XCTAssertEqual(try decode(CameraSettings.self, #"{"timer":5}"#).timer, .off)
     }
+
+    /// iPhone 14 Pro-style front camera: one 12 MP sensor, digital zoom only.
+    private let selfie = CameraLensPlan(switchOverFactors: [], hasUltraWide: false,
+                                        minAvailable: 1, maxAvailable: 16,
+                                        offersTwoTimes: false, isSelfie: true)
+
+    func testSelfieOpensCroppedUprightAndWideSideways() {
+        XCTAssertEqual(selfie.presets, [1], "no lens pills on the front")
+        XCTAssertEqual(selfie.openingZoom(landscape: false), CameraLensPlan.selfieCrop)
+        XCTAssertEqual(selfie.openingZoom(landscape: true), 1, "sideways shows the whole sensor")
+        XCTAssertFalse(selfie.isSelfieWide(CameraLensPlan.selfieCrop))
+        XCTAssertTrue(selfie.isSelfieWide(1))
+    }
+
+    func testSelfieButtonTogglesBetweenTheTwoFramings() {
+        XCTAssertEqual(selfie.selfieToggled(from: CameraLensPlan.selfieCrop), 1)
+        XCTAssertEqual(selfie.selfieToggled(from: 1), CameraLensPlan.selfieCrop)
+        XCTAssertEqual(selfie.selfieToggled(from: 1.1), CameraLensPlan.selfieCrop, "a pinch near wide counts as wide")
+        XCTAssertEqual(selfie.selfieToggled(from: 3), 1, "zoomed in past the crop expands to wide")
+    }
+
+    func testBackCameraIgnoresOrientation() {
+        XCTAssertNil(triple.selfieNarrowZoom)
+        XCTAssertEqual(triple.openingZoom(landscape: true), triple.defaultZoom)
+        XCTAssertFalse(triple.isSelfieWide(1))
+        XCTAssertEqual(triple.selfieToggled(from: 2), 2)
+    }
+
+    func testSelfieWithoutRoomToCropHasNoButton() {
+        let plan = CameraLensPlan(switchOverFactors: [], hasUltraWide: false,
+                                  minAvailable: 1, maxAvailable: 1.2,
+                                  offersTwoTimes: false, isSelfie: true)
+        XCTAssertNil(plan.selfieNarrowZoom)
+        XCTAssertEqual(plan.openingZoom(landscape: false), 1)
+    }
 }

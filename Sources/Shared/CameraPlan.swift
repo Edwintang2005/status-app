@@ -12,9 +12,15 @@ struct CameraLensPlan: Equatable, Sendable {
     var maxZoom: CGFloat
     /// Where the camera opens: the wide lens, shown as 1×.
     var defaultZoom: CGFloat
+    /// The front camera's upright framing, cropped in from its full sensor;
+    /// `nil` on the back camera. `minZoom` is the wide selfie.
+    var selfieNarrowZoom: CGFloat?
 
     /// The system camera goes further, but past this a square crop is mush.
     static let maxDisplayZoom: CGFloat = 15
+    /// The system camera's upright selfie: 7 MP of the 12 MP front sensor
+    /// (iPhone 11 onwards), √(12/7) in linear zoom.
+    static let selfieCrop: CGFloat = 1.31
 
     /// - Parameters:
     ///   - switchOverFactors: `virtualDeviceSwitchOverVideoZoomFactors`, the
@@ -22,12 +28,15 @@ struct CameraLensPlan: Equatable, Sendable {
     ///   - systemMultiplier: `displayVideoZoomFactorMultiplier` (iOS 18), else
     ///     derived from the first switch-over.
     ///   - offersTwoTimes: add a 2× crop where no lens sits (the back camera).
+    ///   - isSelfie: the front camera, which frames like the system camera:
+    ///     cropped upright, its full width sideways or on request.
     init(switchOverFactors: [CGFloat],
          hasUltraWide: Bool,
          minAvailable: CGFloat,
          maxAvailable: CGFloat,
          systemMultiplier: CGFloat? = nil,
-         offersTwoTimes: Bool) {
+         offersTwoTimes: Bool,
+         isSelfie: Bool = false) {
         let wide = hasUltraWide ? (switchOverFactors.first ?? 1) : 1
         let multiplier = systemMultiplier ?? (wide > 0 ? 1 / wide : 1)
         let lower = max(minAvailable, 1)
@@ -46,6 +55,26 @@ struct CameraLensPlan: Equatable, Sendable {
         minZoom = lower
         maxZoom = upper
         defaultZoom = min(max(wide, lower), upper)
+        selfieNarrowZoom = isSelfie && upper >= Self.selfieCrop ? Self.selfieCrop : nil
+    }
+
+    /// Where the camera opens, and where the front camera returns whenever the
+    /// phone turns between upright and sideways.
+    func openingZoom(landscape: Bool) -> CGFloat {
+        guard let selfieNarrowZoom else { return defaultZoom }
+        return landscape ? minZoom : selfieNarrowZoom
+    }
+
+    /// Nearer the full sensor than the upright crop (a pinch lands anywhere).
+    func isSelfieWide(_ zoom: CGFloat) -> Bool {
+        guard let selfieNarrowZoom else { return false }
+        return zoom < (minZoom + selfieNarrowZoom) / 2
+    }
+
+    /// The front camera's expand button: wide ↔ the upright crop.
+    func selfieToggled(from zoom: CGFloat) -> CGFloat {
+        guard let selfieNarrowZoom else { return zoom }
+        return isSelfieWide(zoom) ? selfieNarrowZoom : minZoom
     }
 
     func clamped(_ zoom: CGFloat) -> CGFloat {

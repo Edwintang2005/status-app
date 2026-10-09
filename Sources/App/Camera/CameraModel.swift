@@ -103,6 +103,11 @@ final class CameraModel {
             if on { cancelCountdown(announce: false) }
         case .willCapture:
             shutterCount += 1
+        case let .orientationChanged(landscape):
+            // Like the system camera: turning the phone re-frames a selfie,
+            // over whatever the button or a pinch had chosen.
+            guard let lenses, lenses.selfieNarrowZoom != nil else { return }
+            selectLens(lenses.openingZoom(landscape: landscape))
         }
     }
 
@@ -133,6 +138,13 @@ final class CameraModel {
     func selectLens(_ preset: CGFloat) {
         zoom = preset
         engine.setZoom(preset)
+    }
+
+    var isSelfieWide: Bool { lenses?.isSelfieWide(zoom) ?? false }
+
+    func toggleSelfieWidth() {
+        guard let lenses else { return }
+        selectLens(lenses.selfieToggled(from: zoom))
     }
 
     func pinchChanged(_ scale: CGFloat) {

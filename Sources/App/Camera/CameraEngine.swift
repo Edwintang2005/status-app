@@ -15,6 +15,8 @@ final class CameraEngine: NSObject, @unchecked Sendable {
         case controlsFullscreen(Bool)
         case interrupted(Bool)
         case willCapture
+        /// The phone turned between upright and sideways (the UI itself never rotates).
+        case orientationChanged(landscape: Bool)
     }
 
     enum CaptureError: Error { case notRunning, noData }
@@ -28,6 +30,8 @@ final class CameraEngine: NSObject, @unchecked Sendable {
     private var input: AVCaptureDeviceInput?
     private var lenses: CameraLensPlan?
     private var rotation: AVCaptureDevice.RotationCoordinator?
+    private var rotationObservation: NSKeyValueObservation?
+    private var isLandscape = false
     private var captures: [Int64: PhotoCapture] = [:]
     /// `AVCaptureIndexPicker` (iOS 18), kept to mirror the on-screen timer.
     private var timerPicker: AnyObject?
@@ -150,14 +154,16 @@ final class CameraEngine: NSObject, @unchecked Sendable {
             minAvailable: device.minAvailableVideoZoomFactor,
             maxAvailable: device.maxAvailableVideoZoomFactor,
             systemMultiplier: multiplier,
-            offersTwoTimes: position == .back)
+            offersTwoTimes: position == .back,
+            isSelfie: position == .front)
         lenses = plan
+        let zoom = plan.openingZoom(landscape: isLandscape)
         configure(device) {
-            $0.videoZoomFactor = plan.defaultZoom
+            $0.videoZoomFactor = zoom
             if $0.isFocusModeSupported(.continuousAutoFocus) { $0.focusMode = .continuousAutoFocus }
             if $0.isExposureModeSupported(.continuousAutoExposure) { $0.exposureMode = .continuousAutoExposure }
         }
-        rotation = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
+        observeRotation(of: device)
         if #available(iOS 18.0, *) { installControls(for: device) }
 
         let flashModes = photoOutput.supportedFlashModes.compactMap { mode -> CameraFlash? in
@@ -169,8 +175,26 @@ final class CameraEngine: NSObject, @unchecked Sendable {
             }
         }
         continuation.yield(.configured(position: position, lenses: plan,
-                                       zoom: plan.defaultZoom, flashModes: flashModes))
+                                       zoom: zoom, flashModes: flashModes))
         return true
+    }
+
+    /// Gravity, not the interface: the app is portrait-only. Lying flat keeps
+    /// the last reading.
+    private func observeRotation(of device: AVCaptureDevice) {
+        let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
+        rotation = coordinator
+        rotationObservation = coordinator.observe(\.videoRotationAngleForHorizonLevelCapture,
+                                                  options: [.initial, .new]) { [weak self] coordinator, _ in
+            let landscape = coordinator.videoRotationAngleForHorizonLevelCapture
+                .truncatingRemainder(dividingBy: 180) == 0
+            guard let self else { return }
+            self.queue.async {
+                guard landscape != self.isLandscape else { return }
+                self.isLandscape = landscape
+                self.continuation.yield(.orientationChanged(landscape: landscape))
+            }
+        }
     }
 
     /// The virtual multi-lens camera where there is one, so zoom crosses lenses

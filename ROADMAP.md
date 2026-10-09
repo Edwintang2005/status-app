@@ -15,6 +15,8 @@ addition requires re-deploying the schema to Production (README → "Shipping it
   exposure and timer controls (`AVCaptureControl`, 18+). Device-only: the
   Simulator has no camera, so the UI smoke doesn't reach it. The last camera,
   flash and timer are remembered per device (`SharedStore.cameraSettings`).
+  The front camera frames like the system camera: cropped upright, its full
+  width when the phone turns sideways or via the expand button.
 - **Whole-app review round** — bugs, battery and accessibility fixes from an
   October audit, each with a regression test (invariants 2, 8, 10, 11, 13–16,
   22, 23 carry the rules).

@@ -159,7 +159,21 @@ struct CameraView: View {
 
     @ViewBuilder
     private var lensRow: some View {
-        if let lenses = model.lenses, lenses.presets.count > 1 {
+        if model.lenses?.selfieNarrowZoom != nil {
+            // The system camera's expand button; turning the phone also sets it.
+            Button { model.toggleSelfieWidth() } label: {
+                Image(systemName: model.isSelfieWide
+                      ? "arrow.down.right.and.arrow.up.left"
+                      : "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(model.isSelfieWide ? Theme.warm : .white)
+                    .frame(width: 38, height: 38)
+                    .background(.white.opacity(0.14), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Wide selfie")
+            .accessibilityAddTraits(model.isSelfieWide ? .isSelected : [])
+        } else if let lenses = model.lenses, lenses.presets.count > 1 {
             let active = lenses.activePreset(for: model.zoom)
             HStack(spacing: 10) {
                 ForEach(lenses.presets, id: \.self) { preset in
