@@ -164,9 +164,9 @@ final class CameraEngine: NSObject, @unchecked Sendable {
         if let format = Self.photoFormat(for: device) {
             configure(device) { $0.activeFormat = format }
         }
-        // Multi-frame fusion on every shot: the nearest thing to Night mode a
-        // third-party app can ask for. Up to 12 MP (4032 px), never less:
-        // `MomentStore` keeps 2048 px anyway and 48 MP slows each capture.
+        // `.quality` stays available for dark shots (see `capture`). Up to
+        // 12 MP (4032 px), never less: `MomentStore` keeps 2048 px anyway and
+        // 48 MP slows each capture.
         photoOutput.maxPhotoQualityPrioritization = .quality
         let sizes = device.activeFormat.supportedMaxPhotoDimensions
             .sorted { $0.width * $0.height < $1.width * $1.height }
@@ -330,7 +330,10 @@ final class CameraEngine: NSObject, @unchecked Sendable {
                     connection.videoRotationAngle = angle
                 }
                 let settings = AVCapturePhotoSettings()
-                settings.photoQualityPrioritization = .quality
+                // Full multi-frame fusion only in the dark, the nearest thing to
+                // Night mode an app can ask for; on every shot it held the
+                // shutter for a second in plain daylight.
+                settings.photoQualityPrioritization = self.isDark ? .quality : .balanced
                 settings.maxPhotoDimensions = self.photoOutput.maxPhotoDimensions
                 let mode: AVCaptureDevice.FlashMode = switch flash {
                 case .auto: .auto

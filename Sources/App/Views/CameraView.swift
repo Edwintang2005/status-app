@@ -257,6 +257,9 @@ struct CameraView: View {
                 } else {
                     Circle().fill(.white).padding(8)
                         .opacity(model.isCapturing ? 0.5 : 1)
+                    if model.isCapturing {
+                        ProgressView().tint(.black)
+                    }
                 }
             }
             .frame(width: 76, height: 76)
