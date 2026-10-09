@@ -5,6 +5,17 @@ addition requires re-deploying the schema to Production (README → "Shipping it
 
 ## Shipped (October 2026)
 
+- **Custom moment camera** — `UIImagePickerController` replaced by an
+  AVFoundation camera (`CameraEngine`/`CameraModel`/`CameraView`): 3 s / 10 s
+  self-timer, flash (incl. front screen flash), lens buttons from the device's
+  real cameras plus a 2× crop (`CameraLensPlan`), pinch zoom, tap to focus, a
+  square guide over the sent 4:3 frame, quality-prioritised capture (the
+  multi-frame low-light processing apps can get — Night mode itself has no
+  public API), and hardware shutters: volume buttons and AirPods stem
+  (`AVCaptureEventInteraction`, 17.2+), the Camera Control's click plus zoom,
+  exposure and timer controls (`AVCaptureControl`, 18+). Device-only: the
+  Simulator has no camera, so the UI smoke doesn't reach it. The last camera,
+  flash and timer are remembered per device (`SharedStore.cameraSettings`).
 - **Whole-app review round** — bugs, battery and accessibility fixes from an
   October audit, each with a regression test (invariants 2, 8, 10, 11, 13–16,
   22, 23 carry the rules).
@@ -489,6 +500,16 @@ exactly this). Investigated September 2026; the shape that fits the app:
   tap the wrist with the screen off. Both need both people present at once.
 - Schema: one new `Moment` field (`bpm`); redeploy. Widget and NSE untouched
   beyond the new kind's wording.
+
+### Camera follow-ups (S each, except where noted)
+
+- **Lock Screen camera (M–L):** a `LockedCameraCapture` extension (iOS 18)
+  plus a Lock Screen/Control Center control, so the Camera Control or a lock
+  screen button opens straight into a moment. New target, entitlements and a
+  hand-off of the captured photo to the app on unlock.
+- **Back-camera timer cue:** blink the torch through the countdown, like the
+  system camera, for a phone propped up facing away.
+- **Night mode:** revisit each WWDC; no third-party API as of iOS 26.
 
 ### Finer detail in doodles (S–M per option)
 

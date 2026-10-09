@@ -39,6 +39,7 @@ final class SharedStore: @unchecked Sendable {
         static let subscriptionCleanup = "subscriptionCleanup"
         static let milestoneReminders = "milestoneRemindersEnabled"
         static let notificationsNoticeDismissed = "notificationsNoticeDismissed"
+        static let cameraSettings = "cameraSettings"
     }
 
     init(store: GroupKeyValueStore = GroupFileStore()) {
@@ -239,6 +240,13 @@ final class SharedStore: @unchecked Sendable {
     var milestoneRemindersEnabled: Bool {
         get { store.data(forKey: Key.milestoneReminders).map { $0.first == 1 } ?? false }
         set { store.setData(Data([newValue ? 1 : 0]), forKey: Key.milestoneReminders) }
+    }
+
+    /// The camera's last camera, flash and timer, per device. Not pairing
+    /// state: an unlink keeps it.
+    var cameraSettings: CameraSettings {
+        get { decode(CameraSettings.self, forKey: Key.cameraSettings) ?? CameraSettings() }
+        set { encode(newValue, forKey: Key.cameraSettings) }
     }
 
     /// The signed-in account's user record name as a process last verified it,

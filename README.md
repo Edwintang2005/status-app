@@ -748,6 +748,7 @@ Sources/
     MemoryArchive.swift                    the "archive memories" export
     DemoSeeder.swift                       DEBUG-only screenshot content
     Audio/VoiceRecorder.swift, VoicePlayer.swift
+    Camera/CameraEngine.swift, CameraModel.swift  AVFoundation capture + its UI state
     Views/
       HomeView, RootView, WelcomeView, PairingView, SettingsView, TermsView
       MoodPickerView, CelebrationOverlay   statuses and celebrations
@@ -760,7 +761,7 @@ Sources/
       HistoryFilter, StatusHistoryView     direction filter + the status log sheet
       FreshStartView                       ask, agree, withdraw; the clear's progress
       DrawingCanvas.swift                  PencilKit canvas and palette
-      CameraPicker.swift                   UIImagePickerController wrapper
+      CameraView.swift                     the moment camera (timer, flash, lenses)
       InviteLinkView, ShareSheet, PinchToZoom, DiagnosticsView, RelativeTime
   Widget/
     RedStringWidgetBundle.swift

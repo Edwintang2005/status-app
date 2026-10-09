@@ -74,7 +74,7 @@ struct MomentComposerView: View {
         // A doodle is minutes of work; a pull-down must not throw it away.
         .interactiveDismissDisabled(hasContent)
         .fullScreenCover(isPresented: $showingCamera) {
-            CameraPicker { image in
+            CameraView { image in
                 // Off the main thread, like the library path: a full camera
                 // frame decodes to hundreds of MB while the camera is still up.
                 Task {
@@ -84,7 +84,6 @@ struct MomentComposerView: View {
                     isDrawing = false
                 }
             }
-            .ignoresSafeArea()
         }
         .onChange(of: pickerItem) { _, item in
             guard let item else { return }
@@ -168,7 +167,7 @@ struct MomentComposerView: View {
             }
             .buttonStyle(.plain)
 
-            if CameraPicker.isAvailable {
+            if CameraView.isAvailable {
                 Button { showingCamera = true } label: {
                     sourceLabel("Camera", systemImage: "camera")
                 }
