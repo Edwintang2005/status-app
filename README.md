@@ -75,16 +75,11 @@ App Group container, so a build without that entitlement traps at launch on
 with nowhere to store anything. App Groups, CloudKit and push all need the paid
 team. `make build` is a compile check only; `make run` signs first.
 
-`make project` regenerates `RedString.xcodeproj` from `project.yml`. Add new
-files to the folder and re-run it rather than editing project settings by hand
-— anything changed in Xcode's UI is lost on the next regeneration.
-
-The generated `.xcodeproj` **is committed**, which is unusual for an XcodeGen
-project. Xcode Cloud builds from a plain clone of the repository and fails with
-*"RedString.xcodeproj does not exist at the root of the repository"* if it
-isn't there. So after adding or renaming files: `make project`, then commit the
-regenerated project alongside the source change. Only `xcuserdata` inside the
-bundle is ignored.
+`make project` regenerates `RedString.xcodeproj` from `project.yml`; anything
+changed in Xcode's UI is lost on the next regeneration. The generated project
+**is committed** — unusual for XcodeGen, but Xcode Cloud builds from a plain
+clone and fails without it — so after adding or renaming files, commit the
+regenerated project with the source change (only `xcuserdata` is ignored).
 
 ## Pairing
 
@@ -267,21 +262,16 @@ The app works without a connection. Everything already on the phone stays
 readable — the home screen, the status history, the library grid (thumbnails
 are kept for the whole index) and the gallery, which shows the thumbnail with
 a "full size loads when you're back online" note for photos past the media
-cache. Anything sent is filed locally first, as always, and still *tried*:
-CloudKit fails at once with `networkUnavailable` when there's no route
-(`SendFailure.offline`), which is quiet — no alert per send — and stops a
-retry pass early. `AppModel.isOffline` (the path monitor, `.unsatisfied` only:
-`.requiresConnection` comes up on use) is display only — a "You're offline"
-card heads Home after the path has been down 1.5 s ("2 things will send when
-you're back online", its own wording when mobile data is off for the app or
-iCloud is full), the footer says when it last synced, a queued status shows
-"Waiting to send", and any successful fetch clears it. Sends never gate on it:
-the monitor doesn't run while the app is suspended, and a banner's "heart
-back" or reply wakes the app before it catches up. `networkFailure` is
-CFNetwork's catch-all (a dropped upload, TLS, a proxy), so it stays transient:
-it alerts, and a retry pass moves on to the next send. The reconnect refresh
-sends the queue; its retries stop once a fetch since the edge worked —
-whichever refresh ran it — and nothing is left queued.
+cache. Anything sent is filed locally first and still *tried*: with no route
+CloudKit fails at once with `networkUnavailable`, which is quiet — no alert
+per send — and stops a retry pass early. The path monitor is display only: a
+"You're offline" card heads Home after the path has been down 1.5 s ("2 things
+will send when you're back online", with its own wording when mobile data is
+off for the app or iCloud is full), and any successful fetch clears it. Sends
+never wait on it — the monitor doesn't run while the app is suspended, and a
+banner's "heart back" or reply wakes the app before it catches up.
+`networkFailure` is CFNetwork's catch-all (a dropped upload, TLS, a proxy), so
+it stays transient: it alerts, and a retry pass moves on to the next send.
 
 When iCloud asks the app to slow down (`requestRateLimited`, `zoneBusy`,
 `serviceUnavailable`), automatic retries wait for as long as it says, at most
@@ -332,6 +322,35 @@ app.
 Icon-only controls have VoiceOver labels, voice-memo rows are single elements
 (double-tap plays, swipe up or down scrubs), and the rounded type follows
 Dynamic Type up to 1.35× so fixed-height tiles keep fitting.
+
+## Home
+
+One scrolling column, partner first:
+
+1. **"You're offline"** while the path is down (display only — see "Offline"),
+   inside the scroll content rather than pinned above it (CLAUDE.md invariant 21).
+2. **An urgent notice**, if any — *"\<partner\> left your shared space"*
+   (role-worded; "Save and unlink…" opens Settings on the unlink dialog, Dismiss
+   is per departure), "someone else has joined", an iCloud account problem, a
+   stuck fresh start clear.
+3. **The partner card** — their status and their last heart; tap for the status
+   history, long-press to report (or reveal a filtered status).
+4. **Your status row** — with "Seen …" once they've had it on screen, or "Not
+   sent yet · will retry".
+5. **The heart** — "Sending…", then "Sent · Ns" through the cooldown.
+6. **The send row** (Moment — photo or doodle — and Voice memo), then **one non-urgent notice** — the
+   partner's fresh start request (its only delivery), notifications off
+   (re-checked on every foregrounding; "Not now" lasts per device until the
+   problem changes), the owner's close-the-link prompt, the Lock Screen widget
+   tip.
+7. **The moment card** (what's waiting — below), the latest received memo, and
+   the footer: last synced, or the "Sent to …" / "waiting to send · tap to
+   retry" pill.
+
+Only one notice shows at a time. A composer deep link, a tapped moment banner
+and the photo widget queue a route (`AppModel.pendingRoute`) that Home presents
+once nothing is in the way. Something landing while Home is in front plays a
+soft haptic, and Home is what stamps the status read receipt.
 
 ## Photos and doodles
 
@@ -700,92 +719,22 @@ Two things to know about the CloudKit schema:
 ## Layout
 
 ```
-Sources/
-  Shared/      compiled into every target, the test bundle included
-    AppConfig.swift              the IDs that must match the entitlements
-    Theme.swift                  colours, cards, buttons
-    Waveform.swift               condenses recorder levels into memo waveforms
-    Moderation.swift             word filter + the helpers every surface shows
-                                 partner text through; report mail
-    AnnouncementPolicy.swift     check-and-claim behind every notification
-    WidgetReloadPolicy.swift     when the widget refreshes next
-    FreshStartPolicy.swift       the fresh start's handshake and what it clears
-    Models/                      Mood, StatusPayload, PairingInfo, Snapshot,
-                                 Moment, MomentAttachment, Anniversary,
-                                 FreshStart, ArchiveContents
-    Store/SharedStore.swift      App Group cache — the app↔widget channel
-    Store/GroupState.swift       file-backed key-value store (see its header
-                                 for why UserDefaults couldn't be trusted)
-    Store/CrossProcessLock.swift flock-based lock shared with the extensions
-    Store/MomentStore.swift      media files in the App Group: full + thumb
-                                 JPEGs, memo .m4a
-    Store/MomentIndex.swift      the durable history list, kept out of the
-                                 snapshot
-    Store/StatusHistoryLog.swift local rolling status log (see "Status history")
-    Store/Outbox.swift           the offline-send retry loops (republish, pending
-                                 uploads, receipts, the fresh start's steps)
-                                 and their flag rules
-    Cloud/SyncBackend.swift      the sync surface the UI depends on, plus the
-                                 DEBUG-only demo backend
-    Cloud/CloudSync.swift        the CloudKit actor's core; one extension file
-    Cloud/CloudSync+*.swift      per concern: Pairing, Status, Refresh, Nudges,
-                                 Moments, Receipts, Anniversary, FreshStart,
-                                 Archive, Subscriptions, Unpairing
-    Cloud/RefreshDelta.swift     the pure fold of a delta into the snapshot
-    Cloud/ParsedDelta.swift      how a fetched delta is sorted and judged
-    Cloud/MediaPrefetchPlan.swift  what each process downloads after a refresh
-    Cloud/ZoneClearPlan.swift    which own records an unlink or a fresh start deletes
-    Cloud/ZoneGonePolicy.swift, RefreshGate.swift, SendFailure.swift
-                                 small pure rules: the zone-gone verdict, one
-                                 fetch at a time, a full iCloud vs a blip
-    Cloud/CloudDiagnostics.swift the report behind Settings → Diagnostics
-                                 (tap Version seven times in Release)
-    Notifications.swift          banner category/action IDs, Notification.Names
-  App/
-    RedStringApp.swift, AppDelegate.swift  push registration, share acceptance,
-                                           banner actions
-    RedStringShortcuts.swift               Siri / Shortcuts: "send a nudge"
-    AppModel.swift, SyncRunner.swift       state and the refresh→notify path
-    NotificationManager.swift              local notifications + authorization
-                                           + action categories
-    MemoryArchive.swift                    the "archive memories" export
-    DemoSeeder.swift                       DEBUG-only screenshot content
-    Audio/VoiceRecorder.swift, VoicePlayer.swift
-    Camera/CameraEngine.swift, CameraModel.swift  AVFoundation capture + its UI state
-    Views/
-      HomeView, RootView, WelcomeView, PairingView, SettingsView, TermsView
-      MoodPickerView, CelebrationOverlay   statuses and celebrations
-      TieTheStringView, AnniversaryView,   easter egg: hold the home title, tie the
-      AnniversaryEditorView                string, the count; the owner's date
-      MomentComposerView                   photo + doodle composer
-      VoiceMemoComposerView, VoiceMomentViews
-      ScrubbableWaveform                   swipe-to-seek wrapper over WaveformBars
-      MomentLibraryView, MomentGalleryView the history grid and pager
-      HistoryFilter, StatusHistoryView     direction filter + the status log sheet
-      FreshStartView                       ask, agree, withdraw; the clear's progress
-      DrawingCanvas.swift                  PencilKit canvas and palette
-      CameraView.swift                     the moment camera (timer, flash, lenses)
-      InviteLinkView, ShareSheet, PinchToZoom, DiagnosticsView, RelativeTime
-  Widget/
-    RedStringWidgetBundle.swift
-    StatusWidget.swift, WidgetViews.swift, StatusProvider.swift
-    MomentWidget.swift                   the photo/doodle widget
-    SendNudgeIntent.swift                the lock screen heart (also compiled
-                                         into the app for Siri)
-  NotificationService/
-    NotificationService.swift            enriches pushes; runs when the app can't
-Tests/
-  RedStringTests/                        XCTest over Sources/Shared — no host app
-
-Each target's Resources/ also carries a Localizable.xcstrings (an Xcode IDE
-build fills it from SwiftUI text and String(localized:) — xcodebuild doesn't
-write it back; English only so far, but every user-facing string goes through
-it) and a PrivacyInfo.xcprivacy — required for
-App Store submission. Red String declares no tracking and no collected data;
-the required-reason APIs are the App Group defaults suite (CA92.1) and the
-file timestamps MomentStore.prune reads inside the app's own container
-(C617.1).
+Sources/Shared/        compiled into every target, the test bundle included
+Sources/App/           the app: AppModel, views, camera, audio, notifications
+Sources/Widget/        status, photo and heart widgets
+Sources/NotificationService/   push enrichment
+Tests/                 RedStringTests (no host app) and RedStringUITests
 ```
+
+The file-by-file map lives in [CLAUDE.md](CLAUDE.md) ("File map").
+
+Each target's `Resources/` also carries a `Localizable.xcstrings` (an Xcode IDE
+build fills it from SwiftUI text and `String(localized:)` — xcodebuild doesn't
+write it back; English only so far, but every user-facing string goes through
+it) and a `PrivacyInfo.xcprivacy`, required for App Store submission. Red String
+declares no tracking and no collected data; the required-reason APIs are the
+App Group defaults suite (CA92.1) and the file timestamps `MomentStore.prune`
+reads inside the app's own container (C617.1).
 
 ## Commands
 
@@ -794,7 +743,7 @@ file timestamps MomentStore.prune reads inside the app's own container
 | `make project` | regenerate the Xcode project from `project.yml` |
 | `make build` | compile check for the Simulator (unsigned — don't launch it) |
 | `make test` | unit tests over `Sources/Shared` (unsigned; no host app or App Group needed) |
-| `make uitest` | demo-mode UI smoke with `performAccessibilityAudit()` on Home and every main sheet (signed, like `make run`; not in CI — about three minutes) |
+| `make uitest` | demo-mode UI smoke with `performAccessibilityAudit()` on Home and every main sheet (signed, like `make run`; CI compiles it but can't run it — about three minutes) |
 | `make run` | build signed, install and launch on the Simulator |
 | `make device` | build signed and install the Debug config on a connected iPhone — the only route to the CloudKit Development schema |
 | `make archive` | archive the Release config for TestFlight / the App Store |
