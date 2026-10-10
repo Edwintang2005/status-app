@@ -64,7 +64,7 @@ struct VoiceMemoComposerView: View {
                 Button("Keep it", role: .cancel) {}
             }
         }
-        // A two-minute take must not vanish on an accidental pull-down.
+        // A long take must not vanish on an accidental pull-down.
         .interactiveDismissDisabled(hasContent)
         .onDisappear {
             player.stop()
@@ -85,7 +85,7 @@ struct VoiceMemoComposerView: View {
         VStack(spacing: 20) {
             Text(statusLine)
                 .font(Theme.rounded(15, .medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.mutedText)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .contentTransition(.opacity)

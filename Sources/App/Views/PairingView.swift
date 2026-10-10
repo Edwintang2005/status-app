@@ -87,7 +87,7 @@ struct PairingView: View {
                 .font(Theme.rounded(34, .bold))
             Text("A glance at each other, from anywhere.")
                 .font(Theme.rounded(16))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.mutedText)
                 .multilineTextAlignment(.center)
         }
     }
@@ -98,7 +98,7 @@ struct PairingView: View {
         HStack(spacing: 12) {
             Text("You'll appear as")
                 .font(Theme.rounded(14))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.mutedText)
 
             TextField("Your name", text: $name)
                 .font(Theme.rounded(17, .semibold))
@@ -151,7 +151,7 @@ struct PairingView: View {
 
             Text("Or, if they've already sent you a link, just tap it — this app will open and pair itself.")
                 .font(Theme.rounded(13))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.mutedText)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 8)
         }
@@ -165,7 +165,7 @@ struct PairingView: View {
                 .font(Theme.rounded(17, .semibold))
             Text("This iCloud account is already paired. Rejoin and the statuses, photos and memos come back on their own.")
                 .font(Theme.rounded(13))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.mutedText)
                 .multilineTextAlignment(.center)
 
             Button {
@@ -192,7 +192,7 @@ struct PairingView: View {
                 .font(Theme.rounded(17, .semibold))
             Text("They tap it to join. If they don't have \(AppConfig.appName) yet, they install it, then tap the link again.")
                 .font(Theme.rounded(13))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.mutedText)
                 .multilineTextAlignment(.center)
 
             InviteLinkText(url: url)
@@ -211,7 +211,7 @@ struct PairingView: View {
             // Nobody has joined yet — this only discards the invite; the name stays.
             Button("Start over") { Task { await model.unlink(startingOver: false) } }
                 .font(Theme.rounded(14))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.mutedText)
         }
         .card()
     }
@@ -232,7 +232,7 @@ struct PairingView: View {
         Label {
             Text("Your statuses, photos and drawings are end-to-end encrypted in your own iCloud. No servers, no accounts, no ads.")
                 .font(Theme.rounded(12))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.mutedText)
         } icon: {
             Image(systemName: "lock.shield")
                 .foregroundStyle(Theme.mint)

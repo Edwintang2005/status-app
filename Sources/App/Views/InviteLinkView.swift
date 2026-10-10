@@ -76,7 +76,7 @@ struct InviteLinkText: View {
     var body: some View {
         Text(url.absoluteString)
             .font(.system(.footnote, design: .monospaced))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Theme.mutedText)
             .lineLimit(2)
             .truncationMode(.middle)
             .textSelection(.enabled)
@@ -109,7 +109,7 @@ struct InviteLinkSheet: View {
 
                         Text("They tap it and you're linked — no accounts, nothing to type. If they don't have \(AppConfig.appName) yet, they install it first, then tap the link again.")
                             .font(Theme.rounded(15))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.mutedText)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 8)
 
@@ -132,7 +132,7 @@ struct InviteLinkSheet: View {
                         Label {
                             Text("The link is the only way in, so send it to \(partnerName) alone. You can find it again — and close it — in Settings.")
                                 .font(Theme.rounded(12))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Theme.mutedText)
                                 .fixedSize(horizontal: false, vertical: true)
                         } icon: {
                             Image(systemName: "lock.shield")

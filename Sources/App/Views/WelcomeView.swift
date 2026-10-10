@@ -72,7 +72,7 @@ struct WelcomeView: View {
 
             Text(subtitle)
                 .font(Theme.rounded(16))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.mutedText)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 6)
@@ -154,7 +154,7 @@ struct WelcomeView: View {
                     }
                 }
                 .font(Theme.rounded(12))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.mutedText)
             } icon: {
                 Image(systemName: "lock.shield")
                     .foregroundStyle(Theme.mint)

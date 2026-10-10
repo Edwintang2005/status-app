@@ -55,7 +55,7 @@ struct DiagnosticsView: View {
                     if diagnostics.shareParticipants.isEmpty {
                         Text("No share found — either this device isn't paired, or the shared zone is gone.")
                             .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.mutedText)
                     } else {
                         ForEach(diagnostics.shareParticipants, id: \.self) { participant in
                             Text(participant)
@@ -89,7 +89,7 @@ struct DiagnosticsView: View {
                         if let sweepResult {
                             Text(sweepResult)
                                 .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Theme.mutedText)
                         }
                     } footer: {
                         Group {
@@ -119,7 +119,7 @@ struct DiagnosticsView: View {
                         if let secureResult {
                             Text(secureResult)
                                 .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Theme.mutedText)
                         }
                     } footer: {
                         Group {
@@ -153,7 +153,7 @@ struct DiagnosticsView: View {
                         if let resyncResult {
                             Text(resyncResult)
                                 .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Theme.mutedText)
                         }
                     } footer: {
                         Group {
@@ -192,7 +192,7 @@ struct DiagnosticsView: View {
                     HStack {
                         ProgressView().controlSize(.small)
                         Text("Reading iCloud…")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.mutedText)
                     }
                 }
             }
@@ -257,7 +257,7 @@ struct DiagnosticsView: View {
             if items.isEmpty {
                 Text(empty)
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.mutedText)
             } else {
                 ForEach(items, id: \.self) { item in
                     Text(item)

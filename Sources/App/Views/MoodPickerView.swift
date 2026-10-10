@@ -94,9 +94,7 @@ struct MoodPickerView: View {
             // Section heads in plain primary: grey small caps fell under 4.5:1
             // over the backdrop's crimson corner, where this sheet starts.
             Text("IN YOUR WORDS")
-                .font(Theme.rounded(12, .semibold))
-                .tracking(1.2)
-                .foregroundStyle(Color.primary)
+                .eyebrow(size: 12, color: .primary)
 
             HStack(spacing: 12) {
                 // Any emoji at all: tapping opens the emoji keyboard, and a
@@ -153,9 +151,7 @@ struct MoodPickerView: View {
     private var recentSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("RECENT")
-                .font(Theme.rounded(12, .semibold))
-                .tracking(1.2)
-                .foregroundStyle(Color.primary)
+                .eyebrow(size: 12, color: .primary)
 
             LazyVGrid(columns: columns, spacing: 12) {
                 ForEach(recent) { entry in
@@ -205,7 +201,7 @@ struct MoodPickerView: View {
     private var searchField: some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.mutedText)
             TextField("Search statuses", text: $query)
                 .font(Theme.rounded(16))
                 .autocorrectionDisabled()
@@ -229,10 +225,8 @@ struct MoodPickerView: View {
 
     private func section(_ group: MoodGroup, moods: [Mood]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(group.rawValue.uppercased())
-                .font(Theme.rounded(12, .semibold))
-                .tracking(1.2)
-                .foregroundStyle(Color.primary)
+            Text(group.rawValue)
+                .eyebrow(size: 12, color: .primary)
 
             LazyVGrid(columns: columns, spacing: 12) {
                 ForEach(moods) { mood in
@@ -287,8 +281,7 @@ struct MoodPickerView: View {
                     Text(label)
                         .font(Theme.rounded(11, .medium))
                         .foregroundStyle(Color.primary)
-                        // Three lines rather than shrinking: the audit reads a
-                        // shrunk label as clipped, and the tile grows to fit.
+                        // Wraps rather than shrinks (the audit reads shrunk text as clipped).
                         .lineLimit(3)
                         .multilineTextAlignment(.center)
                         .accessibilityIdentifier("status.tile.label")
