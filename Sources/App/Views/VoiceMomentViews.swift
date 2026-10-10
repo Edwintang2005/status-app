@@ -19,7 +19,7 @@ struct VoiceMomentTile: View {
                 .frame(height: 34)
                 .padding(.horizontal, 10)
         }
-        // Trailing, not leading — the library's sent-arrow owns bottom-leading.
+        // Trailing, not leading — the library's send badge (clock or eye) owns bottom-leading.
         .overlay(alignment: .bottomTrailing) {
             HStack(spacing: 4) {
                 Image(systemName: "mic.fill")
@@ -36,6 +36,31 @@ struct VoiceMomentTile: View {
     }
 }
 
+/// Where one memo stands in its screen's shared player.
+private struct MemoPlayback {
+    /// `nil` until the recording is on this device.
+    let audioURL: URL?
+    let player: VoicePlayer
+    let moment: Moment
+
+    @MainActor var isPlaying: Bool {
+        guard let audioURL else { return false }
+        return player.isPlaying(audioURL)
+    }
+
+    /// Playing or paused: the counter follows the playhead, a paused scrub included.
+    @MainActor var isLoaded: Bool { audioURL != nil && player.currentURL == audioURL }
+
+    @MainActor var timeLabel: String {
+        isLoaded ? Self.clock(player.elapsed) : moment.durationLabel
+    }
+
+    static func clock(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds)
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
+}
+
 /// The gallery's page for a voice memo: a big play control over the waveform,
 /// with the played portion filling in as it goes.
 struct VoicePlaybackCard: View {
@@ -45,13 +70,7 @@ struct VoicePlaybackCard: View {
     /// Owned by the enclosing screen, so dismissing it stops the audio.
     let player: VoicePlayer
 
-    private var isPlaying: Bool {
-        guard let audioURL else { return false }
-        return player.isPlaying(audioURL)
-    }
-
-    /// Playing or paused: the counter follows the playhead, a paused scrub included.
-    private var isLoaded: Bool { audioURL != nil && player.currentURL == audioURL }
+    private var playback: MemoPlayback { MemoPlayback(audioURL: audioURL, player: player, moment: moment) }
 
     var body: some View {
         VStack(spacing: 26) {
@@ -69,7 +88,7 @@ struct VoicePlaybackCard: View {
                     guard let audioURL else { return }
                     player.toggle(audioURL)
                 } label: {
-                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                    Image(systemName: playback.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 26, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 66, height: 66)
@@ -79,16 +98,16 @@ struct VoicePlaybackCard: View {
                 .buttonStyle(.plain)
                 .disabled(audioURL == nil)
                 .opacity(audioURL == nil ? 0.4 : 1)
-                .accessibilityLabel(isPlaying ? "Pause" : "Play")
+                .accessibilityLabel(playback.isPlaying ? "Pause" : "Play")
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(isLoaded ? timeLabel(player.elapsed) : moment.durationLabel)
+                    Text(playback.timeLabel)
                         .font(Theme.rounded(28, .semibold))
                         .monospacedDigit()
                         .contentTransition(.numericText())
                     Text("voice memo")
                         .font(Theme.rounded(13))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.mutedText)
                 }
 
                 Spacer(minLength: 0)
@@ -97,34 +116,24 @@ struct VoicePlaybackCard: View {
         .padding(.vertical, 30)
         .card(padding: 26)
     }
-
-    private func timeLabel(_ seconds: TimeInterval) -> String {
-        let total = Int(seconds)
-        return String(format: "%d:%02d", total / 60, total % 60)
-    }
 }
 
-/// The home screen's row for an unheard memo: one short row with a play
-/// button — playing it here is the whole interaction.
+/// The home screen's row for the partner's latest memo, heard or not: one
+/// short row with a play button — playing it here is the whole interaction.
 struct VoiceMemoRow: View {
     let moment: Moment
     /// `nil` until the recording is on this device.
     let audioURL: URL?
     /// Owned by the enclosing screen, so leaving it stops the audio.
     let player: VoicePlayer
+    var filterEnabled = SharedStore.shared.contentFilterEnabled
     /// Play, pause, or fetch-then-play — the enclosing screen decides;
     /// marking the memo heard is its business, not this view's.
     let onTap: () -> Void
     /// Fires when a scrub starts, so the enclosing screen can mark it heard.
     var onScrub: (() -> Void)? = nil
 
-    private var isPlaying: Bool {
-        guard let audioURL else { return false }
-        return player.isPlaying(audioURL)
-    }
-
-    /// Playing or paused: the counter follows the playhead, a paused scrub included.
-    private var isLoaded: Bool { audioURL != nil && player.currentURL == audioURL }
+    private var playback: MemoPlayback { MemoPlayback(audioURL: audioURL, player: player, moment: moment) }
 
     // Not a Button: a wrapping Button claims touches before the waveform's
     // scrub gesture can, so the card takes a tap gesture instead.
@@ -136,7 +145,7 @@ struct VoiceMemoRow: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(title), \(moment.durationLabel)")
             .accessibilityValue(accessibilityValue)
-            .accessibilityHint(isPlaying ? "Pauses" : "Plays")
+            .accessibilityHint(playback.isPlaying ? "Pauses" : "Plays")
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { onTap() }
             .accessibilityAdjustableAction { direction in
@@ -148,72 +157,67 @@ struct VoiceMemoRow: View {
 
     private var accessibilityValue: String {
         // The adjustable action's only feedback, so it names the position.
-        if isLoaded {
-            let at = timeLabel(player.elapsed)
-            return isPlaying ? String(localized: "Playing, \(at)") : String(localized: "Paused, \(at)")
+        if playback.isLoaded {
+            let at = playback.timeLabel
+            return playback.isPlaying ? String(localized: "Playing, \(at)") : String(localized: "Paused, \(at)")
         }
         return !moment.seen && !moment.fromMe ? String(localized: "New") : ""
     }
 
     private var content: some View {
-            HStack(spacing: 14) {
-                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
-                    .background(Theme.accent, in: Circle())
+        HStack(spacing: 14) {
+            Image(systemName: playback.isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 40, height: 40)
+                .background(Theme.accent, in: Circle())
 
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 6) {
-                        Text(title)
-                            .font(Theme.rounded(15, .semibold))
-                            .lineLimit(1)
-                        Spacer(minLength: 0)
-                        Text(isLoaded ? timeLabel(player.elapsed) : moment.durationLabel)
-                            .font(Theme.rounded(13))
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Text(title)
+                        .font(Theme.rounded(15, .semibold))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    Text(playback.timeLabel)
+                        .font(Theme.rounded(13))
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.mutedText)
+                }
 
-                    // Swipe sideways to scrub; taps still reach the row, and a
-                    // vertical swipe still scrolls the home screen.
-                    ScrubbableWaveform(moment: moment,
-                                       audioURL: audioURL,
-                                       player: player,
-                                       tint: Theme.accent,
-                                       trackTint: Theme.accent.opacity(0.22),
-                                       spacing: 2,
-                                       maxBarWidth: 3,
-                                       scrollSafe: true,
-                                       onScrubStart: onScrub)
-                        .frame(height: 22)
-                }
+                // Swipe sideways to scrub; taps still reach the row, and a
+                // vertical swipe still scrolls the home screen.
+                ScrubbableWaveform(moment: moment,
+                                   audioURL: audioURL,
+                                   player: player,
+                                   tint: Theme.accent,
+                                   trackTint: Theme.accent.opacity(0.22),
+                                   spacing: 2,
+                                   maxBarWidth: 3,
+                                   scrollSafe: true,
+                                   onScrubStart: onScrub)
+                    .frame(height: 22)
             }
-            .card(padding: 14)
-            .overlay(alignment: .topTrailing) {
-                if !moment.seen && !moment.fromMe {
-                    // warmDeep: `warm` is 2.3:1 on the card, too faint for the only "new" cue.
-                    Circle()
-                        .fill(Theme.warmDeep)
-                        .frame(width: 10, height: 10)
-                        .offset(x: -6, y: 6)
-                }
+        }
+        .card(padding: 14)
+        .overlay(alignment: .topTrailing) {
+            if !moment.seen && !moment.fromMe {
+                // warmDeep: `warm` is 2.3:1 on the card, too faint for the only "new" cue.
+                Circle()
+                    .fill(Theme.warmDeep)
+                    .frame(width: 10, height: 10)
+                    .offset(x: -6, y: 6)
             }
+        }
     }
 
     /// Partner text goes through the filter like everywhere else (invariant 20).
     private var title: String {
-        if let caption = moment.displayCaption { return caption }
+        if let caption = moment.displayCaption(filterEnabled: filterEnabled) { return caption }
         if moment.fromMe { return String(localized: "Your voice memo") }
-        let sender = moment.displaySenderName(fallback: "")
+        let sender = moment.displaySenderName(fallback: "", filterEnabled: filterEnabled)
         return sender.isEmpty
             ? String(localized: "Voice memo")
             : String(localized: "\(sender) sent a voice memo")
-    }
-
-    private func timeLabel(_ seconds: TimeInterval) -> String {
-        let total = Int(seconds)
-        return String(format: "%d:%02d", total / 60, total % 60)
     }
 }
 

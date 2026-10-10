@@ -15,13 +15,17 @@ struct CelebrationOverlay: View {
     @State private var start = Date()
     @State private var confirmingReport = false
 
-    /// Their text, or a stand-in if they armed a celebration and sent no words
-    /// — or the filter hides them; this fills the screen, so it goes through it too.
+    /// Their status as it may be shown; this fills the screen (invariant 20).
+    private var shown: ModeratedStatus {
+        payload.moderation(reportedAt: model.hiddenPartnerStatusAt, filterEnabled: model.contentFilterEnabled)
+    }
+
+    /// Their words, or a stand-in if they armed a celebration and sent none —
+    /// or the words can't be shown.
     private var headline: String {
-        let trimmed = payload.message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !ContentFilter.hides(trimmed) else {
-            return String(localized: "Happy anniversary")
-        }
+        let message = shown.message
+        let trimmed = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !message.isPlaceholder else { return String(localized: "Happy anniversary") }
         return trimmed
     }
 
@@ -94,7 +98,7 @@ struct CelebrationOverlay: View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
 
-            Text(payload.emoji)
+            Text(shown.emoji)
                 .font(.system(size: 84))
                 // Under Reduce Motion everything here only fades.
                 .scaleEffect(revealed || reduceMotion ? 1 : 0.3)
@@ -116,7 +120,7 @@ struct CelebrationOverlay: View {
 
             Text("from \(partnerName)")
                 .font(Theme.rounded(17, .medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.mutedText)
                 .padding(.top, 18)
                 .opacity(revealed ? 1 : 0)
 
@@ -167,17 +171,19 @@ struct ConfettiPiece: Identifiable {
     /// Turns per second.
     let spin: Double
     let color: Color
-    /// Non-nil for the emoji pieces.
-    let glyph: String?
+    /// An index into `glyphs` for the emoji pieces.
+    let glyph: Int?
 
     /// How long one piece takes to fly, fall and fade.
     static let cycle: Double = 3.4
     static let gravity: Double = 520
+    static let glyphs = ["💗", "🎉", "✨", "💞"]
+    /// The size the glyphs are laid out at, once; each piece scales from it.
+    static let glyphSize: CGFloat = 24
 
     static func emitter(count: Int = 64) -> [ConfettiPiece] {
         let colors = [Theme.warm, Theme.accent, Theme.mint,
                       Color(red: 1.0, green: 0.80, blue: 0.35)]
-        let glyphs = ["💗", "🎉", "✨", "💞"]
 
         return (0..<count).map { index in
             // Full-circle burst; gravity sorts out the rest.
@@ -189,54 +195,82 @@ struct ConfettiPiece: Identifiable {
                           spin: .random(in: -1.6...1.6),
                           color: colors[index % colors.count],
                           // Roughly one in four, so the emoji stay a garnish.
-                          glyph: index % 4 == 0 ? glyphs[(index / 4) % glyphs.count] : nil)
+                          glyph: index % 4 == 0 ? (index / 4) % glyphs.count : nil)
         }
     }
 }
 
+/// A few cycles of confetti from `start`, then nothing: the timeline stops.
 struct ConfettiLayer: View {
     let pieces: [ConfettiPiece]
     let start: Date
+    /// Each piece flies this many times.
+    var cycles = 3
+
+    @State private var finished = false
+
+    /// Phases only start a piece early, so the last flight ends here.
+    private var duration: Double { Double(cycles) * ConfettiPiece.cycle }
 
     var body: some View {
-        TimelineView(.animation) { timeline in
-            Canvas { context, size in
-                let elapsed = timeline.date.timeIntervalSince(start)
-                let origin = CGPoint(x: size.width / 2, y: size.height * 0.42)
+        if !finished {
+            TimelineView(.animation) { timeline in
+                canvas(elapsed: timeline.date.timeIntervalSince(start))
+            }
+            .task(id: start) {
+                let left = duration - Date().timeIntervalSince(start)
+                if left > 0 { try? await Task.sleep(for: .seconds(left)) }
+                if !Task.isCancelled { finished = true }
+            }
+        }
+    }
 
-                for piece in pieces {
-                    // Each piece loops through the cycle, offset by its phase.
-                    let progress = (elapsed / ConfettiPiece.cycle + piece.phase)
-                        .truncatingRemainder(dividingBy: 1)
-                    let t = progress * ConfettiPiece.cycle
+    private func canvas(elapsed: TimeInterval) -> some View {
+        Canvas { context, size in
+            let origin = CGPoint(x: size.width / 2, y: size.height * 0.42)
+            // Laid out once as symbols, not a `Text` per piece per frame.
+            let glyphs = ConfettiPiece.glyphs.indices.map { context.resolveSymbol(id: $0) }
 
-                    let x = origin.x + cos(piece.angle) * piece.speed * t
-                    let y = origin.y + sin(piece.angle) * piece.speed * t
-                        + 0.5 * ConfettiPiece.gravity * t * t
-                    guard y < size.height + 40 else { continue }
+            for piece in pieces {
+                // Each piece loops through the cycle, offset by its phase.
+                let loops = elapsed / ConfettiPiece.cycle + piece.phase
+                guard loops < Double(cycles) else { continue }
+                let progress = loops.truncatingRemainder(dividingBy: 1)
+                let t = progress * ConfettiPiece.cycle
 
-                    // Fade in fast, out slow.
-                    let opacity = min(1, progress / 0.06)
-                        * min(1, max(0, (1 - progress) / 0.35))
+                let x = origin.x + cos(piece.angle) * piece.speed * t
+                let y = origin.y + sin(piece.angle) * piece.speed * t
+                    + 0.5 * ConfettiPiece.gravity * t * t
+                guard y < size.height + 40 else { continue }
 
-                    context.drawLayer { layer in
-                        layer.opacity = opacity
-                        layer.translateBy(x: x, y: y)
-                        layer.rotate(by: .radians(piece.spin * t * 2 * .pi))
-                        if let glyph = piece.glyph {
-                            layer.draw(Text(glyph).font(.system(size: piece.size * 1.9)),
-                                       at: .zero)
-                        } else {
-                            let rect = CGRect(x: -piece.size / 2,
-                                              y: -piece.size,
-                                              width: piece.size,
-                                              height: piece.size * 2)
-                            layer.fill(Path(roundedRect: rect,
-                                            cornerRadius: piece.size * 0.35),
-                                       with: .color(piece.color))
-                        }
+                // Fade in fast, out slow.
+                let opacity = min(1, progress / 0.06)
+                    * min(1, max(0, (1 - progress) / 0.35))
+
+                context.drawLayer { layer in
+                    layer.opacity = opacity
+                    layer.translateBy(x: x, y: y)
+                    layer.rotate(by: .radians(piece.spin * t * 2 * .pi))
+                    if let index = piece.glyph, let glyph = glyphs[index] {
+                        let scale = piece.size * 1.9 / ConfettiPiece.glyphSize
+                        layer.scaleBy(x: scale, y: scale)
+                        layer.draw(glyph, at: .zero)
+                    } else {
+                        let rect = CGRect(x: -piece.size / 2,
+                                          y: -piece.size,
+                                          width: piece.size,
+                                          height: piece.size * 2)
+                        layer.fill(Path(roundedRect: rect,
+                                        cornerRadius: piece.size * 0.35),
+                                   with: .color(piece.color))
                     }
                 }
+            }
+        } symbols: {
+            ForEach(ConfettiPiece.glyphs.indices, id: \.self) { index in
+                Text(ConfettiPiece.glyphs[index])
+                    .font(.system(size: ConfettiPiece.glyphSize))
+                    .tag(index)
             }
         }
     }

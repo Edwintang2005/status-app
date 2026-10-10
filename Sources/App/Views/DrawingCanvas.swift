@@ -114,18 +114,28 @@ final class DrawingController {
         strokeCount = 0
     }
 
-    /// Flattens photo (if any) and strokes into one square image at the stored full size.
-    func render(size: CGFloat = MomentStore.fullMaxDimension, over photo: UIImage?) -> UIImage {
-        let rect = CGRect(x: 0, y: 0, width: size, height: size)
+    /// Flattens photo (if any) and strokes into one square image at the stored
+    /// full size, off the main thread: a 2048-pixel composite takes a while.
+    func render(size: CGFloat = MomentStore.fullMaxDimension, over photo: UIImage?) async -> UIImage {
         // The composer shows the centred square of the canvas; should the canvas
         // ever be laid out wider or taller, export that square, not a stretch of the whole.
         let bounds = Self.centredSquare(in: canvas.bounds)
+        let drawing = canvas.drawing
+        let ground = backdrop.color
+        return await Task.detached(priority: .userInitiated) {
+            Self.composite(drawing, bounds: bounds, backdrop: ground, photo: photo, size: size)
+        }.value
+    }
+
+    private nonisolated static func composite(_ drawing: PKDrawing, bounds: CGRect, backdrop: Color,
+                                              photo: UIImage?, size: CGFloat) -> UIImage {
+        let rect = CGRect(x: 0, y: 0, width: size, height: size)
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
         format.opaque = true
 
         return UIGraphicsImageRenderer(size: rect.size, format: format).image { context in
-            UIColor(backdrop.color).setFill()
+            UIColor(backdrop).setFill()
             context.fill(rect)
             photo?.drawAspectFill(in: rect)
 
@@ -133,14 +143,14 @@ final class DrawingController {
             // Rasterise at export resolution to avoid a blurry upscale; pinned
             // light because `PKDrawing.image` reads current traits and inverts ink in dark mode.
             UITraitCollection(userInterfaceStyle: .light).performAsCurrent {
-                canvas.drawing
+                drawing
                     .image(from: bounds, scale: size / bounds.width)
                     .draw(in: rect)
             }
         }
     }
 
-    static func centredSquare(in bounds: CGRect) -> CGRect {
+    nonisolated static func centredSquare(in bounds: CGRect) -> CGRect {
         let side = min(bounds.width, bounds.height)
         return CGRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
     }
@@ -211,8 +221,7 @@ struct DrawingPalette: View {
 
     @State private var confirmingClear = false
 
-    /// One per entry of `DrawingController.backdrops`, in order — seven
-    /// swatches all called "Background colour" were indistinguishable to VoiceOver.
+    /// One per entry of `DrawingController.backdrops`, in order.
     private static var backdropNames: [String] {
         [String(localized: "White background"),
          String(localized: "Cream background"),
@@ -229,7 +238,6 @@ struct DrawingPalette: View {
                 ForEach(Array(DrawingController.palette.enumerated()), id: \.offset) { index, colour in
                     Button {
                         controller.color = colour
-                        controller.isErasing = false
                     } label: {
                         Circle()
                             .fill(colour)
@@ -307,12 +315,10 @@ struct DrawingPalette: View {
 
             if showsBackdrop {
                 Divider()
-                // Label above, not beside — inline it wrapped once seven swatches filled the row.
+                // Label above, not beside: inline, it wraps beside seven swatches.
                 VStack(alignment: .leading, spacing: 10) {
                     Text("BACKGROUND")
-                        .font(Theme.rounded(10, .semibold))
-                        .tracking(1.0)
-                        .foregroundStyle(.secondary)
+                        .eyebrow(size: 10)
 
                     HStack(spacing: 12) {
                         ForEach(Array(DrawingController.backdrops.enumerated()), id: \.element.id) { index, backdrop in

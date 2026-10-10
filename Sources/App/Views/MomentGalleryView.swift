@@ -2,8 +2,8 @@ import Photos
 import SwiftUI
 
 /// Swipe back through the whole history: photos, voice memos, save/share.
-/// Entries past `AppConfig.momentImageCacheLimit` keep metadata only, so a
-/// page may fetch its media from CloudKit on arrival.
+/// Full media is kept only for the newest `AppConfig.momentImageCacheLimit`;
+/// past that a page shows the kept thumbnail and fetches the rest on arrival.
 struct MomentGalleryView: View {
     let moments: [Moment]
     let startAt: Moment
@@ -45,6 +45,9 @@ struct MomentGalleryView: View {
     }
 
     var body: some View {
+        let partnerName = model.partnerName
+        let filterOn = model.contentFilterEnabled
+
         NavigationStack {
             ZStack {
                 Theme.Background()
@@ -53,16 +56,11 @@ struct MomentGalleryView: View {
                     ContentUnavailableView("Nothing here yet",
                                            systemImage: "photo.on.rectangle.angled")
                 } else {
-                    // A horizontal paging ScrollView, not a page-style TabView: the
-                    // TabView builds every page up front (seconds of layout for a
-                    // long history) and halts halfway between pages when any page's
-                    // content changes mid-swipe — which a photo finishing its decode
-                    // does. UIKit paging targets come from the viewport, not the
-                    // pages, and the lazy stack builds only what is on screen.
+                    // Never a page-style TabView (CLAUDE.md file map, `MomentGalleryView`).
                     ScrollView(.horizontal) {
                         LazyHStack(spacing: 0) {
                             ForEach(moments) { moment in
-                                page(moment)
+                                page(moment, partnerName: partnerName, filterOn: filterOn)
                                     .containerRelativeFrame(.horizontal)
                                     .id(moment.id)
                             }
@@ -87,7 +85,8 @@ struct MomentGalleryView: View {
                 if let current, !current.fromMe {
                     ToolbarItem(placement: .topBarTrailing) {
                         Menu {
-                            if captionIsFiltered(current) && !revealedCaptions.contains(current.id) {
+                            if current.moderatedCaption(revealed: revealedCaptions.contains(current.id),
+                                                        filterEnabled: filterOn)?.isPlaceholder == true {
                                 Button {
                                     revealedCaptions.insert(current.id)
                                 } label: {
@@ -107,8 +106,7 @@ struct MomentGalleryView: View {
                 }
             }
             .confirmationDialog("Report this \(reporting?.noun ?? "moment")?",
-                                isPresented: Binding(get: { reporting != nil },
-                                                     set: { if !$0 { reporting = nil } }),
+                                isPresented: $reporting.isPresent(),
                                 titleVisibility: .visible) {
                 Button("Report", role: .destructive) {
                     if let reporting { model.report(reporting) }
@@ -163,8 +161,8 @@ struct MomentGalleryView: View {
         )
     }
 
-    /// The TabView's dots, drawn by hand; the title already counts, so a long
-    /// history gets no row of fifty dots.
+    /// Page dots for a short run; the title already counts, so a long history
+    /// gets no row of fifty dots.
     @ViewBuilder
     private var pageDots: some View {
         if (2...12).contains(moments.count) {
@@ -188,8 +186,13 @@ struct MomentGalleryView: View {
 
     // MARK: - Page
 
+    private func page(_ moment: Moment, partnerName: String, filterOn: Bool) -> some View {
+        let attribution = attribution(moment, partnerName: partnerName, filterOn: filterOn)
+        return pageContent(moment, attribution: attribution, filterOn: filterOn)
+    }
+
     @ViewBuilder
-    private func page(_ moment: Moment) -> some View {
+    private func pageContent(_ moment: Moment, attribution: String, filterOn: Bool) -> some View {
         VStack(spacing: 16) {
             Spacer(minLength: 0)
 
@@ -203,25 +206,26 @@ struct MomentGalleryView: View {
             } else {
                 // Own view with its own load, so a page decodes only when it appears.
                 GalleryImageView(momentID: moment.id,
-                                 summary: String(localized: "\(moment.noun) from \(attribution(moment))"),
+                                 summary: String(localized: "\(moment.noun) from \(attribution)"),
                                  isLoading: loading.contains(moment.id),
                                  isUnavailable: unavailable.contains(moment.id),
                                  isOffline: model.isOffline)
             }
 
             VStack(spacing: 5) {
-                if !moment.caption.isEmpty {
-                    if captionIsFiltered(moment) && !revealedCaptions.contains(moment.id) {
-                        Text(ContentFilter.hiddenPlaceholder)
+                if let caption = moment.moderatedCaption(revealed: revealedCaptions.contains(moment.id),
+                                                         filterEnabled: filterOn) {
+                    if caption.isPlaceholder {
+                        Text(caption.text)
                             .font(Theme.rounded(15))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.mutedText)
                     } else {
-                        Text(moment.caption)
+                        Text(caption.text)
                             .font(Theme.rounded(20, .semibold))
                             .multilineTextAlignment(.center)
                     }
                 }
-                Text(attribution(moment))
+                Text(attribution)
                     .font(Theme.rounded(13))
                     .foregroundStyle(Theme.mutedText)
                 if let seen = seenLine(moment) {
@@ -287,17 +291,17 @@ struct MomentGalleryView: View {
                                     ProgressView()
                                     Text("Fetching from iCloud…")
                                         .font(Theme.rounded(13))
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(Theme.mutedText)
                                 }
                             } else if isUnavailable {
                                 Label(isOffline ? "Loads when you're back online" : "Couldn't load this one",
                                       systemImage: isOffline ? "wifi.slash" : "icloud.slash")
                                     .font(Theme.rounded(14))
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(Theme.mutedText)
                             } else {
                                 Image(systemName: "photo")
                                     .font(.system(size: 30))
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(Theme.mutedText)
                             }
                         }
                 }
@@ -330,7 +334,7 @@ struct MomentGalleryView: View {
                 }
             }
             .font(Theme.rounded(12))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Theme.mutedText)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .background(.ultraThinMaterial, in: Capsule())
@@ -344,25 +348,21 @@ struct MomentGalleryView: View {
         if loading.contains(moment.id) {
             Label("Fetching from iCloud…", systemImage: "icloud.and.arrow.down")
                 .font(Theme.rounded(13))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.mutedText)
         } else if unavailable.contains(moment.id) {
             Label(model.isOffline ? "Plays once you're back online" : "Couldn't load this one",
                   systemImage: model.isOffline ? "wifi.slash" : "icloud.slash")
                 .font(Theme.rounded(13))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.mutedText)
         }
-    }
-
-    private func captionIsFiltered(_ moment: Moment) -> Bool {
-        !moment.fromMe && ContentFilter.hides(moment.caption)
     }
 
     /// Shows the name attached at send time; falls back to the current partner
     /// name only when the record carries none (or the filter hides it).
-    private func attribution(_ moment: Moment) -> String {
+    private func attribution(_ moment: Moment, partnerName: String, filterOn: Bool) -> String {
         let who = moment.fromMe
             ? String(localized: "You")
-            : moment.displaySenderName(fallback: model.partnerName)
+            : moment.displaySenderName(fallback: partnerName, filterEnabled: filterOn)
         let when = moment.sentAt.relativeWording()
         return "\(who) · \(when)"
     }
@@ -508,14 +508,7 @@ struct HeartBackButton: View {
         }
         .buttonStyle(styled)
         .disabled(remaining > 0 || !model.canNudge || model.isSendingNudge)
-        .task(id: model.snapshot.lastNudgeSentAt) {
-            while !Task.isCancelled {
-                let elapsed = Date().timeIntervalSince(model.snapshot.lastNudgeSentAt ?? .distantPast)
-                remaining = max(0, AppConfig.nudgeCooldown - elapsed)
-                guard remaining > 0 else { return }
-                try? await Task.sleep(for: .seconds(1))
-            }
-        }
+        .nudgeCooldown(after: model.snapshot.lastNudgeSentAt, remaining: $remaining)
     }
 
     private var styled: AnyButtonStyle {

@@ -35,7 +35,7 @@ struct AnniversaryEditorView: View {
 
                         Text("Pick the day, and the minute if you know it. \(model.partnerName) will see the same count, and only you can change it.")
                             .font(Theme.rounded(15))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.mutedText)
                             .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
                             .padding(.horizontal, 8)

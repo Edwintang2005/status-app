@@ -3,9 +3,9 @@ import AVKit
 import SwiftUI
 
 /// The moment camera: timer, flash, lens buttons, tap to focus, pinch to zoom,
-/// and the hardware shutters (volume buttons, AirPods, Camera Control).
-/// `UIImagePickerController` offered none of the first three. Shows the 4:3
-/// frame that's sent.
+/// and the hardware shutters (volume buttons, AirPods, Camera Control). Shows
+/// the 4:3 frame that's sent. Nothing in this body reads `model.zoom`: a pinch
+/// would re-render it, and the preview with it, every frame.
 struct CameraView: View {
     var onCapture: (UIImage) -> Void
 
@@ -52,7 +52,7 @@ struct CameraView: View {
             Spacer(minLength: 8)
             viewfinder
             Spacer(minLength: 8)
-            lensRow
+            LensRow(model: model)
                 .frame(height: 44)
                 .opacity(model.controlsFullscreen ? 0 : 1)
             shutterRow
@@ -92,29 +92,13 @@ struct CameraView: View {
         .overlay { focusRing }
         .overlay { countdownOverlay }
         .overlay(alignment: .bottom) { statusLine }
-        .overlay(alignment: .top) { debugFormat }
+        .overlay(alignment: .top) { DebugFormatLabel(model: model) }
         .overlay(alignment: .topLeading) { lowLightBadge }
         .overlay { shutterBlink }
         .clipped()
         .accessibilityElement()
         .accessibilityLabel("Viewfinder")
         .accessibilityValue(statusText.map { Text($0) } ?? Text(model.isLowLight ? "Low light" : ""))
-    }
-
-    /// Debug only: what the camera is really running, to compare with the system camera.
-    @ViewBuilder
-    private var debugFormat: some View {
-        #if DEBUG
-        Text(verbatim: "\(model.formatSummary) · zoom \(String(format: "%.2f", model.zoom))"
-             + (model.isLandscape ? " · sideways" : " · upright"))
-            .font(.caption2.monospaced())
-            .foregroundStyle(.white)
-            .padding(4)
-            .background(.black.opacity(0.5))
-            .padding(.top, 6)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-        #endif
     }
 
     private var statusText: LocalizedStringKey? {
@@ -191,45 +175,6 @@ struct CameraView: View {
                 .padding(.vertical, 8)
                 .background(.black.opacity(0.6), in: Capsule())
                 .padding(.bottom, 14)
-        }
-    }
-
-    @ViewBuilder
-    private var lensRow: some View {
-        if model.lenses?.selfieNarrowZoom != nil {
-            // The system camera's expand button; turning the phone also sets it.
-            Button { model.toggleSelfieWidth() } label: {
-                Image(systemName: model.isSelfieWide
-                      ? "arrow.down.right.and.arrow.up.left"
-                      : "arrow.up.left.and.arrow.down.right")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(model.isSelfieWide ? Theme.warm : .white)
-                    .frame(width: 38, height: 38)
-                    .background(.white.opacity(0.14), in: Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Wide selfie")
-            .accessibilityAddTraits(model.isSelfieWide ? .isSelected : [])
-        } else if let lenses = model.lenses, lenses.presets.count > 1 {
-            let active = lenses.activePreset(for: model.zoom)
-            HStack(spacing: 10) {
-                ForEach(lenses.presets, id: \.self) { preset in
-                    let isActive = preset == active
-                    let shown = isActive ? lenses.displayed(model.zoom) : lenses.displayed(preset)
-                    Button { model.selectLens(preset) } label: {
-                        Text(CameraLensPlan.label(shown))
-                            .font(Theme.rounded(isActive ? 13 : 11, .semibold))
-                            .foregroundStyle(isActive ? Theme.warm : .white)
-                            .frame(minWidth: 38, minHeight: 38)
-                            .background(.white.opacity(0.14), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Zoom \(CameraLensPlan.label(lenses.displayed(preset)))")
-                    .accessibilityAddTraits(isActive ? .isSelected : [])
-                }
-            }
-            .padding(4)
-            .background(.white.opacity(0.08), in: Capsule())
         }
     }
 
@@ -352,6 +297,69 @@ struct CameraView: View {
         }
         .foregroundStyle(.white)
         .padding(32)
+    }
+}
+
+/// The lens buttons, or the front camera's expand button. Its own view: it
+/// reads `zoom`, which a pinch changes every frame.
+private struct LensRow: View {
+    let model: CameraModel
+
+    var body: some View {
+        if model.lenses?.selfieNarrowZoom != nil {
+            // The system camera's expand button; turning the phone also sets it.
+            Button { model.toggleSelfieWidth() } label: {
+                Image(systemName: model.isSelfieWide
+                      ? "arrow.down.right.and.arrow.up.left"
+                      : "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(model.isSelfieWide ? Theme.warm : .white)
+                    .frame(width: 38, height: 38)
+                    .background(.white.opacity(0.14), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Wide selfie")
+            .accessibilityAddTraits(model.isSelfieWide ? .isSelected : [])
+        } else if let lenses = model.lenses, lenses.presets.count > 1 {
+            let active = lenses.activePreset(for: model.zoom)
+            HStack(spacing: 10) {
+                ForEach(lenses.presets, id: \.self) { preset in
+                    let isActive = preset == active
+                    let shown = isActive ? lenses.displayed(model.zoom) : lenses.displayed(preset)
+                    Button { model.selectLens(preset) } label: {
+                        Text(CameraLensPlan.label(shown))
+                            .font(Theme.rounded(isActive ? 13 : 11, .semibold))
+                            .foregroundStyle(isActive ? Theme.warm : .white)
+                            .frame(minWidth: 38, minHeight: 38)
+                            .background(.white.opacity(0.14), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Zoom \(CameraLensPlan.label(lenses.displayed(preset)))")
+                    .accessibilityAddTraits(isActive ? .isSelected : [])
+                }
+            }
+            .padding(4)
+            .background(.white.opacity(0.08), in: Capsule())
+        }
+    }
+}
+
+/// Debug only: what the camera is really running, to compare with the system camera.
+private struct DebugFormatLabel: View {
+    let model: CameraModel
+
+    var body: some View {
+        #if DEBUG
+        Text(verbatim: "\(model.formatSummary) · zoom \(String(format: "%.2f", model.zoom))"
+             + (model.isLandscape ? " · sideways" : " · upright"))
+            .font(.caption2.monospaced())
+            .foregroundStyle(.white)
+            .padding(4)
+            .background(.black.opacity(0.5))
+            .padding(.top, 6)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        #endif
     }
 }
 

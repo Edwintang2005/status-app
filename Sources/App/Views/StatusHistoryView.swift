@@ -6,15 +6,24 @@ struct StatusHistoryView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
 
-    @State private var entries: [StatusHistoryEntry] = []
+    @State private var entries: [Row] = []
     @State private var filter: HistoryFilter = .all
 
-    private var filtered: [StatusHistoryEntry] {
+    /// An entry and how it may be shown (invariant 20).
+    private struct Row: Identifiable {
+        let entry: StatusHistoryEntry
+        let shown: ModeratedStatus
+        var id: String { entry.id }
+        var at: Date { entry.at }
+        var fromMe: Bool { entry.fromMe }
+    }
+
+    private var filtered: [Row] {
         entries.filter { filter.allows(fromMe: $0.fromMe) }
     }
 
     /// Newest day first; entries within a day stay newest first.
-    private var byDay: [(day: Date, entries: [StatusHistoryEntry])] {
+    private var byDay: [(day: Date, entries: [Row])] {
         let grouped = Dictionary(grouping: filtered) {
             Calendar.current.startOfDay(for: $0.at)
         }
@@ -22,15 +31,15 @@ struct StatusHistoryView: View {
     }
 
     var body: some View {
+        let partnerName = model.partnerName
+
         NavigationStack {
             ZStack {
                 Theme.Background()
 
-                // A plain stack, not `.safeAreaInset(edge: .top)`: under a
-                // navigation bar that inset fought UIKit's own tracking of the
-                // list's offset — a layout loop the watchdog killed (TestFlight, 2026-09).
+                // A plain stack, not `.safeAreaInset(edge: .top)` (invariant 21).
                 VStack(spacing: 0) {
-                    HistoryFilterPicker(filter: $filter, partnerName: model.partnerName)
+                    HistoryFilterPicker(filter: $filter, partnerName: partnerName)
                         .padding(.horizontal, 16)
                         .padding(.bottom, 8)
                         .zIndex(1)
@@ -45,8 +54,8 @@ struct StatusHistoryView: View {
                         List {
                             ForEach(byDay, id: \.day) { group in
                                 Section {
-                                    ForEach(group.entries) { entry in
-                                        row(entry)
+                                    ForEach(group.entries) { row in
+                                        rowView(row, partnerName: partnerName)
                                     }
                                 } header: {
                                     Text(dayLabel(group.day))
@@ -69,22 +78,31 @@ struct StatusHistoryView: View {
                 }
             }
         }
-        .task { entries = model.loadStatusHistory() }
+        .task {
+            let reportedAt = model.hiddenPartnerStatusAt
+            let filterOn = model.contentFilterEnabled
+            entries = StatusHistoryLog.shared.load().map {
+                Row(entry: $0, shown: $0.moderation(reportedAt: reportedAt, filterEnabled: filterOn))
+            }
+        }
     }
 
-    private func row(_ entry: StatusHistoryEntry) -> some View {
-        HStack(spacing: 12) {
+    private func rowView(_ row: Row, partnerName: String) -> some View {
+        let entry = row.entry
+        let message = row.shown.message
+        return HStack(spacing: 12) {
             // Emoji-only is a status of its own: the emoji, a little larger, and its time.
-            Text(entry.emoji)
-                .font(.system(size: entry.message.isEmpty ? 34 : 28))
+            Text(row.shown.emoji)
+                .font(.system(size: message.text.isEmpty ? 34 : 28))
 
             VStack(alignment: .leading, spacing: 2) {
-                if !entry.message.isEmpty {
-                    Text(entry.message)
+                if !message.text.isEmpty {
+                    Text(message.text)
                         .font(Theme.rounded(16, .medium))
-                        .foregroundStyle(isPlaceholder(entry) ? Theme.mutedText : .primary)
+                        .foregroundStyle(message.isPlaceholder ? Theme.mutedText : .primary)
                 }
-                Text(who(entry) + " · " + entry.at.formatted(date: .omitted, time: .shortened))
+                Text((entry.fromMe ? String(localized: "You") : partnerName)
+                     + " · " + entry.at.formatted(date: .omitted, time: .shortened))
                     .font(Theme.rounded(12))
                     .foregroundStyle(Theme.mutedText)
             }
@@ -99,16 +117,6 @@ struct StatusHistoryView: View {
         }
         .listRowBackground(Color.clear)
         .accessibilityElement(children: .combine)
-    }
-
-    /// Entries `AppModel.loadStatusHistory` moderated carry a placeholder, not words.
-    private func isPlaceholder(_ entry: StatusHistoryEntry) -> Bool {
-        !entry.fromMe && (entry.message == ContentFilter.reportedPlaceholder
-                          || entry.message == ContentFilter.hiddenPlaceholder)
-    }
-
-    private func who(_ entry: StatusHistoryEntry) -> String {
-        entry.fromMe ? String(localized: "You") : model.partnerName
     }
 
     private func dayLabel(_ day: Date) -> String {

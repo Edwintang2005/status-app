@@ -15,20 +15,28 @@ struct MomentLibraryView: View {
     @State private var kind: MomentKindFilter = .all
     @State private var reporting: Moment?
 
-    private let columns = [GridItem(.adaptive(minimum: 104), spacing: 8)]
+    fileprivate static let tileMinimum: CGFloat = 104
+    /// What thumbnails decode for, tied to `tileMinimum`: three columns at the
+    /// widest iPhone (440 pt) are 133 pt each.
+    fileprivate static let tileMaximum: CGFloat = 140
+
+    private let columns = [GridItem(.adaptive(minimum: Self.tileMinimum), spacing: 8)]
 
     private var filtered: [Moment] {
         model.history.filter { filter.allows(fromMe: $0.fromMe) && kind.allows($0.kind) }
     }
 
     var body: some View {
+        let partnerName = model.partnerName
+        let filterOn = model.contentFilterEnabled
+
         NavigationStack {
             ZStack {
                 Theme.Background()
 
-                // A plain stack, not `.safeAreaInset(edge: .top)` — see `StatusHistoryView`.
+                // A plain stack, not `.safeAreaInset(edge: .top)` (invariant 21).
                 VStack(spacing: 0) {
-                    HistoryFilterPicker(filter: $filter, partnerName: model.partnerName)
+                    HistoryFilterPicker(filter: $filter, partnerName: partnerName)
                         .padding(.horizontal, 16)
                         .padding(.bottom, 8)
                         .zIndex(1)
@@ -45,7 +53,7 @@ struct MomentLibraryView: View {
                         ScrollView {
                             LazyVGrid(columns: columns, spacing: 8) {
                                 ForEach(filtered) { moment in
-                                    cell(moment)
+                                    cell(moment, partnerName: partnerName, filterOn: filterOn)
                                 }
                             }
                             .padding(12)
@@ -85,11 +93,9 @@ struct MomentLibraryView: View {
             .sheet(item: $opened) { moment in
                 // The filtered list, so paging stays within what was on screen.
                 MomentGalleryView(moments: filtered, startAt: moment)
-                    .environment(model)
             }
             .confirmationDialog("Report this \(reporting?.noun ?? "moment")?",
-                                isPresented: Binding(get: { reporting != nil },
-                                                     set: { if !$0 { reporting = nil } }),
+                                isPresented: $reporting.isPresent(),
                                 titleVisibility: .visible) {
                 Button("Report", role: .destructive) {
                     if let reporting { model.report(reporting) }
@@ -107,7 +113,7 @@ struct MomentLibraryView: View {
         return count == 0 ? String(localized: "Moments") : String(localized: "Moments · \(count)")
     }
 
-    private func cell(_ moment: Moment) -> some View {
+    private func cell(_ moment: Moment, partnerName: String, filterOn: Bool) -> some View {
         Button {
             opened = moment
         } label: {
@@ -140,7 +146,7 @@ struct MomentLibraryView: View {
             }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(accessibilityLabel(for: moment))
+        .accessibilityLabel(accessibilityLabel(for: moment, partnerName: partnerName, filterOn: filterOn))
         .accessibilityHint("Opens it")
         .contextMenu { reportAction(moment) }
         // Guideline 1.2: reachable under VoiceOver and Voice Control, not only by long-press.
@@ -164,10 +170,10 @@ struct MomentLibraryView: View {
     }
 
     /// Kind, sender, age, and whichever badge the tile is wearing.
-    private func accessibilityLabel(for moment: Moment) -> String {
+    private func accessibilityLabel(for moment: Moment, partnerName: String, filterOn: Bool) -> String {
         let who = moment.fromMe
             ? String(localized: "you")
-            : moment.displaySenderName(fallback: model.partnerName)
+            : moment.displaySenderName(fallback: partnerName, filterEnabled: filterOn)
         var parts = [String(localized: "\(moment.noun) from \(who)"),
                      moment.sentAt.relativeWording()]
         if !moment.seen && !moment.fromMe { parts.append(String(localized: "new")) }
@@ -223,8 +229,7 @@ private struct LibraryThumbnail: View {
 
     @State private var image: UIImage?
 
-    /// The grid's widest column, in pixels: no tile draws bigger.
-    private var maxPixel: CGFloat { 140 * displayScale }
+    private var maxPixel: CGFloat { MomentLibraryView.tileMaximum * displayScale }
 
     var body: some View {
         if let image {

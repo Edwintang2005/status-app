@@ -52,8 +52,7 @@ struct FreshStartView: View {
         .navigationTitle("Fresh start")
         .navigationBarTitleDisplayMode(.inline)
         .confirmationDialog(skipTitle,
-                            isPresented: Binding(get: { confirmingSkip != nil },
-                                                 set: { if !$0 { confirmingSkip = nil } }),
+                            isPresented: $confirmingSkip.isPresent(),
                             titleVisibility: .visible,
                             presenting: confirmingSkip) { action in
             Button(action == .ask ? "Ask without saving" : "Agree without saving", role: .destructive) {
@@ -73,8 +72,7 @@ struct FreshStartView: View {
         }
         // Only for an archive iCloud Drive couldn't take: nothing has been asked
         // or agreed yet, so closing it can't lose anything.
-        .sheet(isPresented: Binding(get: { shareURL != nil },
-                                    set: { if !$0 { shareURL = nil } }),
+        .sheet(isPresented: $shareURL.isPresent(),
                onDismiss: {
                    shareURL = nil
                    if let text = noticeAfterShare {
@@ -91,8 +89,7 @@ struct FreshStartView: View {
             }
         }
         .confirmationDialog(confirmingAfterShare == .agree ? "Agree to the fresh start?" : "Ask for a fresh start?",
-                            isPresented: Binding(get: { confirmingAfterShare != nil },
-                                                 set: { if !$0 { confirmingAfterShare = nil } }),
+                            isPresented: $confirmingAfterShare.isPresent(),
                             titleVisibility: .visible,
                             presenting: confirmingAfterShare) { action in
             Button(action == .ask ? "Ask" : "Agree", role: .destructive) {
@@ -102,8 +99,7 @@ struct FreshStartView: View {
         } message: { _ in
             Text("The archive was only shared from this iPhone — continue only if you saved it somewhere safe.")
         }
-        .alert("Fresh start", isPresented: Binding(get: { notice != nil },
-                                                   set: { if !$0 { notice = nil } })) {
+        .alert("Fresh start", isPresented: $notice.isPresent()) {
             Button("OK", role: .cancel) { notice = nil }
         } message: {
             Text(notice ?? "")
@@ -132,19 +128,19 @@ struct FreshStartView: View {
                 Text("You asked \(model.partnerName) for a fresh start.")
             }
             Text("Nothing is cleared until they agree. The request stays until you withdraw it.")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.mutedText)
         case .theyAsked(let asked):
             RelativeTime(asked) { when in
                 Text("\(model.partnerName) asked for a fresh start \(when).")
                     .font(Theme.rounded(17, .semibold))
             }
             Text("If you agree, the history you share is cleared from both iPhones and iCloud. Agreeing can't be undone.")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.mutedText)
         case .agreed:
             Text("You've agreed.")
                 .font(Theme.rounded(17, .semibold))
             Text("\(model.partnerName)'s iPhone starts the clear the next time \(AppConfig.appName) opens there; this one follows.")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.mutedText)
         case .starting:
             busyRow(String(localized: "\(model.partnerName) agreed. Starting the clear…"))
         case .clearing:
@@ -154,7 +150,7 @@ struct FreshStartView: View {
                 Text("The clear couldn't finish yet.")
                     .font(Theme.rounded(17, .semibold))
                 Text(failure)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.mutedText)
             } else {
                 busyRow(String(localized: "Getting ready to clear…"))
             }
@@ -162,11 +158,11 @@ struct FreshStartView: View {
             Text("Your side is cleared.")
                 .font(Theme.rounded(17, .semibold))
             Text("\(model.partnerName)'s iPhone clears theirs the next time \(AppConfig.appName) opens there.")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.mutedText)
         }
         if model.freshStartSending {
             Text("Waiting to reach iCloud — it's sent as soon as it can be.")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.mutedText)
         }
     }
 
