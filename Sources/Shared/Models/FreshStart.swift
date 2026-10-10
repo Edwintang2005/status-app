@@ -235,14 +235,4 @@ struct FreshStart: Codable, Hashable, Sendable {
         finishedBefore = try container.decodeIfPresent(Date.self, forKey: .finishedBefore)
         dismissedAsk = try container.decodeIfPresent(Date.self, forKey: .dismissedAsk)
     }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encodeIfPresent(mine, forKey: .mine)
-        try container.encodeIfPresent(pendingIntent, forKey: .pendingIntent)
-        try container.encodeIfPresent(theirs, forKey: .theirs)
-        try container.encodeIfPresent(clearedBefore, forKey: .clearedBefore)
-        try container.encodeIfPresent(finishedBefore, forKey: .finishedBefore)
-        try container.encodeIfPresent(dismissedAsk, forKey: .dismissedAsk)
-    }
 }

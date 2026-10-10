@@ -25,12 +25,6 @@ struct Anniversary: Codable, Hashable, Sendable {
         timeZoneID = try container.decodeIfPresent(String.self, forKey: .timeZoneID) ?? TimeZone.current.identifier
     }
 
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(startsAt, forKey: .startsAt)
-        try container.encode(timeZoneID, forKey: .timeZoneID)
-    }
-
     /// The earliest date accepted from the zone: older than any couple, and
     /// still inside what ISO-8601 reads back (a negative year isn't).
     static let earliest = Date(timeIntervalSince1970: -2_208_988_800)  // 1900-01-01
@@ -92,7 +86,7 @@ struct Anniversary: Codable, Hashable, Sendable {
 
     /// Full days and the seconds past the last whole day since `startsAt`, on
     /// the owner's calendar: a daylight-saving day of 23 or 25 hours still
-    /// counts as one day (dividing by 86,400 read a day short across it).
+    /// counts as one day, which dividing by 86,400 wouldn't.
     func elapsed(at now: Date) -> (days: Int, seconds: Int) {
         guard now > startsAt else { return (0, 0) }
         let parts = calendar.dateComponents([.day, .hour, .minute, .second], from: startsAt, to: now)

@@ -147,7 +147,7 @@ enum PairRole: String, Codable {
     }
 
     /// One `StatusLog` record per status change, `statuslog-<role>-<seconds>`.
-    /// Named by the status's whole-second `updatedAt`, so a republish of the
+    /// Named by the status's whole-second `wordsAt`, so a republish of the
     /// same status overwrites rather than duplicates.
     var statusLogRecordPrefix: String { "statuslog-\(rawValue)-" }
 
@@ -205,7 +205,7 @@ struct PairingInfo: Codable, Hashable {
 }
 
 /// A read receipt for a status: which version (`statusUpdatedAt`, the
-/// status's own whole-second stamp) was on screen, and when.
+/// status's whole-second `wordsAt`) was on screen, and when.
 struct StatusSeen: Codable, Hashable, Sendable {
     /// The status's `wordsAt`; a receipt from an older build may carry its
     /// `updatedAt`, which `Snapshot.myStatusSeenAt` still accepts.
@@ -228,12 +228,6 @@ struct StatusSeen: Codable, Hashable, Sendable {
         statusUpdatedAt = try container.decode(Date.self, forKey: .statusUpdatedAt)
         seenAt = try container.decodeIfPresent(Date.self, forKey: .seenAt) ?? statusUpdatedAt
     }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(statusUpdatedAt, forKey: .statusUpdatedAt)
-        try container.encode(seenAt, forKey: .seenAt)
-    }
 }
 
 /// Everything the widget needs, cached in the App Group so it can render
@@ -241,11 +235,11 @@ struct StatusSeen: Codable, Hashable, Sendable {
 struct Snapshot: Codable, Hashable {
     var mine: StatusPayload?
     var theirs: StatusPayload?
-    var isPaired: Bool
+    var isPaired = false
     var lastSyncedAt: Date?
 
     /// Highest `nudgeCount` already surfaced as a notification on this device.
-    var lastSeenPartnerNudgeCount: Int
+    var lastSeenPartnerNudgeCount = 0
     /// When this device last *sent* a nudge, for cooldown enforcement.
     var lastNudgeSentAt: Date?
     /// When a nudge last failed, so the lock-screen heart can show it (the widget
@@ -280,7 +274,7 @@ struct Snapshot: Codable, Hashable {
     /// rather than `latestPartnerMoment` so a memo doesn't blank out the picture.
     var latestPartnerVisualMoment: Moment?
     /// Partner voice memos not yet listened to. Derived from the index so it can
-    /// be recomputed — see `SharedStore.applyDerived`.
+    /// be recomputed — see `SharedStore.refreshDerived`.
     var unheardVoiceMemoCount: Int = 0
 
     /// `updatedAt` of the last partner celebration this device has played.
@@ -296,15 +290,16 @@ struct Snapshot: Codable, Hashable {
     var lastAnnouncedPartnerStatus: StatusPayload?
 
     /// Whether this device's read-receipt record is behind its local seen-state.
-    /// Set by `markSeen` and the Settings toggle; cleared by a successful
-    /// `publishReceipts`, so a failed publish retries on the next refresh.
+    /// Set by `markSeen` and the Settings toggle; claimed (cleared) before the
+    /// publish and set again if it fails, so a change mid-flight is flushed too.
     var receiptsDirty: Bool = false
 
     /// The partner status this device has had on screen — what the receipt
     /// publishes as a status read receipt. Only ever moves forward.
     var partnerStatusSeen: StatusSeen?
     /// The partner's receipt for *our* status. Meaningful only while its
-    /// `statusUpdatedAt` still matches `mine.updatedAt` — see `myStatusSeenAt`.
+    /// `statusUpdatedAt` still matches `mine.updatedAt` or `mine.wordsAt` —
+    /// see `myStatusSeenAt`.
     var myStatusSeenByPartner: StatusSeen?
 
     /// When the two of them began — the owner sets it, the `Anniversary`
@@ -340,19 +335,12 @@ struct Snapshot: Codable, Hashable {
     /// A banner has said they left — the NSE's or the app's, whichever first.
     var partnerLeftAnnounced = false
 
-    static let empty = Snapshot(
-        mine: nil,
-        theirs: nil,
-        isPaired: false,
-        lastSyncedAt: nil,
-        lastSeenPartnerNudgeCount: 0,
-        lastNudgeSentAt: nil,
-        latestPartnerMoment: nil,
-        latestOwnMoment: nil,
-        lastNotifiedMomentID: nil
-    )
+    static let empty = Snapshot()
 
-    private enum CodingKeys: String, CodingKey {
+    init() {}
+
+    /// Every stored property has one (`SnapshotCodableTests` checks).
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case mine, theirs, isPaired, lastSyncedAt, lastSeenPartnerNudgeCount
         case lastNudgeSentAt, latestPartnerMoment, latestOwnMoment
         case lastNotifiedMomentID, latestPartnerVisualMoment, unheardVoiceMemoCount
@@ -391,7 +379,7 @@ struct Snapshot: Codable, Hashable {
         latestOwnMoment = value(Moment.self, .latestOwnMoment)
         lastNotifiedMomentID = value(String.self, .lastNotifiedMomentID)
         // Absent key = legacy snapshot; explicit null = the only picture was
-        // deleted. Folding the two resurrected deleted photos in the widget.
+        // deleted, which the fallback below would bring back.
         if container.contains(.latestPartnerVisualMoment) {
             latestPartnerVisualMoment = value(Moment.self, .latestPartnerVisualMoment)
         } else {
@@ -479,32 +467,6 @@ struct Snapshot: Codable, Hashable {
         try container.encode(partnerLeftAnnounced, forKey: .partnerLeftAnnounced)
     }
 
-    init(mine: StatusPayload?,
-         theirs: StatusPayload?,
-         isPaired: Bool,
-         lastSyncedAt: Date?,
-         lastSeenPartnerNudgeCount: Int,
-         lastNudgeSentAt: Date?,
-         latestPartnerMoment: Moment?,
-         latestOwnMoment: Moment?,
-         lastNotifiedMomentID: String?,
-         latestPartnerVisualMoment: Moment? = nil,
-         unheardVoiceMemoCount: Int = 0,
-         lastCelebratedAt: Date? = nil) {
-        self.mine = mine
-        self.theirs = theirs
-        self.isPaired = isPaired
-        self.lastSyncedAt = lastSyncedAt
-        self.lastSeenPartnerNudgeCount = lastSeenPartnerNudgeCount
-        self.lastNudgeSentAt = lastNudgeSentAt
-        self.latestPartnerMoment = latestPartnerMoment
-        self.latestOwnMoment = latestOwnMoment
-        self.lastNotifiedMomentID = lastNotifiedMomentID
-        self.latestPartnerVisualMoment = latestPartnerVisualMoment
-        self.unheardVoiceMemoCount = unheardVoiceMemoCount
-        self.lastCelebratedAt = lastCelebratedAt
-    }
-
     /// Whether a notification for this moment has already been shown on this
     /// device, by either the app or the service extension.
     func hasAnnounced(_ momentID: String) -> Bool {
@@ -550,19 +512,6 @@ struct Snapshot: Codable, Hashable {
         return theirs
     }
 
-    /// Newest in either direction, whatever its kind.
-    var latestMoment: Moment? {
-        [latestPartnerMoment, latestOwnMoment]
-            .compactMap { $0 }
-            .max { $0.sentAt < $1.sentAt }
-    }
-
-    /// The partner's self-chosen name; deliberately no local override.
-    var partnerDisplayName: String {
-        let synced = theirs?.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (synced?.isEmpty == false ? synced! : "Partner")
-    }
-
     /// The name as it may be shown — a name the word filter hides falls back
     /// like an unset one. Every surface that prints it uses this. Once they've
     /// left, the name they went by.
@@ -581,55 +530,28 @@ struct Snapshot: Codable, Hashable {
     }
 
     /// Paired, with nothing from the other side yet.
-    static let previewWaiting = Snapshot(
-        mine: StatusPayload(
-            emoji: "💼",
-            message: "working",
-            displayName: "Me",
-            updatedAt: Date(),
-            nudgeCount: 0,
-            lastNudgeAt: nil
-        ),
-        theirs: nil,
-        isPaired: true,
-        lastSyncedAt: Date(),
-        lastSeenPartnerNudgeCount: 0,
-        lastNudgeSentAt: nil,
-        latestPartnerMoment: nil,
-        latestOwnMoment: nil,
-        lastNotifiedMomentID: nil,
-        latestPartnerVisualMoment: nil,
-        unheardVoiceMemoCount: 0
-    )
+    static let previewWaiting: Snapshot = {
+        var snapshot = Snapshot()
+        snapshot.mine = StatusPayload(emoji: "💼", message: "working", displayName: "Me",
+                                      updatedAt: Date(), nudgeCount: 0, lastNudgeAt: nil)
+        snapshot.isPaired = true
+        snapshot.lastSyncedAt = Date()
+        return snapshot
+    }()
 
     /// A snapshot with plausible content, for widget galleries and previews.
-    static let preview = Snapshot(
-        mine: StatusPayload(
-            emoji: "💼",
-            message: "working",
-            displayName: "Me",
-            updatedAt: Date(),
-            nudgeCount: 0,
-            lastNudgeAt: nil
-        ),
-        theirs: StatusPayload(
-            emoji: "🥰",
-            message: "missing you",
-            displayName: "Sam",
-            updatedAt: Date().addingTimeInterval(-1_200),
-            nudgeCount: 3,
-            lastNudgeAt: Date().addingTimeInterval(-3_600)
-        ),
-        isPaired: true,
-        lastSyncedAt: Date(),
-        lastSeenPartnerNudgeCount: 3,
-        lastNudgeSentAt: nil,
-        latestPartnerMoment: .previewPhoto,
-        latestOwnMoment: nil,
-        lastNotifiedMomentID: "preview-moment",
-        latestPartnerVisualMoment: .previewPhoto,
-        unheardVoiceMemoCount: 1
-    )
+    static let preview: Snapshot = {
+        var snapshot = previewWaiting
+        snapshot.theirs = StatusPayload(emoji: "🥰", message: "missing you", displayName: "Sam",
+                                        updatedAt: Date().addingTimeInterval(-1_200), nudgeCount: 3,
+                                        lastNudgeAt: Date().addingTimeInterval(-3_600))
+        snapshot.lastSeenPartnerNudgeCount = 3
+        snapshot.latestPartnerMoment = .previewPhoto
+        snapshot.lastNotifiedMomentID = Moment.previewPhoto.id
+        snapshot.latestPartnerVisualMoment = .previewPhoto
+        snapshot.unheardVoiceMemoCount = 1
+        return snapshot
+    }()
 }
 
 /// Deliberately not behind `#if DEBUG`: the widget gallery renders

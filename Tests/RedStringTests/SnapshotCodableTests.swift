@@ -53,40 +53,30 @@ final class SnapshotCodableTests: XCTestCase {
         XCTAssertEqual(snapshot, .empty)
     }
 
-    func testRoundTripPreservesEveryField() throws {
-        var snapshot = Snapshot.empty
-        snapshot.mine = Fixtures.status("💼", "working")
-        snapshot.theirs = Fixtures.status(at: Fixtures.date(-60), nudges: 3)
-        snapshot.isPaired = true
-        snapshot.lastSyncedAt = Fixtures.t0
-        snapshot.lastSeenPartnerNudgeCount = 3
-        snapshot.lastNudgeSentAt = Fixtures.date(-5)
-        snapshot.lastNudgeFailedAt = Fixtures.date(-4)
-        snapshot.myStatusPublished = false
-        snapshot.latestPartnerMoment = Fixtures.moment("v1", kind: .voice)
-        snapshot.latestOwnMoment = Fixtures.moment("o1", fromMe: true)
+    func testRoundTripKeepsANilVisualMomentNil() throws {
+        var snapshot = everyFieldSet()
         snapshot.latestPartnerVisualMoment = nil
-        snapshot.notifiedMomentIDs = ["v1"]
-        snapshot.lastNotifiedMomentID = "v1"
-        snapshot.unheardVoiceMemoCount = 1
-        snapshot.lastCelebratedAt = Fixtures.date(-3600)
-        snapshot.lastAnnouncedPartnerStatusAt = Fixtures.date(-60)
-        snapshot.receiptsDirty = true
-        snapshot.partnerStatusSeen = StatusSeen(statusUpdatedAt: Fixtures.date(-60), seenAt: Fixtures.t0)
-        snapshot.myStatusSeenByPartner = StatusSeen(statusUpdatedAt: Fixtures.t0, seenAt: Fixtures.date(1))
-        snapshot.anniversary = Anniversary(startsAt: Fixtures.date(-90 * 86_400), timeZoneID: "Australia/Sydney")
-        snapshot.anniversaryPublished = false
-        snapshot.lastAnnouncedPartnerStatus = Fixtures.status(at: Fixtures.date(-60), nudges: 3)
-        snapshot.anniversaryRequestedAt = Fixtures.date(-120)
-        snapshot.anniversaryRequestPublished = false
-        snapshot.anniversaryRequestDismissedAt = Fixtures.date(-180)
-        snapshot.lastAnnouncedMomentSentAt = Fixtures.date(-240)
 
-        let data = try JSONEncoder.shared.encode(snapshot)
-        let decoded = try JSONDecoder.shared.decode(Snapshot.self, from: data)
+        let decoded = try JSONDecoder.shared.decode(Snapshot.self, from: JSONEncoder.shared.encode(snapshot))
         XCTAssertEqual(decoded, snapshot)
         XCTAssertNil(decoded.latestPartnerVisualMoment,
                      "nil visual moment must survive as an explicit null, not fall back")
+    }
+
+    /// A stored property without a coding key is silently never persisted.
+    func testEveryStoredPropertyHasACodingKey() {
+        let properties = Set(Mirror(reflecting: Snapshot.empty).children.compactMap(\.label))
+        XCTAssertEqual(properties, Set(Snapshot.CodingKeys.allCases.map(\.stringValue)))
+    }
+
+    /// Guards the fixture below: a field it leaves at its default proves nothing.
+    func testTheFixtureSetsEveryField() {
+        let defaults = Mirror(reflecting: Snapshot.empty).children
+        let set = Mirror(reflecting: everyFieldSet()).children
+        for (empty, filled) in zip(defaults, set) {
+            XCTAssertNotEqual(String(describing: empty.value), String(describing: filled.value),
+                              "\(empty.label ?? "?") is left at its default")
+        }
     }
 
     func testAnnouncedWatermarkIsBoundedAndSticky() {
@@ -141,16 +131,13 @@ final class SnapshotCodableTests: XCTestCase {
         XCTAssertFalse(snapshot.anniversaryRequestPending, "a set date answers every ask")
     }
 
-    func testDerivedHelpers() {
+    func testPartnerNameFallsBackWhenUnset() {
         var snapshot = Snapshot.empty
-        XCTAssertEqual(snapshot.partnerDisplayName, "Partner")
-        XCTAssertNil(snapshot.latestMoment)
-
+        XCTAssertEqual(snapshot.moderatedPartnerName, "Partner")
         snapshot.theirs = Fixtures.status()
-        snapshot.latestPartnerMoment = Fixtures.moment("p", at: Fixtures.date(-10))
-        snapshot.latestOwnMoment = Fixtures.moment("o", at: Fixtures.t0, fromMe: true)
-        XCTAssertEqual(snapshot.partnerDisplayName, "Sam")
-        XCTAssertEqual(snapshot.latestMoment?.id, "o")
+        XCTAssertEqual(snapshot.moderatedPartnerName, "Sam")
+        snapshot.theirs?.displayName = "  "
+        XCTAssertEqual(snapshot.moderatedPartnerName, "Partner")
     }
 
     /// Upgrading: a published status was already logged (or was a rename the
@@ -167,6 +154,13 @@ final class SnapshotCodableTests: XCTestCase {
     /// Every field, set away from its default, survives a round trip: a field
     /// left out of the hand-written encoder or decoder would reset on relaunch.
     func testEveryFieldRoundTrips() throws {
+        let snapshot = everyFieldSet()
+        let decoded = try JSONDecoder.shared.decode(Snapshot.self, from: JSONEncoder.shared.encode(snapshot))
+        XCTAssertEqual(decoded, snapshot)
+        XCTAssertEqual(decoded.freshStart, snapshot.freshStart)
+    }
+
+    private func everyFieldSet() -> Snapshot {
         var mine = Fixtures.status("☕️", "coffee", at: Fixtures.date(100), nudges: 3)
         mine.wordsSince = Fixtures.date(50)
         mine.serverSavedAt = Fixtures.date(101)
@@ -208,8 +202,13 @@ final class SnapshotCodableTests: XCTestCase {
         snapshot.partnerLeftAt = Fixtures.date(17)
         snapshot.partnerLeftName = "Sam"
         snapshot.partnerLeftAnnounced = true
-
-        let decoded = try JSONDecoder.shared.decode(Snapshot.self, from: JSONEncoder.shared.encode(snapshot))
-        XCTAssertEqual(decoded, snapshot)
+        snapshot.freshStart.mine = FreshStartRecord(stage: .committed, epoch: Fixtures.date(18),
+                                                    clearedBefore: Fixtures.date(-18))
+        snapshot.freshStart.pendingIntent = .complete(Fixtures.date(18))
+        snapshot.freshStart.theirs = FreshStartRecord(stage: .agreeing, epoch: Fixtures.date(18))
+        snapshot.freshStart.clearedBefore = Fixtures.date(18)
+        snapshot.freshStart.finishedBefore = Fixtures.date(18)
+        snapshot.freshStart.dismissedAsk = Fixtures.date(19)
+        return snapshot
     }
 }

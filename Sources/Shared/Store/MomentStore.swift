@@ -97,7 +97,7 @@ struct MomentStore {
 
     /// Decoded-thumbnail cache; `NSCache` self-evicts under pressure, which
     /// matters in the widget's tight memory budget. Bounded by decoded bytes,
-    /// not count: 120 thumbnails at ~1 MB each was the app's largest allocation.
+    /// not just count: a decoded thumbnail is ~1 MB, so the count alone allows 120 MB.
     /// `NSCache` is thread-safe; it just isn't marked `Sendable`.
     nonisolated(unsafe) private static let thumbnailCache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
@@ -219,13 +219,6 @@ struct MomentStore {
             // Different volumes, or a source someone else still owns.
             try FileManager.default.copyItem(at: source, to: destination)
         }
-    }
-
-    func writeAudio(_ data: Data, id: String) throws {
-        guard let url = audioURL(for: id) else {
-            throw MomentStoreError.containerUnavailable
-        }
-        try data.write(to: url, options: .atomic)
     }
 
     // MARK: - Housekeeping
