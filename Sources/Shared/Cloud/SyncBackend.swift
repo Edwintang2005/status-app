@@ -1,3 +1,4 @@
+import CloudKit
 import Foundation
 
 /// What a refresh turned up, so the caller can decide what deserves a
@@ -34,9 +35,6 @@ struct RefreshResult: Sendable {
     /// participant unlinks. Never news to announce loudly.
     var partnerLeft = false
 
-    var unreadableRecords: Int { unreadableRecordNames.count }
-    var newestPartnerMoment: Moment? { newPartnerMoments.last }
-
     static let empty = RefreshResult(partnerStatus: nil, newPartnerMoments: [])
 }
 
@@ -46,8 +44,8 @@ enum BackendReadiness: Equatable, Sendable {
     case unavailable(String)
 }
 
-/// The whole sync surface the UI depends on. Pairing deliberately isn't here —
-/// the share flows have their own UI, so `AppModel` calls `CloudSync` directly for those.
+/// The whole sync surface the UI depends on, pairing included, so demo mode
+/// and previews never reach the real share.
 protocol SyncBackend: Sendable {
     func readiness() async -> BackendReadiness
     /// `logged: false` for a rename — the status didn't change, so no `StatusLog` record.
@@ -92,6 +90,26 @@ protocol SyncBackend: Sendable {
     /// delete never landed is the one lie this app must not tell. The caller clears
     /// local state only after success.
     func unpair() async throws
+
+    // MARK: Pairing and the invite link (the app's own flows — see `CloudSync+Pairing`)
+
+    func createPairInvite(displayName: String, replacingExisting: Bool) async throws -> URL
+    func acceptShare(_ metadata: CKShare.Metadata, displayName: String) async throws
+    /// Our own share's link tapped again: confirms a pending private seat.
+    func reacceptShare(_ metadata: CKShare.Metadata) async throws
+    func discoverExistingPairing() async -> (role: PairRole, zoneID: CKRecordZone.ID)?
+    func rejoin(role: PairRole, zoneID: CKRecordZone.ID, displayName: String) async throws
+    func inviteState() async throws -> InviteState
+    func shareMemberCount() async throws -> Int?
+    func closeUnusedInvite() async throws
+    func lockIfPartnerOnShare(_ pairing: PairingInfo) async throws -> CloudSync.LockOutcome
+    func lockPairing() async throws
+    func reopenInvite() async throws
+    /// Diagnostics' promote-and-close; returns the report line.
+    func secureInviteIfPartnerJoined() async -> String?
+    /// Records the partner as blocked before the pairing is cleared; returns their record names.
+    func recordBlockedPartner() async -> [String]
+    func deleteAllSubscriptions(ownedBy userRecordName: String?) async throws
 }
 
 extension SyncBackend {
@@ -157,19 +175,30 @@ enum DemoMode {
     static let isActive = ProcessInfo.processInfo.environment["REDSTRING_DEMO"] == "1"
 }
 
+/// Mirrors what `CloudSync` stamps locally, so callers behave the same over either.
 struct DemoBackend: SyncBackend {
     func readiness() async -> BackendReadiness { .ready }
-    func publish(_ payload: StatusPayload, logged: Bool) async throws {}
+    func publish(_ payload: StatusPayload, logged: Bool) async throws {
+        SharedStore.shared.mutate(reloadWidgets: false) {
+            $0.recordPublished(payload, savedAt: Date().wholeSeconds)
+            if logged, $0.mine?.wordsAt == payload.wordsAt { $0.myStatusLoggedAt = payload.wordsAt }
+        }
+    }
     @discardableResult func refresh() async throws -> RefreshResult { .empty }
     @discardableResult func sendNudge() async throws -> Bool {
+        let now = Date().wholeSeconds
+        var claimed = false
         SharedStore.shared.mutate { snapshot in
-            snapshot.lastNudgeSentAt = Date()
+            if let last = snapshot.lastNudgeSentAt, now.timeIntervalSince(last) < AppConfig.nudgeCooldown { return }
+            snapshot.lastNudgeSentAt = now
+            snapshot.lastNudgeFailedAt = nil
             var mine = snapshot.mine ?? .initial(displayName: "")
             mine.nudgeCount += 1
-            mine.lastNudgeAt = Date()
+            mine.lastNudgeAt = now
             snapshot.mine = mine
+            claimed = true
         }
-        return true
+        return claimed
     }
     func send(_ moment: Moment) async throws {}
     func fetchMedia(for moment: Moment) async throws {}
@@ -197,5 +226,29 @@ struct DemoBackend: SyncBackend {
     func registerSubscription() async throws {}
     func noteAccountChanged() async {}
     func unpair() async throws {}
+
+    // The seeded pairing is fake: there is no share to create, join or close.
+    func createPairInvite(displayName: String, replacingExisting: Bool) async throws -> URL {
+        throw SyncError.shareUnavailable
+    }
+    func acceptShare(_ metadata: CKShare.Metadata, displayName: String) async throws {
+        throw SyncError.shareUnavailable
+    }
+    func reacceptShare(_ metadata: CKShare.Metadata) async throws {}
+    func discoverExistingPairing() async -> (role: PairRole, zoneID: CKRecordZone.ID)? { nil }
+    func rejoin(role: PairRole, zoneID: CKRecordZone.ID, displayName: String) async throws {
+        throw SyncError.shareUnavailable
+    }
+    func inviteState() async throws -> InviteState { .missing }
+    func shareMemberCount() async throws -> Int? { nil }
+    func closeUnusedInvite() async throws { throw SyncError.shareUnavailable }
+    func lockIfPartnerOnShare(_ pairing: PairingInfo) async throws -> CloudSync.LockOutcome {
+        throw SyncError.shareUnavailable
+    }
+    func lockPairing() async throws { throw SyncError.shareUnavailable }
+    func reopenInvite() async throws { throw SyncError.shareUnavailable }
+    func secureInviteIfPartnerJoined() async -> String? { "Demo mode: the share isn't touched." }
+    func recordBlockedPartner() async -> [String] { [] }
+    func deleteAllSubscriptions(ownedBy userRecordName: String?) async throws {}
 }
 #endif
