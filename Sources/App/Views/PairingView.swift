@@ -10,6 +10,8 @@ struct PairingView: View {
     @State private var startingNewSpace = false
 
     var body: some View {
+        @Bindable var model = model
+
         ScrollView {
             VStack(spacing: 28) {
                 header
@@ -38,8 +40,7 @@ struct PairingView: View {
         }
         .onDisappear { commitName() }
         .confirmationDialog("Delete your old shared space?",
-                            isPresented: Binding(get: { model.confirmingReplacePairing },
-                                                 set: { model.confirmingReplacePairing = $0 }),
+                            isPresented: $model.confirmingReplacePairing,
                             titleVisibility: .visible) {
             Button("Delete it and start a new one", role: .destructive) {
                 startNewSpace(replacingExisting: true)
