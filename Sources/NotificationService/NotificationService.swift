@@ -86,9 +86,8 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
     private func enrich(_ content: UNMutableNotificationContent?,
                         push: PushBannerPolicy.Push,
                         userInfo: [AnyHashable: Any]) async -> UNNotificationContent? {
-        // A refresh that throws midway may still have applied records, and the
-        // widget must not miss them — but one that didn't finish leaves it to fetch.
-        // Ahead of every return: a hold left open silences a reused process's reloads.
+        // Always release the reload hold (a reused process's reloads stay silenced
+        // otherwise); the widget fetches again unless the refresh completed.
         var widgetNeedsFetch = true
         defer { reloadHold?.release(widgetNeedsFetch: widgetNeedsFetch) }
         guard let content else { return nil }
@@ -106,6 +105,8 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         do {
             result = try await CloudSync.shared.refresh()
         } catch SyncError.notPaired {
+            // Unpaired, like the guard above: there's nothing for the widget to fetch.
+            widgetNeedsFetch = false
             apply(PushBannerPolicy.unpaired, to: content)
             return content
         } catch {
@@ -117,7 +118,8 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         // Out of time: the expiry fallback is (or is about to be) delivered, and
         // a claim now would mark announced an event whose rich banner never shows.
         if Task.isCancelled { return content }
-        let index = push == .moment ? MomentIndex.shared.load() : []
+        // The banner's fallback only looks past the announced floor.
+        let index = push == .moment ? momentCandidates() : []
         let plan = await MainActor.run { () -> PushBannerPolicy.Plan in
             let reportedAt = SharedStore.shared.hiddenPartnerStatusAt
             var plan = PushBannerPolicy.Plan.unchanged
@@ -146,6 +148,11 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
             content.attachments = [attachment]
         }
         return content
+    }
+
+    private func momentCandidates() -> [Moment] {
+        let floor = SharedStore.shared.snapshot.lastAnnouncedMomentSentAt
+        return AnnouncementPolicy.bannerCandidates(MomentIndex.shared.load(), floor: floor)
     }
 
     private func apply(_ plan: PushBannerPolicy.Plan, to content: UNMutableNotificationContent) {
