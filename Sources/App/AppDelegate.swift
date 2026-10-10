@@ -67,19 +67,21 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 }
 
 extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
-    // Main-actor isolated, not `nonisolated`: the async witnesses' Objective-C
-    // thunk calls UIKit's completion where the body ends, and off the main thread
-    // that asserts in the app-snapshot update (TestFlight crash, build 63).
+    // Main-actor witnesses (invariant 25): UIKit's completion runs where the body ends.
 
     /// Nudges are the whole point, so show them even with the app open.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        // The only signal the open app gets that something arrived (all pushes are
-        // visible now). The service extension already refreshed the store — tell the
-        // model to re-read it, or the home screen lags the banner on top of it.
-        NotificationCenter.default.post(name: .pairingDidChange, object: nil)
+        // Whoever posted it already filed the change: re-read now, or Home lags the banner.
+        NotificationCenter.default.post(name: .snapshotDidChange, object: nil)
+        // A push is the open app's only word that something arrived, and the
+        // service extension may have taken one batch of it: fetch the rest. The
+        // app's own local notifications come from inside a refresh.
+        if notification.request.trigger is UNPushNotificationTrigger {
+            Task { await AppModel.current?.refresh() }
+        }
         return [.banner, .sound]
     }
 

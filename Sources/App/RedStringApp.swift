@@ -45,7 +45,7 @@ struct RedStringApp: App {
                     Task { await model.reloadFromStore() }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .snapshotDidChange)) { _ in
-                    model.reloadLocally()
+                    model.reload()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .pairingDidFail)) { note in
                     model.errorMessage = note.object as? String
