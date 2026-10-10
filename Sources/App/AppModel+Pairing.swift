@@ -297,9 +297,10 @@ extension AppModel {
             } catch {
                 present(error, title: String(localized: "Couldn't change the invite link"))
             }
-            reload()
-            await refreshInviteURL()
         }
+        // After the change has ended: inside it, the posture check refuses to run.
+        reload()
+        await refreshInviteURL()
     }
 
     /// Settings' reopen, behind a confirmation: anyone with the link can join again.
@@ -313,9 +314,10 @@ extension AppModel {
             } catch {
                 present(error, title: String(localized: "Couldn't change the invite link"))
             }
-            reload()
-            await refreshInviteURL()
         }
+        // After the change has ended: inside it, the posture check refuses to run.
+        reload()
+        await refreshInviteURL()
     }
 
     // MARK: - Ending it

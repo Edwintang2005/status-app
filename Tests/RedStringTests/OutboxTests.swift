@@ -23,6 +23,7 @@ final class FakeBackend: SyncBackend, @unchecked Sendable {
     /// Runs inside the call, before it returns — a write landing mid-flight.
     var duringPublish: (@Sendable () -> Void)?
     var duringReceipts: (@Sendable () -> Void)?
+    var duringAnniversary: (@Sendable () -> Void)?
     /// Runs inside `send`, before it lands — a refresh's retry pass mid-upload.
     var duringSend: (@Sendable (String) async -> Void)?
 
@@ -83,10 +84,12 @@ final class FakeBackend: SyncBackend, @unchecked Sendable {
     }
     func publishAnniversary(_ anniversary: Anniversary?) async throws {
         try check("anniversary")
+        duringAnniversary?()
         lock.withLock { _anniversaries.append(anniversary) }
     }
     func publishAnniversaryRequest(at date: Date) async throws {
         try check("request")
+        duringAnniversary?()
         lock.withLock { _requests.append(date) }
     }
     /// The real transition rule against the fake server copy.
@@ -240,6 +243,21 @@ final class OutboxTests: XCTestCase {
         await outbox.republishAnniversaryRequest()
         XCTAssertEqual(backend.requests, [Fixtures.t0])
         XCTAssertTrue(store.snapshot.anniversaryRequestPublished)
+    }
+
+    func testADateSetDuringTheSendGoesOutAfterIt() async {
+        let first = Anniversary(startsAt: Fixtures.date(1_000), timeZoneID: "UTC")
+        let second = Anniversary(startsAt: Fixtures.date(2_000), timeZoneID: "UTC")
+        store.mutate { $0.anniversary = first; $0.anniversaryPublished = false }
+        let (store, backend) = (store!, backend!)
+        backend.duringAnniversary = { [unowned backend] in
+            backend.duringAnniversary = nil
+            // The editor's write, refused by the in-flight guard.
+            store.mutate { $0.anniversary = second; $0.anniversaryPublished = false }
+        }
+        await outbox.republishAnniversary()
+        XCTAssertEqual(backend.anniversaries, [first, second])
+        XCTAssertTrue(store.snapshot.anniversaryPublished)
     }
 
     func testTheOwnerNeverAsksForTheDate() async {

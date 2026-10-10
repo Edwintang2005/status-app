@@ -99,7 +99,8 @@ final class AppModel {
         /// The new-arrivals carousel, or the newest moment when caught up.
         case newMoments
         case moment(String)
-        /// A milestone reminder was tapped: the count, which names the milestone.
+        /// A milestone reminder was tapped: the easter egg, whose tie (kept on
+        /// purpose) opens the count that names the milestone.
         case anniversary
     }
     var pendingRoute: Route?
@@ -112,7 +113,7 @@ final class AppModel {
 
     /// Guideline 1.2: nothing else shows until the current terms are agreed to.
     var termsAccepted: Bool
-    /// `updatedAt` of a reported partner status — see `SharedStore.hiddenPartnerStatusAt`.
+    /// `wordsAt` of a reported partner status — see `SharedStore.hiddenPartnerStatusAt`.
     var hiddenPartnerStatusAt: Date?
     /// Owner side: the "when did you two begin?" prompt is owed — see `SharedStore.anniversaryPromptPending`.
     var anniversaryPromptPending = false

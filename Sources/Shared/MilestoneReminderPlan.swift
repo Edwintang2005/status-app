@@ -2,7 +2,8 @@ import Foundation
 
 /// The opt-in milestone reminders: a local notification on the morning of each
 /// coming milestone (`Anniversary.milestones()`), on both phones. Worded so the
-/// lock screen doesn't give the count away; opening it shows the milestone.
+/// lock screen doesn't give the count away; opening it leads through the tie
+/// to the count, which names the milestone.
 /// Pure — `NotificationManager.scheduleMilestoneReminders` hands it to the system.
 enum MilestoneReminderPlan {
     static let identifierPrefix = "milestone-"

@@ -76,7 +76,6 @@ extension CloudSync {
                 delivered: delivered, hasMedia: MomentStore.shared.hasMedia, clearedBefore: clearedBefore)
             if !requeued.isEmpty {
                 log.error("\(requeued.count) own moment(s) marked sent were missing from the zone; re-queued for upload.")
-                result.requeuedUploads = requeued.count
             }
         }
 

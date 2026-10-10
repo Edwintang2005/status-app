@@ -170,40 +170,56 @@ final class Outbox {
         if automatic, !automaticRetryAllowed(now: now) { return false }
         isRepublishingAnniversary = true
         defer { isRepublishingAnniversary = false }
-        let anniversary = snapshot.anniversary
         let backend = backend()
-        do {
-            try await withDeadline(AppConfig.publishDeadline) { try await backend.publishAnniversary(anniversary) }
-            store.mutate(reloadWidgets: false) { $0.markAnniversaryPublished(anniversary) }
-            log.info("Republished the offline anniversary update")
-            return true
-        } catch {
-            noteSendFailed(error, now: now)
-            log.error("Anniversary republish failed: \(error.localizedDescription, privacy: .public)")
-            return false
+        var current = snapshot
+        // A date set while a send is in flight is refused by the guard above, so
+        // it goes out here once that send lands (bounded: a slow, busy editor).
+        for _ in 0..<Self.supersededResendLimit where !current.anniversaryPublished {
+            let anniversary = current.anniversary
+            do {
+                try await withDeadline(AppConfig.publishDeadline) { try await backend.publishAnniversary(anniversary) }
+            } catch {
+                noteSendFailed(error, now: now)
+                log.error("Anniversary republish failed: \(error.localizedDescription, privacy: .public)")
+                return false
+            }
+            current = store.mutate(reloadWidgets: false) { $0.markAnniversaryPublished(anniversary) }
+            guard store.pairing?.role == .owner else { break }
         }
+        log.info("Republished the offline anniversary update")
+        return true
     }
+
+    /// Sends a republish makes back to back when the value changed under it.
+    static let supersededResendLimit = 3
 
     /// Participant only; re-asking overwrites.
     @discardableResult
     func republishAnniversaryRequest(automatic: Bool = false, now: Date = Date()) async -> Bool {
         guard store.pairing?.role == .participant, !isRepublishingRequest else { return false }
         let snapshot = store.snapshot
-        guard !snapshot.anniversaryRequestPublished, let date = snapshot.anniversaryRequestedAt else { return false }
+        guard !snapshot.anniversaryRequestPublished, let asked = snapshot.anniversaryRequestedAt else { return false }
         if automatic, !automaticRetryAllowed(now: now) { return false }
         isRepublishingRequest = true
         defer { isRepublishingRequest = false }
         let backend = backend()
-        do {
-            try await withDeadline(AppConfig.publishDeadline) { try await backend.publishAnniversaryRequest(at: date) }
-            store.mutate(reloadWidgets: false) { $0.markAnniversaryRequestPublished(date) }
-            log.info("Republished the offline anniversary request")
-            return true
-        } catch {
-            noteSendFailed(error, now: now)
-            log.error("Anniversary request publish failed: \(error.localizedDescription, privacy: .public)")
-            return false
+        var date = asked
+        for _ in 0..<Self.supersededResendLimit {
+            let sending = date
+            do {
+                try await withDeadline(AppConfig.publishDeadline) { try await backend.publishAnniversaryRequest(at: sending) }
+            } catch {
+                noteSendFailed(error, now: now)
+                log.error("Anniversary request publish failed: \(error.localizedDescription, privacy: .public)")
+                return false
+            }
+            let current = store.mutate(reloadWidgets: false) { $0.markAnniversaryRequestPublished(sending) }
+            guard !current.anniversaryRequestPublished, let newer = current.anniversaryRequestedAt,
+                  store.pairing?.role == .participant else { break }
+            date = newer
         }
+        log.info("Republished the offline anniversary request")
+        return true
     }
 
     // MARK: - Uploads

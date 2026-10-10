@@ -18,8 +18,6 @@ struct RefreshResult: Sendable {
     /// An extension took one batch of a larger delta and left the rest for the
     /// app (`CloudSync.fetchZoneChanges`); the pushed record may not be in it.
     var incomplete = false
-    /// Own moments a full-zone fetch found missing and put back in the retry queue.
-    var requeuedUploads = 0
     /// New partner moments this pass couldn't decrypt, oldest first. Only the
     /// kind travels unencrypted — all a locked phone's banner may say.
     var heldPartnerMomentKinds: [Moment.Kind] = []
