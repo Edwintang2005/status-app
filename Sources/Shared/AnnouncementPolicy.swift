@@ -85,11 +85,7 @@ enum AnnouncementPolicy {
         }
         snapshot.lastAnnouncedPartnerStatusAt = status.updatedAt
         snapshot.lastAnnouncedPartnerStatus = status
-        if let previous,
-           previous.emoji == status.emoji,
-           previous.message == status.message,
-           previous.isCelebration == status.isCelebration,
-           previous.displayName != status.displayName {
+        if let previous, previous.sameWords(as: status), previous.displayName != status.displayName {
             return .rename(previousName: previous.displayName)
         }
         return .update

@@ -40,7 +40,7 @@ extension CloudSync {
                 try await saveStatusLog(payload, role: pairing.role, zone: recordID.zoneID, in: database)
             }
             await MainActor.run {
-                _ = SharedStore.shared.mutate(reloadWidgets: false) { $0.myStatusLoggedAt = payload.wordsAt }
+                _ = SharedStore.shared.mutate(reloadWidgets: false) { $0.recordLogged(payload) }
             }
         }
         await pruneStatusLog(pairing, in: database)
@@ -88,18 +88,14 @@ extension CloudSync {
         let ids = stale.map {
             CKRecord.ID(recordName: pairing.role.statusLogRecordName(at: $0.at), zoneID: zone)
         }
-        // Entries logged before the cloud log existed have no record, and a
-        // per-item unknownItem is the expected answer for those. Non-atomic, so
-        // one such entry can't fail its whole batch (which left the cloud log
-        // growing until those entries aged out); only what the server confirmed
-        // gone — deleted or never there — leaves the local log.
+        // Entries from before the cloud log have no record: non-atomic, so their
+        // unknownItem can't fail the batch. Only what the server confirmed gone
+        // leaves the local log.
         var removed: [Date] = []
-        for start in stride(from: 0, to: ids.count, by: 200) {
-            let batch = Array(ids[start..<min(start + 200, ids.count)])
-            let dates = stale[start..<min(start + 200, stale.count)].map(\.at)
+        for batch in Array(zip(ids, stale.map(\.at))).chunked(into: 200) {
             do {
-                let result = try await database.modifyRecords(saving: [], deleting: batch, atomically: false)
-                for (id, date) in zip(batch, dates) {
+                let result = try await database.modifyRecords(saving: [], deleting: batch.map(\.0), atomically: false)
+                for (id, date) in batch {
                     switch result.deleteResults[id] {
                     case .success?:
                         removed.append(date)
@@ -168,6 +164,14 @@ extension Snapshot {
             published.lastNudgeAt = mine.lastNudgeAt
         }
         mine = published
+    }
+
+    /// The `StatusLog` record for `payload` landed. Only while it's still the
+    /// current status: a slow publish finishing after a newer one was logged
+    /// must not move the mark back and owe that one's log again (invariant 16).
+    mutating func recordLogged(_ payload: StatusPayload) {
+        guard mine?.wordsAt == payload.wordsAt else { return }
+        myStatusLoggedAt = payload.wordsAt
     }
 
     /// Our save lost to a newer status on the server: that one is ours now —
