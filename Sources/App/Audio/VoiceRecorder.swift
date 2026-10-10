@@ -84,8 +84,7 @@ final class VoiceRecorder {
     // MARK: - Recording
 
     func start() async {
-        // Claimed before the permission await: two quick taps both passed the
-        // state check and the second recorder overwrote the first.
+        // Claimed before the permission await, or a quick second tap starts a second recorder.
         guard !isTaking, !starting else { return }
         starting = true
         defer { starting = false }

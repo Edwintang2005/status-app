@@ -31,20 +31,17 @@ enum SyncRunner {
             }
         }
 
-        let changed = AnnouncementPolicy.changed(result, previousStatus: previousStatus)
-        if changed {
-            // The open app's model has its own snapshot copy — without this,
-            // HomeView keeps the old status until the next foreground. A re-read
-            // only: this *is* the refresh, so asking for another finds nothing.
-            NotificationCenter.default.post(name: .snapshotDidChange, object: nil)
-        }
-        return changed
+        return AnnouncementPolicy.changed(result, previousStatus: previousStatus)
     }
 
     /// Best-effort variant for background wake-ups, where throwing is pointless.
+    /// The model's own refreshes re-read the store themselves; this one tells it to.
     static func refreshQuietly() async -> Bool {
         do {
-            return try await refresh()
+            let changed = try await refresh()
+            // A re-read only: this *is* the refresh, so asking for another finds nothing.
+            if changed { NotificationCenter.default.post(name: .snapshotDidChange, object: nil) }
+            return changed
         } catch SyncError.linkEnded {
             // Local state is already erased; tell the open app to re-read the
             // store and say why, instead of silently ejecting the user.

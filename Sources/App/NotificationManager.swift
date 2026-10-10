@@ -63,8 +63,8 @@ enum NotificationManager {
     /// Removes delivered banners still wearing CloudKit's generic wording, or the
     /// locked-phone wording the service stamps — the local notification about to
     /// be posted supersedes them, and leaving both is a duplicate. Matched on the
-    /// *body* (or stamp), not just the app-name title: sweeping every generic
-    /// banner deleted unenriched status notes nothing was ever going to re-state.
+    /// *body* (or stamp), not the app-name title alone: an unenriched status
+    /// banner is never re-stated, so it must stay.
     @discardableResult
     private static func removeGenericBanners(body: String, category: String) async -> Bool {
         let center = UNUserNotificationCenter.current()

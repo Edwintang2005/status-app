@@ -117,6 +117,24 @@ final class FakeBackend: SyncBackend, @unchecked Sendable {
     func registerSubscription() async throws {}
     func noteAccountChanged() async {}
     func unpair() async throws {}
+
+    // The outbox never pairs or touches the share.
+    func createPairInvite(displayName: String, replacingExisting: Bool) async throws -> URL {
+        throw SyncError.shareUnavailable
+    }
+    func acceptShare(_ metadata: CKShare.Metadata, displayName: String) async throws {}
+    func reacceptShare(_ metadata: CKShare.Metadata) async throws {}
+    func discoverExistingPairing() async -> (role: PairRole, zoneID: CKRecordZone.ID)? { nil }
+    func rejoin(role: PairRole, zoneID: CKRecordZone.ID, displayName: String) async throws {}
+    func inviteState() async throws -> InviteState { .missing }
+    func shareMemberCount() async throws -> Int? { nil }
+    func closeUnusedInvite() async throws {}
+    func lockIfPartnerOnShare(_ pairing: PairingInfo) async throws -> CloudSync.LockOutcome { .nobodyJoined }
+    func lockPairing() async throws {}
+    func reopenInvite() async throws {}
+    func secureInviteIfPartnerJoined() async -> String? { nil }
+    func recordBlockedPartner() async -> [String] { [] }
+    func deleteAllSubscriptions(ownedBy userRecordName: String?) async throws {}
 }
 
 /// The offline-send loops against a fake backend and throwaway stores

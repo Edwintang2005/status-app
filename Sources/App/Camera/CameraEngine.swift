@@ -330,9 +330,8 @@ final class CameraEngine: NSObject, @unchecked Sendable {
                     connection.videoRotationAngle = angle
                 }
                 let settings = AVCapturePhotoSettings()
-                // Full multi-frame fusion only in the dark, the nearest thing to
-                // Night mode an app can ask for; on every shot it held the
-                // shutter for a second in plain daylight.
+                // Multi-frame fusion (the nearest an app gets to Night mode)
+                // only in the dark: in daylight it holds the shutter for a second.
                 settings.photoQualityPrioritization = self.isDark ? .quality : .balanced
                 settings.maxPhotoDimensions = self.photoOutput.maxPhotoDimensions
                 let mode: AVCaptureDevice.FlashMode = switch flash {
