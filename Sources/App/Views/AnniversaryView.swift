@@ -20,7 +20,8 @@ struct AnniversaryView: View {
         ZStack {
             Theme.Background()
             if let anniversary = model.anniversary {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
+                // A minute's tick for the page; only the count ticks by the second.
+                TimelineView(.everyMinute) { context in
                     let now = context.date
                     let milestone = anniversary.milestoneToday(now)
 
@@ -49,7 +50,6 @@ struct AnniversaryView: View {
         }
         .sheet(isPresented: $editing) {
             AnniversaryEditorView(mode: .edit)
-                .environment(model)
         }
         .task {
             opened = .now
@@ -123,7 +123,7 @@ struct AnniversaryView: View {
             .accessibilityFocused($summaryFocused)
         Text("The count starts here, on both phones.")
             .font(Theme.rounded(15))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Theme.mutedText)
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
         if model.anniversaryRequestPending {
@@ -150,7 +150,7 @@ struct AnniversaryView: View {
             .accessibilityFocused($summaryFocused)
         Text("Once they do, the count appears here.")
             .font(Theme.rounded(15))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Theme.mutedText)
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
         if model.canRequestAnniversary {
@@ -169,7 +169,7 @@ struct AnniversaryView: View {
                         Text("Asked \(when). They'll see it next time they open \(AppConfig.appName).")
                     }
                     .font(Theme.rounded(13))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.mutedText)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                 } else {
@@ -196,11 +196,7 @@ struct AnniversaryView: View {
     private func content(_ anniversary: Anniversary,
                          now: Date,
                          celebrating: Anniversary.Milestone?) -> some View {
-        let (days, clock) = anniversary.elapsed(at: now)
-        let since = anniversary.startsAt.formatted(Date.FormatStyle(date: .long, time: .omitted, timeZone: anniversary.timeZone))
-        let digits: ContentTransition = reduceMotion ? .identity : .numericText()
-
-        return ScrollView {
+        ScrollView {
             VStack(spacing: 0) {
                 header
 
@@ -213,39 +209,9 @@ struct AnniversaryView: View {
                             .padding(.bottom, 18)
                     }
 
-                    // One element for VoiceOver, minute-precise: the seconds
-                    // would re-announce every tick.
-                    VStack(spacing: 0) {
-                        Text("Tied together for")
-                            .font(Theme.rounded(12, .semibold))
-                            .tracking(1.6)
-                            .textCase(.uppercase)
-                            .foregroundStyle(.secondary)
-
-                        Text("\(days)")
-                            .font(Theme.rounded(104, .bold))
-                            .monospacedDigit()
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.5)
-                            .contentTransition(digits)
-                            .animation(.smooth, value: days)
-                            .shadow(color: Theme.warm.opacity(0.35), radius: 18)
-                        Text(days == 1 ? "day" : "days")
-                            .font(Theme.rounded(20, .medium))
-                            .foregroundStyle(.secondary)
-                            .padding(.top, -8)
-
-                        Text(clockString(clock))
-                            .font(Theme.rounded(30, .medium))
-                            .monospacedDigit()
-                            .contentTransition(digits)
-                            .animation(.smooth(duration: 0.3), value: clock)
-                            .foregroundStyle(.primary.opacity(0.8))
-                            .padding(.top, 14)
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        count(anniversary, now: context.date)
                     }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(Text("Tied together for ^[\(days) day](inflect: true) and ^[\(clock / 3600) hour](inflect: true). Since \(since)."))
-                    .accessibilityFocused($summaryFocused)
 
                     breakdown(anniversary, now: now)
                         .padding(.top, 20)
@@ -262,7 +228,7 @@ struct AnniversaryView: View {
                     if model.snapshot.theirs != nil {
                         Text("\(model.myDisplayName) & \(model.partnerName)")
                             .font(Theme.rounded(15, .medium))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.mutedText)
                             .padding(.top, 28)
                     }
                 }
@@ -273,6 +239,43 @@ struct AnniversaryView: View {
             .containerRelativeFrame(.horizontal)
         }
         .scrollIndicators(.hidden)
+    }
+
+    /// The ticking part: days, and the clock under them.
+    private func count(_ anniversary: Anniversary, now: Date) -> some View {
+        let (days, clock) = anniversary.elapsed(at: now)
+        let since = anniversary.startsAt.formatted(Date.FormatStyle(date: .long, time: .omitted, timeZone: anniversary.timeZone))
+        let digits: ContentTransition = reduceMotion ? .identity : .numericText()
+
+        // One element for VoiceOver, hour-precise: the seconds would re-announce every tick.
+        return VStack(spacing: 0) {
+            Text("Tied together for")
+                .eyebrow(size: 12)
+
+            Text("\(days)")
+                .font(Theme.rounded(104, .bold))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+                .contentTransition(digits)
+                .animation(.smooth, value: days)
+                .shadow(color: Theme.warm.opacity(0.35), radius: 18)
+            Text(days == 1 ? "day" : "days")
+                .font(Theme.rounded(20, .medium))
+                .foregroundStyle(Theme.mutedText)
+                .padding(.top, -8)
+
+            Text(clockString(clock))
+                .font(Theme.rounded(30, .medium))
+                .monospacedDigit()
+                .contentTransition(digits)
+                .animation(.smooth(duration: 0.3), value: clock)
+                .foregroundStyle(.primary.opacity(0.8))
+                .padding(.top, 14)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("Tied together for ^[\(days) day](inflect: true) and ^[\(clock / 3600) hour](inflect: true). Since \(since)."))
+        .accessibilityFocused($summaryFocused)
     }
 
     private func breakdown(_ anniversary: Anniversary, now: Date) -> some View {
@@ -317,10 +320,7 @@ struct AnniversaryView: View {
                 .foregroundStyle(Theme.accent)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Since")
-                    .font(Theme.rounded(11, .semibold))
-                    .tracking(1.2)
-                    .textCase(.uppercase)
-                    .foregroundStyle(.secondary)
+                    .eyebrow()
                 Text(anniversary.startsAt,
                      format: Date.FormatStyle(date: .long, time: .shortened, timeZone: anniversary.timeZone))
                     .font(Theme.rounded(17, .semibold))
@@ -329,14 +329,14 @@ struct AnniversaryView: View {
                 if !model.canEditAnniversary {
                     Text("Set by \(model.partnerName)")
                         .font(Theme.rounded(13))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.mutedText)
                 }
             }
             Spacer(minLength: 0)
             if model.canEditAnniversary {
                 Image(systemName: "pencil")
                     .font(Theme.rounded(13, .semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.mutedText)
             }
         }
         .card(padding: 16)
@@ -351,15 +351,12 @@ struct AnniversaryView: View {
                 .foregroundStyle(Theme.warm)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Next up")
-                    .font(Theme.rounded(11, .semibold))
-                    .tracking(1.2)
-                    .textCase(.uppercase)
-                    .foregroundStyle(.secondary)
+                    .eyebrow()
                 Text(next.title)
                     .font(Theme.rounded(17, .semibold))
                 Text(next.date, format: Date.FormatStyle(date: .complete, timeZone: anniversary.timeZone))
                     .font(Theme.rounded(13))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.mutedText)
             }
             Spacer(minLength: 0)
             Text("in ^[\(daysLeft) day](inflect: true)")

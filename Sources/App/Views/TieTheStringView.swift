@@ -45,7 +45,7 @@ struct EggCloseButton: View {
         Button { dismiss() } label: {
             Image(systemName: "xmark")
                 .font(Theme.rounded(14, .bold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.mutedText)
                 .frame(width: 44, height: 44)
                 .background(.ultraThinMaterial, in: Circle())
         }
@@ -85,9 +85,7 @@ struct TieTheStringView: View {
         ZStack {
             Theme.Background()
             GeometryReader { geometry in
-                TimelineView(.animation(paused: reduceMotion || tied)) { context in
-                    canvas(in: geometry.size, time: context.date.timeIntervalSinceReferenceDate)
-                }
+                scene(in: geometry.size)
             }
             // The river runs under the home indicator rather than stopping short.
             .ignoresSafeArea(edges: .bottom)
@@ -148,9 +146,37 @@ struct TieTheStringView: View {
         CGPoint(x: size.width * (tied ? 0.60 : 0.74), y: size.height * (tied ? 0.52 : 0.58))
     }
 
-    private func canvas(in size: CGSize, time: TimeInterval) -> some View {
+    /// Only the drawing ticks per frame; the gesture, the logo and the tie's
+    /// animation sit outside the timeline.
+    private func scene(in size: CGSize) -> some View {
         let fox = foxCenter(size)
         let fish = fishCenter(size)
+        // Tied, nothing bobs: the knot's point is fixed.
+        let midpoint = CGPoint(x: (fox.x + fish.x) / 2, y: (fox.y + fish.y) / 2)
+
+        return TimelineView(.animation(paused: reduceMotion || tied)) { context in
+            drawing(fox: fox, fish: fish, time: context.date.timeIntervalSinceReferenceDate)
+        }
+        .opacity(logoShown ? 0 : 1)
+        .overlay {
+            if logoShown {
+                Image("Logo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: min(size.width * 0.8, 340))
+                    .matchedLogo(logo)
+                    .shadow(color: Theme.accent.opacity(0.3), radius: 24, y: 10)
+                    .transition(.scale(scale: 0.7).combined(with: .opacity))
+                    .position(midpoint)
+                    .allowsHitTesting(false)
+            }
+        }
+        .contentShape(Rectangle())
+        .gesture(dragGesture(fox: fox, fish: fish))
+        .animation(reduceMotion ? nil : .spring(response: 0.55, dampingFraction: 0.7), value: tied)
+    }
+
+    private func drawing(fox: CGPoint, fish: CGPoint, time: TimeInterval) -> some View {
         // Idle bob and sway; frozen once tied so the knot sits still.
         let bob = tied ? 0 : sin(time * 2.1) * 6
         let sway = tied ? 0 : sin(time * 1.4) * 7
@@ -191,23 +217,6 @@ struct TieTheStringView: View {
                     .position(x: midpoint.x, y: midpoint.y + RedString.sag(from: foxNow, to: fishNow) * 0.75)
             }
         }
-        .opacity(logoShown ? 0 : 1)
-        .overlay {
-            if logoShown {
-                Image("Logo")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: min(size.width * 0.8, 340))
-                    .matchedLogo(logo)
-                    .shadow(color: Theme.accent.opacity(0.3), radius: 24, y: 10)
-                    .transition(.scale(scale: 0.7).combined(with: .opacity))
-                    .position(midpoint)
-                    .allowsHitTesting(false)
-            }
-        }
-        .contentShape(Rectangle())
-        .gesture(dragGesture(fox: fox, fish: fish))
-        .animation(reduceMotion ? nil : .spring(response: 0.55, dampingFraction: 0.7), value: tied)
     }
 
     private func stringStart(fox: CGPoint, fish: CGPoint) -> CGPoint? {
