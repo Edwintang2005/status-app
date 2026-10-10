@@ -166,7 +166,7 @@ targets:
 
   # Demo-mode smoke over Home and each sheet with `performAccessibilityAudit()`.
   # Needs a *signed* Debug app (unsigned, it traps on the App Group at launch),
-  # so it has its own scheme: CI's unsigned build and test never touch it. `make uitest`.
+  # so it has its own scheme: CI only compiles it, unsigned, and never runs it. `make uitest`.
   RedStringUITests:
     type: bundle.ui-testing
     platform: iOS
