@@ -54,6 +54,6 @@ final class SendFailureTests: XCTestCase {
         XCTAssertEqual(SendFailure(partial, now: now), .throttled(until: now.addingTimeInterval(90)))
         let absurd = CKError(.requestRateLimited, userInfo: [CKErrorRetryAfterKey: NSNumber(value: 9e9)])
         XCTAssertEqual(SendFailure(absurd, now: now),
-                       .throttled(until: now.addingTimeInterval(AppConfig.storageFullRetryInterval)))
+                       .throttled(until: now.addingTimeInterval(AppConfig.throttleMaxDelay)))
     }
 }

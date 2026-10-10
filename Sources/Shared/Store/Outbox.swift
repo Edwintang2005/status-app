@@ -128,16 +128,15 @@ final class Outbox {
         guard store.pairing != nil, !isRepublishingStatus else { return false }
         let snapshot = store.snapshot
         guard let mine = snapshot.mine else { return false }
-        let logPending = snapshot.myStatusLoggedAt != mine.wordsAt
-        guard !snapshot.myStatusPublished || (logPending && mine.updatedAt > .distantPast) else { return false }
+        // Logged only if this status's log record isn't confirmed yet: a
+        // retried rename must not log its old words as a new status.
+        let logged = snapshot.myStatusLoggedAt != mine.wordsAt
+        guard !snapshot.myStatusPublished || (logged && mine.updatedAt > .distantPast) else { return false }
         if automatic {
             guard automaticRetryAllowed(now: now), now >= (statusRetryAt ?? .distantPast) else { return false }
         }
         isRepublishingStatus = true
         defer { isRepublishingStatus = false }
-        // Logged only if this status's log record isn't confirmed yet: a
-        // retried rename must not log its old words as a new status.
-        let logged = snapshot.myStatusLoggedAt != mine.wordsAt
         let backend = backend()
         do {
             try await withDeadline(AppConfig.publishDeadline) { try await backend.publish(mine, logged: logged) }
@@ -145,7 +144,7 @@ final class Outbox {
                 $0.markStatusPublished(mine)
                 // A logged publish that returned wrote the log; with a null mark
                 // meaning "owed", nothing else may be left to claim it landed.
-                if logged, $0.mine?.wordsAt == mine.wordsAt { $0.myStatusLoggedAt = mine.wordsAt }
+                if logged { $0.recordLogged(mine) }
             }
             noteSendSucceeded()
             statusFailures = 0

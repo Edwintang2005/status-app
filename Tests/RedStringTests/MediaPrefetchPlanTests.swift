@@ -53,11 +53,12 @@ final class MediaPrefetchPlanTests: XCTestCase {
 
     // MARK: Widget
 
-    /// What it draws: the partner's newest photo or doodle (`latestPartnerVisualMoment`).
-    func testWidgetTakesThumbnailsOfThePartnersThreeNewestVisualMoments() {
+    /// What it draws: the partner's newest photo or doodle (`latestPartnerVisualMoment`),
+    /// in full, with the next two thumbnails.
+    func testWidgetTakesThePartnersNewestInFullAndThumbnailsOfTheNextTwo() {
         let items = plan(arrived(8, mixed: true), in: .widget)
         XCTAssertEqual(items.map(\.moment.id), ["m0", "m2", "m5"], "m1/m4 are memos, m3 our own")
-        XCTAssertTrue(items.allSatisfy { $0.fetch == .thumbnail })
+        XCTAssertEqual(items.map(\.fetch), [.full, .thumbnail, .thumbnail], "one full image only")
     }
 
     func testWidgetNeverFetchesVoiceAndMemosDontCrowdOutPhotos() {
@@ -66,15 +67,19 @@ final class MediaPrefetchPlanTests: XCTestCase {
         }
         let photo = Fixtures.moment("p", at: Fixtures.date(-60))
         let items = plan(memos + [photo], in: .widget)
-        XCTAssertEqual(items, [.init(moment: photo, fetch: .thumbnail)],
+        XCTAssertEqual(items, [.init(moment: photo, fetch: .full)],
                        "the widget draws the newest photo, however many memos came after it")
         XCTAssertTrue(plan(memos, in: .widget).isEmpty)
     }
 
-    func testWidgetSkipsCachedThumbnailsWithinTheCap() {
+    func testWidgetSkipsWhatIsCachedWithinTheCap() {
         let items = plan(arrived(5), in: .widget, cachedMedia: ["m0"], cachedThumbnails: ["m1"])
-        XCTAssertEqual(items.map(\.moment.id), ["m0", "m2"],
-                       "only the thumbnail counts as cached for the widget; m4 is past the cap")
+        XCTAssertEqual(items, [.init(moment: arrived(5)[0], fetch: .thumbnail),
+                               .init(moment: arrived(5)[2], fetch: .thumbnail)],
+                       "the newest is whole already, so only its thumbnail; m1 is cached, m4 past the cap")
+        XCTAssertTrue(plan(arrived(1), in: .widget, cachedMedia: ["m0"], cachedThumbnails: ["m0"]).isEmpty)
+        XCTAssertEqual(plan(arrived(1), in: .widget, cachedThumbnails: ["m0"]).map(\.fetch), [.full],
+                       "a thumbnail alone isn't what the widget draws")
     }
 
     // MARK: Notification service

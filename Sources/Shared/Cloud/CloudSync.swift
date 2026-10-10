@@ -184,7 +184,7 @@ actor CloudSync: SyncBackend {
 
         // Receipt. A JSON blob of {momentID: seenAt}; which moments someone
         // read is behavioural, so it's encrypted like the captions. The status
-        // receipt is two dates: when, and which status (`updatedAt`) it was.
+        // receipt is two dates: when, and which status (`wordsAt`) it was.
         static let seenMap = "seenMap"
         static let statusSeenAt = "statusSeenAt"
         static let statusSeenFor = "statusSeenFor"
@@ -279,10 +279,9 @@ actor CloudSync: SyncBackend {
     }
 
     /// The signed-in account's user record name, or `nil` when it can't be
-    /// fetched (offline, no account).
-    /// A cold extension first tries the copy another process verified
-    /// (`SharedStore.verifiedAccount`): within the same lifetime it is no
-    /// weaker than a failed lookup, which also counts as a match.
+    /// fetched (offline, no account). A process without a lookup of its own first
+    /// uses one another process made within the cache lifetime
+    /// (`SharedStore.verifiedAccount`). That's safe: a failed lookup counts as a match anyway.
     func currentUserRecordName() async -> String? {
         let now = Date()
         if let cached = cachedUserRecordName,
@@ -423,7 +422,7 @@ actor CloudSync: SyncBackend {
     /// The saved record, or the error CloudKit filed against it. Every save goes
     /// through this: the async API throws for the operation as a whole, but a
     /// zone without the atomic capability reports a failed record *inside* the
-    /// result — and a participant who marks that "sent" has lost it (2026-09).
+    /// result — and a participant who marks that "sent" has lost it.
     @discardableResult
     static func confirmSaved(_ result: ModifyResult, _ id: CKRecord.ID) throws -> CKRecord {
         guard let saved = result.saveResults[id] else { throw SyncError.saveUnconfirmed }
@@ -434,15 +433,5 @@ actor CloudSync: SyncBackend {
     static func confirmDeleted(_ result: ModifyResult, _ id: CKRecord.ID) throws {
         guard let deleted = result.deleteResults[id] else { throw SyncError.saveUnconfirmed }
         try deleted.get()
-    }
-
-    static func firstSavedRecord(
-        from result: (saveResults: [CKRecord.ID: Result<CKRecord, Error>],
-                      deleteResults: [CKRecord.ID: Result<Void, Error>])
-    ) throws -> CKRecord? {
-        for (_, saveResult) in result.saveResults {
-            return try saveResult.get()
-        }
-        return nil
     }
 }

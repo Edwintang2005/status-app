@@ -195,12 +195,13 @@ struct ParsedDelta {
         var result: RefreshResult
     }
 
-    /// `alreadyKnown` is the index's IDs captured *before* this delta is filed,
-    /// so "new" means not already stored — a full resync re-delivers everything.
-    /// `oldestRetained` is the index's oldest kept `sentAt` once it's at its
-    /// cap: an unknown moment older than that is history past the cap, not
-    /// news, and would be trimmed straight back out. `fullResync` (no token)
-    /// with `announcedFloor` keeps re-fetched history from being announced.
+    /// - `alreadyKnown`: the index's IDs before this delta is filed. "New" means
+    ///   not already stored, since a full resync re-delivers everything.
+    /// - `oldestRetained`: the index's oldest kept `sentAt`, once it's full. An
+    ///   unknown moment older than that is history past the cap: not news, and
+    ///   the cap would trim it straight back out.
+    /// - `fullResync`, `announcedFloor`: on a fetch without a token, only
+    ///   moments past the floor count as news.
     func outcome(mineRole: PairRole,
                  previousMine: StatusPayload?,
                  previousTheirs: StatusPayload?,
@@ -240,7 +241,6 @@ struct ParsedDelta {
             anniversaryRequestedAt: requestRecord.flatMap(CloudSync.anniversaryRequestDate(from:)),
             anniversaryRequestErased: requestErased,
             freshStart: freshStart,
-            unreadableRecords: unreadable.count,
             partnerNudgeCreatedAt: partnerErased ? nil : theirNudgeCreatedAt,
             partnerNudgeErased: theirNudgeErased && !partnerErased
         )
@@ -250,8 +250,7 @@ struct ParsedDelta {
         // writes no `StatusLog` for it, and neither does this side.
         var partnerToLog: StatusPayload?
         if let theirs, theirStatus != nil, !partnerErased,
-           !(previousTheirs.map { $0.emoji == theirs.emoji && $0.message == theirs.message
-                                   && $0.isCelebration == theirs.isCelebration } ?? false) {
+           !(previousTheirs.map { $0.sameWords(as: theirs) } ?? false) {
             partnerToLog = theirs
         }
         // Own statuses set on this device are logged at set time; this catches

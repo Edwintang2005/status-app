@@ -13,13 +13,12 @@ final class TokenAdvancePolicyTests: XCTestCase {
     }
 
     func testTheTokenFollowsOnlyAReadableApplyToTheSamePairing() {
-        func persists(token: Bool = true, readable: Bool = true, samePairing: Bool = true,
+        func persists(readable: Bool = true, samePairing: Bool = true,
                       hadToken: Bool = true, stillStored: Bool = true) -> Bool {
-            TokenAdvancePolicy.persists(fetchedToken: token, readable: readable, samePairing: samePairing,
+            TokenAdvancePolicy.persists(readable: readable, samePairing: samePairing,
                                         hadToken: hadToken, tokenStillStored: stillStored)
         }
         XCTAssertTrue(persists())
-        XCTAssertFalse(persists(token: false), "nothing to write")
         XCTAssertFalse(persists(readable: false), "readable before token")
         XCTAssertFalse(persists(samePairing: false), "an unlink mid-refresh: not the next pairing's cursor")
         XCTAssertFalse(persists(stillStored: false), "cleared during apply: the index is rebuilding")

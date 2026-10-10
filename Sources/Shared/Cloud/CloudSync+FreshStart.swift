@@ -75,8 +75,10 @@ extension CloudSync {
         let pairing = try await requirePairing()
         let database = self.database(for: pairing)
         let zone = zoneID(for: pairing)
+        // Names and server creation times judge the rest; only `FreshStart` fields are read.
         let changes = try await withZoneRecovery(pairing) {
-            try await fetchZoneChanges(zone: zone, in: database, since: nil)
+            try await fetchZoneChanges(zone: zone, in: database, since: nil,
+                                       desiredKeys: [Field.stage, Field.epoch, Field.clearedBefore])
         }
 
         let names = myRecordNames(pairing)
@@ -140,9 +142,9 @@ extension CloudSync {
         isForeign(author: record.lastModifiedUserRecordID?.recordName, names: names)
     }
 
-    /// Without our own account's real name (#14: a lookup that failed at
-    /// pairing) a real name proves nothing, and refusing our own record would
-    /// wedge the clear for good — so nothing is judged.
+    /// Without our own account's real name (a lookup that failed at pairing) a
+    /// real name proves nothing, and refusing our own record would wedge the
+    /// clear for good — so nothing is judged.
     static func isForeign(author: String?, names: Set<String>) -> Bool {
         guard let author, names.contains(where: { $0 != CKCurrentUserDefaultName }) else { return false }
         return !names.contains(author)

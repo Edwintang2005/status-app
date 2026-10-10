@@ -21,7 +21,7 @@ enum TokenAdvancePolicy {
         return incomplete ? .keep : .clear
     }
 
-    /// Whether the fetched token is written.
+    /// Whether a fetched token is written.
     /// - Parameters:
     ///   - readable: nothing unreadable, or the hold gave up on it.
     ///   - samePairing: the pairing is still the one fetched (an unlink, or an
@@ -29,12 +29,11 @@ enum TokenAdvancePolicy {
     ///   - hadToken: the fetch started from a token...
     ///   - tokenStillStored: ...and that token is still stored. One cleared during
     ///     `apply` (a corrupt index rebuilding) must not be written back.
-    static func persists(fetchedToken: Bool,
-                         readable: Bool,
+    static func persists(readable: Bool,
                          samePairing: Bool,
                          hadToken: Bool,
                          tokenStillStored: Bool) -> Bool {
-        guard fetchedToken, readable, samePairing else { return false }
+        guard readable, samePairing else { return false }
         return !(hadToken && !tokenStillStored)
     }
 }

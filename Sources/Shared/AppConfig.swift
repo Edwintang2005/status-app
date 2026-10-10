@@ -149,6 +149,9 @@ enum AppConfig {
     /// A throttled request (`requestRateLimited`, `zoneBusy`, `serviceUnavailable`)
     /// without a retry-after of its own waits this long before automatic retries.
     static let throttleDefaultDelay: TimeInterval = 30
+    /// The most a server's retry-after may hold automatic retries: a crafted
+    /// or absurd figure can't park the queue for days.
+    static let throttleMaxDelay: TimeInterval = 60 * 60
     /// A status republish that keeps failing for another reason backs off from
     /// this, doubling per failure up to `statusRetryMaxDelay`.
     static let statusRetryBaseDelay: TimeInterval = 30

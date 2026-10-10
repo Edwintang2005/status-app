@@ -12,13 +12,9 @@ extension CloudSync {
         let recordID = CKRecord.ID(recordName: pairing.role.receiptRecordName,
                                    zoneID: zoneID(for: pairing))
 
+        // `.changedKeys` never reports a conflict: the last writer's map wins.
         try await withZoneRecovery(pairing) {
-            do {
-                try await saveReceipts(seen, statusSeen: statusSeen, to: recordID, in: database)
-            } catch let error as CKError where error.code == .serverRecordChanged {
-                log.notice("Receipt conflict, retrying against server record.")
-                try await saveReceipts(seen, statusSeen: statusSeen, to: recordID, in: database)
-            }
+            try await saveReceipts(seen, statusSeen: statusSeen, to: recordID, in: database)
         }
     }
 
@@ -42,7 +38,7 @@ extension CloudSync {
     }
 
     /// Both dates bounded like every partner-written one (invariant 23): a
-    /// negative year here once made the whole snapshot undecodable.
+    /// negative year here would make the whole snapshot undecodable.
     static func statusSeen(from record: CKRecord) -> StatusSeen? {
         guard let seenAt = record.encryptedValues[Field.statusSeenAt] as? Date,
               let statusUpdatedAt = record.encryptedValues[Field.statusSeenFor] as? Date,

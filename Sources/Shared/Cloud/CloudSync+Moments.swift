@@ -105,20 +105,16 @@ extension CloudSync {
                             pairing: PairingInfo,
                             in database: CKDatabase,
                             wifiOnly: Bool = false) async throws {
-        let zone = zoneID(for: pairing)
-        var byRecord: [CKRecord.ID: Moment] = [:]
-        for moment in moments where !moment.isVoice {
-            let role = moment.fromMe ? pairing.role : pairing.role.other
-            byRecord[CKRecord.ID(recordName: role.momentRecordName(id: moment.id), zoneID: zone)] = moment
-        }
-        let ids = Array(byRecord.keys)
-        for chunk in ids.chunked(into: ThumbnailBatchQueue.batchLimit) {
+        let byRecord = recordIDs(for: moments.filter { !$0.isVoice }, pairing: pairing)
+        for chunk in Array(byRecord.keys).chunked(into: ThumbnailBatchQueue.batchLimit) {
             try Task.checkCancellation()
             let configuration = CKOperation.Configuration()
             configuration.allowsCellularAccess = !wifiOnly
             let results = try await database.configuredWith(configuration: configuration) { configured in
                 try await configured.records(for: chunk, desiredKeys: [Field.thumb])
             }
+            // Abandoned at a deadline: nothing lands after the caller moved on.
+            try Task.checkCancellation()
             for (recordID, result) in results {
                 guard case .success(let record) = result, let moment = byRecord[recordID] else { continue }
                 do {
@@ -163,46 +159,67 @@ extension CloudSync {
     /// the notification service's one media fetch.
     func fetchAttachment(for moment: Moment) async throws {
         let pairing = try await requirePairing()
-        try await download(MediaPrefetchPlan.attachment(for: moment), for: moment,
+        try await download(MediaPrefetchPlan.attachment(for: moment), for: [moment],
                            pairing: pairing, in: database(for: pairing))
     }
 
     func download(_ fetch: MediaPrefetchPlan.Fetch,
-                  for moment: Moment,
+                  for moments: [Moment],
                   pairing: PairingInfo,
                   in database: CKDatabase) async throws {
         switch fetch {
-        case .thumbnail: try await downloadThumbnail(for: moment, pairing: pairing, in: database)
-        case .full: try await downloadMedia(for: moment, pairing: pairing, in: database)
+        case .thumbnail: try await downloadThumbnails(for: moments, pairing: pairing, in: database)
+        case .full: try await downloadFullMedia(for: moments, pairing: pairing, in: database)
         }
     }
 
-    func downloadThumbnail(for moment: Moment,
+    /// A few moments' full media (the prefetch plan's ten at most) in one
+    /// `records(for:)`; a record that fails is skipped, not the batch.
+    func downloadFullMedia(for moments: [Moment],
                            pairing: PairingInfo,
                            in database: CKDatabase) async throws {
-        guard !moment.isVoice else { return }
-        let role = moment.fromMe ? pairing.role : pairing.role.other
-        let recordID = CKRecord.ID(recordName: role.momentRecordName(id: moment.id),
-                                   zoneID: zoneID(for: pairing))
-        let results = try await database.records(for: [recordID], desiredKeys: [Field.thumb])
-        guard case .success(let record)? = results[recordID] else { return }
-        try Self.copyAsset(record[Field.thumb] as? CKAsset, to: MomentStore.shared.thumbURL(for: moment.id))
+        let byRecord = recordIDs(for: moments, pairing: pairing)
+        guard !byRecord.isEmpty else { return }
+        let results = try await database.records(for: Array(byRecord.keys),
+                                                 desiredKeys: [Field.image, Field.thumb, Field.audio])
+        // Abandoned at a deadline: nothing lands after the caller moved on.
+        try Task.checkCancellation()
+        for (recordID, result) in results {
+            guard case .success(let record) = result, let moment = byRecord[recordID] else { continue }
+            do {
+                try Self.copyMedia(from: record, for: moment)
+            } catch {
+                log.error("Couldn't store the media for \(moment.id): \(error.localizedDescription)")
+            }
+        }
     }
 
+    /// One moment's full media, for the gallery: a failure other than "gone" throws.
     func downloadMedia(for moment: Moment,
-                               pairing: PairingInfo,
-                               in database: CKDatabase) async throws {
-        let role = moment.fromMe ? pairing.role : pairing.role.other
-        let recordID = CKRecord.ID(recordName: role.momentRecordName(id: moment.id),
-                                   zoneID: zoneID(for: pairing))
-        guard let record = try await fetchRecord(recordID, in: database) else { return }
+                       pairing: PairingInfo,
+                       in database: CKDatabase) async throws {
+        guard let recordID = recordIDs(for: [moment], pairing: pairing).keys.first,
+              let record = try await fetchRecord(recordID, in: database) else { return }
+        try Self.copyMedia(from: record, for: moment)
+    }
 
+    func recordIDs(for moments: [Moment], pairing: PairingInfo) -> [CKRecord.ID: Moment] {
+        let zone = zoneID(for: pairing)
+        var byRecord: [CKRecord.ID: Moment] = [:]
+        for moment in moments {
+            let role = moment.fromMe ? pairing.role : pairing.role.other
+            byRecord[CKRecord.ID(recordName: role.momentRecordName(id: moment.id), zoneID: zone)] = moment
+        }
+        return byRecord
+    }
+
+    static func copyMedia(from record: CKRecord, for moment: Moment) throws {
         let store = MomentStore.shared
         if moment.isVoice {
-            try Self.copyAsset(record[Field.audio] as? CKAsset, to: store.audioURL(for: moment.id))
+            try copyAsset(record[Field.audio] as? CKAsset, to: store.audioURL(for: moment.id))
         } else {
-            try Self.copyAsset(record[Field.image] as? CKAsset, to: store.imageURL(for: moment.id))
-            try Self.copyAsset(record[Field.thumb] as? CKAsset, to: store.thumbURL(for: moment.id))
+            try copyAsset(record[Field.image] as? CKAsset, to: store.imageURL(for: moment.id))
+            try copyAsset(record[Field.thumb] as? CKAsset, to: store.thumbURL(for: moment.id))
         }
     }
 
