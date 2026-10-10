@@ -6,7 +6,7 @@ import WidgetKit
 /// accessory families render monochrome and too small for a photo.
 struct MomentWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: AppConfig.momentWidgetKind, provider: StatusProvider()) { entry in
+        StaticConfiguration(kind: AppConfig.momentWidgetKind, provider: StatusProvider(drawsPhoto: true)) { entry in
             MomentWidgetView(entry: entry)
         }
         .configurationDisplayName("Their photo")
@@ -22,15 +22,10 @@ struct MomentWidgetView: View {
 
     @Environment(\.widgetFamily) private var family
 
-    /// The picture only — a memo never displaces it. A caption the user's
-    /// filter hides is dropped, as if there were none; so is a hidden name.
-    private var moment: Moment? {
-        guard var moment = entry.snapshot.latestPartnerVisualMoment else { return nil }
-        moment.caption = moment.displayCaption ?? ""
-        moment.senderName = moment.displaySenderName(fallback: "")
-        return moment
-    }
-    private var unheardMemos: Int { entry.snapshot.unheardVoiceMemoCount }
+    /// The picture only — a memo never displaces it. Moderated when the entry
+    /// was built: a hidden caption or name is empty, as if there were none.
+    private var moment: Moment? { entry.content.photo }
+    private var unheardMemos: Int { entry.content.unheardMemos }
 
     var body: some View {
         ZStack {
@@ -95,7 +90,7 @@ struct MomentWidgetView: View {
     private func content(for moment: Moment) -> some View {
         // Until the photo downloads, the background is the pale accent fill —
         // white-on-pale text is invisible, so style for whichever is showing.
-        let onPhoto = MomentStore.shared.thumbnail(for: moment.id) != nil
+        let onPhoto = entry.photo != nil
         let place = Placement.of(family)
         let centred = family == .systemSmall
 
@@ -165,18 +160,18 @@ struct MomentWidgetView: View {
         .padding(16)
         // Unpaired or memo-waiting opens the app; never deep-link an unpaired
         // user into the composer.
-        .widgetURL(URL(string: entry.snapshot.isPaired && unheardMemos == 0
+        .widgetURL(URL(string: entry.content.isPaired && unheardMemos == 0
                        ? "redstring://compose"
                        : "redstring://open"))
     }
 
     private var emptyHint: String? {
-        guard entry.snapshot.isPaired, unheardMemos == 0 else { return nil }
+        guard entry.content.isPaired, unheardMemos == 0 else { return nil }
         return String(localized: "Tap to send the first one.")
     }
 
     private var emptyLabel: String {
-        guard entry.snapshot.isPaired else { return String(localized: "Open to pair") }
+        guard entry.content.isPaired else { return String(localized: "Open to pair") }
         if unheardMemos > 0 {
             return unheardMemos == 1
                 ? String(localized: "Voice memo waiting")
@@ -189,7 +184,7 @@ struct MomentWidgetView: View {
 
     @ViewBuilder
     private var background: some View {
-        if let moment, let image = MomentStore.shared.thumbnail(for: moment.id) {
+        if let moment, let image = entry.photo {
             imageView(image)
                 .accessibilityLabel(moment.senderName.isEmpty
                                     ? String(localized: "\(moment.noun) from them")
@@ -228,18 +223,18 @@ struct MomentWidgetView: View {
 #Preview("Moment small", as: .systemSmall) {
     MomentWidget()
 } timeline: {
-    StatusEntry(date: .now, snapshot: .preview)
+    StatusEntry(date: .now, content: .preview)
 }
 
 #Preview("Moment medium", as: .systemMedium) {
     MomentWidget()
 } timeline: {
-    StatusEntry(date: .now, snapshot: .preview)
+    StatusEntry(date: .now, content: .preview)
 }
 
 #Preview("Moment large waiting", as: .systemLarge) {
     MomentWidget()
 } timeline: {
-    StatusEntry(date: .now, snapshot: .previewWaiting)
+    StatusEntry(date: .now, content: .previewWaiting)
 }
 #endif

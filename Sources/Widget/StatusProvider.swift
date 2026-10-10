@@ -1,9 +1,12 @@
+import UIKit
 import WidgetKit
 import os
 
 struct StatusEntry: TimelineEntry {
     let date: Date
-    let snapshot: Snapshot
+    let content: WidgetContent
+    /// The photo widget's picture, decoded once for the whole timeline.
+    var photo: UIImage?
 }
 
 /// Renders from the App Group cache, opportunistically refreshing from
@@ -11,19 +14,26 @@ struct StatusEntry: TimelineEntry {
 struct StatusProvider: TimelineProvider {
     private static let log = Logger(subsystem: AppConfig.appGroupID, category: "Widget")
 
+    /// Only the photo widget pays for decoding a picture.
+    var drawsPhoto = false
+
     func placeholder(in context: Context) -> StatusEntry {
-        StatusEntry(date: Date(), snapshot: .preview)
+        StatusEntry(date: Date(), content: .preview)
     }
 
     func getSnapshot(in context: Context, completion: @escaping (StatusEntry) -> Void) {
         // The widget gallery has no data of its own to show, so use the sample.
-        let snapshot = context.isPreview ? .preview : SharedStore.shared.snapshot
-        completion(StatusEntry(date: Date(), snapshot: snapshot))
+        guard !context.isPreview else {
+            completion(StatusEntry(date: Date(), content: .preview))
+            return
+        }
+        completion(entry(at: Date(), from: SharedStore.shared.snapshot, size: context.displaySize))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<StatusEntry>) -> Void) {
         // WidgetKit calls it once, from whichever thread; it just isn't marked `Sendable`.
         nonisolated(unsafe) let completion = completion
+        let size = context.displaySize
         Task {
             let result = await Self.refreshIfPossible()
             let snapshot = SharedStore.shared.snapshot
@@ -33,9 +43,19 @@ struct StatusProvider: TimelineProvider {
                                     lastNudgeFailedAt: snapshot.lastNudgeFailedAt,
                                     heldSince: SharedStore.shared.unreadableTally.heldSince,
                                     incomplete: result?.incomplete ?? false)
-            let entries = plan.entries.map { StatusEntry(date: $0, snapshot: snapshot) }
+            let drawn = entry(at: Date(), from: snapshot, size: size)
+            let entries = plan.entries.map { StatusEntry(date: $0, content: drawn.content, photo: drawn.photo) }
             completion(Timeline(entries: entries, policy: .after(plan.nextReload)))
         }
+    }
+
+    private func entry(at date: Date, from snapshot: Snapshot, size: CGSize) -> StatusEntry {
+        let store = SharedStore.shared
+        let content = WidgetContent(snapshot: snapshot,
+                                    reportedAt: store.hiddenPartnerStatusAt,
+                                    filterEnabled: store.contentFilterEnabled)
+        let photo = drawsPhoto ? content.photo.flatMap { WidgetPhoto.image(for: $0, pointSize: size) } : nil
+        return StatusEntry(date: date, content: content, photo: photo)
     }
 
     /// Every kind's provider in this process joins the one refresh in flight.
