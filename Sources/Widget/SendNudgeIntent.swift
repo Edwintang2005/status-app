@@ -17,15 +17,9 @@ struct SendNudgeIntent: AppIntent {
             _ = try await withDeadline(AppConfig.widgetDeadline) { try await Backend.current.sendNudge() }
         } catch is CancellationError {
             // The deadline abandons the send rather than waiting for it, so its own
-            // failure path may never run before WidgetKit suspends us. Stamp it
-            // here — only for our own claim, and only if it never landed.
+            // failure path may never run before WidgetKit suspends us.
             await MainActor.run {
-                _ = SharedStore.shared.mutate { snapshot in
-                    guard let claim = snapshot.lastNudgeSentAt, claim >= started,
-                          snapshot.mine?.lastNudgeAt != claim else { return }
-                    snapshot.lastNudgeSentAt = nil
-                    snapshot.lastNudgeFailedAt = Date()
-                }
+                _ = SharedStore.shared.mutate { NudgeCooldownPolicy.releaseAbandoned(startedAt: started, in: &$0) }
             }
         } catch {
             // `sendNudge`'s own failure path released the cooldown and stamped it.
