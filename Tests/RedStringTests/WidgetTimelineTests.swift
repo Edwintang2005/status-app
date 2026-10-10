@@ -75,11 +75,11 @@ final class WidgetTimelineTests: XCTestCase {
             return 7
         }
         // Let the first run start before the others join it.
-        while await runs.value == 0 { await Task.yield() }
-        async let second = flight.run { await runs.increment(); return 1 }
-        async let third = flight.run { await runs.increment(); return 2 }
-        // Give the joiners time to reach the flight before it lands.
-        try? await Task.sleep(for: .milliseconds(200))
+        await waitUntil { await runs.value == 1 }
+        let joined = Arrivals()
+        async let second = flight.run(marking: joined) { await runs.increment(); return 1 }
+        async let third = flight.run(marking: joined) { await runs.increment(); return 2 }
+        await waitUntil { joined.count == 2 }
         await gate.open()
         let values = await [first, second, third]
         XCTAssertEqual(values, [7, 7, 7])
@@ -89,6 +89,22 @@ final class WidgetTimelineTests: XCTestCase {
         let later = await flight.run { await runs.increment(); return 9 }
         XCTAssertEqual(later, 9, "once landed, the next caller starts a new run")
     }
+}
+
+private extension SingleFlight {
+    /// Marks the caller in the same actor turn that finds the run in flight, so
+    /// a test can tell it joined before letting that run land.
+    func run(marking arrivals: Arrivals, _ body: @escaping @Sendable () async -> Value) async -> Value {
+        arrivals.mark()
+        return await run(body)
+    }
+}
+
+private final class Arrivals: @unchecked Sendable {
+    private let lock = NSLock()
+    private var marked = 0
+    var count: Int { lock.withLock { marked } }
+    func mark() { lock.withLock { marked += 1 } }
 }
 
 private actor Counter {

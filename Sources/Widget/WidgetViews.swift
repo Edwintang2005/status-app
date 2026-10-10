@@ -8,22 +8,11 @@ struct StatusWidgetView: View {
 
     @Environment(\.widgetFamily) private var family
 
-    /// The partner's status as it may be shown: reported → no words; a message
-    /// the filter hides → a short stand-in that fits a tile.
-    private var status: StatusPayload? {
-        entry.snapshot.theirs?.moderated(reportedAt: SharedStore.shared.hiddenPartnerStatusAt,
-                                         filteredText: String(localized: "Hidden"))
-    }
-    private var mine: StatusPayload? { entry.snapshot.mine }
-    private var isPaired: Bool { entry.snapshot.isPaired }
-
-    /// The partner's name only once they've published one — the "Partner"
-    /// fallback reads cold as a heading. Filtered like the rest of their text.
-    private var knownName: String? {
-        guard let name = status?.displayName else { return nil }
-        let shown = ContentFilter.displayName(name, fallback: "")
-        return shown.isEmpty ? nil : shown
-    }
+    /// Moderated when the entry was built (`WidgetContent`).
+    private var status: StatusPayload? { entry.content.partner }
+    private var mine: StatusPayload? { entry.content.mine }
+    private var isPaired: Bool { entry.content.isPaired }
+    private var knownName: String? { entry.content.partnerName }
 
     /// What to call them before they've said anything.
     private var name: String { knownName ?? String(localized: "Them") }
@@ -227,14 +216,14 @@ struct NudgeWidgetView: View {
     /// Measured from `entry.date`, not `Date()`: WidgetKit renders every entry
     /// at delivery, so a wall-clock read would draw the expiry entry as a checkmark too.
     private var recentlySent: Bool {
-        guard let last = entry.snapshot.lastNudgeSentAt else { return false }
+        guard let last = entry.content.lastNudgeSentAt else { return false }
         return entry.date.timeIntervalSince(last) < AppConfig.nudgeCooldown
     }
 
     /// The last tap never made it out; the intent can't alert, so the heart
     /// wears the news and tapping retries.
     private var recentlyFailed: Bool {
-        guard let failed = entry.snapshot.lastNudgeFailedAt else { return false }
+        guard let failed = entry.content.lastNudgeFailedAt else { return false }
         return entry.date.timeIntervalSince(failed) < AppConfig.nudgeFailureNotice
     }
 
@@ -253,7 +242,7 @@ struct NudgeWidgetView: View {
     var body: some View {
         ZStack {
             AccessoryWidgetBackground()
-            if entry.snapshot.isPaired {
+            if entry.content.isPaired {
                 Button(intent: SendNudgeIntent()) {
                     Image(systemName: symbolName)
                         .font(.system(size: 22, weight: .semibold))
@@ -275,47 +264,47 @@ struct NudgeWidgetView: View {
 #Preview("Rectangular", as: .accessoryRectangular) {
     StatusWidget()
 } timeline: {
-    StatusEntry(date: .now, snapshot: .preview)
+    StatusEntry(date: .now, content: .preview)
 }
 
 #Preview("Circular", as: .accessoryCircular) {
     StatusWidget()
 } timeline: {
-    StatusEntry(date: .now, snapshot: .preview)
+    StatusEntry(date: .now, content: .preview)
 }
 
 #Preview("Inline", as: .accessoryInline) {
     StatusWidget()
 } timeline: {
-    StatusEntry(date: .now, snapshot: .preview)
+    StatusEntry(date: .now, content: .preview)
 }
 
 #Preview("Small", as: .systemSmall) {
     StatusWidget()
 } timeline: {
-    StatusEntry(date: .now, snapshot: .preview)
+    StatusEntry(date: .now, content: .preview)
 }
 
 #Preview("Small waiting", as: .systemSmall) {
     StatusWidget()
 } timeline: {
-    StatusEntry(date: .now, snapshot: .previewWaiting)
+    StatusEntry(date: .now, content: .previewWaiting)
 }
 
 #Preview("Rectangular waiting", as: .accessoryRectangular) {
     StatusWidget()
 } timeline: {
-    StatusEntry(date: .now, snapshot: .previewWaiting)
+    StatusEntry(date: .now, content: .previewWaiting)
 }
 
 #Preview("Circular waiting", as: .accessoryCircular) {
     StatusWidget()
 } timeline: {
-    StatusEntry(date: .now, snapshot: .previewWaiting)
+    StatusEntry(date: .now, content: .previewWaiting)
 }
 
 #Preview("Nudge", as: .accessoryCircular) {
     NudgeWidget()
 } timeline: {
-    StatusEntry(date: .now, snapshot: .preview)
+    StatusEntry(date: .now, content: .preview)
 }

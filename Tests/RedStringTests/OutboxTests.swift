@@ -469,12 +469,14 @@ final class OutboxTests: XCTestCase {
             store.mutate { $0.receiptsDirty = true }
             outbox.scheduleReceiptFlush(after: 0.05)
         }
-        try await Task.sleep(for: .milliseconds(400))
+        await waitUntil { !backend.receipts.isEmpty }
         XCTAssertEqual(backend.receipts.count, 1)
 
         store.mutate { $0.receiptsDirty = true }
         outbox.scheduleReceiptFlush(after: 60)
         await outbox.flushReceiptsNow()
+        // The debounced flush may still be finishing; then its loop sends this — not in 60 s either way.
+        await waitUntil { backend.receipts.count >= 2 }
         XCTAssertEqual(backend.receipts.count, 2, "backgrounding sends what the debounce held")
     }
 

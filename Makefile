@@ -2,11 +2,19 @@ SIM ?= iPhone 17
 SCHEME := RedString
 PROJECT := RedString.xcodeproj
 BUNDLE_ID := com.edwintang.redstring
+# CI installs exactly this; another version can write a different project.
+XCODEGEN_VERSION := $(shell cat .xcodegen-version)
 
 .PHONY: project build test uitest run device archive clean
 
 ## Regenerate RedString.xcodeproj from project.yml (run after adding files)
 project:
+	@found=$$(xcodegen --version 2>/dev/null | awk '{print $$NF}'); \
+	if [ "$$found" != "$(XCODEGEN_VERSION)" ]; then \
+		echo "error: XcodeGen $(XCODEGEN_VERSION) required (.xcodegen-version, CI's drift check), found $${found:-none}."; \
+		echo "Install it from https://github.com/yonaskolb/XcodeGen/releases/tag/$(XCODEGEN_VERSION)"; \
+		exit 1; \
+	fi
 	xcodegen generate
 
 ## Compile check only — no signing, so the result must NOT be launched.

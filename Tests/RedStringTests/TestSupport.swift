@@ -1,3 +1,4 @@
+import CloudKit
 import Foundation
 import XCTest
 
@@ -5,6 +6,23 @@ import XCTest
 enum Fixtures {
     /// A whole-second date, like every persisted one (see CLAUDE.md invariant 14).
     static let t0 = Date(timeIntervalSince1970: 1_756_720_000)
+
+    static let zone = CKRecordZone.ID(zoneName: AppConfig.coupleZoneName, ownerName: CKCurrentUserDefaultName)
+
+    /// A `Status` record as one side's phone writes it.
+    static func statusRecord(_ role: PairRole = .participant,
+                             emoji: String = "🥰",
+                             message: String = "missing you",
+                             name: String,
+                             at date: Date) -> CKRecord {
+        let record = CKRecord(recordType: CloudSync.RecordType.status,
+                              recordID: CKRecord.ID(recordName: role.statusRecordName, zoneID: zone))
+        record.encryptedValues[CloudSync.Field.emoji] = emoji
+        record.encryptedValues[CloudSync.Field.message] = message
+        record.encryptedValues[CloudSync.Field.displayName] = name
+        record[CloudSync.Field.updatedAt] = date as CKRecordValue
+        return record
+    }
 
     static func date(_ seconds: TimeInterval) -> Date {
         Date(timeIntervalSince1970: t0.timeIntervalSince1970 + seconds)
@@ -62,5 +80,22 @@ extension XCTestCase {
 
     func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {
         try JSONDecoder.shared.decode(type, from: Data(json.utf8))
+    }
+}
+
+/// Waits for state another task reaches, failing after `timeout` — in place of
+/// a sleep that guesses how long that takes on a loaded runner.
+func waitUntil(timeout: Duration = .seconds(10),
+               file: StaticString = #filePath,
+               line: UInt = #line,
+               isolation: isolated (any Actor)? = #isolation,
+               _ condition: () async -> Bool) async {
+    let deadline = ContinuousClock.now.advanced(by: timeout)
+    while await !condition() {
+        guard ContinuousClock.now < deadline else {
+            XCTFail("Timed out waiting for the condition", file: file, line: line)
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(5))
     }
 }

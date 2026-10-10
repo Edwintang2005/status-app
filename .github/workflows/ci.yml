@@ -21,8 +21,9 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 45
     env:
-      # Pinned: another XcodeGen version can write a different project and fail the drift check.
-      XCODEGEN_VERSION: "2.46.0"
+      # One DerivedData for every step, so each builds on the last.
+      DERIVED_DATA: build/DerivedData
+      RESULTS: build/Results
     steps:
       - uses: actions/checkout@v4
 
@@ -34,8 +35,11 @@ jobs:
 
       - run: xcodebuild -version
 
+      # Pinned in .xcodegen-version (`make project` checks it too): another
+      # XcodeGen version can write a different project and fail the drift check.
       - name: Install XcodeGen
         run: |
+          XCODEGEN_VERSION=$(cat .xcodegen-version)
           curl -sSfL -o xcodegen.zip \
             "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip"
           unzip -q xcodegen.zip -d "$RUNNER_TEMP"
@@ -59,26 +63,47 @@ jobs:
           echo "Using $SIM"
           echo "SIM=$SIM" >> "$GITHUB_ENV"
 
-      - name: Unit tests
+      # Unsigned, warnings as errors. One Debug build: the app, both extensions
+      # and the unit tests.
+      - name: Build Debug for testing
         run: |
-          xcodebuild -project RedString.xcodeproj -scheme RedString \
+          xcodebuild build-for-testing -project RedString.xcodeproj -scheme RedString \
             -destination "platform=iOS Simulator,name=$SIM" \
             -configuration Debug CODE_SIGNING_ALLOWED=NO \
             SWIFT_TREAT_WARNINGS_AS_ERRORS=YES \
-            -only-testing:RedStringTests test
+            -derivedDataPath "$DERIVED_DATA" -resultBundlePath "$RESULTS/build-debug.xcresult"
 
-      # Unsigned, warnings as errors. Release too: the #if DEBUG boundaries
-      # (demo mode, previews) are otherwise first compiled on archive day.
-      - name: Build Debug
+      - name: Unit tests
         run: |
-          xcodebuild -project RedString.xcodeproj -scheme RedString \
-            -destination "generic/platform=iOS Simulator" \
+          xcodebuild test-without-building -project RedString.xcodeproj -scheme RedString \
+            -destination "platform=iOS Simulator,name=$SIM" \
             -configuration Debug CODE_SIGNING_ALLOWED=NO \
-            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build
+            -only-testing:RedStringTests \
+            -derivedDataPath "$DERIVED_DATA" -resultBundlePath "$RESULTS/unit-tests.xcresult"
 
+      # Compiled, not run: the smoke needs a signed app (`make uitest`).
+      - name: Build UI tests
+        run: |
+          xcodebuild build-for-testing -project RedString.xcodeproj -scheme RedStringUITests \
+            -destination "platform=iOS Simulator,name=$SIM" \
+            -configuration Debug CODE_SIGNING_ALLOWED=NO \
+            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES \
+            -derivedDataPath "$DERIVED_DATA" -resultBundlePath "$RESULTS/build-uitests.xcresult"
+
+      # Release too: the #if DEBUG boundaries (demo mode, previews) are
+      # otherwise first compiled on archive day.
       - name: Build Release
         run: |
           xcodebuild -project RedString.xcodeproj -scheme RedString \
             -destination "generic/platform=iOS Simulator" \
             -configuration Release CODE_SIGNING_ALLOWED=NO \
-            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build
+            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES \
+            -derivedDataPath "$DERIVED_DATA" -resultBundlePath "$RESULTS/build-release.xcresult" build
+
+      - name: Upload results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcresults
+          path: build/Results
+          if-no-files-found: ignore

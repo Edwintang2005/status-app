@@ -6,19 +6,6 @@ import XCTest
 /// ordering, the sender's save decision, nudge fields another process wrote,
 /// and a recreated nudge counter.
 final class StatusOrderingTests: XCTestCase {
-    private let zone = CKRecordZone.ID(zoneName: AppConfig.coupleZoneName, ownerName: CKCurrentUserDefaultName)
-
-    private func statusRecord(_ role: PairRole = .participant, emoji: String = "🥰", message: String = "missing you",
-                              name: String, at date: Date) -> CKRecord {
-        let record = CKRecord(recordType: CloudSync.RecordType.status,
-                              recordID: CKRecord.ID(recordName: role.statusRecordName, zoneID: zone))
-        record.encryptedValues[CloudSync.Field.emoji] = emoji
-        record.encryptedValues[CloudSync.Field.message] = message
-        record.encryptedValues[CloudSync.Field.displayName] = name
-        record[CloudSync.Field.updatedAt] = date as CKRecordValue
-        return record
-    }
-
     /// "missing you" set at t0 by Sam, renamed to Sammy at +100.
     private var renamed: StatusPayload {
         var payload = Fixtures.status("🥰", "missing you", at: Fixtures.t0)
@@ -31,7 +18,7 @@ final class StatusOrderingTests: XCTestCase {
     // MARK: The rename echo
 
     func testARenamesOwnEchoKeepsWhenTheWordsBegan() {
-        let echo = statusRecord(.owner, name: "Sammy", at: Fixtures.date(100))
+        let echo = Fixtures.statusRecord(.owner, name: "Sammy", at: Fixtures.date(100))
         let payload = CloudSync.payload(from: echo, nudge: nil, existing: renamed, fromPartner: false)
         XCTAssertEqual(payload?.wordsAt, Fixtures.t0, "the same version: nothing new about the words")
     }
@@ -40,7 +27,7 @@ final class StatusOrderingTests: XCTestCase {
     func testAReDeliveryKeepsAReportedStatusHiddenAndACelebrationPlayed() {
         var held = renamed
         held.isCelebration = true
-        let again = statusRecord(name: "Sammy", at: Fixtures.date(100))
+        let again = Fixtures.statusRecord(name: "Sammy", at: Fixtures.date(100))
         again.encryptedValues[CloudSync.Field.isCelebration] = 1
         let payload = CloudSync.payload(from: again, nudge: nil, existing: held)
         XCTAssertEqual(payload?.moderated(reportedAt: Fixtures.t0, filterEnabled: false).message,
@@ -68,7 +55,7 @@ final class StatusOrderingTests: XCTestCase {
         var snapshot = Snapshot.empty
         snapshot.mine = renamed
         snapshot.myStatusLoggedAt = Fixtures.t0
-        let echo = CloudSync.payload(from: statusRecord(.owner, name: "Sammy", at: Fixtures.date(100)),
+        let echo = CloudSync.payload(from: Fixtures.statusRecord(.owner, name: "Sammy", at: Fixtures.date(100)),
                                      nudge: nil, existing: renamed, fromPartner: false)
         RefreshDelta(mine: echo).fold(into: &snapshot)
         XCTAssertEqual(snapshot.myStatusLoggedAt, snapshot.mine?.wordsAt, "the next rename's `logged` is false")
@@ -105,7 +92,7 @@ final class StatusOrderingTests: XCTestCase {
     }
 
     func testTheSavedTimeIsReadFromTheRecordInWholeSeconds() {
-        let record = statusRecord(name: "Sam", at: Fixtures.t0)
+        let record = Fixtures.statusRecord(name: "Sam", at: Fixtures.t0)
         let payload = CloudSync.payload(from: record, nudge: nil, existing: nil, savedAt: Fixtures.date(0.7))
         XCTAssertEqual(payload?.serverSavedAt, Fixtures.t0)
     }
@@ -271,7 +258,7 @@ final class StatusOrderingTests: XCTestCase {
 
     func testTheCountersCreationAndDeletionAreReadFromTheDelta() {
         let nudge = CKRecord(recordType: CloudSync.RecordType.nudge,
-                             recordID: CKRecord.ID(recordName: PairRole.participant.nudgeRecordName, zoneID: zone))
+                             recordID: CKRecord.ID(recordName: PairRole.participant.nudgeRecordName, zoneID: Fixtures.zone))
         nudge[CloudSync.Field.count] = 1 as CKRecordValue
         var metadata = RecordMetadata.server
         metadata.firstSavedAt = { _ in Fixtures.date(42.9) }
