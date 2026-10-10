@@ -55,18 +55,9 @@ struct RootView: View {
                     && !model.homeSheetShowing },
             set: { if !$0 { model.dismissAnniversaryPrompt(); model.dismissAnniversaryRequest() } })) {
             AnniversaryEditorView(mode: .prompt)
-                .environment(model)
         }
-        .alert(model.errorAlertTitle,
-               isPresented: Binding(get: { model.errorMessage != nil },
-                                    set: { if !$0 { model.errorMessage = nil } })) {
-            Button("OK", role: .cancel) { model.errorMessage = nil }
-        } message: {
-            Text(model.errorMessage ?? "")
-        }
-        .alert("Report copied",
-               isPresented: Binding(get: { model.noticeMessage != nil },
-                                    set: { if !$0 { model.noticeMessage = nil } })) {
+        .presentsModelErrors()
+        .alert("Report copied", isPresented: $model.noticeMessage.isPresent()) {
             Button("OK", role: .cancel) { model.noticeMessage = nil }
         } message: {
             Text(model.noticeMessage ?? "")

@@ -7,9 +7,8 @@ struct SettingsView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
-    /// Edited locally, committed once on submit or dismiss. Binding straight to
-    /// the model published per keystroke (racing writes, and clearing the field
-    /// mid-edit flipped the app back to the welcome screen under this sheet).
+    /// Edited locally, committed once on submit or dismiss: bound to the model,
+    /// clearing the field mid-edit swapped the screen under this sheet for onboarding.
     @State private var draftName = ""
     @State private var confirmingUnlink = false
     @State private var confirmingWipe = false
@@ -29,13 +28,17 @@ struct SettingsView: View {
     /// re-offered once that sheet closes instead of being silently dropped.
     @State private var pendingEndingAfterShare: Ending?
     @State private var confirmingEndingAfterShare: Ending?
-    /// Seven taps on the Version row reveal diagnostics in Release builds —
-    /// support needs the report from real installs, not just Debug ones.
+    /// Taps on the Version row: enough of them reveal diagnostics in Release
+    /// builds — support needs the report from real installs, not just Debug ones.
     @State private var versionTapCount = 0
+    private static let diagnosticsTaps = 7
+    /// A dialog raised mid-presentation is dropped: wait out the sheet's own.
+    private static let sheetSettleDelay: Duration = .milliseconds(400)
     @State private var editingOurDate = false
 
     var body: some View {
         @Bindable var model = model
+        let partnerName = model.partnerName
 
         NavigationStack {
             // Everyday first, danger last: Block, Unlink and Delete are the only red
@@ -71,15 +74,9 @@ struct SettingsView: View {
                         }
                     }
                 } header: {
-                    Text("You")
-                        .foregroundStyle(Theme.mutedText)
-                        .accessibilityIdentifier("settings.section.header")
+                    SettingsHeader("You")
                 } footer: {
-                    Group {
-                        Text("Your name is what \(model.partnerName) sees on everything you send.")
-                    }
-                    // The system footer grey is ~3.6:1 on the cream backdrop; this is AA.
-                    .foregroundStyle(Theme.mutedText)
+                    SettingsFooter("Your name is what \(partnerName) sees on everything you send.")
                 }
 
                 Section {
@@ -93,19 +90,16 @@ struct SettingsView: View {
                         Toggle("Milestone reminders", isOn: $model.milestoneRemindersEnabled)
                     }
                     NavigationLink("Lock Screen widget") {
-                        LockScreenWidgetHelp(partnerName: model.partnerName)
+                        LockScreenWidgetHelp(partnerName: partnerName)
                     }
                 } header: {
-                    Text("Together")
-                        .foregroundStyle(Theme.mutedText)
-                        .accessibilityIdentifier("settings.section.header")
+                    SettingsHeader("Together")
                 } footer: {
-                    Group {
+                    SettingsFooter {
                         if model.isPaired {
-                            Text("Read receipts show \(model.partnerName) when you've looked, and you theirs, while you both have them on. Milestone reminders send a note on the morning of each one — a month, a year — that only says there's something to celebrate.")
+                            Text("Read receipts show \(partnerName) when you've looked, and you theirs, while you both have them on. Milestone reminders send a note on the morning of each one — a month, a year — that only says there's something to celebrate.")
                         }
                     }
-                    .foregroundStyle(Theme.mutedText)
                 }
 
                 if model.role == .owner {
@@ -148,14 +142,9 @@ struct SettingsView: View {
                             }
                         }
                     } header: {
-                        Text("Memories")
-                            .foregroundStyle(Theme.mutedText)
-                            .accessibilityIdentifier("settings.section.header")
+                        SettingsHeader("Memories")
                     } footer: {
-                        Group {
-                            Text(memoriesFooter)
-                        }
-                        .foregroundStyle(Theme.mutedText)
+                        SettingsFooter(memoriesFooter)
                     }
                 }
 
@@ -171,19 +160,14 @@ struct SettingsView: View {
                         TermsView(readOnly: true)
                     }
                     if model.isPaired {
-                        Button("Block \(model.partnerName)…", role: .destructive) {
+                        Button("Block \(partnerName)…", role: .destructive) {
                             confirmingBlock = true
                         }
                     }
                 } header: {
-                    Text("Safety")
-                        .foregroundStyle(Theme.mutedText)
-                        .accessibilityIdentifier("settings.section.header")
+                    SettingsHeader("Safety")
                 } footer: {
-                    Group {
-                        Text(safetyFooter)
-                    }
-                    .foregroundStyle(Theme.mutedText)
+                    SettingsFooter(safetyFooter)
                 }
 
                 Section {
@@ -194,32 +178,24 @@ struct SettingsView: View {
                         confirmingWipe = true
                     }
                 } header: {
-                    Text("Ending the link")
-                        .foregroundStyle(Theme.mutedText)
-                        .accessibilityIdentifier("settings.section.header")
+                    SettingsHeader("Ending the link")
                 } footer: {
-                    Group {
-                        Text("Each asks first, and says exactly what goes.")
-                    }
-                    .foregroundStyle(Theme.mutedText)
+                    SettingsFooter("Each asks first, and says exactly what goes.")
                 }
 
                 Section {
                     LabeledContent("Version", value: versionString)
                         .contentShape(Rectangle())
                         .onTapGesture { versionTapCount += 1 }
-                        // Seven taps is no way in under VoiceOver or Voice Control.
-                        .accessibilityAction(named: Text("Show diagnostics")) { versionTapCount = 7 }
+                        // Repeated taps are no way in under VoiceOver or Voice Control.
+                        .accessibilityAction(named: Text("Show diagnostics")) { versionTapCount = Self.diagnosticsTaps }
                     if showsDiagnostics {
                         NavigationLink("iCloud diagnostics") {
                             DiagnosticsView()
                         }
                     }
                 } footer: {
-                    Group {
-                        Text("Statuses are stored in your own iCloud with the text end-to-end encrypted. Photos, drawings and voice memos are CloudKit assets, which are encrypted by default.")
-                    }
-                    .foregroundStyle(Theme.mutedText)
+                    SettingsFooter("Statuses are stored in your own iCloud with the text end-to-end encrypted. Photos, drawings and voice memos are CloudKit assets, which are encrypted by default.")
                 }
             }
             .scrollContentBackground(.hidden)
@@ -234,7 +210,6 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $editingOurDate) {
                 AnniversaryEditorView(mode: .edit)
-                    .environment(model)
             }
             .task { notificationStatus = await NotificationManager.authorizationStatus() }
             // Re-check when the user returns from the Settings app.
@@ -247,21 +222,13 @@ struct SettingsView: View {
             .task {
                 guard model.unlinkRequested else { return }
                 model.unlinkRequested = false
-                // After the sheet's own presentation: a dialog raised mid-transition is dropped.
-                try? await Task.sleep(for: .milliseconds(400))
+                try? await Task.sleep(for: Self.sheetSettleDelay)
                 confirmingUnlink = true
             }
             // Leaving the sheet commits whatever edit was in progress.
             .onDisappear { commitName() }
-            // RootView's copy of this alert sits underneath this sheet, where
-            // it cannot present — host it here too.
-            .alert(model.errorAlertTitle,
-                   isPresented: Binding(get: { model.errorMessage != nil },
-                                        set: { if !$0 { model.errorMessage = nil } })) {
-                Button("OK", role: .cancel) { model.errorMessage = nil }
-            } message: {
-                Text(model.errorMessage ?? "")
-            }
+            // At the Form: RootView's copy sits under this sheet, and Home presents it without one.
+            .presentsModelErrors()
             // The cached link can be closed from another device — confirm it
             // against CloudKit rather than trusting the cached copy.
             .task { await model.refreshInviteURL() }
@@ -282,7 +249,7 @@ struct SettingsView: View {
             } message: {
                 Text(unlinkFooter)
             }
-            .confirmationDialog("Block \(model.partnerName)?",
+            .confirmationDialog("Block \(partnerName)?",
                                 isPresented: $confirmingBlock,
                                 titleVisibility: .visible) {
                 Button("Block and report", role: .destructive) {
@@ -293,7 +260,7 @@ struct SettingsView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Everything \(model.partnerName) sent is removed from this iPhone immediately, the link ends, their invites are refused from now on, and we're notified. There is no undo.")
+                Text("Everything \(partnerName) sent is removed from this iPhone immediately, the link ends, their invites are refused from now on, and we're notified. There is no undo.")
             }
             .confirmationDialog("Delete everything and start over?",
                                 isPresented: $confirmingWipe,
@@ -311,8 +278,7 @@ struct SettingsView: View {
                 Text(wipeFooter)
             }
             .confirmationDialog("Couldn't reach iCloud",
-                                isPresented: Binding(get: { offeringLocalOnly != nil },
-                                                     set: { if !$0 { offeringLocalOnly = nil } }),
+                                isPresented: $offeringLocalOnly.isPresent(),
                                 titleVisibility: .visible) {
                 Button("Remove from this iPhone only", role: .destructive) {
                     let ending = offeringLocalOnly ?? .unlink
@@ -323,12 +289,11 @@ struct SettingsView: View {
                 Button("Cancel", role: .cancel) { offeringLocalOnly = nil }
             } message: {
                 Text((localOnlyReason.map { $0 + "\n\n" } ?? "")
-                     + String(localized: "Nothing was deleted from iCloud, so what you've shared is still in \(model.partnerName)'s copy. You can clear this iPhone now and try again from a better connection, or cancel and wait."))
+                     + String(localized: "Nothing was deleted from iCloud, so what you've shared is still in \(partnerName)'s copy. You can clear this iPhone now and try again from a better connection, or cancel and wait."))
             }
             // Only reachable when iCloud Drive wasn't available; nothing has
             // been deleted yet, so dismissing this can't lose the archive.
-            .sheet(isPresented: Binding(get: { model.archiveToShare != nil },
-                                        set: { if !$0 { model.archiveToShare = nil } }),
+            .sheet(isPresented: $model.archiveToShare.isPresent(),
                    onDismiss: {
                        model.archiveToShare = nil
                        if let summary = summaryAfterShare {
@@ -348,8 +313,7 @@ struct SettingsView: View {
                 confirmingEndingAfterShare == .wipe
                     ? "Delete everything and start over?"
                     : unlinkTitle,
-                isPresented: Binding(get: { confirmingEndingAfterShare != nil },
-                                     set: { if !$0 { confirmingEndingAfterShare = nil } }),
+                isPresented: $confirmingEndingAfterShare.isPresent(),
                 titleVisibility: .visible
             ) {
                 Button(confirmingEndingAfterShare == .wipe ? "Delete everything" : "Unlink",
@@ -362,8 +326,7 @@ struct SettingsView: View {
             } message: {
                 Text("The archive was only shared from this iPhone — continue only if you saved it somewhere safe.")
             }
-            .alert("Memories saved", isPresented: Binding(get: { archiveSummary != nil },
-                                                          set: { if !$0 { archiveSummary = nil } })) {
+            .alert("Memories saved", isPresented: $archiveSummary.isPresent()) {
                 Button("OK", role: .cancel) { archiveSummary = nil }
             } message: {
                 Text(archiveSummary?.text ?? "")
@@ -372,7 +335,7 @@ struct SettingsView: View {
     }
 
     /// Owner's invite link, kept reachable here because RootView replaces the
-    /// screen that created it. Its own property: inline it timed out the type-checker.
+    /// screen that created it.
     @ViewBuilder
     private var inviteSection: some View {
         Section {
@@ -415,20 +378,13 @@ struct SettingsView: View {
                 .disabled(model.isChangingInviteLink)
             }
         } header: {
-            Text("Invite link")
-                .foregroundStyle(Theme.mutedText)
-                .accessibilityIdentifier("settings.section.header")
+            SettingsHeader("Invite link")
         } footer: {
-            Group {
-                Text(inviteFooter)
-            }
-            .foregroundStyle(Theme.mutedText)
+            SettingsFooter(inviteFooter)
         }
     }
 
-    /// Pulled out of the section: inline it timed out the type-checker. The
-    /// link does *not* close itself once the partner joins — CloudKit can't
-    /// convert a link-joined participant in one step (CLAUDE.md invariant 9),
+    /// The link does *not* close itself once the partner joins (invariant 9),
     /// so the copy says what actually happens in each state.
     private var inviteFooter: String {
         if model.inviteClosed {
@@ -460,7 +416,7 @@ struct SettingsView: View {
         #if DEBUG
         true
         #else
-        versionTapCount >= 7
+        versionTapCount >= Self.diagnosticsTaps
         #endif
     }
 
@@ -623,24 +579,17 @@ struct SettingsView: View {
 #endif
 
 /// The invite section's confirmations and result, hosted at the Form level.
-/// Its own modifier: inline in `body` it timed out the type-checker.
+/// Separate modifiers and properties throughout this file: inline in `body`
+/// they timed out the type-checker.
 private struct InviteDialogs: ViewModifier {
     @Environment(AppModel.self) private var model
     @Binding var confirmingReopen: Bool
 
     func body(content: Content) -> some View {
+        @Bindable var model = model
+
         content
-            .confirmationDialog("Close the invite link?",
-                                isPresented: Binding(get: { model.confirmingInviteReseat },
-                                                     set: { model.confirmingInviteReseat = $0 }),
-                                titleVisibility: .visible) {
-                Button("Close and re-seat \(model.partnerName)", role: .destructive) {
-                    Task { await model.closeInviteReseatingPartner() }
-                }
-                Button("Not now", role: .cancel) {}
-            } message: {
-                Text("\(model.partnerName) joined through this link, so closing it briefly takes them off your shared space and re-adds them privately. Have them ready: they tap the invite link once more to get back in. If anything fails, the app tries to reopen the link and tells you how it went.")
-            }
+            .closeInviteLinkDialog(isPresented: $model.confirmingInviteReseat)
             .confirmationDialog("Reopen the invite link?",
                                 isPresented: $confirmingReopen,
                                 titleVisibility: .visible) {
@@ -649,8 +598,7 @@ private struct InviteDialogs: ViewModifier {
             } message: {
                 Text("Anyone who has the link will be able to join again. Reopen it if \(model.partnerName) can't get back in.")
             }
-            .alert("Invite link", isPresented: Binding(get: { model.inviteNotice != nil },
-                                                       set: { if !$0 { model.inviteNotice = nil } })) {
+            .alert("Invite link", isPresented: $model.inviteNotice.isPresent()) {
                 Button("OK", role: .cancel) { model.inviteNotice = nil }
             } message: {
                 Text(model.inviteNotice ?? "")
@@ -658,8 +606,61 @@ private struct InviteDialogs: ViewModifier {
     }
 }
 
-/// The Lock Screen widget's how-to, a page of its own rather than a row that
-/// looked tappable and wasn't.
+/// The close-and-re-seat confirmation (invariant 9), from Settings' row and
+/// from Home's prompt alike.
+private struct CloseInviteLinkDialog: ViewModifier {
+    @Environment(AppModel.self) private var model
+    @Binding var isPresented: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .confirmationDialog("Close the invite link?",
+                                isPresented: $isPresented,
+                                titleVisibility: .visible) {
+                Button("Close and re-seat \(model.partnerName)", role: .destructive) {
+                    Task { await model.closeInviteReseatingPartner() }
+                }
+                Button("Not now", role: .cancel) {}
+            } message: {
+                Text("\(model.partnerName) joined through this link, so closing it briefly takes them off your shared space and re-adds them privately. Have them ready: they tap the invite link once more to get back in. If anything fails, the app tries to reopen the link and tells you how it went.")
+            }
+    }
+}
+
+extension View {
+    func closeInviteLinkDialog(isPresented: Binding<Bool>) -> some View {
+        modifier(CloseInviteLinkDialog(isPresented: isPresented))
+    }
+}
+
+/// A section head: muted for AA on the backdrop, and named for the UI audit.
+private struct SettingsHeader: View {
+    let title: LocalizedStringKey
+
+    init(_ title: LocalizedStringKey) { self.title = title }
+
+    var body: some View {
+        Text(title)
+            .foregroundStyle(Theme.mutedText)
+            .accessibilityIdentifier("settings.section.header")
+    }
+}
+
+/// A section footer: the system footer grey is ~3.6:1 on the cream backdrop.
+private struct SettingsFooter<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        content.foregroundStyle(Theme.mutedText)
+    }
+}
+
+extension SettingsFooter where Content == Text {
+    init(_ key: LocalizedStringKey) { self.init { Text(key) } }
+    init<S: StringProtocol>(_ text: S) { self.init { Text(text) } }
+}
+
+/// The Lock Screen widget's how-to, a page of its own.
 private struct LockScreenWidgetHelp: View {
     let partnerName: String
 
