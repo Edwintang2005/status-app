@@ -23,7 +23,8 @@ enum Theme {
     /// where the deep shade is under 4:1 on black.
     static let warmText = adaptive(light: warmDeep, dark: warm)
     /// Small informational text — captions, timestamps, "Seen …": 5.5:1 on
-    /// cream, where `.secondary` is 3.3:1 and `.tertiary` 1.7:1.
+    /// cream, where `.secondary` is 3.3:1 and `.tertiary` 1.7:1. Use it, not
+    /// `.secondary`, for any small text.
     static let mutedText = adaptive(light: Color(red: 0.42, green: 0.37, blue: 0.36), dark: Color(white: 0.72))
 
     private static func adaptive(light: Color, dark: Color) -> Color {
@@ -94,18 +95,17 @@ struct SquareFill<Content: View>: View {
 
 // MARK: - Card
 
-private struct CardModifier: ViewModifier {
-    @Environment(\.colorScheme) private var colorScheme
-    var padding: CGFloat = 20
+extension Theme {
+    /// The card's outline — also for overlays that trace a card.
+    static var cardShape: RoundedRectangle { RoundedRectangle(cornerRadius: 26, style: .continuous) }
+}
 
-    private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: 26, style: .continuous)
-    }
+private struct CardSurface<S: InsettableShape>: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+    let shape: S
 
     func body(content: Content) -> some View {
         content
-            .padding(padding)
-            .frame(maxWidth: .infinity)
             .background {
                 // Material alone almost vanishes against the tinted backdrop,
                 // so lift it with an opaque wash first.
@@ -123,8 +123,27 @@ private struct CardModifier: ViewModifier {
 }
 
 extension View {
+    /// Padded, full width, on the standard card.
     func card(padding: CGFloat = 20) -> some View {
-        modifier(CardModifier(padding: padding))
+        self.padding(padding)
+            .frame(maxWidth: .infinity)
+            .card(shape: Theme.cardShape)
+    }
+
+    /// The card's surface on any shape, sized by the content; clip first when
+    /// the content bleeds to the edge.
+    func card<S: InsettableShape>(shape: S) -> some View {
+        modifier(CardSurface(shape: shape))
+    }
+
+    /// The small uppercase label over a value ("SINCE", a name on a card).
+    /// `color` stays overridable: section heads over the backdrop's crimson
+    /// corner need `.primary` for contrast.
+    func eyebrow(size: CGFloat = 11, color: Color = Theme.mutedText) -> some View {
+        font(Theme.rounded(size, .semibold))
+            .tracking(1.2)
+            .textCase(.uppercase)
+            .foregroundStyle(color)
     }
 }
 
