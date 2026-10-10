@@ -321,7 +321,7 @@ final class SharedStore: @unchecked Sendable {
             zoneGoneSeenAt = nil
             subscriptionsVerifiedAt = nil
             store.setData(nil, forKey: Key.unreadable)
-            for key in ["private", "shared"] { setChangeToken(nil, for: key) }
+            clearChangeTokens()
             snapshot = Snapshot(
                 mine: (name?.isEmpty == false) ? .initial(displayName: name!) : nil,
                 theirs: nil,
@@ -596,6 +596,15 @@ final class SharedStore: @unchecked Sendable {
 
     func setChangeToken(_ data: Data?, for key: String) {
         store.setData(data, forKey: "changeToken-\(key)")
+    }
+
+    /// One token per database: the owner's zone lives in `private`, the participant's in `shared`.
+    static func changeTokenKey(for role: PairRole) -> String {
+        role == .owner ? "private" : "shared"
+    }
+
+    func clearChangeTokens() {
+        for role in [PairRole.owner, .participant] { setChangeToken(nil, for: Self.changeTokenKey(for: role)) }
     }
 
     /// `widgetNeedsFetch: false` (the usual case) stamps `widgetReloadRequestedAt`:

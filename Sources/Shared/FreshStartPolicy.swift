@@ -196,7 +196,7 @@ enum FreshStartPolicy {
 
         init(fromMe: Bool, at date: Date) {
             self.fromMe = fromMe
-            self.seconds = Int(exactly: date.timeIntervalSince1970.rounded(.down)) ?? 0
+            self.seconds = date.wholeSecondsSince1970 ?? 0
         }
     }
 

@@ -802,7 +802,7 @@ final class AppModel {
     /// fractional stamp never equals its own stored copy — breaking the
     /// publish-flag check and the status-history dedup.
     private func statusTimestamp() -> Date {
-        Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+        Date().wholeSeconds
     }
 
     func setStatus(emoji: String, message: String, isCelebration: Bool = false) async {
@@ -1013,7 +1013,7 @@ final class AppModel {
     /// fetch itself failed — "nothing missing" must never be a guess.
     func resyncHistory() async -> Int? {
         guard isPaired, refreshGate.begin(noteIfBusy: false) else { return nil }
-        for key in ["private", "shared"] { store.setChangeToken(nil, for: key) }
+        store.clearChangeTokens()
         do {
             try await SyncRunner.refresh(announce: false)
         } catch {

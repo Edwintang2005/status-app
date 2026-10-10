@@ -51,7 +51,7 @@ final class MomentIndex: @unchecked Sendable {
         self.crossLock = CrossProcessLock(name: "moments-index.lock",
                                           directory: self.fileURL?.deletingLastPathComponent())
         self.onCorrupt = onCorrupt ?? {
-            for key in ["private", "shared"] { SharedStore.shared.setChangeToken(nil, for: key) }
+            SharedStore.shared.clearChangeTokens()
         }
     }
 
@@ -195,7 +195,7 @@ final class MomentIndex: @unchecked Sendable {
             var all = Array(byID.values)
             // A date a skewed clock stamped in the future would pin that entry
             // as newest for good; healed to now, which keeps it in place today.
-            let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+            let now = Date().wholeSeconds
             for index in all.indices where TrustedTime.isFuture(all[index].sentAt, now: now) {
                 all[index].sentAt = now
             }
@@ -217,7 +217,7 @@ final class MomentIndex: @unchecked Sendable {
             var changed = false
             // Whole seconds, like every persisted date: the value is compared
             // against its own ISO-8601 copy once it comes back in a receipt.
-            let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+            let now = Date().wholeSeconds
             for index in all.indices where targets.contains(all[index].id) && !all[index].seen {
                 all[index].seen = true
                 all[index].seenAt = now

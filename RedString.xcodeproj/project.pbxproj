@@ -17,6 +17,7 @@
 		09DF6BAD17C27E550E804CDC /* Moment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0442A90D1A5DB4ABCFB5FB16 /* Moment.swift */; };
 		0A02F0DC973AE83707AAEAC9 /* AnnouncementPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24AA66634B9568315D4FC9FC /* AnnouncementPolicy.swift */; };
 		0A61A034ACAC0509C027387B /* GroupState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 696A470F75571AEF47953B89 /* GroupState.swift */; };
+		0AF8DF77DBAC4D1C72B2EA04 /* FoundationExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 949D3E6BEADE2BC0D69AF39B /* FoundationExtensions.swift */; };
 		0CA0BF1B91D25C8690CAFE2F /* Waveform.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B642C800ACD0FE5CC306C9C /* Waveform.swift */; };
 		0CE1F2AFF227C7F108DFF76A /* CloudSync+Nudges.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15A99D777CB54E1D2965B72F /* CloudSync+Nudges.swift */; };
 		0D89E0F44D9EE1787120B12B /* MomentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9908897AF8F96D8BAF86FB0D /* MomentIndex.swift */; };
@@ -28,6 +29,7 @@
 		0FE3E7AFADBD02CEF113168E /* MomentAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = C513794F944B58BC26B42ED2 /* MomentAttachment.swift */; };
 		103FCF1DED9BB3AAEA0E9211 /* MilestoneReminderPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA68F3769B7B000DE4551E6C /* MilestoneReminderPlan.swift */; };
 		1086B9DD795A0468D7181622 /* CloudSync+Refresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 454E5380DC54A9F8544890BC /* CloudSync+Refresh.swift */; };
+		10F7C61C047726418EA8C1A2 /* FoundationExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 949D3E6BEADE2BC0D69AF39B /* FoundationExtensions.swift */; };
 		12C64282963526CF3E287FC5 /* PushBannerPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C154094576CEFD18DB54ABD0 /* PushBannerPolicy.swift */; };
 		14A459764D7C175D77F06919 /* NotificationsNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FCB97E445CA6B0B05D9FEDC /* NotificationsNotice.swift */; };
 		14CE5A037149CF047EE1877C /* Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7B72EE6C19F670FF1A8BC39 /* Notifications.swift */; };
@@ -39,6 +41,7 @@
 		184F51D78A292AD8C5A15846 /* Moderation.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE27AE24C06FB3BD67B08794 /* Moderation.swift */; };
 		196965D5E18E09E5136911AE /* HistoryFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 878F3DA6084DF1AB1669FC70 /* HistoryFilter.swift */; };
 		1A2F8F8F4927E79B1650C082 /* CloudSync+Receipts.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9A1F8165BD76031FD581B32 /* CloudSync+Receipts.swift */; };
+		1AB4BFF3C8B63244A264236D /* FoundationExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 949D3E6BEADE2BC0D69AF39B /* FoundationExtensions.swift */; };
 		1AD1EAE028682BE0F462F0AB /* TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C975F4AB3B2F7C241B1F83F /* TestSupport.swift */; };
 		1BA5AA905994BA860C0DA728 /* GroupState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 696A470F75571AEF47953B89 /* GroupState.swift */; };
 		1BF049C61759F29C896ACAF8 /* ThumbnailFetcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1278A44E03B2AFE361DC533F /* ThumbnailFetcherTests.swift */; };
@@ -78,6 +81,7 @@
 		39631148D84B9C06A8466D00 /* PartnerLeftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58DBC18AF3EE65EFA0A605BF /* PartnerLeftTests.swift */; };
 		399732A1F343DD9CEC6C3CA8 /* StatusPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CC659D2468D19E1EC8CC267 /* StatusPayload.swift */; };
 		39A5F79D6DCDE13827838B2F /* FreshStartView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC66F8DF7E4C387D433B9974 /* FreshStartView.swift */; };
+		3A34B2B1CA836639D707AD2A /* FoundationExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 949D3E6BEADE2BC0D69AF39B /* FoundationExtensions.swift */; };
 		3AAC856BF9CBD91AB7580CC3 /* VoiceMemoComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76CBD9146BE0A00FE8443DD6 /* VoiceMemoComposerView.swift */; };
 		3ABDDC747C14821E4D588FB4 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44EDE9EF4B8224158C8BCD5F /* SettingsView.swift */; };
 		3B5136FE91AE81C436D6C951 /* MoodPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 210847458004C670433D6EC5 /* MoodPickerView.swift */; };
@@ -457,6 +461,7 @@
 		93390A1C86AB274F1E6CF0D0 /* RedString-Release.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "RedString-Release.entitlements"; sourceTree = "<group>"; };
 		936894BD16E8E9DB2263627E /* ZoneClearPlanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZoneClearPlanTests.swift; sourceTree = "<group>"; };
 		946360BD0041A3A7F717961B /* FreshStartPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreshStartPolicy.swift; sourceTree = "<group>"; };
+		949D3E6BEADE2BC0D69AF39B /* FoundationExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoundationExtensions.swift; sourceTree = "<group>"; };
 		94E3D8DBF0C69996D8556792 /* SendFailureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SendFailureTests.swift; sourceTree = "<group>"; };
 		958E566ACC1594BB43366434 /* RedStringWidgetExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = RedStringWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		9908897AF8F96D8BAF86FB0D /* MomentIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentIndex.swift; sourceTree = "<group>"; };
@@ -713,6 +718,7 @@
 				24AA66634B9568315D4FC9FC /* AnnouncementPolicy.swift */,
 				448B77B119777B4A4B476563 /* AppConfig.swift */,
 				FB4ECF103C8F8A22E4555B29 /* CameraPlan.swift */,
+				949D3E6BEADE2BC0D69AF39B /* FoundationExtensions.swift */,
 				946360BD0041A3A7F717961B /* FreshStartPolicy.swift */,
 				EA68F3769B7B000DE4551E6C /* MilestoneReminderPlan.swift */,
 				BE27AE24C06FB3BD67B08794 /* Moderation.swift */,
@@ -1061,6 +1067,7 @@
 				4018A7913FA702B1B5DFA555 /* CrossProcessLock.swift in Sources */,
 				759CB3F62A5514BC06411415 /* DeadlineTests.swift in Sources */,
 				3DEAD8513BBB317BA50D3869 /* ForwardCompatTests.swift in Sources */,
+				0AF8DF77DBAC4D1C72B2EA04 /* FoundationExtensions.swift in Sources */,
 				37DF8322A1320223C2ACE231 /* FreshStart.swift in Sources */,
 				069C02A750E0ED5726DEE3F4 /* FreshStartIngestTests.swift in Sources */,
 				5989AC05D03BE3D6923702BF /* FreshStartOutboxTests.swift in Sources */,
@@ -1153,6 +1160,7 @@
 				2DCCB2958633B0E5A37491D7 /* CloudSync+Unpairing.swift in Sources */,
 				4B8268C9595A3398F72B373D /* CloudSync.swift in Sources */,
 				3387E3E899F13090F3808558 /* CrossProcessLock.swift in Sources */,
+				3A34B2B1CA836639D707AD2A /* FoundationExtensions.swift in Sources */,
 				A1DC9B8C70BA52598A95D741 /* FreshStart.swift in Sources */,
 				89BBE6AABB5A655E3CF5DDB8 /* FreshStartPolicy.swift in Sources */,
 				36E76FD3971034E1856EA3CA /* GroupState.swift in Sources */,
@@ -1220,6 +1228,7 @@
 				ECAD483F639EFDA3AD8AAEB7 /* CloudSync+Unpairing.swift in Sources */,
 				A9B4CF5F59927F105644DEFE /* CloudSync.swift in Sources */,
 				F6788A09AE3EDEC81B356461 /* CrossProcessLock.swift in Sources */,
+				10F7C61C047726418EA8C1A2 /* FoundationExtensions.swift in Sources */,
 				493B28F062803D744CAF411F /* FreshStart.swift in Sources */,
 				282CE544A84BA21FD87A4FD5 /* FreshStartPolicy.swift in Sources */,
 				1BA5AA905994BA860C0DA728 /* GroupState.swift in Sources */,
@@ -1296,6 +1305,7 @@
 				8F783EC1E83C1326B071E9CE /* DemoSeeder.swift in Sources */,
 				EB42609B49AAAB10B43F93ED /* DiagnosticsView.swift in Sources */,
 				839CDFA5D1A274670F68093A /* DrawingCanvas.swift in Sources */,
+				1AB4BFF3C8B63244A264236D /* FoundationExtensions.swift in Sources */,
 				C3988E560B18936EE41EA055 /* FreshStart.swift in Sources */,
 				C510460C7FA0DA9A0C2A78D3 /* FreshStartPolicy.swift in Sources */,
 				39A5F79D6DCDE13827838B2F /* FreshStartView.swift in Sources */,

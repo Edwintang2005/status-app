@@ -12,7 +12,7 @@ struct SendNudgeIntent: AppIntent {
         // Never surface an error dialog on the lock screen; the next tap retries.
         // Bounded: a WidgetKit kill mid-save would leave the cooldown claimed with
         // no failure stamp.
-        let started = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+        let started = Date().wholeSeconds
         do {
             _ = try await withDeadline(AppConfig.widgetDeadline) { try await Backend.current.sendNudge() }
         } catch is CancellationError {

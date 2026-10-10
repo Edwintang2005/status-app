@@ -162,7 +162,7 @@ extension Snapshot {
         markStatusPublished(payload)
         guard payload.updatedAt >= (mine?.updatedAt ?? .distantPast) else { return }
         var published = payload
-        published.serverSavedAt = savedAt.map { Date(timeIntervalSince1970: $0.timeIntervalSince1970.rounded(.down)) }
+        published.serverSavedAt = savedAt.map { $0.wholeSeconds }
         if let mine {
             published.nudgeCount = mine.nudgeCount
             published.lastNudgeAt = mine.lastNudgeAt

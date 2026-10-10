@@ -52,8 +52,7 @@ extension CloudSync {
         guard !mine.isEmpty else { return }
 
         // Batched: hundreds of deletions in one modify is a `limitExceeded`.
-        for start in stride(from: 0, to: mine.count, by: 200) {
-            let batch = Array(mine[start..<min(start + 200, mine.count)])
+        for batch in mine.chunked(into: 200) {
             let result = try await database.modifyRecords(saving: [], deleting: batch)
             // Leaving one behind sits in the ex's iCloud; "already gone" is fine.
             for id in batch {

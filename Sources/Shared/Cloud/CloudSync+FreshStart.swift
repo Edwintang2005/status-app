@@ -104,12 +104,11 @@ extension CloudSync {
         // Non-atomic and confirmed per record (invariant 22): one failure mustn't
         // undo the rest, and a failed one is retried on the next pass.
         var failure: Error?
-        for start in stride(from: 0, to: ids.count, by: 200) {
+        for batch in ids.chunked(into: 200) {
             // An unlink landed mid-clear: what's left is the unlink's to delete.
             guard await MainActor.run(body: { SharedStore.shared.pairing?.sameZone(as: pairing) == true }) else {
                 throw SyncError.notPaired
             }
-            let batch = Array(ids[start..<min(start + 200, ids.count)])
             let result = try await withZoneRecovery(pairing) {
                 try await database.modifyRecords(saving: [], deleting: batch, atomically: false)
             }

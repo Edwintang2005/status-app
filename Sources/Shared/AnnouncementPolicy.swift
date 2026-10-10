@@ -145,7 +145,7 @@ enum AnnouncementPolicy {
            now.timeIntervalSince(last) < AppConfig.nudgeBreakthroughInterval {
             return NudgeInterruption(stale: false, breaksThroughFocus: false)
         }
-        snapshot.lastBreakthroughNudgeAt = Date(timeIntervalSince1970: now.timeIntervalSince1970.rounded(.down))
+        snapshot.lastBreakthroughNudgeAt = now.wholeSeconds
         return NudgeInterruption(stale: false, breaksThroughFocus: true)
     }
 

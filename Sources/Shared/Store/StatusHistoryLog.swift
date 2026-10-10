@@ -20,7 +20,7 @@ struct StatusHistoryEntry: Codable, Hashable, Identifiable {
         self.emoji = emoji
         self.message = message
         self.isCelebration = isCelebration
-        self.at = Date(timeIntervalSince1970: at.timeIntervalSince1970.rounded(.down))
+        self.at = at.wholeSeconds
         self.fromMe = fromMe
     }
 
@@ -132,12 +132,12 @@ final class StatusHistoryLog: @unchecked Sendable {
 
         crossLock.withLock {
             // `Int(exactly:)`, so a non-finite date can never trap here.
-            let targets = Set(dates.compactMap { Int(exactly: $0.timeIntervalSince1970.rounded(.down)) })
+            let targets = Set(dates.compactMap { $0.wholeSecondsSince1970 })
             var all = loadUnlocked(writing: true)
             let before = all.count
             all.removeAll {
                 guard $0.fromMe == fromMe,
-                      let seconds = Int(exactly: $0.at.timeIntervalSince1970.rounded(.down)) else { return false }
+                      let seconds = $0.at.wholeSecondsSince1970 else { return false }
                 return targets.contains(seconds)
             }
             if all.count != before { saveUnlocked(all) }

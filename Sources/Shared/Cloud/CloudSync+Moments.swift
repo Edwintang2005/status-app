@@ -112,9 +112,8 @@ extension CloudSync {
             byRecord[CKRecord.ID(recordName: role.momentRecordName(id: moment.id), zoneID: zone)] = moment
         }
         let ids = Array(byRecord.keys)
-        for start in stride(from: 0, to: ids.count, by: ThumbnailBatchQueue.batchLimit) {
+        for chunk in ids.chunked(into: ThumbnailBatchQueue.batchLimit) {
             try Task.checkCancellation()
-            let chunk = Array(ids[start..<min(start + ThumbnailBatchQueue.batchLimit, ids.count)])
             let configuration = CKOperation.Configuration()
             configuration.allowsCellularAccess = !wifiOnly
             let results = try await database.configuredWith(configuration: configuration) { configured in
@@ -141,9 +140,8 @@ extension CloudSync {
                                                           hasThumbnail: { store.hasThumbnail(for: $0.id) })
         guard !missing.isEmpty else { return }
         let samePairing = { await MainActor.run { SharedStore.shared.pairing?.sameZone(as: pairing) == true } }
-        for start in stride(from: 0, to: missing.count, by: ThumbnailBatchQueue.batchLimit) {
+        for batch in missing.chunked(into: ThumbnailBatchQueue.batchLimit) {
             guard !Task.isCancelled, await samePairing() else { return }
-            let batch = Array(missing[start..<min(start + ThumbnailBatchQueue.batchLimit, missing.count)])
             do {
                 try await withDeadline(AppConfig.publishDeadline) {
                     try await self.downloadThumbnails(for: batch, pairing: pairing,

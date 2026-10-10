@@ -10,7 +10,7 @@ struct Anniversary: Codable, Hashable, Sendable {
 
     init(startsAt: Date, timeZoneID: String = TimeZone.current.identifier) {
         // Whole seconds, like every persisted date — see `StatusHistoryEntry.at`.
-        self.startsAt = Date(timeIntervalSince1970: startsAt.timeIntervalSince1970.rounded(.down))
+        self.startsAt = startsAt.wholeSeconds
         self.timeZoneID = timeZoneID
     }
 

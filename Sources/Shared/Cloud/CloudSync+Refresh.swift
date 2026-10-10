@@ -19,7 +19,7 @@ extension CloudSync {
         async let sameAccount = isPairingAccount(pairing)
         let database = self.database(for: pairing)
         let zone = zoneID(for: pairing)
-        let tokenKey = pairing.role == .owner ? "private" : "shared"
+        let tokenKey = SharedStore.changeTokenKey(for: pairing.role)
 
         var previous = await MainActor.run {
             Self.decodeToken(SharedStore.shared.changeToken(for: tokenKey))

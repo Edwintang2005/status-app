@@ -43,7 +43,7 @@ extension CloudSync {
             // A new pairing starts clean: nothing from a previous partner (an
             // unlink already wiped, but a refresh in flight at the time could
             // have refiled some of it since), and no cursor into the old zone.
-            for key in ["private", "shared"] { SharedStore.shared.setChangeToken(nil, for: key) }
+            SharedStore.shared.clearChangeTokens()
             SharedStore.shared.eraseLocalMedia()
             SharedStore.shared.lastPairing = nil
             SharedStore.shared.pairing = info
@@ -574,9 +574,7 @@ extension CloudSync {
             // would fail every refresh from the first; leftover media to a
             // previous partner — unless this is the same zone we were cut loose
             // from, whose unsent media is about to be re-sent.
-            for key in ["private", "shared"] {
-                SharedStore.shared.setChangeToken(nil, for: key)
-            }
+            SharedStore.shared.clearChangeTokens()
             Self.adoptPairing(info)
         }
         try await bootstrapAfterPairing(displayName: displayName)
@@ -652,9 +650,7 @@ extension CloudSync {
                                pairedAt: Date(),
                                userRecordName: await currentUserRecordName())
         await MainActor.run {
-            for key in ["private", "shared"] {
-                SharedStore.shared.setChangeToken(nil, for: key)
-            }
+            SharedStore.shared.clearChangeTokens()
             Self.adoptPairing(info)
         }
         try await bootstrapAfterPairing(displayName: displayName, rejoining: true)
@@ -676,7 +672,7 @@ extension CloudSync {
             if renamed.displayName != displayName {
                 renamed.displayName = displayName
                 renamed.wordsSince = renamed.wordsAt
-                renamed.updatedAt = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+                renamed.updatedAt = Date().wholeSeconds
                 try await publish(renamed, logged: false)
             }
         } else {

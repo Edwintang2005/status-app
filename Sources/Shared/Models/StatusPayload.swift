@@ -88,7 +88,7 @@ struct StatusPayload: Codable, Hashable {
             message: "just joined",
             displayName: displayName,
             // Whole seconds, like every persisted date (invariant 14).
-            updatedAt: Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down)),
+            updatedAt: Date().wholeSeconds,
             nudgeCount: 0,
             lastNudgeAt: nil
         )
@@ -214,8 +214,8 @@ struct StatusSeen: Codable, Hashable, Sendable {
 
     init(statusUpdatedAt: Date, seenAt: Date) {
         // Whole seconds on both, like every persisted date — see `StatusHistoryEntry.at`.
-        self.statusUpdatedAt = Date(timeIntervalSince1970: statusUpdatedAt.timeIntervalSince1970.rounded(.down))
-        self.seenAt = Date(timeIntervalSince1970: seenAt.timeIntervalSince1970.rounded(.down))
+        self.statusUpdatedAt = statusUpdatedAt.wholeSeconds
+        self.seenAt = seenAt.wholeSeconds
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -652,7 +652,7 @@ enum TrustedTime {
     static func plausible(_ date: Date, serverTime: Date?, now: Date = Date()) -> Date {
         let ceiling = (serverTime ?? now).addingTimeInterval(AppConfig.clockSkewAllowance)
         let bounded = max(min(date, ceiling), Date(timeIntervalSince1970: 0))
-        return Date(timeIntervalSince1970: bounded.timeIntervalSince1970.rounded(.down))
+        return bounded.wholeSeconds
     }
 
     static func isFuture(_ date: Date, now: Date = Date()) -> Bool {

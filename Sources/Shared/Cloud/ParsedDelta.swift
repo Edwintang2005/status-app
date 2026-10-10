@@ -137,7 +137,7 @@ struct ParsedDelta {
                     delta.theirNudge = record
                     delta.theirNudgeCreatedAt = metadata.firstSavedAt(record)
                         .flatMap { $0.timeIntervalSince1970.isFinite ? $0 : nil }
-                        .map { Date(timeIntervalSince1970: $0.timeIntervalSince1970.rounded(.down)) }
+                        .map { $0.wholeSeconds }
                 }
             case CloudSync.RecordType.receipt:
                 if name == theirsRole.receiptRecordName { delta.theirReceipts = record }

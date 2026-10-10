@@ -402,7 +402,7 @@ actor CloudSync: SyncBackend {
             }
             payload.serverSavedAt = (savedAt ?? record.modificationDate)
                 .flatMap { $0.timeIntervalSince1970.isFinite ? $0 : nil }
-                .map { Date(timeIntervalSince1970: $0.timeIntervalSince1970.rounded(.down)) }
+                .map { $0.wholeSeconds }
         }
 
         if let nudge {

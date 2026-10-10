@@ -54,7 +54,7 @@ struct RefreshDelta: Sendable, Equatable {
         if partnerErased {
             // Kept so Home can say who left and what to do, rather than "waiting".
             if let held = snapshot.theirs {
-                snapshot.partnerLeftAt = Date(timeIntervalSince1970: now.timeIntervalSince1970.rounded(.down))
+                snapshot.partnerLeftAt = now.wholeSeconds
                 snapshot.partnerLeftName = held.displayName
                 snapshot.partnerLeftAnnounced = false
             }

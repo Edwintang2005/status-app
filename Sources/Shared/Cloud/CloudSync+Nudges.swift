@@ -12,7 +12,7 @@ extension CloudSync {
         let store = SharedStore.shared
         // Whole seconds: `now` is read back from the snapshot (ISO-8601, no
         // fraction) in the failure path and compared for equality.
-        let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+        let now = Date().wholeSeconds
 
         // Check and claim inside one `mutate` under the cross-process lock: the
         // app and the widget intent run in different processes, and an unlocked
