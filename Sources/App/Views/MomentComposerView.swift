@@ -245,7 +245,14 @@ struct MomentComposerView: View {
             onSend(photo, kind, caption)
         } else {
             let (controller, photo, kind, caption, onSend) = (controller, photo, kind, caption, onSend)
-            Task { onSend(await controller.render(over: photo), kind, caption) }
+            Task {
+                // The sheet is gone and the doodle has no other copy yet: a kill
+                // mid-render would lose it before the local write (invariant 11).
+                let image = await AppModel.withUploadProtection("doodle-render") {
+                    await controller.render(over: photo)
+                }
+                onSend(image, kind, caption)
+            }
         }
         dismiss()
     }

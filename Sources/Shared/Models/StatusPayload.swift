@@ -290,7 +290,8 @@ struct Snapshot: Codable, Hashable {
     var lastAnnouncedPartnerStatus: StatusPayload?
 
     /// Whether this device's read-receipt record is behind its local seen-state.
-    /// Set by `markSeen` and the Settings toggle; claimed (cleared) before the
+    /// Set by `markSeen`, the status receipt, the Settings toggle, each launch and
+    /// a finished fresh start; claimed (cleared) before the
     /// publish and set again if it fails, so a change mid-flight is flushed too.
     var receiptsDirty: Bool = false
 

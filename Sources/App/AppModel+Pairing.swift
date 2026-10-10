@@ -164,31 +164,42 @@ extension AppModel {
     /// Counts who is on the share and re-reads whether the link is open.
     /// Throttled from the refresh pass; Settings asks directly. Quiet on
     /// failure — the last answer stands.
-    func checkShareMembers(throttled: Bool) async {
-        guard usesLiveShare, isPaired, role == .owner else { return }
+    /// Returns the invite state it read, for `refreshInviteURL`; `nil` when it
+    /// didn't look, couldn't, or a close or reopen overtook it.
+    @discardableResult
+    func checkShareMembers(throttled: Bool) async -> InviteState? {
+        guard usesLiveShare, isPaired, role == .owner else { return nil }
         if throttled, let last = shareMembersCheckedAt,
-           Date().timeIntervalSince(last) < AppConfig.shareMemberCheckInterval { return }
+           Date().timeIntervalSince(last) < AppConfig.shareMemberCheckInterval { return nil }
         let changesBefore = inviteChanges
+        // Separate reads: a failed state lookup mustn't cost a good member count.
         do {
-            let (count, state) = try await bounded { (try await $0.shareMemberCount(), try await $0.inviteState()) }
+            shareMemberCount = try await bounded { try await $0.shareMemberCount() }
             shareMembersCheckedAt = Date()
-            shareMemberCount = count
-            // A close or reopen landed meanwhile: its answer is newer than ours.
-            guard inviteChanges == changesBefore, !isChangingInviteLink else { return }
-            switch state {
-            case .open:
-                setInviteClosed(false)
-                invitePostureChecked = true
-            case .closed:
-                setInviteClosed(true)
-                invitePostureChecked = true
-            case .missing:
-                // No share to close: nothing verified.
-                invitePostureChecked = false
-            }
         } catch {
             log.error("Couldn't count the share's members: \(error.localizedDescription, privacy: .public)")
         }
+        let state: InviteState
+        do {
+            state = try await bounded { try await $0.inviteState() }
+        } catch {
+            log.error("Couldn't read the invite link: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        // A close or reopen landed meanwhile: its answer is newer than ours.
+        guard inviteChanges == changesBefore, !isChangingInviteLink else { return nil }
+        switch state {
+        case .open:
+            setInviteClosed(false)
+            invitePostureChecked = true
+        case .closed:
+            setInviteClosed(true)
+            invitePostureChecked = true
+        case .missing:
+            // No share to close: nothing verified.
+            invitePostureChecked = false
+        }
+        return state
     }
 
     /// Reconciles the cached invite link against the server. Quiet on failure —
@@ -199,33 +210,21 @@ extension AppModel {
             inviteLinkUnavailable = inviteURL == nil
             return
         }
-        guard role == .owner else { return }
-        await checkShareMembers(throttled: false)
-        let changesBefore = inviteChanges
-        do {
-            let state = try await backend.inviteState()
-            // A close or reopen landed meanwhile: its answer is newer than ours.
-            guard inviteChanges == changesBefore, !isChangingInviteLink else { return }
-            switch state {
-            case .open(let url):
-                setInviteURL(url)
-                setInviteClosed(false)
-                inviteLinkUnavailable = false
-            case .closed(let url):
-                // How this device finds out the invite was closed from another.
-                // The URL is kept: it re-admits the existing partner on a new
-                // phone, and admits nobody else.
-                setInviteURL(url)
-                setInviteClosed(true)
-                inviteLinkUnavailable = false
-            case .missing:
-                // No link to offer, but nothing says the partner joined — don't claim closed.
-                setInviteURL(nil)
-                inviteLinkUnavailable = true
-            }
-        } catch {
-            // Couldn't reach iCloud: keep the cached link and stay quiet.
-            log.error("Couldn't refresh the invite link: \(error.localizedDescription, privacy: .public)")
+        guard role == .owner, let state = await checkShareMembers(throttled: false) else { return }
+        switch state {
+        case .open(let url):
+            setInviteURL(url)
+            inviteLinkUnavailable = false
+        case .closed(let url):
+            // How this device finds out the invite was closed from another.
+            // The URL is kept: it re-admits the existing partner on a new
+            // phone, and admits nobody else.
+            setInviteURL(url)
+            inviteLinkUnavailable = false
+        case .missing:
+            // No link to offer, but nothing says the partner joined — don't claim closed.
+            setInviteURL(nil)
+            inviteLinkUnavailable = true
         }
     }
 

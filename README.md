@@ -567,7 +567,7 @@ Change fetches use `desiredKeys` to exclude the `CKAsset` fields (`image`, `thum
 sync — including the big first one after a reinstall — moves only metadata.
 Media is pulled only once the delta is filed and its change token saved
 (`MediaPrefetchPlan`): the app takes full media for the ten newest moments, the
-widget the thumbnails of the partner's three newest photos and doodles, and the
+widget the partner's newest photo or doodle in full plus the thumbnails of the next two, and the
 notification service only the newest of those thumbnails and its banner's one
 file. Everything older
 waits until you look at it.

@@ -374,11 +374,19 @@ private struct HomeMomentThumbnail: View {
             guard image == nil || loadedID != id else { return }
             var loaded = await Self.load(id)
             if loaded == nil, !Task.isCancelled, await fetch() { loaded = await Self.load(id) }
+            // Another path (the refresh's prefetch, the recovery pass) may land it
+            // later without telling this card: look again while it's on screen.
+            while loaded == nil, !Task.isCancelled {
+                try? await Task.sleep(for: Self.recheckInterval)
+                if MomentStore.shared.hasThumbnail(for: id) { loaded = await Self.load(id) }
+            }
             guard !Task.isCancelled else { return }
             image = loaded
             loadedID = id
         }
     }
+
+    private static let recheckInterval: Duration = .seconds(3)
 
     private static func load(_ id: String) async -> UIImage? {
         await Task.detached(priority: .userInitiated) { MomentStore.shared.thumbnail(for: id) }.value

@@ -130,7 +130,7 @@ final class FreshStartIngestTests: XCTestCase {
     /// A batch parsed before another process folded the commit is re-judged
     /// inside the store's lock, by server creation time.
     func testTheStoresKeepClearedHistoryOutUnderTheirLocks() {
-        let index = MomentIndex(fileURL: temporaryFile("moments-index.json"))
+        let index = MomentIndex(fileURL: temporaryFile("moments-index.json"), onCorrupt: {})
         let created = ["old": epoch.addingTimeInterval(-60), "new": epoch.addingTimeInterval(60)]
         _ = index.insertReadable([Fixtures.moment("old"), Fixtures.moment("new"), Fixtures.moment("unknown")]) {
             let isCleared = FreshStartPolicy.clearedFilter(createdAt: created, epoch: self.epoch)
@@ -138,7 +138,7 @@ final class FreshStartIngestTests: XCTestCase {
         }
         XCTAssertEqual(Set(index.load().map(\.id)), ["new", "unknown"], "no server time: never dropped on a guess")
 
-        let log = StatusHistoryLog(fileURL: temporaryFile("status-history.json"))
+        let log = StatusHistoryLog(fileURL: temporaryFile("status-history.json"), onCorrupt: {})
         let before = StatusHistoryEntry(emoji: "🌧️", message: "", isCelebration: false, at: Fixtures.date(10), fromMe: false)
         let after = StatusHistoryEntry(emoji: "☀️", message: "", isCelebration: false, at: Fixtures.date(20), fromMe: false)
         let logCreated = [FreshStartPolicy.LogKey(fromMe: false, at: before.at): epoch.addingTimeInterval(-1),

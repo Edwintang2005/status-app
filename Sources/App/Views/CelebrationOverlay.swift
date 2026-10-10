@@ -208,17 +208,21 @@ struct ConfettiLayer: View {
     var cycles = 3
 
     @State private var finished = false
+    /// A milestone reached with the screen already open starts the layer late;
+    /// its cycles count from then, not from `start`.
+    @State private var appearedAt = Date()
 
     /// Phases only start a piece early, so the last flight ends here.
     private var duration: Double { Double(cycles) * ConfettiPiece.cycle }
+    private var origin: Date { max(start, appearedAt) }
 
     var body: some View {
         if !finished {
             TimelineView(.animation) { timeline in
-                canvas(elapsed: timeline.date.timeIntervalSince(start))
+                canvas(elapsed: timeline.date.timeIntervalSince(origin))
             }
-            .task(id: start) {
-                let left = duration - Date().timeIntervalSince(start)
+            .task(id: origin) {
+                let left = duration - Date().timeIntervalSince(origin)
                 if left > 0 { try? await Task.sleep(for: .seconds(left)) }
                 if !Task.isCancelled { finished = true }
             }

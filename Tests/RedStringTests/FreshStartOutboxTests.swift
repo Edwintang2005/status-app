@@ -19,7 +19,7 @@ final class FreshStartOutboxTests: XCTestCase {
         store.pairing = PairingInfo(role: .owner, zoneName: AppConfig.coupleZoneName,
                                     zoneOwnerName: CKCurrentUserDefaultName, pairedAt: Fixtures.t0)
         index = MomentIndex(fileURL: temporaryFile("moments-index.json"), onCorrupt: {})
-        statusLog = StatusHistoryLog(fileURL: temporaryFile("status-history.json"))
+        statusLog = StatusHistoryLog(fileURL: temporaryFile("status-history.json"), onCorrupt: {})
         backend = FakeBackend()
         backend.freshStartSavedAt = epoch
         deletedMedia = []

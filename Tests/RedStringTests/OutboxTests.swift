@@ -29,7 +29,7 @@ final class OutboxTests: XCTestCase {
         indexChanges = 0
         confirmed = []
         deletedMedia = []
-        statusLog = StatusHistoryLog(fileURL: temporaryFile("status-history.json"))
+        statusLog = StatusHistoryLog(fileURL: temporaryFile("status-history.json"), onCorrupt: {})
         outbox = .testing(store: store, index: index, statusLog: statusLog, backend: backend,
                           hasMedia: { [unowned self] in self.media.contains($0.id) },
                           deleteMedia: { [unowned self] in self.deletedMedia.append($0) },
