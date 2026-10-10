@@ -2,19 +2,22 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Required for CloudKit share invitations to open the app at all.
-	     Without it iOS routes the icloud.com/share link to Safari and
-	     `userDidAcceptCloudKitShareWith` in AppDelegate.swift never fires,
-	     so the partner can never join the zone. -->
-	<key>CKSharingSupported</key>
-	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
 	<string>Red String</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
-	<!-- Widgets reach onOpenURL without this; Shortcuts and Safari need it. -->
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -26,18 +29,10 @@
 			</array>
 		</dict>
 	</array>
-	<key>CFBundleIdentifier</key>
-	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>CFBundleName</key>
-	<string>$(PRODUCT_NAME)</string>
-	<key>CFBundlePackageType</key>
-	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
-	<key>CFBundleShortVersionString</key>
-	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>CKSharingSupported</key>
+	<true/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
@@ -48,9 +43,6 @@
 	<string>Record a voice memo to send to your partner.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Save a photo or doodle they sent you to your own library.</string>
-	<!-- Makes the iCloud Drive container visible in the Files app, which is
-	     the whole point of the memories archive: a folder of plain files the
-	     user still has after the app is gone. -->
 	<key>NSUbiquitousContainers</key>
 	<dict>
 		<key>iCloud.com.edwintang.redstring</key>
@@ -70,7 +62,6 @@
 	</dict>
 	<key>UIBackgroundModes</key>
 	<array>
-		<!-- CloudKit database subscriptions arrive as silent pushes. -->
 		<string>remote-notification</string>
 	</array>
 	<key>UILaunchScreen</key>
@@ -79,10 +70,6 @@
 	<array>
 		<string>arm64</string>
 	</array>
-	<!-- Portrait only, and iPhone only (TARGETED_DEVICE_FAMILY = 1 on every
-	     target in project.yml). Declaring iPad support here is what triggers
-	     App Store Connect error 90474, which demands all four orientations for
-	     iPad multitasking — an app locked to portrait can't satisfy it. -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

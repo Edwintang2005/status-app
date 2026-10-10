@@ -36,6 +36,9 @@
     "%lld months" : {
 
     },
+    "%lld people besides you are on your shared space, so closing the invite link would keep all of them in. To be sure only your partner has access, unlink in Settings — which deletes the shared space for both of you — and send them a new link." : {
+
+    },
     "%lld voice memos waiting" : {
 
     },
@@ -57,13 +60,19 @@
     "1 year" : {
 
     },
+    "a new name" : {
+
+    },
     "CloudKit didn't return an invite link. Try again." : {
 
     },
-    "Couldn't close the invite link safely; it was reopened. Your partner may have lost access — if their app unlinks, send them the invite link to rejoin. (%@)" : {
+    "Couldn't close the invite link safely, so it's open again. Your partner may have been taken off your shared space: ask them to tap the invite link now to get back in, before their app unlinks. (%@)" : {
 
     },
     "Couldn't encode that image." : {
+
+    },
+    "Couldn't finish closing the invite link, and couldn't confirm it reopened. If your partner can't get back in, reopen it — Settings → Invite link → Reopen the invite link — and ask them to tap the link. (%@)" : {
 
     },
     "Couldn't open the shared space. Ask them to send a fresh invite link, and check you're both on the same build of %@." : {
@@ -75,6 +84,9 @@
     "drawing" : {
 
     },
+    "From a shared space you've left." : {
+
+    },
     "Hidden" : {
 
     },
@@ -82,6 +94,12 @@
 
     },
     "How you're both doing, at a glance." : {
+
+    },
+    "iCloud didn't confirm the save. It will be retried." : {
+
+    },
+    "iCloud doesn't show the fresh start agreed by both of you, so nothing was cleared. It will be checked again next time you open the app." : {
 
     },
     "iCloud is restricted on this device." : {
@@ -93,7 +111,28 @@
     "iCloud isn't available right now." : {
 
     },
+    "iCloud took too long to answer." : {
+
+    },
+    "is now going by %@" : {
+
+    },
+    "is thinking of you 💭" : {
+
+    },
+    "left your shared space" : {
+
+    },
     "Let them know you're thinking of them." : {
+
+    },
+    "moment" : {
+
+    },
+    "Moments were cleared for your fresh start." : {
+
+    },
+    "Moments were removed from your shared space." : {
 
     },
     "no message" : {
@@ -153,6 +192,12 @@
     "sent you a voice memo 🎙️" : {
 
     },
+    "sent you something 📷" : {
+
+    },
+    "sent you something new: update %@ to see it" : {
+
+    },
     "Sign in to iCloud in Settings to use %@." : {
 
     },
@@ -189,7 +234,16 @@
     "This device isn't paired yet." : {
 
     },
+    "This iCloud account still has an earlier shared space. Rejoin it to carry on, or start a new one — which deletes the old one." : {
+
+    },
     "This invite is from someone you've blocked." : {
+
+    },
+    "This iPhone's history couldn't be read just now." : {
+
+    },
+    "updated their status" : {
 
     },
     "voice memo" : {
@@ -198,7 +252,25 @@
     "Voice memo waiting" : {
 
     },
-    "Your partner joined through this link, so closing it here would remove them. Closing it safely re-seats them, which needs them on standby: Settings → tap Version seven times → iCloud diagnostics → Promote partner & close invite." : {
+    "was thinking of you earlier 💭" : {
+
+    },
+    "You changed your status from another device." : {
+
+    },
+    "You sent a nudge from another device." : {
+
+    },
+    "You sent something from another device." : {
+
+    },
+    "Your partner" : {
+
+    },
+    "Your partner joined through this link, so closing it re-seats them: they're briefly taken off and need to tap the link once more to get back in." : {
+
+    },
+    "Your shared space changed." : {
 
     }
   },
