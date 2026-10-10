@@ -2,8 +2,8 @@ import ImageIO
 import UIKit
 
 /// The photo widget's picture: the full JPEG downsampled to the tile's pixel
-/// size — the 512 px square thumbnail drew soft on a medium or large tile —
-/// or the thumbnail while the full copy isn't on disk.
+/// size (the 512 px thumbnail is soft on a medium or large tile), or the
+/// thumbnail while the full copy isn't on disk.
 enum WidgetPhoto {
     static func image(for moment: Moment, pointSize: CGSize) -> UIImage? {
         let traitScale = UITraitCollection.current.displayScale
