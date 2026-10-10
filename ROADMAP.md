@@ -65,7 +65,7 @@ addition requires re-deploying the schema to Production (README → "Shipping it
     change fetch's keys read from source, and the demo-mode UI smoke with
     `performAccessibilityAudit()` (`make uitest`). No schema change.
 
-- **UX refresh** — from the design arena in `DESIGN-BRIEF.md` (IDs refer to it).
+- **UX refresh** — from the October design arena's brief (not kept in the repo; IDs refer to it).
   The easter egg has one lock: a 0.8 s hold on the home title (a thread draws
   while held), then tying the fox to the fish (drag, or tap one then the other)
   opens the count, the logo flying into its header; the logo-hold stage and the
@@ -339,7 +339,7 @@ addition requires re-deploying the schema to Production (README → "Shipping it
   cap now 300.)
 - **Read receipts** — toggle in Settings, on by default, gates both
   sending and display. One `Receipt` record per side (`receipt-<role>`) carrying
-  an encrypted seen-map; receiver publishes via `flushReceiptsIfNeeded`, sender
+  an encrypted seen-map; receiver publishes via `Outbox.flushReceipts`, sender
   folds it into `Moment.seenByPartnerAt`. Eye badge in the library, "Seen …"
   line in the gallery. **Schema: the `Receipt` record type must exist in
   Production before release** (README → "Shipping it").
@@ -405,7 +405,7 @@ one *stronger* notification instead of a stack of identical ones.
 - **Detect on the sender**: in `CloudSync.sendNudge`, track recent send times in
   `Snapshot`; when ≥3 sends land inside ~60s, write a `burst` Int field on the
   existing `Nudge` record (plaintext, like `count`).
-- **Render on the receiver**: `NotificationService.applyNudge` and
+- **Render on the receiver**: `PushBannerPolicy.decide` (the NSE's nudge row) and
   `NotificationManager.postNudge` read `burst` and swap wording ("is REALLY
   thinking of you ❤️‍🔥"), keep `.timeSensitive`, optionally a distinct sound.
   In-app: bigger haptic + a heart-burst animation (reuse `CelebrationOverlay`
@@ -449,7 +449,7 @@ report to carry the entry's `at`).
 
 ### Deferred from the October 2026 UX brief
 
-See `DESIGN-BRIEF.md` for the specs.
+IDs refer to the October design arena's brief (not kept in the repo).
 - **FIRST-1 (S–M)** — the owner's first run one interruption at a time: the
   notification prompt after the link sheet, no date sheet before anyone has
   joined (a Home card once they have), and a "Waiting for your partner" card
@@ -684,7 +684,6 @@ under test.)
   names or check them against slurs only.
 - Dynamic Type: the 1.35× cap also limits prose (Terms, Welcome, the partner's
   message); mood tiles are fixed-height (M).
-- iCloud account problems only show in the 12 pt footer; a top banner instead.
 - `.secondary` 11 pt captions ("Seen …", timestamps) are ~3.3:1; `mint` on
   cream is 2.2:1 for the "Saved" check.
 - Voice Control: "Thinking of you" is labelled "Send a nudge".
@@ -692,7 +691,6 @@ under test.)
 - Settings: "Report a problem" and "Save memories…" look like the destructive rows.
 - Mood picker "Set" is disabled with no hint when the emoji is empty.
 - The anniversary prompt stacks on the invite sheet before anyone has joined.
-- Partner card is fourth on Home (design call: put it first?).
 - Receiver-side "quiet nudges for a while" via the NSE's existing `quieten`.
 - Localisation readiness (M): ~100 mood labels bypass the catalog and key
   `Mood.id` on English; ". Seen %@" fragment; "a \(noun)"; ternary plurals;
@@ -711,16 +709,13 @@ under test.)
 - Optional "hide when locked" (`.privacySensitive()`) for the photo widget.
 
 **Docs and tooling (S)**
-- README "Shipping it" step 5 still calls the icon the old two-ring artwork;
-  (`LogoView` is gone: the tie now opens the count.)
-- Each invariant: one-line rule + "guarded by: `TestName`" or "unguarded";
-  move the Shipped narrative to a CHANGELOG.
+- Each invariant: one-line rule + "guarded by: `TestName`" or "unguarded".
 - A CI step checking the `AppConfig` IDs against the four entitlements files,
   `project.yml` and `Info.plist` (invariant 12), and a grep for
   `.safeAreaInset(edge: .top)` in `Views/` (invariant 21).
 - `make test`/`make build` regenerate the committed project as a side effect.
 - Dead code: `PairingView.inviteReady` (unreachable, hosts an unconfirmed
-  unlink), `closeInviteIfPartnerJoined`, the receipts' `.serverRecordChanged` catch.
+  unlink).
 
 ### Known issues on file (September 2026 audit, not yet fixed)
 

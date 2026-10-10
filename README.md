@@ -16,7 +16,7 @@ with the text fields end-to-end encrypted.
 | **Nudge** | A heart on your lock screen. Tapping it makes their phone show *"Sam is thinking of you 💭"*. |
 | **Photos & doodles** | Snap a photo, draw a doodle, or scribble over a photo, and it lands on their home screen widget. Pick the paper colour for a doodle. |
 | **Voice memos** | Up to 4 minutes (`AppConfig.voiceMemoMaxDuration`), with a live waveform while recording. Playable from the expanded notification without opening the app; a badge on the photo widget says one is waiting. Swipe across any playback waveform to scrub. |
-| **History** | Every photo, doodle and memo is kept. Browse the lot in the library — filterable by *from them* / *from me* — save any to Photos, and get it all back on a new phone. |
+| **History** | Every photo, doodle and memo is kept. Browse the lot in the library — filterable by *from them* / *from me* and by type — save any to Photos, and get it all back on a new phone. |
 | **Status history** | A log of both sides' statuses, grouped by day, behind a tap on the partner card. Every change is its own CloudKit record, so it comes back on a new phone — see "Status history" below. |
 | **Read receipts** | On by default, with a per-side switch in Settings. Each side shares which moments it has seen; your own sends wear an eye badge in the library and a "Seen …" line in the gallery. Your own status gets the same line once they've had it on screen. |
 | **Names** | You set your own name; they set theirs. Whatever they call themselves is what you see — there's no renaming other people. |
@@ -39,7 +39,8 @@ into the canvas.
 
 ## Requirements
 
-- **Xcode 16 or later**, iOS 17+ on both phones (interactive widgets need 17).
+- **Xcode 26** (the code uses iOS 26 APIs behind `#available`; CI builds with `^26.0`), iOS 17+ on both phones (interactive widgets need 17).
+- **XcodeGen at the version in `.xcodegen-version`.** `make project` refuses any other (another version can write a different project, which fails CI's drift check); install it from the [XcodeGen releases](https://github.com/yonaskolb/XcodeGen/releases), as CI does.
 - **A paid Apple Developer account ($99/yr).** Not optional: CloudKit, push
   notifications and App Groups are all unavailable under free provisioning.
 - Both phones signed into iCloud.
@@ -47,7 +48,6 @@ into the canvas.
 ## Setup
 
 ```bash
-brew install xcodegen
 make project
 open RedString.xcodeproj
 ```
@@ -60,7 +60,7 @@ Then, once:
    survives. Then re-run `make project`.
 2. **Change the bundle IDs** if `com.edwintang.redstring` isn't yours. Four
    places must agree:
-   - `PRODUCT_BUNDLE_IDENTIFIER` in [project.yml](project.yml) (all four targets, tests included)
+   - `PRODUCT_BUNDLE_IDENTIFIER` in [project.yml](project.yml) (all five targets, both test bundles included)
    - the identifiers in [Sources/Shared/AppConfig.swift](Sources/Shared/AppConfig.swift)
    - the container and group IDs in all four `.entitlements` files
    - the `NSUbiquitousContainers` key in
@@ -234,8 +234,10 @@ Every subscription sends a visible push now, so the extension is the main
 delivery path. The widget and the open app still rely on:
 
 1. **The `willPresent` hook**: a banner about to show over the *open* app
-   posts `.pairingDidChange`, so the home screen re-reads the store the
-   extension just updated instead of going stale under the banner.
+   posts `.snapshotDidChange`, so the home screen re-reads the store the
+   extension just updated instead of going stale under the banner; for a
+   remote push it also refreshes, since the extension may have taken only one
+   batch.
 2. **Foreground refresh**, whenever the app becomes active.
 3. **The widget's own fetch**, on its timeline refresh, with an 8s
    timeout and the cached snapshot as fallback. This is the only battery cost
@@ -367,8 +369,8 @@ Two sources, for two different things:
   using when they sent it, which is the honest thing for a historical record to
   do. Notifications for a moment use the same field.
 - **Everything live** — the status card, the widget, a nudge — uses
-  `Snapshot.partnerDisplayName`, which is simply their current
-  `Status.displayName`, or "Partner" if they haven't set one.
+  `Snapshot.moderatedPartnerName`: their current `displayName` through the
+  word filter, or "Partner" if they haven't set one.
 
 Changing your own name republishes your `Status` record immediately, so your
 partner sees it on their next sync. It does not rewrite anything you've already
@@ -376,8 +378,8 @@ sent.
 
 ### The anniversary
 
-The hidden count (hold the home title, then tie the string from the fox to the
-fish — the logo they become rises into the count's header) runs from a date
+The hidden count (hold the home title, then tie the string between the fox and
+the fish, either way — the logo they become rises into the count's header) runs from a date
 only the zone owner sets: the prompt after creating the invite link, or later
 from the "Our date" row in Settings.
 It travels as one `Anniversary` record (`anniversary`, encrypted `startsAt` +
@@ -398,7 +400,8 @@ local notifications on the morning of each coming milestone — one, two, three,
 six and nine months, a year, then yearly — at 9 am on that phone's clock
 (`MilestoneReminderPlan`, the next 12 scheduled). The lock screen only says
 *"Something to celebrate today 💛"*, so the egg stays hidden; tapping opens
-the count. They're rescheduled whenever the app runs and the date or the
+the easter egg, and tying the string reaches the count — on purpose, the tie
+is the only way in. They're rescheduled whenever the app runs and the date or the
 setting changed, and removed on unlink — a date changed while the app hasn't
 run since is picked up on its next launch. No schema change.
 
@@ -412,15 +415,15 @@ and only *shows* the partner's while it's on.
 Each side owns one `Receipt` record (`receipt-owner` / `receipt-participant`)
 carrying an encrypted JSON map of `{momentID: seenAt}` for the last
 `AppConfig.receiptMapLimit` seen moments. The receiver's `markSeen` sets
-`Snapshot.receiptsDirty` and `AppModel.flushReceiptsIfNeeded()` publishes on the
-next opportunity (and retries on every refresh until it lands). The sender's
+`Snapshot.receiptsDirty` and `Outbox.flushReceipts()` publishes it after a
+short debounce (and retries on every refresh until it lands). The sender's
 refresh folds the map into `Moment.seenByPartnerAt` via
 `MomentIndex.applyPartnerReceipts` — sticky, so a capped or retracted map never
 un-sees anything already shown. Turning the toggle off publishes an empty map,
 which stops sharing anything new.
 
 The same record carries a **status read receipt**: two encrypted dates saying
-which of the partner's statuses (its `updatedAt`) this device has had on screen,
+which of the partner's statuses (its `wordsAt`, so a rename keeps it) this device has had on screen,
 and when. The home screen stamps it (`AppModel.markPartnerStatusSeen`) only
 while the app is in the foreground — a background refresh isn't anyone looking
 — and the sender shows "Seen 2 hours ago" under their own status for as long as
@@ -433,11 +436,11 @@ happens next. A partner on an older build simply ignores the record.
 
 Every status change is written twice: onto the overwritten `Status` record, and
 as its own `StatusLog` record named `statuslog-<role>-<seconds>` (the status's
-whole-second `updatedAt`, so a republish overwrites rather than duplicates).
+whole-second `wordsAt`, so a republish overwrites rather than duplicates).
 The log on device is `status-history.json` in the App Group
 (`StatusHistoryLog`, capped at `AppConfig.statusHistoryLimit`), fed from both:
 the `Status` record as it changes and every `StatusLog` record in a delta,
-deduping by `(fromMe, updatedAt)` so the two collapse into one entry. A device
+deduping by `(fromMe, wordsAt)` so the two collapse into one entry. A device
 with no change token pulls the whole zone, which is how the log comes back on a
 new phone.
 
@@ -680,9 +683,9 @@ Everything below is already wired up; this is the order to do it in.
    remember at archive time.
 5. **Check the app icon.**
    [icon-1024.png](Sources/App/Resources/AppIcon.xcassets/AppIcon.appiconset/icon-1024.png)
-   is still the two-ring artwork drawn for the old name. It's a valid icon and
-   will pass review, but it's off-brand now — replace it with a 1024×1024
-   **opaque** PNG (no alpha channel; the App Store rejects transparency).
+   is the fox, fish and red rope infinity logo in the current palette, an
+   opaque 1024×1024 PNG. Any replacement must stay **opaque** (no alpha
+   channel; the App Store rejects transparency).
 
 Two things to know about the CloudKit schema:
 

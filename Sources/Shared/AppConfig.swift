@@ -9,8 +9,8 @@ enum AppConfig {
     /// files (app Debug and Release, widget, notification service).
     static let appGroupID = "group.com.edwintang.redstring"
 
-    /// Must match `com.apple.developer.icloud-container-identifiers` in both
-    /// entitlements files.
+    /// Must match `com.apple.developer.icloud-container-identifiers` in all four
+    /// entitlements files (app Debug and Release, widget, notification service).
     static let cloudContainerID = "iCloud.com.edwintang.redstring"
 
     /// Custom zone holding both partners' status records. Custom (not default)
