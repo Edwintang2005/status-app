@@ -4,7 +4,6 @@ struct HomeView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.colorScheme) private var colorScheme
     @State private var showingPicker = false
     @State private var showingSettings = false
     @State private var showingComposer = false
@@ -17,7 +16,6 @@ struct HomeView: View {
     @State private var showingFreshStart = false
     /// Owned here so leaving the screen or starting a second memo stops playback.
     @State private var voicePlayer = VoicePlayer()
-    @State private var confirmingStatusReport = false
     /// Local, not `model.confirmingInviteReseat`: Settings hosts that one, and
     /// two views presenting from one flag collide.
     @State private var confirmingCloseLink = false
@@ -36,8 +34,12 @@ struct HomeView: View {
     /// "Sent to …" in the footer for a moment after a send is confirmed.
     @State private var showsSent = false
 
+    /// How long the footer says "Sent to …" after a confirmed send.
+    private static let sentPillSeconds: TimeInterval = 3
+
     var body: some View {
-        @Bindable var model = model
+        // A filter over the whole history: read once per pass.
+        let unseen = model.unseenVisualMoments
 
         NavigationStack {
             ZStack {
@@ -45,50 +47,15 @@ struct HomeView: View {
                 // over anything layered underneath.
                 Theme.Background()
                 ScrollView {
-                    // Them first: what you open the app to see, then your reply to it.
-                    VStack(spacing: 12) {
-                        // In the scroll content, not pinned above it: a sibling
-                        // that resizes the scroll view looped layout against the bar.
-                        if model.isOffline {
-                            OfflineBanner(pendingCount: model.pendingSendCount,
-                                          mobileDataDenied: model.mobileDataDenied,
-                                          storageFull: model.storageFullAt != nil)
-                                .transition(.opacity)
-                        }
-                        if let notice = activeNotice, notice.urgent {
-                            noticeCard(notice)
-                        }
-                        partnerCard
-                        myStatusRow
-                        NudgeButton(lastSentAt: model.snapshot.lastNudgeSentAt,
-                                    lastFailedAt: model.snapshot.lastNudgeFailedAt,
-                                    sending: model.isSendingNudge) {
-                            await model.sendNudge()
-                        }
-                        sendRow
-                        if let notice = activeNotice, !notice.urgent {
-                            noticeCard(notice)
-                        }
-                        if let moment = model.unseenVisualMoments.first ?? model.latestVisualMoment {
-                            momentCard(moment)
-                                .id(moment.id)
-                                .transition(.opacity)
-                        }
-                        if let memo = model.latestReceivedVoiceMemo {
-                            voiceMemoRow(memo)
-                        }
-                        syncFooter
-                    }
-                    .animation(reduceMotion ? nil : .smooth(duration: 0.4),
-                               value: model.unseenVisualMoments.first?.id)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 14)
-                    .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: model.isOffline)
-                    // Pin the scrollable content to the viewport: a child with a
-                    // wide *ideal* size (a long single-line Text) can otherwise
-                    // inflate the content's horizontal extent on some OS builds,
-                    // letting the whole screen pan sideways.
-                    .containerRelativeFrame(.horizontal)
+                    content(unseen: unseen)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 14)
+                        .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: model.isOffline)
+                        // Pin the scrollable content to the viewport: a child with a
+                        // wide *ideal* size (a long single-line Text) can otherwise
+                        // inflate the content's horizontal extent on some OS builds,
+                        // letting the whole screen pan sideways.
+                        .containerRelativeFrame(.horizontal)
                 }
                 .scrollIndicators(.hidden)
                 .topBarBacking()
@@ -96,201 +63,11 @@ struct HomeView: View {
             }
             .navigationTitle(AppConfig.appName)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                // The title is drawn by hand so a long press on it can open the
-                // easter egg; `navigationTitle` stays for the back button.
-                ToolbarItem(placement: .principal) {
-                    Text(AppConfig.appName)
-                        .font(.headline)
-                        .overlay(alignment: .bottomLeading) { titleThread }
-                        .onLongPressGesture(minimumDuration: 0.8, pressing: { down in
-                            withAnimation(down && !reduceMotion ? .linear(duration: 0.8) : .easeOut(duration: 0.25)) {
-                                titlePressing = down
-                            }
-                        }) {
-                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                            titlePressing = false
-                            showingAnniversary = true
-                        }
-                        .accessibilityAddTraits(.isHeader)
-                        .accessibilityAction(named: Text("Our time together")) {
-                            showingAnniversary = true
-                        }
-                }
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        showingLibrary = true
-                    } label: {
-                        Image(systemName: "photo.stack")
-                    }
-                    .disabled(model.history.isEmpty)
-                    .accessibilityLabel("Moments")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showingSettings = true
-                    } label: {
-                        Image(systemName: "gearshape")
-                    }
-                    .accessibilityLabel("Settings")
-                }
-            }
+            .toolbar { toolbar }
         }
-        // Every sheet hosts the model's error alert (`presentsModelErrors`):
-        // an error raised while one is up can't present from the root.
-        .sheet(isPresented: $showingPicker) {
-            MoodPickerView(initialEmoji: model.snapshot.mine?.emoji ?? "",
-                           currentMessage: model.snapshot.mine?.message ?? "",
-                           recent: model.recentOwnStatuses()) { emoji, message, isCelebration in
-                Task {
-                    await model.setStatus(emoji: emoji,
-                                          message: message,
-                                          isCelebration: isCelebration)
-                }
-            }
-            .presentsModelErrors()
-        }
-        .sheet(isPresented: $showingSettings) {
-            SettingsView()
-        }
-        .sheet(isPresented: $showingComposer) {
-            MomentComposerView { image, kind, caption in
-                Task { await model.sendMoment(image: image, kind: kind, caption: caption) }
-            }
-            .presentsModelErrors()
-        }
-        .sheet(isPresented: $showingVoiceComposer) {
-            VoiceMemoComposerView { url, duration, waveform, caption in
-                Task {
-                    await model.sendVoiceMemo(fileURL: url,
-                                              duration: duration,
-                                              waveform: waveform,
-                                              caption: caption)
-                }
-            }
-            .presentsModelErrors()
-        }
-        .sheet(isPresented: Binding(get: { !carouselQueue.isEmpty },
-                                    set: { if !$0 { carouselQueue = []; carouselStart = nil } })) {
-            if let first = carouselStart ?? carouselQueue.first {
-                MomentGalleryView(moments: carouselQueue, startAt: first)
-                    .environment(model)
-                    .presentsModelErrors()
-            }
-        }
-        .sheet(isPresented: $showingLibrary) {
-            MomentLibraryView()
-                .environment(model)
-                .presentsModelErrors()
-        }
-        .sheet(isPresented: $showingStatusHistory) {
-            StatusHistoryView()
-                .environment(model)
-                .presentsModelErrors()
-        }
-        .sheet(isPresented: $showingAnniversary) {
-            EasterEggView()
-                .environment(model)
-                .presentsModelErrors()
-        }
-        .sheet(isPresented: $showingFreshStart) {
-            NavigationStack {
-                FreshStartView()
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { showingFreshStart = false }
-                        }
-                    }
-            }
-            .environment(model)
-            .presentsModelErrors()
-        }
-        .onChange(of: model.pendingRoute) { _, route in
-            if route != nil { consumePendingRoute() }
-        }
-        // `onChange` misses a route latched while this view wasn't mounted, so
-        // consume any pending one on mount too.
-        .onAppear { consumePendingRoute() }
-        // A deep link that arrived while another sheet was up stays latched;
-        // present it once that sheet closes instead of silently dropping it.
-        .onChange(of: anySheetShowing) { _, showing in
-            // Root-level presentations (the anniversary prompt) wait on this.
-            model.homeSheetShowing = showing
-            guard !showing else {
-                // Otherwise the memo plays on under the sheet with no control in sight;
-                // paused, not stopped, so it keeps its place.
-                voicePlayer.pause()
-                return
-            }
-            consumePendingRoute()
-            // A status that landed under a sheet is seen once it's uncovered —
-            // unless the queued composer just covered it again.
-            model.homeSheetShowing = anySheetShowing
-            model.markPartnerStatusSeen()
-        }
-        .onChange(of: model.rootSheetShowing) { _, showing in
-            if showing {
-                voicePlayer.pause()
-            } else {
-                model.markPartnerStatusSeen()
-                consumePendingRoute()
-            }
-        }
-        // Arrivals while Home is in front: the card updates in place under the
-        // system banner, with a soft haptic.
-        .onChange(of: model.snapshot.theirs?.lastNudgeAt) { old, new in
-            if let new, new > old ?? .distantPast, homeInFront { heartArrivals += 1 }
-        }
-        .onChange(of: model.snapshot.theirs?.wordsAt) { old, new in
-            if let new, new > old ?? .distantPast, homeInFront { statusArrivals += 1 }
-        }
-        .onChange(of: model.unseenVisualMoments.count) { old, new in
-            if new > old, homeInFront { momentArrivals += 1 }
-        }
-        .sensoryFeedback(.impact(flexibility: .soft), trigger: heartArrivals)
-        .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.6), trigger: statusArrivals)
-        .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.6), trigger: momentArrivals)
-        .task(id: model.sendConfirmedAt) {
-            guard let at = model.sendConfirmedAt, Date().timeIntervalSince(at) < 3 else { return }
-            withAnimation(.smooth) { showsSent = true }
-            AccessibilityNotification.Announcement(String(localized: "Sent to \(model.partnerName)")).post()
-            try? await Task.sleep(for: .seconds(3))
-            withAnimation(.smooth) { showsSent = false }
-        }
-        // Torn down with a sheet up (an unlink, a block) never fires the change
-        // above; a flag left true would hold the anniversary prompt back for good.
-        .onAppear { model.homeSheetShowing = anySheetShowing }
-        .onDisappear { model.homeSheetShowing = false }
-        // The status read receipt: their status counts as seen whenever it is
-        // on this screen in the foreground — on arrival, and on every return.
-        .onAppear { model.markPartnerStatusSeen() }
-        .onChange(of: model.snapshot.theirs?.updatedAt) { _, _ in model.markPartnerStatusSeen() }
-        .onChange(of: scenePhase) { _, phase in
-            guard phase == .active else { return }
-            model.markPartnerStatusSeen()
-            Task { await model.checkNotificationSettings() }
-        }
-        .task { await model.checkNotificationSettings() }
-        // The card and the footer change silently; VoiceOver hears both.
-        .onChange(of: model.isOffline) { _, offline in
-            guard offline else { return }
-            AccessibilityNotification.Announcement(String(localized: "You're offline. What you send waits on this iPhone.")).post()
-        }
-        .onChange(of: model.freshStartPhase) { old, new in
-            guard case .clearing = old else { return }
-            if case .clearing = new { return }
-            AccessibilityNotification.Announcement(String(localized: "Your shared history is cleared on this iPhone.")).post()
-        }
-        .confirmationDialog("Close the invite link?",
-                            isPresented: $confirmingCloseLink,
-                            titleVisibility: .visible) {
-            Button("Close and re-seat \(model.partnerName)", role: .destructive) {
-                Task { await model.closeInviteReseatingPartner() }
-            }
-            Button("Not now", role: .cancel) {}
-        } message: {
-            Text("Closing it briefly takes \(model.partnerName) off your shared space and re-adds them privately. Have them ready: they tap the invite link once more to get back in. If anything fails, the app tries to reopen the link and tells you how it went.")
-        }
+        .modifier(sheets)
+        .modifier(lifecycle(unseenCount: unseen.count))
+        .closeInviteLinkDialog(isPresented: $confirmingCloseLink)
         // Waits out any sheet (Settings shows its own copy): one presentation
         // per view, so over a sheet it would be dropped.
         .alert("Invite link", isPresented: Binding(get: { model.inviteNotice != nil && !anySheetShowing
@@ -302,23 +79,163 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - Notices
+    /// Them first: what you open the app to see, then your reply to it. Each
+    /// derived value is read once here and handed down as a plain value.
+    private func content(unseen: [Moment]) -> some View {
+        let partnerName = model.partnerName
+        let pendingCount = model.pendingSendCount
+        let notice = activeNotice
+        let filterOn = model.contentFilterEnabled
+        let theirs = model.snapshot.theirs
 
-    private enum Notice {
-        case partnerLeft, extraMembers(Int), iCloud(String), freshStartStuck, freshStartRequest
-        case notificationsOff(NotificationsNotice), closeLink, widgetTip
-
-        /// Urgent ones sit above the partner card; the rest below the send row.
-        var urgent: Bool {
-            switch self {
-            case .partnerLeft, .extraMembers, .iCloud, .freshStartStuck: true
-            case .freshStartRequest, .notificationsOff, .closeLink, .widgetTip: false
+        return VStack(spacing: 12) {
+            // In the scroll content, not pinned above it: a sibling that resizes
+            // the scroll view looped layout against the bar (invariant 21).
+            if model.isOffline {
+                OfflineBanner(pendingCount: pendingCount,
+                              mobileDataDenied: model.mobileDataDenied,
+                              storageFull: model.storageFullAt != nil)
+                    .transition(.opacity)
             }
+            if let notice, notice.urgent {
+                noticeView(notice, partnerName: partnerName)
+            }
+            PartnerCard(partnerName: partnerName,
+                        status: theirs?.moderation(reportedAt: model.hiddenPartnerStatusAt,
+                                                   revealed: model.partnerStatusRevealed,
+                                                   filterEnabled: filterOn),
+                        wordsAt: theirs?.wordsAt ?? .distantPast,
+                        lastHeartAt: theirs?.lastNudgeAt,
+                        partnerHasLeft: model.partnerHasLeft,
+                        statusArrivals: statusArrivals,
+                        heartArrivals: heartArrivals,
+                        onOpen: { showingStatusHistory = true },
+                        onReport: { model.reportPartnerStatus() },
+                        onReveal: { model.revealPartnerStatus() })
+                .equatable()
+            MyStatusRow(mine: model.snapshot.mine,
+                        unsent: model.myStatusWaitingToSend,
+                        seenAt: model.myStatusSeenAt,
+                        onOpen: { showingPicker = true })
+                .equatable()
+            NudgeButton(lastSentAt: model.snapshot.lastNudgeSentAt,
+                        lastFailedAt: model.snapshot.lastNudgeFailedAt,
+                        sending: model.isSendingNudge) {
+                await model.sendNudge()
+            }
+            sendRow
+            if let notice, !notice.urgent {
+                noticeView(notice, partnerName: partnerName)
+            }
+            if let moment = unseen.first ?? model.latestVisualMoment {
+                MomentCard(moment: moment,
+                           unseenCount: unseen.count,
+                           label: MomentCard.label(for: moment, filterEnabled: filterOn),
+                           isOffline: model.isOffline,
+                           onOpen: { carouselQueue = model.carouselMoments },
+                           fetchThumbnail: { await model.ensureThumbnail(for: moment) })
+                    .equatable()
+                    .id(moment.id)
+                    .transition(.opacity)
+            }
+            if let memo = model.latestReceivedVoiceMemo {
+                voiceMemoRow(memo)
+            }
+            SyncFooter(partnerName: partnerName,
+                       showsSent: showsSent,
+                       isOffline: model.isOffline,
+                       lastSyncedAt: model.snapshot.lastSyncedAt,
+                       isRefreshing: model.isRefreshing,
+                       needsICloudAttention: model.readinessMessage != nil,
+                       isSending: model.isRetryingUploads || model.isSendingNow,
+                       pendingCount: pendingCount,
+                       onlyStatusPending: model.myStatusWaitingToSend,
+                       storageFull: model.storageFullAt != nil,
+                       isParticipant: model.role == .participant,
+                       onRetry: { Task { await model.retryPendingNow() } })
+                .equatable()
+        }
+        .animation(reduceMotion ? nil : .smooth(duration: 0.4), value: unseen.first?.id)
+    }
+
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        // The title is drawn by hand so a long press on it can open the
+        // easter egg; `navigationTitle` stays for the back button.
+        ToolbarItem(placement: .principal) {
+            Text(AppConfig.appName)
+                .font(.headline)
+                .overlay(alignment: .bottomLeading) { titleThread }
+                .onLongPressGesture(minimumDuration: 0.8, pressing: { down in
+                    withAnimation(down && !reduceMotion ? .linear(duration: 0.8) : .easeOut(duration: 0.25)) {
+                        titlePressing = down
+                    }
+                }) {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    titlePressing = false
+                    showingAnniversary = true
+                }
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityAction(named: Text("Our time together")) {
+                    showingAnniversary = true
+                }
+        }
+        ToolbarItem(placement: .topBarLeading) {
+            Button {
+                showingLibrary = true
+            } label: {
+                Image(systemName: "photo.stack")
+            }
+            .disabled(model.history.isEmpty)
+            .accessibilityLabel("Moments")
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                showingSettings = true
+            } label: {
+                Image(systemName: "gearshape")
+            }
+            .accessibilityLabel("Settings")
         }
     }
 
+    // MARK: - Sheets
+
+    /// Every sheet hosts the model's error alert (`presentsModelErrors`): an
+    /// error raised while one is up can't present from the root. Sheets inherit
+    /// the model from this view's environment.
+    private var sheets: HomeSheets {
+        HomeSheets(showingPicker: $showingPicker,
+                   showingSettings: $showingSettings,
+                   showingComposer: $showingComposer,
+                   showingVoiceComposer: $showingVoiceComposer,
+                   showingLibrary: $showingLibrary,
+                   showingStatusHistory: $showingStatusHistory,
+                   showingAnniversary: $showingAnniversary,
+                   showingFreshStart: $showingFreshStart,
+                   carouselQueue: $carouselQueue,
+                   carouselStart: $carouselStart)
+    }
+
+    // MARK: - Lifecycle
+
+    private func lifecycle(unseenCount: Int) -> HomeLifecycle {
+        HomeLifecycle(anySheetShowing: anySheetShowing,
+                      homeInFront: homeInFront,
+                      unseenCount: unseenCount,
+                      voicePlayer: voicePlayer,
+                      heartArrivals: $heartArrivals,
+                      statusArrivals: $statusArrivals,
+                      momentArrivals: $momentArrivals,
+                      showsSent: $showsSent,
+                      sentPillSeconds: Self.sentPillSeconds,
+                      consumePendingRoute: consumePendingRoute)
+    }
+
+    // MARK: - Notices
+
     /// At most one at a time, most urgent first.
-    private var activeNotice: Notice? {
+    private var activeNotice: HomeNotice? {
         if model.showsPartnerLeftNotice { return .partnerLeft }
         if let count = model.extraShareMembers { return .extraMembers(count) }
         // Offline the account check fails as a network error; the offline card covers it.
@@ -331,103 +248,45 @@ struct HomeView: View {
         return nil
     }
 
-    @ViewBuilder
-    private func noticeCard(_ notice: Notice) -> some View {
+    private func noticeView(_ notice: HomeNotice, partnerName: String) -> some View {
+        HomeNoticeView(notice: notice,
+                       partnerName: partnerName,
+                       isOwner: model.role == .owner,
+                       busy: model.isChangingInviteLink,
+                       onAction: { act(on: notice) },
+                       onDismiss: { dismiss(notice) })
+            .equatable()
+    }
+
+    private func act(on notice: HomeNotice) {
         switch notice {
         case .partnerLeft:
-            // Settings' unlink dialog already offers "Save memories, then unlink".
-            // The space is the owner's: only they have something left to delete.
-            HomeNoticeCard(systemImage: "person.crop.circle.badge.xmark",
-                           title: "\(model.partnerName) left your shared space",
-                           message: model.role == .owner
-                               ? "They unlinked on their iPhone, so what they sent has gone from here too. What you sent is still in your iCloud. Save your memories and unlink, then send a new invite link — to them or someone new."
-                               : "They unlinked, so what they sent has gone from here too. Save your memories, then unlink to leave the shared space.",
-                           actionTitle: "Save and unlink…",
-                           dismissTitle: "Dismiss",
-                           urgent: true,
-                           onDismiss: { model.dismissPartnerLeftNotice() }) {
-                model.unlinkRequested = true
-                showingSettings = true
-            }
-        case .extraMembers(let count):
-            HomeNoticeCard(systemImage: "person.2.badge.gearshape",
-                           title: "Someone else has joined",
-                           message: "\(count) people besides you are on your shared space, not just \(model.partnerName). Closing the invite link can't remove them. If that isn't right, unlink in Settings — it deletes the shared space for both of you — and send \(model.partnerName) a new link.",
-                           actionTitle: "Open Settings",
-                           urgent: true) {
-                showingSettings = true
-            }
-        case .iCloud(let problem):
-            // The footer only had room for this in 12 pt; nothing syncs until it's fixed.
-            HomeNoticeCard(systemImage: "exclamationmark.icloud",
-                           title: "iCloud needs attention",
-                           message: "\(problem)",
-                           actionTitle: "Check again",
-                           urgent: true) {
-                Task { await model.refresh() }
-            }
-        case .freshStartStuck:
-            HomeNoticeCard(systemImage: "exclamationmark.arrow.circlepath",
-                           title: "Your fresh start hasn't finished",
-                           message: "This iPhone couldn't clear its side yet. It tries again whenever the app opens.",
-                           actionTitle: "Review…",
-                           urgent: true) {
-                showingFreshStart = true
-            }
-        case .freshStartRequest:
-            // The request's only delivery: no push, no banner (it rides any refresh).
-            HomeNoticeCard(systemImage: "sparkles",
-                           title: "\(model.partnerName) asked for a fresh start",
-                           message: "Clearing the history you share — moments, status history and read receipts — from both iPhones. Your link, your statuses and the heart stay. Nothing changes unless you agree.",
-                           actionTitle: "Review…",
-                           dismissTitle: "Not now",
-                           onDismiss: { model.dismissFreshStartRequest() }) {
-                showingFreshStart = true
-            }
-        case .notificationsOff(let problem):
-            HomeNoticeCard(systemImage: problem == .focusBlocked ? "moon" : "bell.slash",
-                           title: notificationsTitle(problem),
-                           message: notificationsMessage(problem),
-                           actionTitle: "Open Settings",
-                           dismissTitle: "Not now",
-                           onDismiss: { model.dismissNotificationsNotice() }) {
-                if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
-                    UIApplication.shared.open(url)
-                }
+            model.unlinkRequested = true
+            showingSettings = true
+        case .extraMembers:
+            showingSettings = true
+        case .iCloud:
+            Task { await model.refresh() }
+        case .freshStartStuck, .freshStartRequest:
+            showingFreshStart = true
+        case .notificationsOff:
+            if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
+                UIApplication.shared.open(url)
             }
         case .closeLink:
-            HomeNoticeCard(systemImage: "lock.open",
-                           title: "\(model.partnerName)'s in",
-                           message: "Your invite link still lets anyone who has it join. Close it while you're together: \(model.partnerName) taps the link once more to get back in.",
-                           actionTitle: "Close the link…",
-                           dismissTitle: "Don't show again",
-                           busy: model.isChangingInviteLink,
-                           onDismiss: { model.dismissCloseLinkPrompt() }) {
-                confirmingCloseLink = true
-            }
+            confirmingCloseLink = true
         case .widgetTip:
-            HomeNoticeCard(systemImage: "lock.iphone",
-                           title: "Put \(model.partnerName) on your Lock Screen",
-                           message: "Touch and hold your Lock Screen, tap Customize, then the Lock Screen, and add \(AppConfig.appName) to the widget row: their status, and the heart that sends a nudge, without unlocking.",
-                           actionTitle: "Got it") {
-                model.dismissWidgetTip()
-            }
+            model.dismissWidgetTip()
         }
     }
 
-    private func notificationsTitle(_ problem: NotificationsNotice) -> LocalizedStringKey {
-        switch problem {
-        case .off: "Notifications are off"
-        case .bannersOff: "Banners are off"
-        case .focusBlocked: "Hearts wait out your Focus"
-        }
-    }
-
-    private func notificationsMessage(_ problem: NotificationsNotice) -> LocalizedStringKey {
-        switch problem {
-        case .off: "You won't know when \(model.partnerName) sends a heart, a status or a moment until you open the app. Turn notifications on for \(AppConfig.appName) in Settings."
-        case .bannersOff: "\(model.partnerName)'s hearts and moments arrive silently in Notification Center. Turn on banners for \(AppConfig.appName) in Settings."
-        case .focusBlocked: "Time Sensitive notifications are off for \(AppConfig.appName), so a heart from \(model.partnerName) waits until a Focus ends."
+    private func dismiss(_ notice: HomeNotice) {
+        switch notice {
+        case .partnerLeft: model.dismissPartnerLeftNotice()
+        case .freshStartRequest: model.dismissFreshStartRequest()
+        case .notificationsOff: model.dismissNotificationsNotice()
+        case .closeLink: model.dismissCloseLinkPrompt()
+        case .extraMembers, .iCloud, .freshStartStuck, .widgetTip: break
         }
     }
 
@@ -500,256 +359,14 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - Partner status
-
-    /// Tapping the card opens the status history.
-    private var partnerCard: some View {
-        Button {
-            showingStatusHistory = true
-        } label: {
-            partnerCardContent
-        }
-        .buttonStyle(.plain)
-        .overlay {
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .strokeBorder(Theme.accent, lineWidth: 2)
-                .keyframeAnimator(initialValue: 0.0, trigger: statusArrivals + heartArrivals) { glow, opacity in
-                    glow.opacity(opacity)
-                } keyframes: { _ in
-                    KeyframeTrack {
-                        LinearKeyframe(0.7, duration: 0.15)
-                        LinearKeyframe(0, duration: 0.9)
-                    }
-                }
-                .allowsHitTesting(false)
-        }
-        .overlay(alignment: .top) {
-            if !reduceMotion {
-                Image(systemName: "heart.fill")
-                    .font(.system(size: 26))
-                    .foregroundStyle(Theme.accent)
-                    .keyframeAnimator(initialValue: FloatingHeart(), trigger: heartArrivals) { heart, value in
-                        heart.opacity(value.opacity).offset(y: value.rise).scaleEffect(value.scale)
-                    } keyframes: { _ in
-                        KeyframeTrack(\.opacity) {
-                            LinearKeyframe(1, duration: 0.15)
-                            LinearKeyframe(1, duration: 0.45)
-                            LinearKeyframe(0, duration: 0.4)
-                        }
-                        KeyframeTrack(\.rise) {
-                            CubicKeyframe(-48, duration: 1.0)
-                        }
-                        KeyframeTrack(\.scale) {
-                            SpringKeyframe(1.2, duration: 0.3)
-                            CubicKeyframe(0.9, duration: 0.7)
-                        }
-                    }
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-        }
-        .accessibilityLabel(partnerSummary)
-        .accessibilityHint("Shows status history")
-        .contextMenu { moderationActions }
-        // Guideline 1.2: reachable under VoiceOver and Voice Control, not only by long-press.
-        .accessibilityActions { moderationActions }
-        .confirmationDialog("Report this status?",
-                            isPresented: $confirmingStatusReport,
-                            titleVisibility: .visible) {
-            Button("Report", role: .destructive) { model.reportPartnerStatus() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Its text is hidden on this iPhone straight away, and the details go to us by email. We act on reports within 24 hours.")
-        }
-    }
-
-    @ViewBuilder
-    private var moderationActions: some View {
-        if model.snapshot.theirs != nil, !model.isPartnerStatusReported {
-            Button(role: .destructive) {
-                confirmingStatusReport = true
-            } label: {
-                Label("Report this status…", systemImage: "flag")
-            }
-        }
-        if partnerMessageIsFiltered, !model.partnerStatusRevealed, !model.isPartnerStatusReported {
-            Button {
-                model.revealPartnerStatus()
-            } label: {
-                Label("Show hidden text", systemImage: "eye")
-            }
-        }
-    }
-
-    private var partnerMessageIsFiltered: Bool {
-        guard let theirs = model.snapshot.theirs else { return false }
-        return ContentFilter.hides(theirs.message)
-    }
-
-    /// The partner's message as shown: reported → says so; filtered → the
-    /// placeholder until revealed; otherwise the words.
-    private var partnerMessage: (text: String, muted: Bool) {
-        guard let theirs = model.snapshot.theirs else { return ("", true) }
-        if model.isPartnerStatusReported { return (String(localized: "Reported"), true) }
-        if partnerMessageIsFiltered && !model.partnerStatusRevealed {
-            return (ContentFilter.hiddenPlaceholder, true)
-        }
-        // Emoji-only is a status, not a missing one: the emoji stands alone.
-        return (theirs.message, false)
-    }
-
-    /// Their last heart, while it's under a day old — the banner is swept when
-    /// the app opens, so otherwise nothing in the app would say it came.
-    private var partnerHeartAt: Date? {
-        guard let at = model.snapshot.theirs?.lastNudgeAt, Date().timeIntervalSince(at) < 24 * 60 * 60 else { return nil }
-        // A clock ahead of ours never reads "in 3 hours".
-        return min(at, Date())
-    }
-
-    /// VoiceOver's reading of the partner card: name, emoji, message, age.
-    private var partnerSummary: String {
-        guard let theirs = model.snapshot.theirs else {
-            return String(localized: "\(model.partnerName): waiting for their first status")
-        }
-        let when = theirs.wordsAt.relativeWording()
-        // Same as the card: a reported status reads 💭 here too.
-        let emoji = model.isPartnerStatusReported ? "💭" : theirs.emoji
-        let words = partnerMessage.text.isEmpty ? "" : " \(partnerMessage.text)"
-        var summary = "\(model.partnerName): \(emoji)\(words), \(when)"
-        if let heartAt = partnerHeartAt {
-            summary += String(localized: ". Thinking of you, \(heartAt.relativeWording())")
-        }
-        return summary
-    }
-
-    private var partnerCardContent: some View {
-        HStack(spacing: 14) {
-            if let theirs = model.snapshot.theirs {
-                // A reported status loses its emoji too — a custom emoji can be
-                // the offence — matching the widget and the banner.
-                Text(model.isPartnerStatusReported ? "💭" : theirs.emoji)
-                    .font(.system(size: partnerMessage.text.isEmpty ? 56 : 46))
-                    .contentTransition(.opacity)
-                    .animation(.smooth, value: theirs.emoji)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(model.partnerName.uppercased())
-                        .font(Theme.rounded(11, .semibold))
-                        .tracking(1.2)
-                        .foregroundStyle(Theme.mutedText)
-                    if !partnerMessage.text.isEmpty {
-                        Text(partnerMessage.text)
-                            .font(Theme.rounded(20, .semibold))
-                            .lineLimit(2)
-                            // Wrap within the proposed width rather than reporting a
-                            // single-line ideal — see the containerRelativeFrame note.
-                            .fixedSize(horizontal: false, vertical: true)
-                            .foregroundStyle(partnerMessage.muted ? Theme.mutedText : .primary)
-                            .contentTransition(.opacity)
-                            .animation(.smooth, value: partnerMessage.text)
-                    }
-                    RelativeTime(theirs.wordsAt)
-                        .font(Theme.rounded(12))
-                        .foregroundStyle(Theme.mutedText)
-                    if let heartAt = partnerHeartAt {
-                        RelativeTime(heartAt) { when in
-                            Label("thinking of you · \(when)", systemImage: "heart.fill")
-                        }
-                        .font(Theme.rounded(13, .semibold))
-                        .foregroundStyle(Theme.accentText)
-                        .symbolEffect(.bounce, value: reduceMotion ? 0 : heartArrivals)
-                        .padding(.top, 3)
-                    }
-                }
-            } else {
-                Text("💭").font(.system(size: 46)).opacity(0.4)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(model.partnerName.uppercased())
-                        .font(Theme.rounded(11, .semibold))
-                        .tracking(1.2)
-                        .foregroundStyle(.secondary)
-                    (model.partnerHasLeft ? Text("Left your shared space") : Text("Waiting for their first status"))
-                        .font(Theme.rounded(16, .medium))
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Spacer(minLength: 0)
-
-            Image(systemName: "clock.arrow.circlepath")
-                .font(Theme.rounded(13, .semibold))
-                .foregroundStyle(.tertiary)
-        }
-        .card(padding: 16)
-    }
-
-    // MARK: - Latest moment
-
-    private func momentCard(_ moment: Moment) -> some View {
-        let unseen = model.unseenVisualMoments.count
-
-        return Button {
-            carouselQueue = model.carouselMoments
-        } label: {
-            VStack(spacing: 0) {
-                SquareFill {
-                    if let image = MomentStore.shared.thumbnail(for: moment.id) {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFill()
-                    } else {
-                        Rectangle()
-                            .fill(Color.primary.opacity(0.06))
-                            .overlay(Image(systemName: "photo").foregroundStyle(.secondary))
-                    }
-                }
-                .clipped()
-
-                HStack(spacing: 8) {
-                    Image(systemName: moment.symbolName)
-                        .font(Theme.rounded(12))
-                        .foregroundStyle(.secondary)
-                    Text(momentLabel(moment))
-                        .font(Theme.rounded(15, .medium))
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                    if unseen > 0 {
-                        Text(unseen == 1 ? "new" : "\(unseen) new")
-                            .font(Theme.rounded(11, .semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(Theme.warmDeep, in: Capsule())
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-            }
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 26, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.4), lineWidth: 1)
-            )
-            .shadow(color: .black.opacity(0.10), radius: 20, y: 10)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(unseen > 1
-                            ? String(localized: "\(momentLabel(moment)). \(unseen) new")
-                            : unseen == 1 ? String(localized: "\(momentLabel(moment)). New") : momentLabel(moment))
-        .accessibilityHint("Opens it")
-        // On the whole card, not the picture: zooming only the square would be
-        // cut off by the card's rounded clip.
-        .pinchToZoom()
-    }
-
     // MARK: - Latest voice memo
 
     /// Plays in place; playing marks it heard, which clears the widget's badge.
     private func voiceMemoRow(_ memo: Moment) -> some View {
         VoiceMemoRow(moment: memo,
                      audioURL: MomentStore.shared.mediaURL(for: memo),
-                     player: voicePlayer) {
+                     player: voicePlayer,
+                     filterEnabled: model.contentFilterEnabled) {
             if let url = MomentStore.shared.mediaURL(for: memo),
                voicePlayer.isPlaying(url) {
                 voicePlayer.pause()
@@ -772,386 +389,184 @@ struct HomeView: View {
             model.markSeen(memo)
         }
     }
-
-    private func momentLabel(_ moment: Moment) -> String {
-        // A filtered caption reads as no caption; the gallery can reveal it.
-        guard let caption = moment.displayCaption else {
-            return moment.fromMe
-                ? String(localized: "You sent a \(moment.noun)")
-                : String(localized: "Sent you a \(moment.noun)")
-        }
-        return moment.fromMe ? String(localized: "You: \(caption)") : caption
-    }
-
-    // MARK: - Mine
-
-    private var myStatusRow: some View {
-        Button {
-            showingPicker = true
-        } label: {
-            HStack(spacing: 12) {
-                Text(model.snapshot.mine?.emoji ?? "➕")
-                    .font(.system(size: 26))
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(myStatusText)
-                        .font(myStatusHasWords ? Theme.rounded(17, .semibold) : Theme.rounded(16))
-                        // `Color.primary`: the hierarchical style goes vibrant on the material.
-                        .foregroundStyle(myStatusHasWords ? Color.primary : Theme.mutedText)
-                        .lineLimit(1)
-                    if myStatusUnsent {
-                        // Retried on every refresh; the footer offers it now.
-                        Label("Not sent yet · will retry", systemImage: "icloud.and.arrow.up")
-                            .font(Theme.rounded(12, .semibold))
-                            .foregroundStyle(Theme.warmText)
-                    } else if let seenAt = model.myStatusSeenAt {
-                        // The status read receipt — read receipts on, both sides.
-                        RelativeTime(seenAt) { when in
-                            Label("Seen \(when)", systemImage: "eye.fill")
-                        }
-                        .font(Theme.rounded(12))
-                        .foregroundStyle(Theme.mutedText)
-                    }
-                }
-
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(Theme.rounded(13, .semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 12)
-            // The cards' opaque wash under the material: on material alone the
-            // backdrop's crimson corner bled through under the text.
-            .background {
-                Capsule().fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.72))
-                Capsule().fill(.ultraThinMaterial)
-            }
-            .overlay(Capsule().strokeBorder(Color.white.opacity(0.35), lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(myStatusSummary)
-        .accessibilityHint("Changes your status")
-    }
-
-    /// An emoji-only status is a status: the emoji stands beside an invitation
-    /// to add words, rather than "Set your status" or a blank line.
-    private var myStatusText: String {
-        guard let mine = model.snapshot.mine else { return String(localized: "Set your status") }
-        if !mine.message.isEmpty { return mine.message }
-        return mine.emoji.isEmpty ? String(localized: "Set your status") : String(localized: "Tap to add words")
-    }
-
-    private var myStatusHasWords: Bool { model.snapshot.mine?.message.isEmpty == false }
-
-    /// Set while offline (or a publish failed) and not being sent right now.
-    private var myStatusUnsent: Bool { model.myStatusWaitingToSend }
-
-    private var myStatusSummary: String {
-        guard let mine = model.snapshot.mine, !mine.message.isEmpty || !mine.emoji.isEmpty else {
-            return String(localized: "Set your status")
-        }
-        var summary = String(localized: "Your status: \(mine.emoji) \(mine.message)")
-        if myStatusUnsent {
-            summary += String(localized: ". Not sent yet, will retry")
-        } else if let seenAt = model.myStatusSeenAt {
-            summary += String(localized: ". Seen \(seenAt.relativeWording())")
-        }
-        return summary
-    }
-
-    /// Says whose storage is full when that's why sends are stuck — only the owner can fix it.
-    private var pendingLabel: String {
-        let count = model.pendingSendCount
-        if count == 1, myStatusUnsent, model.storageFullAt == nil {
-            return String(localized: "Your status is waiting to send · tap to retry")
-        }
-        guard model.storageFullAt != nil else {
-            return count == 1
-                ? String(localized: "1 waiting to send · tap to retry")
-                : String(localized: "\(count) waiting to send · tap to retry")
-        }
-        return model.role == .participant
-            ? String(localized: "\(model.partnerName)'s iCloud is full · \(count) waiting · tap to retry")
-            : String(localized: "Your iCloud is full · \(count) waiting · tap to retry")
-    }
-
-    /// How fresh the screen is; the offline card up top carries what's queued.
-    @ViewBuilder
-    private var offlineLabel: some View {
-        if let synced = model.snapshot.lastSyncedAt {
-            RelativeTime(synced) { Text("Offline · synced \($0)") }
-        } else {
-            Text("Offline")
-        }
-    }
-
-    /// The bottom line: sync state, and — as a pill — a send just confirmed or
-    /// one still waiting, which taps to retry.
-    private var syncFooter: some View {
-        HStack(spacing: 6) {
-            if showsSent {
-                Label("Sent to \(model.partnerName)", systemImage: "checkmark")
-                    .modifier(FooterPill(tint: Theme.accentText))
-                    .transition(.opacity)
-            } else if model.isOffline {
-                // Ahead of the rest: offline, a refresh fails at once and readiness reads as a network error.
-                Image(systemName: "wifi.slash")
-                offlineLabel
-            } else if model.isRefreshing {
-                ProgressView().controlSize(.mini)
-                Text("Syncing…")
-            } else if model.readinessMessage != nil {
-                // The full story is in the notice at the top.
-                Image(systemName: "exclamationmark.icloud")
-                Text("iCloud needs attention")
-            } else if model.isRetryingUploads || model.isSendingNow {
-                ProgressView().controlSize(.mini)
-                Text("Sending…")
-            } else if model.pendingSendCount > 0 {
-                // Ahead of "Synced …", which would mislead while a send is
-                // still sitting on this device. Tapping retries now.
-                Button {
-                    Task { await model.retryPendingNow() }
-                } label: {
-                    Label(pendingLabel,
-                          systemImage: model.storageFullAt == nil ? "icloud.and.arrow.up" : "exclamationmark.icloud")
-                        .modifier(FooterPill(tint: Theme.warmText))
-                }
-                .buttonStyle(.plain)
-                .accessibilityHint("Retries the send now")
-            } else if let synced = model.snapshot.lastSyncedAt {
-                Image(systemName: "checkmark.icloud")
-                RelativeTime(synced) { Text("Synced \($0)") }
-            } else {
-                Image(systemName: "icloud.slash")
-                Text("Not synced yet")
-            }
-        }
-        .font(Theme.rounded(12))
-        .foregroundStyle(Theme.mutedText)
-        .padding(.top, 4)
-        // Combined into one line for VoiceOver, except while the retry
-        // button is showing — combining would swallow its action.
-        .accessibilityElement(children: model.pendingSendCount > 0 && !model.isRetryingUploads
-                              && !model.isSendingNow && !model.isOffline
-                              ? .contain : .combine)
-    }
 }
 
-/// Home's offline notice: everything on this iPhone still works, and what's
-/// queued goes when the connection does.
-private struct OfflineBanner: View {
-    let pendingCount: Int
-    let mobileDataDenied: Bool
-    /// Reconnecting won't send it: the owner's iCloud has no room.
-    let storageFull: Bool
-
-    private var title: String {
-        mobileDataDenied ? String(localized: "Mobile data is off for Red String") : String(localized: "You're offline")
-    }
-
-    private var detail: String {
-        switch pendingCount {
-        case 1... where storageFull: String(localized: "What you've sent is saved here, waiting for iCloud space.")
-        case 0 where mobileDataDenied: String(localized: "Turn it on in Settings, or join Wi-Fi. You can still look back and send.")
-        case 0: String(localized: "You can still look back and send — it goes when you reconnect.")
-        case 1: String(localized: "1 thing will send when you're back online.")
-        default: String(localized: "\(pendingCount) things will send when you're back online.")
-        }
-    }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "wifi.slash")
-                .font(Theme.rounded(17, .semibold))
-                .foregroundStyle(Theme.warmText)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(Theme.rounded(15, .semibold))
-                Text(detail)
-                    .font(Theme.rounded(13))
-                    .foregroundStyle(Theme.mutedText)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
-            .strokeBorder(Color.white.opacity(0.35), lineWidth: 1))
-        .accessibilityElement(children: .combine)
-    }
-}
-
-/// The footer's send state, as a pill rather than a line of small print.
-private struct FooterPill: ViewModifier {
-    let tint: Color
+/// Home's sheets, apart from its body so neither is one long expression.
+private struct HomeSheets: ViewModifier {
+    @Environment(AppModel.self) private var model
+    @Binding var showingPicker: Bool
+    @Binding var showingSettings: Bool
+    @Binding var showingComposer: Bool
+    @Binding var showingVoiceComposer: Bool
+    @Binding var showingLibrary: Bool
+    @Binding var showingStatusHistory: Bool
+    @Binding var showingAnniversary: Bool
+    @Binding var showingFreshStart: Bool
+    @Binding var carouselQueue: [Moment]
+    @Binding var carouselStart: Moment?
 
     func body(content: Content) -> some View {
         content
-            .font(Theme.rounded(13, .semibold))
-            .foregroundStyle(tint)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(.ultraThinMaterial, in: Capsule())
-            .frame(minHeight: 44)
-            .contentShape(Rectangle())
-    }
-}
-
-/// The partner card's rising heart, one keyframe track per property.
-private struct FloatingHeart {
-    var opacity = 0.0
-    var rise = 0.0
-    var scale = 0.6
-}
-
-/// One of Home's one-at-a-time notices (see `HomeView.activeNotice`).
-private struct HomeNoticeCard: View {
-    let systemImage: String
-    let title: LocalizedStringKey
-    let message: LocalizedStringKey
-    let actionTitle: LocalizedStringKey
-    var dismissTitle: LocalizedStringKey?
-    /// Orange for a warning, crimson otherwise — each in its AA-safe shade.
-    var urgent = false
-    /// The action is running (the close handshake takes seconds): not tappable again.
-    var busy = false
-    var onDismiss: () -> Void = {}
-    let action: () -> Void
-
-    private var tint: Color { urgent ? Theme.warmText : Theme.accentText }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(title, systemImage: systemImage)
-                .font(Theme.rounded(16, .semibold))
-                .foregroundStyle(tint)
-                .accessibilityAddTraits(.isHeader)
-            // A plain colour, not the hierarchical `.primary`, which turns vibrant
-            // (and under 4.5:1) on the card's material.
-            Text(message)
-                .font(Theme.rounded(14))
-                .foregroundStyle(Color.primary)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("home.notice.message")
-            HStack(spacing: 20) {
-                Button(action: action) {
-                    HStack(spacing: 6) {
-                        Text(actionTitle)
-                        if busy { ProgressView().controlSize(.small) }
+            .sheet(isPresented: $showingPicker) {
+                MoodPickerView(initialEmoji: model.snapshot.mine?.emoji ?? "",
+                               currentMessage: model.snapshot.mine?.message ?? "",
+                               recent: model.recentOwnStatuses()) { emoji, message, isCelebration in
+                    Task {
+                        await model.setStatus(emoji: emoji,
+                                              message: message,
+                                              isCelebration: isCelebration)
                     }
-                    .frame(minWidth: 44, minHeight: 44)
-                    .contentShape(Rectangle())
                 }
-                .font(Theme.rounded(15, .semibold))
-                .foregroundStyle(tint)
-                .disabled(busy)
-                if let dismissTitle {
-                    Button(action: onDismiss) {
-                        Text(dismissTitle)
-                            .frame(minWidth: 44, minHeight: 44)
-                            .contentShape(Rectangle())
+                .presentsModelErrors()
+            }
+            // Hosts its own error alert, at its Form.
+            .sheet(isPresented: $showingSettings) {
+                SettingsView()
+            }
+            .sheet(isPresented: $showingComposer) {
+                MomentComposerView { image, kind, caption in
+                    Task { await model.sendMoment(image: image, kind: kind, caption: caption) }
+                }
+                .presentsModelErrors()
+            }
+            .sheet(isPresented: $showingVoiceComposer) {
+                VoiceMemoComposerView { url, duration, waveform, caption in
+                    Task {
+                        await model.sendVoiceMemo(fileURL: url,
+                                                  duration: duration,
+                                                  waveform: waveform,
+                                                  caption: caption)
                     }
-                    .font(Theme.rounded(15))
-                    .foregroundStyle(Theme.mutedText)
-                    .disabled(busy)
+                }
+                .presentsModelErrors()
+            }
+            .sheet(isPresented: Binding(get: { !carouselQueue.isEmpty },
+                                        set: { if !$0 { carouselQueue = []; carouselStart = nil } })) {
+                if let first = carouselStart ?? carouselQueue.first {
+                    MomentGalleryView(moments: carouselQueue, startAt: first)
+                        .presentsModelErrors()
                 }
             }
-            .buttonStyle(.plain)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .card(padding: 16)
-        .accessibilityElement(children: .contain)
-    }
-}
-
-/// Owns its countdown so ticking is scoped to this button and no timer runs
-/// outside the cooldown after a nudge (`AppConfig.nudgeCooldown`). A failed
-/// send says so on the button for `AppConfig.nudgeFailureNotice`, like the
-/// lock-screen heart — no alert.
-private struct NudgeButton: View {
-    let lastSentAt: Date?
-    let lastFailedAt: Date?
-    /// On its way: shown, and not tappable again, until the call returns.
-    let sending: Bool
-    let action: () async -> Void
-
-    @State private var remaining: TimeInterval = 0
-    @State private var failed = false
-
-    private var ready: Bool { remaining == 0 }
-
-    var body: some View {
-        Button {
-            Task { await action() }
-        } label: {
-            if sending {
-                HStack(spacing: 8) {
-                    ProgressView().tint(Theme.accentText)
-                    Text("Sending…")
-                }
-            } else if !ready {
-                Label("Sent · \(Int(remaining))s", systemImage: "checkmark")
-            } else if failed {
-                Label("Didn't send · tap to retry", systemImage: "heart.slash.fill")
-            } else {
-                Label("Thinking of you", systemImage: "heart.fill")
+            .sheet(isPresented: $showingLibrary) {
+                MomentLibraryView()
+                    .presentsModelErrors()
             }
-        }
-        // Accent, not warm: the heart wears the red string's crimson. In flight
-        // and sent it steps back to the secondary look, which is AA in both modes.
-        .buttonStyle(NudgeButtonStyle(calm: sending || !ready,
-                                      tint: failed ? Theme.warmDeep : Theme.accent))
-        .disabled(sending || !ready)
-        .accessibilityLabel(sending ? "Sending a nudge" : !ready ? "Nudge sent"
-                            : failed ? "Nudge didn't send. Send again" : "Send a nudge")
-        .animation(.smooth, value: ready)
-        .animation(.smooth, value: failed)
-        .animation(.smooth, value: sending)
-        .task(id: lastSentAt) { await countDown() }
-        .task(id: lastFailedAt) { await watchFailure() }
-    }
-
-    private func countDown() async {
-        while !Task.isCancelled {
-            let elapsed = Date().timeIntervalSince(lastSentAt ?? .distantPast)
-            remaining = max(0, AppConfig.nudgeCooldown - elapsed)
-            guard remaining > 0 else { return }
-            try? await Task.sleep(for: .seconds(1))
-        }
-    }
-
-    private func watchFailure() async {
-        let left = lastFailedAt.map { AppConfig.nudgeFailureNotice - Date().timeIntervalSince($0) } ?? 0
-        failed = left > 0
-        guard left > 0 else { return }
-        try? await Task.sleep(for: .seconds(left))
-        if !Task.isCancelled { failed = false }
+            .sheet(isPresented: $showingStatusHistory) {
+                StatusHistoryView()
+                    .presentsModelErrors()
+            }
+            .sheet(isPresented: $showingAnniversary) {
+                EasterEggView()
+                    .presentsModelErrors()
+            }
+            .sheet(isPresented: $showingFreshStart) {
+                NavigationStack {
+                    FreshStartView()
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { showingFreshStart = false }
+                            }
+                        }
+                }
+                .presentsModelErrors()
+            }
     }
 }
 
-/// The heart's look: the primary crimson while it can be tapped, the
-/// secondary tint (crimson text, AA) while it's sending or cooling down.
-private struct NudgeButtonStyle: ButtonStyle {
-    let calm: Bool
-    let tint: Color
+/// Routes, the status read receipt, arrivals and announcements: everything
+/// Home does on a change rather than draws.
+private struct HomeLifecycle: ViewModifier {
+    @Environment(AppModel.self) private var model
+    @Environment(\.scenePhase) private var scenePhase
+    let anySheetShowing: Bool
+    let homeInFront: Bool
+    let unseenCount: Int
+    let voicePlayer: VoicePlayer
+    @Binding var heartArrivals: Int
+    @Binding var statusArrivals: Int
+    @Binding var momentArrivals: Int
+    @Binding var showsSent: Bool
+    let sentPillSeconds: TimeInterval
+    let consumePendingRoute: () -> Void
 
-    @ViewBuilder
-    func makeBody(configuration: Configuration) -> some View {
-        if calm {
-            // The primary's metrics, so the button doesn't change size between states.
-            configuration.label
-                .font(Theme.rounded(17, .semibold))
-                .foregroundStyle(Theme.accentText)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 15)
-                .background(Theme.accent.opacity(0.12), in: Capsule())
-        } else {
-            PrimaryButtonStyle(tint: tint).makeBody(configuration: configuration)
-        }
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: model.pendingRoute) { _, route in
+                if route != nil { consumePendingRoute() }
+            }
+            // `onChange` misses a route latched while this view wasn't mounted, so
+            // consume any pending one on mount too.
+            .onAppear { consumePendingRoute() }
+            // A deep link that arrived while another sheet was up stays latched;
+            // present it once that sheet closes instead of silently dropping it.
+            .onChange(of: anySheetShowing) { _, showing in
+                // Root-level presentations (the anniversary prompt) wait on this.
+                model.homeSheetShowing = showing
+                guard !showing else {
+                    // Otherwise the memo plays on under the sheet with no control in sight;
+                    // paused, not stopped, so it keeps its place.
+                    voicePlayer.pause()
+                    return
+                }
+                consumePendingRoute()
+                // A status that landed under a sheet is seen once it's uncovered —
+                // unless the queued composer just covered it again.
+                model.homeSheetShowing = anySheetShowing
+                model.markPartnerStatusSeen()
+            }
+            .onChange(of: model.rootSheetShowing) { _, showing in
+                if showing {
+                    voicePlayer.pause()
+                } else {
+                    model.markPartnerStatusSeen()
+                    consumePendingRoute()
+                }
+            }
+            // Arrivals while Home is in front: the card updates in place under the
+            // system banner, with a soft haptic.
+            .onChange(of: model.snapshot.theirs?.lastNudgeAt) { old, new in
+                if let new, new > old ?? .distantPast, homeInFront { heartArrivals += 1 }
+            }
+            .onChange(of: model.snapshot.theirs?.wordsAt) { old, new in
+                if let new, new > old ?? .distantPast, homeInFront { statusArrivals += 1 }
+            }
+            .onChange(of: unseenCount) { old, new in
+                if new > old, homeInFront { momentArrivals += 1 }
+            }
+            .sensoryFeedback(.impact(flexibility: .soft), trigger: heartArrivals)
+            .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.6), trigger: statusArrivals)
+            .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.6), trigger: momentArrivals)
+            .task(id: model.sendConfirmedAt) {
+                guard let at = model.sendConfirmedAt, Date().timeIntervalSince(at) < sentPillSeconds else { return }
+                withAnimation(.smooth) { showsSent = true }
+                AccessibilityNotification.Announcement(String(localized: "Sent to \(model.partnerName)")).post()
+                try? await Task.sleep(for: .seconds(sentPillSeconds))
+                withAnimation(.smooth) { showsSent = false }
+            }
+            // Torn down with a sheet up (an unlink, a block) never fires the change
+            // above; a flag left true would hold the anniversary prompt back for good.
+            .onAppear { model.homeSheetShowing = anySheetShowing }
+            .onDisappear { model.homeSheetShowing = false }
+            // The status read receipt: their status counts as seen whenever it is
+            // on this screen in the foreground — on arrival, and on every return.
+            .onAppear { model.markPartnerStatusSeen() }
+            .onChange(of: model.snapshot.theirs?.updatedAt) { _, _ in model.markPartnerStatusSeen() }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                model.markPartnerStatusSeen()
+                Task { await model.checkNotificationSettings() }
+            }
+            .task { await model.checkNotificationSettings() }
+            // The card and the footer change silently; VoiceOver hears both.
+            .onChange(of: model.isOffline) { _, offline in
+                guard offline else { return }
+                AccessibilityNotification.Announcement(String(localized: "You're offline. What you send waits on this iPhone.")).post()
+            }
+            .onChange(of: model.freshStartPhase) { old, new in
+                guard case .clearing = old else { return }
+                if case .clearing = new { return }
+                AccessibilityNotification.Announcement(String(localized: "Your shared history is cleared on this iPhone.")).post()
+            }
     }
 }
 
