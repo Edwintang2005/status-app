@@ -134,12 +134,22 @@ final class CameraPlanTests: XCTestCase {
     }
 
     func testTiltReadsGravityWithHysteresis() {
-        XCTAssertFalse(CameraTilt.isLandscape(x: 0, y: -1, z: 0, was: true), "upright")
-        XCTAssertTrue(CameraTilt.isLandscape(x: -1, y: 0, z: 0, was: false), "sideways, either way round")
-        XCTAssertTrue(CameraTilt.isLandscape(x: 0.95, y: 0.1, z: 0.2, was: false))
-        XCTAssertTrue(CameraTilt.isLandscape(x: 0.6, y: 0.55, z: 0.3, was: true), "near 45° keeps the last")
-        XCTAssertFalse(CameraTilt.isLandscape(x: 0.6, y: 0.55, z: 0.3, was: false))
-        XCTAssertTrue(CameraTilt.isLandscape(x: 0, y: -0.1, z: -0.99, was: true), "flat keeps the last")
+        XCTAssertEqual(CameraTilt.reading(x: 0, y: -1, z: 0, was: .topLeft), .upright)
+        XCTAssertEqual(CameraTilt.reading(x: 0, y: 1, z: 0, was: .upright), .upsideDown)
+        XCTAssertEqual(CameraTilt.reading(x: -1, y: 0, z: 0, was: .upright), .topLeft)
+        XCTAssertEqual(CameraTilt.reading(x: 0.95, y: 0.1, z: 0.2, was: .upright), .topRight)
+        XCTAssertEqual(CameraTilt.reading(x: 0.6, y: -0.55, z: 0.3, was: .topRight), .topRight, "near 45° keeps the last")
+        XCTAssertEqual(CameraTilt.reading(x: 0.6, y: -0.55, z: 0.3, was: .upright), .upright)
+        XCTAssertEqual(CameraTilt.reading(x: 0, y: -0.1, z: -0.99, was: .topLeft), .topLeft, "flat keeps the last")
+    }
+
+    func testTiltGivesTheLevelCaptureAngle() {
+        XCTAssertEqual(CameraTilt.upright.captureAngle, 90)
+        XCTAssertEqual(CameraTilt.topLeft.captureAngle, 0, "the sensor's native frame")
+        XCTAssertEqual(CameraTilt.topRight.captureAngle, 180)
+        XCTAssertEqual(CameraTilt.upsideDown.captureAngle, 270)
+        XCTAssertTrue(CameraTilt.topRight.isLandscape)
+        XCTAssertFalse(CameraTilt.upsideDown.isLandscape)
     }
 
     func testLowLightNeedsShutterAndGainSpent() {

@@ -2,13 +2,13 @@ import SwiftUI
 
 /// Home's one-at-a-time notices (`HomeView.activeNotice` picks the most urgent).
 enum HomeNotice: Equatable {
-    case partnerLeft, extraMembers(Int), iCloud(String), freshStartStuck, freshStartRequest
+    case partnerLeft, extraMembers(Int), iCloud(String), freshStartClearing, freshStartStuck, freshStartRequest
     case notificationsOff(NotificationsNotice), closeLink, widgetTip
 
     /// Urgent ones sit above the partner card; the rest below the send row.
     var urgent: Bool {
         switch self {
-        case .partnerLeft, .extraMembers, .iCloud, .freshStartStuck: true
+        case .partnerLeft, .extraMembers, .iCloud, .freshStartClearing, .freshStartStuck: true
         case .freshStartRequest, .notificationsOff, .closeLink, .widgetTip: false
         }
     }
@@ -58,6 +58,13 @@ struct HomeNoticeView: View, Equatable {
                            actionTitle: "Check again",
                            urgent: true,
                            action: onAction)
+        case .freshStartClearing:
+            // The deletions run under a background task that buys only seconds.
+            HomeNoticeCard(systemImage: "arrow.triangle.2.circlepath.icloud",
+                           title: "Clearing your shared history",
+                           message: "Keep \(AppConfig.appName) open until this finishes. If you leave, it carries on the next time the app opens.",
+                           urgent: true,
+                           inProgress: true)
         case .freshStartStuck:
             HomeNoticeCard(systemImage: "exclamationmark.arrow.circlepath",
                            title: "Your fresh start hasn't finished",
@@ -122,23 +129,31 @@ private struct HomeNoticeCard: View {
     let systemImage: String
     let title: LocalizedStringKey
     let message: LocalizedStringKey
-    let actionTitle: LocalizedStringKey
+    var actionTitle: LocalizedStringKey?
     var dismissTitle: LocalizedStringKey?
     /// Orange for a warning, crimson otherwise — each in its AA-safe shade.
     var urgent = false
     /// The action is running (the close handshake takes seconds): not tappable again.
     var busy = false
+    /// Work is under way that the card only reports: a spinner, no buttons.
+    var inProgress = false
     var onDismiss: () -> Void = {}
-    let action: () -> Void
+    var action: () -> Void = {}
 
     private var tint: Color { urgent ? Theme.warmText : Theme.accentText }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label(title, systemImage: systemImage)
-                .font(Theme.rounded(16, .semibold))
-                .foregroundStyle(tint)
-                .accessibilityAddTraits(.isHeader)
+            HStack(spacing: 8) {
+                Label(title, systemImage: systemImage)
+                    .font(Theme.rounded(16, .semibold))
+                    .foregroundStyle(tint)
+                    .accessibilityAddTraits(.isHeader)
+                if inProgress {
+                    Spacer(minLength: 0)
+                    ProgressView()
+                }
+            }
             // A plain colour, not the hierarchical `.primary`, which turns vibrant
             // (and under 4.5:1) on the card's material.
             Text(message)
@@ -147,17 +162,19 @@ private struct HomeNoticeCard: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("home.notice.message")
             HStack(spacing: 20) {
-                Button(action: action) {
-                    HStack(spacing: 6) {
-                        Text(actionTitle)
-                        if busy { ProgressView().controlSize(.small) }
+                if let actionTitle {
+                    Button(action: action) {
+                        HStack(spacing: 6) {
+                            Text(actionTitle)
+                            if busy { ProgressView().controlSize(.small) }
+                        }
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
                     }
-                    .frame(minWidth: 44, minHeight: 44)
-                    .contentShape(Rectangle())
+                    .font(Theme.rounded(15, .semibold))
+                    .foregroundStyle(tint)
+                    .disabled(busy)
                 }
-                .font(Theme.rounded(15, .semibold))
-                .foregroundStyle(tint)
-                .disabled(busy)
                 if let dismissTitle {
                     Button(action: onDismiss) {
                         Text(dismissTitle)

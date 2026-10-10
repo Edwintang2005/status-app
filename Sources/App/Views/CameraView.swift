@@ -351,7 +351,7 @@ private struct DebugFormatLabel: View {
     var body: some View {
         #if DEBUG
         Text(verbatim: "\(model.formatSummary) · zoom \(String(format: "%.2f", model.zoom))"
-             + (model.isLandscape ? " · sideways" : " · upright"))
+             + " · \(model.tilt)")
             .font(.caption2.monospaced())
             .foregroundStyle(.white)
             .padding(4)

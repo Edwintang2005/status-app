@@ -103,6 +103,7 @@ struct HomeView: View {
             PartnerCard(partnerName: partnerName,
                         status: theirs?.moderation(reportedAt: model.hiddenPartnerStatusAt,
                                                    revealed: model.partnerStatusRevealed,
+                                                   sealed: model.snapshot.partnerStatusSealed,
                                                    filterEnabled: filterOn),
                         wordsAt: theirs?.wordsAt ?? .distantPast,
                         lastHeartAt: theirs?.lastNudgeAt,
@@ -240,6 +241,7 @@ struct HomeView: View {
         if let count = model.extraShareMembers { return .extraMembers(count) }
         // Offline the account check fails as a network error; the offline card covers it.
         if let problem = model.readinessMessage, !model.isOffline { return .iCloud(problem) }
+        if model.isClearingHistory { return .freshStartClearing }
         if model.freshStartNeedsAttention { return .freshStartStuck }
         if model.showsFreshStartRequest { return .freshStartRequest }
         if let problem = model.notificationsNotice { return .notificationsOff(problem) }
@@ -267,7 +269,7 @@ struct HomeView: View {
             showingSettings = true
         case .iCloud:
             Task { await model.refresh() }
-        case .freshStartStuck, .freshStartRequest:
+        case .freshStartClearing, .freshStartStuck, .freshStartRequest:
             showingFreshStart = true
         case .notificationsOff:
             if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
@@ -286,7 +288,7 @@ struct HomeView: View {
         case .freshStartRequest: model.dismissFreshStartRequest()
         case .notificationsOff: model.dismissNotificationsNotice()
         case .closeLink: model.dismissCloseLinkPrompt()
-        case .extraMembers, .iCloud, .freshStartStuck, .widgetTip: break
+        case .extraMembers, .iCloud, .freshStartClearing, .freshStartStuck, .widgetTip: break
         }
     }
 
@@ -410,11 +412,11 @@ private struct HomeSheets: ViewModifier {
             .sheet(isPresented: $showingPicker) {
                 MoodPickerView(initialEmoji: model.snapshot.mine?.emoji ?? "",
                                currentMessage: model.snapshot.mine?.message ?? "",
-                               recent: model.recentStatuses) { emoji, message, isCelebration in
+                               recent: model.recentStatuses) { emoji, message, celebration in
                     Task {
                         await model.setStatus(emoji: emoji,
                                               message: message,
-                                              isCelebration: isCelebration)
+                                              celebration: celebration)
                     }
                 }
                 .presentsModelErrors()
@@ -562,6 +564,13 @@ private struct HomeLifecycle: ViewModifier {
                 guard offline else { return }
                 AccessibilityNotification.Announcement(String(localized: "You're offline. What you send waits on this iPhone.")).post()
             }
+            // The clear only runs while the app is in front; a sleeping screen ends it.
+            .onChange(of: model.isClearingHistory, initial: true) { _, clearing in
+                UIApplication.shared.isIdleTimerDisabled = clearing
+                guard clearing else { return }
+                AccessibilityNotification.Announcement(String(localized: "Clearing your shared history. Keep \(AppConfig.appName) open until it finishes.")).post()
+            }
+            .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
             .onChange(of: model.freshStartPhase) { old, new in
                 guard case .clearing = old else { return }
                 if case .clearing = new { return }

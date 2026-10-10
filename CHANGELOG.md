@@ -34,6 +34,22 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 ## Shipped (October 2026)
 
+- **Celebration styles** — a celebration status now picks its animation
+  (`CelebrationStyle`, one new encrypted `Status` field, `celebrationStyle`:
+  **redeploy the schema**). Hearts (💖 *love you lots*), a trophy (🏆 *you did
+  it!*), a birthday cake whose candles are tapped out before the words appear
+  (🎂), a scratch-off reveal (🔮 *guess what* — the words typed are the news),
+  and holiday presets shown only in season (`SeasonalMoods`: 🎄 snow, 🎆
+  fireworks, 💝 hearts). Builds before this play confetti with the same words.
+  The reveal is sealed — widget, banner, Home, history and the read receipt
+  all wait (`Snapshot.partnerStatusSealed`, `ModeratedStatus.sealed`) — until
+  it's scratched open or put away. Still preset-only, by design; the words stay
+  editable. `REDSTRING_DEMO_CELEBRATION=<style>` plays one in demo mode.
+- **Gallery pinch** — a pinched photo now covers its caption, name and heart
+  button instead of sliding under them (`raisedWhilePinched()`: the photo's own
+  zIndex couldn't reach past its container).
+- **Fresh start: keep the app open** — while this phone clears, Home shows a
+  card saying so, the fresh start screen repeats it, and the screen stays awake.
 - **Custom moment camera** — `UIImagePickerController` replaced by an
   AVFoundation camera (`CameraEngine`/`CameraModel`/`CameraView`): 3 s / 10 s
   self-timer, flash (incl. front screen flash), lens buttons from the device's
@@ -47,7 +63,9 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
   Simulator has no camera, so the UI smoke doesn't reach it. The last camera,
   flash and timer are remembered per device (`SharedStore.cameraSettings`).
   The front camera frames like the system camera: cropped upright, its full
-  width when the phone turns sideways or via the expand button.
+  width when the phone turns sideways or via the expand button; sideways shots
+  are saved level (`CameraTilt` — `RotationCoordinator` never saw the turn in a
+  portrait-only app).
 - **Whole-app review round** — bugs, battery and accessibility fixes from an
   October audit, each with a regression test (invariants 2, 8, 10, 11, 13–16,
   22, 23 carry the rules).

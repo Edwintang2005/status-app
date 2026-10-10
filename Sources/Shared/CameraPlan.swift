@@ -98,16 +98,36 @@ struct CameraLensPlan: Equatable, Sendable {
     }
 }
 
-/// Upright or sideways, from gravity: the app is portrait-only, and Portrait
-/// Orientation Lock freezes the interface's own idea of it.
-enum CameraTilt {
-    /// Flat on a table keeps the last reading; between the two, the margin
-    /// stops a 45° hold flickering.
-    static func isLandscape(x: Double, y: Double, z: Double, was: Bool) -> Bool {
+/// How the phone is held, from gravity: the app is portrait-only, and Portrait
+/// Orientation Lock freezes both the interface's reading and the capture
+/// rotation coordinator's.
+enum CameraTilt: Equatable, Sendable {
+    case upright, upsideDown
+    /// Top of the phone to the left (`UIDeviceOrientation.landscapeLeft`).
+    case topLeft
+    case topRight
+
+    /// From the accelerometer (gravity in the phone's own axes: upright is
+    /// y = −1). Flat on a table keeps the last reading; the margin stops a 45°
+    /// hold flickering between two.
+    static func reading(x: Double, y: Double, z: Double, was: CameraTilt) -> CameraTilt {
         guard abs(z) < 0.8 else { return was }
-        if abs(x) > abs(y) + 0.25 { return true }
-        if abs(y) > abs(x) + 0.25 { return false }
+        if abs(x) > abs(y) + 0.25 { return x < 0 ? .topLeft : .topRight }
+        if abs(y) > abs(x) + 0.25 { return y < 0 ? .upright : .upsideDown }
         return was
+    }
+
+    var isLandscape: Bool { self == .topLeft || self == .topRight }
+
+    /// `AVCaptureConnection.videoRotationAngle` for a level shot: the sensor's
+    /// native frame is the phone held top-left.
+    var captureAngle: CGFloat {
+        switch self {
+        case .upright: 90
+        case .upsideDown: 270
+        case .topLeft: 0
+        case .topRight: 180
+        }
     }
 }
 

@@ -144,7 +144,7 @@ extension CloudSync {
     /// `IngestTests` checks every non-asset `Field` is here: one missing reads nil.
     static let changeFetchKeys: [String] = [
         Field.emoji, Field.message, Field.displayName, Field.updatedAt,
-        Field.isCelebration,
+        Field.isCelebration, Field.celebrationStyle,
         Field.count,
         Field.momentID, Field.kind, Field.caption, Field.senderName, Field.sentAt,
         Field.duration, Field.waveform,

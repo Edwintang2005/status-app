@@ -362,6 +362,8 @@ final class AppModel {
         guard let celebration = snapshot.pendingCelebration else { return }
         store.mutate { $0.lastCelebratedAt = celebration.updatedAt }
         reload()
+        // A surprise just opened: its words count as read from here.
+        markPartnerStatusSeen()
     }
 
     // MARK: - Lifecycle
@@ -494,7 +496,7 @@ final class AppModel {
         Date().wholeSeconds
     }
 
-    func setStatus(emoji: String, message: String, isCelebration: Bool = false) async {
+    func setStatus(emoji: String, message: String, celebration: CelebrationStyle? = nil) async {
         let payload = StatusPayload(
             emoji: emoji,
             // Capped here too: the banner reply bypasses the composer's field.
@@ -504,7 +506,8 @@ final class AppModel {
             updatedAt: statusTimestamp(),
             nudgeCount: snapshot.mine?.nudgeCount ?? 0,
             lastNudgeAt: snapshot.mine?.lastNudgeAt,
-            isCelebration: isCelebration
+            isCelebration: celebration != nil,
+            celebrationStyle: celebration
         )
 
         // Show it immediately; marked unpublished in the same mutate so a crash
@@ -831,6 +834,7 @@ final class AppModel {
         // Reported, or filter-hidden and not revealed: nobody read these words.
         if let shown, !shown.wordsShown(reportedAt: hiddenPartnerStatusAt,
                                         revealed: partnerStatusRevealed,
+                                        sealed: snapshot.partnerStatusSealed,
                                         filterEnabled: contentFilterEnabled) { return }
         var changed = false
         let updated = store.mutate(reloadWidgets: false) { changed = $0.stampPartnerStatusSeen(shown, at: Date()) }

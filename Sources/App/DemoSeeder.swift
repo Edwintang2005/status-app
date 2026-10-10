@@ -5,6 +5,11 @@ import UIKit
 /// Fills the real App Group store with plausible content for App Store screenshots.
 /// Runs only when `REDSTRING_DEMO=1` (see `DemoMode`); reseeds every launch with fixed ids.
 enum DemoSeeder {
+    private static let demoEmoji: [CelebrationStyle: String] = [
+        .confetti: "🎉", .hearts: "💖", .trophy: "🏆", .birthday: "🎂",
+        .reveal: "🏡", .fireworks: "🎆", .snow: "🎄",
+    ]
+
     static func seedIfRequested() {
         guard DemoMode.isActive else { return }
 
@@ -74,6 +79,15 @@ enum DemoSeeder {
                                             updatedAt: now.addingTimeInterval(-18 * 60),
                                             nudgeCount: 14,
                                             lastNudgeAt: now.addingTimeInterval(-7_200))
+            // `REDSTRING_DEMO_CELEBRATION=<style>`: Sam's status plays that celebration.
+            if let raw = ProcessInfo.processInfo.environment["REDSTRING_DEMO_CELEBRATION"],
+               let style = CelebrationStyle(rawValue: raw) {
+                snapshot.theirs?.isCelebration = true
+                snapshot.theirs?.celebrationStyle = style
+                snapshot.theirs?.emoji = Self.demoEmoji[style] ?? "🎉"
+                snapshot.theirs?.message = style == .reveal ? "we got the flat!!" : ""
+                snapshot.lastCelebratedAt = nil
+            }
             snapshot.lastSeenPartnerNudgeCount = 14
             snapshot.lastNudgeSentAt = nil
             // The easter egg's clock: 5 June 2026, 11:02 pm in Sydney.

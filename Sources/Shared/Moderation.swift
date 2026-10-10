@@ -81,6 +81,14 @@ struct ModeratedStatus: Equatable {
                         isReported: true, isFiltered: false)
     }
 
+    /// A surprise not yet scratched open (`Snapshot.partnerStatusSealed`).
+    static var sealed: ModeratedStatus {
+        ModeratedStatus(emoji: "🎁",
+                        message: ModeratedText(text: String(localized: "A surprise — open \(AppConfig.appName) to see it"),
+                                               isPlaceholder: true),
+                        isReported: false, isFiltered: false)
+    }
+
     static func filtered(_ emoji: String, _ message: String, placeholder: String, revealed: Bool) -> ModeratedStatus {
         ModeratedStatus(emoji: emoji,
                         message: ModeratedText(text: revealed ? message : placeholder, isPlaceholder: !revealed),
@@ -93,20 +101,25 @@ extension StatusPayload {
     /// `wordsAt`, or an older report's `updatedAt`) hides both words and emoji —
     /// a custom emoji can be the offence; filtered swaps the words for
     /// `filteredText` unless `revealed`. Own statuses never go through this.
+    /// `sealed`: the partner's unopened surprise (`Snapshot.partnerStatusSealed`).
     func moderation(reportedAt: Date?,
                     revealed: Bool = false,
+                    sealed: Bool = false,
                     filteredText: String = ContentFilter.hiddenPlaceholder,
                     filterEnabled: Bool = SharedStore.shared.contentFilterEnabled) -> ModeratedStatus {
         if let reportedAt, wordsAt == reportedAt || updatedAt == reportedAt { return .reported }
+        if sealed { return .sealed }
         guard ContentFilter.hides(message, enabled: filterEnabled) else { return .shown(emoji, message) }
         return .filtered(emoji, message, placeholder: filteredText, revealed: revealed)
     }
 
     /// `moderation` folded back into a payload, for surfaces that draw one.
     func moderated(reportedAt: Date?,
+                   sealed: Bool = false,
                    filteredText: String = ContentFilter.hiddenPlaceholder,
                    filterEnabled: Bool = SharedStore.shared.contentFilterEnabled) -> StatusPayload {
-        let shown = moderation(reportedAt: reportedAt, filteredText: filteredText, filterEnabled: filterEnabled)
+        let shown = moderation(reportedAt: reportedAt, sealed: sealed,
+                               filteredText: filteredText, filterEnabled: filterEnabled)
         var payload = self
         payload.emoji = shown.emoji
         payload.message = shown.message.text
@@ -117,17 +130,22 @@ extension StatusPayload {
     /// gate. Reported, or hidden by the filter and not revealed, they weren't read.
     func wordsShown(reportedAt: Date?,
                     revealed: Bool,
+                    sealed: Bool = false,
                     filterEnabled: Bool = SharedStore.shared.contentFilterEnabled) -> Bool {
-        !moderation(reportedAt: reportedAt, revealed: revealed, filterEnabled: filterEnabled).message.isPlaceholder
+        !moderation(reportedAt: reportedAt, revealed: revealed, sealed: sealed,
+                    filterEnabled: filterEnabled).message.isPlaceholder
     }
 }
 
 extension StatusHistoryEntry {
     /// Same rule for the log: a reported partner status keeps its slot but not its words.
+    /// `sealedAt`: the unopened surprise's `wordsAt` (`Snapshot.sealedPartnerWordsAt`).
     func moderation(reportedAt: Date?,
+                    sealedAt: Date? = nil,
                     filterEnabled: Bool = SharedStore.shared.contentFilterEnabled) -> ModeratedStatus {
         guard !fromMe else { return .shown(emoji, message) }
         if let reportedAt, at == reportedAt { return .reported }
+        if let sealedAt, at == sealedAt { return .sealed }
         guard ContentFilter.hides(message, enabled: filterEnabled) else { return .shown(emoji, message) }
         return .filtered(emoji, message, placeholder: ContentFilter.hiddenPlaceholder, revealed: false)
     }

@@ -45,6 +45,9 @@
     "%lld years" : {
 
     },
+    "🎁 has a surprise for you — open %@ to see it" : {
+
+    },
     "💭" : {
 
     },
@@ -61,6 +64,9 @@
 
     },
     "a new name" : {
+
+    },
+    "A surprise — open %@ to see it" : {
 
     },
     "CloudKit didn't return an invite link. Try again." : {
@@ -85,6 +91,15 @@
 
     },
     "From a shared space you've left." : {
+
+    },
+    "Happy anniversary" : {
+
+    },
+    "Happy birthday" : {
+
+    },
+    "Happy New Year" : {
 
     },
     "Hidden" : {
@@ -124,6 +139,12 @@
 
     },
     "Let them know you're thinking of them." : {
+
+    },
+    "Love you" : {
+
+    },
+    "Merry Christmas" : {
 
     },
     "moment" : {
@@ -204,6 +225,9 @@
     "Statuses" : {
 
     },
+    "Surprise!" : {
+
+    },
     "Tap to send a 'thinking of you'." : {
 
     },
@@ -256,6 +280,9 @@
 
     },
     "You changed your status from another device." : {
+
+    },
+    "You did it!" : {
 
     },
     "You sent a nudge from another device." : {

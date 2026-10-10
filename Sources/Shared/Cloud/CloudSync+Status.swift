@@ -140,6 +140,7 @@ extension CloudSync {
         record.encryptedValues[Field.message] = payload.message
         record.encryptedValues[Field.displayName] = payload.displayName
         record.encryptedValues[Field.isCelebration] = payload.isCelebration ? 1 : 0
+        record.encryptedValues[Field.celebrationStyle] = payload.celebration?.rawValue
         record[Field.updatedAt] = payload.updatedAt as CKRecordValue
         // Change-tag checked, so a write that raced ours surfaces as
         // `serverRecordChanged` and `publish` retries on the fresh copy.

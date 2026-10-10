@@ -21,10 +21,14 @@ final class MoodCatalogueTests: XCTestCase {
         }
     }
 
-    func testExactlyOneCelebration() {
-        let celebrations = MoodGroup.allMoods.filter(\.isCelebration)
-        XCTAssertEqual(celebrations.count, 1)
-        XCTAssertEqual(MoodGroup.celebration, celebrations.first)
+    func testCelebrationsAreFewAndEachStyleIsOffered() {
+        let year = MoodGroup.allMoods + SeasonalMoods.seasons.map(\.mood)
+        let styles = Set(year.compactMap(\.celebration))
+        XCTAssertEqual(styles, Set(CelebrationStyle.allCases), "every style has a preset to send it")
+        XCTAssertLessThanOrEqual(MoodGroup.allMoods.filter(\.isCelebration).count, 5,
+                                 "kept rare: most of the year, a handful among the ordinary")
+        let ids = (MoodGroup.us.moods(on: Fixtures.date(0)) + SeasonalMoods.seasons.map(\.mood)).map(\.id)
+        XCTAssertEqual(Set(ids).count, ids.count, "seasonal ids don't clash with the year-round ones")
     }
 
     func testRequestedPresetsExist() {

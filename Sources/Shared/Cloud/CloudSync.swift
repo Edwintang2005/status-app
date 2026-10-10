@@ -163,6 +163,8 @@ actor CloudSync: SyncBackend {
         static let updatedAt = "updatedAt"
         /// CloudKit has no boolean type: Int64 (1/0), encrypted with the message.
         static let isCelebration = "isCelebration"
+        /// `CelebrationStyle`'s raw value, encrypted; only on the `Status` record.
+        static let celebrationStyle = "celebrationStyle"
 
         // Nudge.
         static let count = "count"
@@ -387,6 +389,9 @@ actor CloudSync: SyncBackend {
             // celebration would stick to the next status.
             payload.isCelebration =
                 (record.encryptedValues[Field.isCelebration] as? Int).map { $0 != 0 } ?? false
+            // Unknown (a newer build's) or absent reads as confetti; nothing to cap.
+            payload.celebrationStyle = (record.encryptedValues[Field.celebrationStyle] as? String)
+                .flatMap(CelebrationStyle.init(rawValue:))
             // A rename restamps the record without new words; keep when they began.
             // Same words *and* a new name: re-picking the same status is a new
             // status (a fresh "3 min ago", a celebration that plays again). The

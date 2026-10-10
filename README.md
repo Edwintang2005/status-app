@@ -332,7 +332,8 @@ One scrolling column, partner first:
 2. **An urgent notice**, if any — *"\<partner\> left your shared space"*
    (role-worded; "Save and unlink…" opens Settings on the unlink dialog, Dismiss
    is per departure), "someone else has joined", an iCloud account problem, a
-   stuck fresh start clear.
+   fresh start clear running ("keep the app open"; the screen stays awake until
+   it finishes), a stuck fresh start clear.
 3. **The partner card** — their status and their last heart; tap for the status
    history, long-press to report (or reveal a filtered status).
 4. **Your status row** — with "Seen …" once they've had it on screen, or "Not
@@ -658,7 +659,8 @@ Everything below is already wired up; this is the order to do it in.
    *Development* schema automatically — record types `Status`, `StatusLog`,
    `Nudge`, `Moment`, `Receipt` and `Anniversary` with their fields — the first
    time each record is saved. Pair, set a status (which also writes a
-   `StatusLog`), send a nudge, send a photo, **turn on read receipts + view a
+   `StatusLog`), set a celebration status from the picker (🎂 *happy birthday*
+   or any other — it writes `celebrationStyle`), send a nudge, send a photo, **turn on read receipts + view a
    received moment with the home screen in front** (which publishes a `Receipt`
    record with both the seen-map and the status-receipt fields), **and answer
    the "when did you begin?" prompt as the owner** (the `Anniversary` record),

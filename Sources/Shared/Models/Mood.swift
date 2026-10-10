@@ -5,9 +5,11 @@ import Foundation
 struct Mood: Identifiable, Hashable, Codable {
     let emoji: String
     let label: String
-    /// The one anniversary preset. Picking it arms an animation on the *other*
-    /// phone, and the flag survives editing the wording.
-    var isCelebration: Bool = false
+    /// Picking it arms a full-screen animation on the *other* phone, and the
+    /// choice survives editing the wording.
+    var celebration: CelebrationStyle?
+
+    var isCelebration: Bool { celebration != nil }
 
     var id: String { "\(emoji)-\(label)" }
 
@@ -54,13 +56,17 @@ enum MoodGroup: String, CaseIterable, Identifiable {
                 Mood(emoji: "👊", label: "playfight"),
                 Mood(emoji: "👂", label: "I'm listening"),
                 Mood(emoji: "🤙", label: "one call away"),
-                Mood(emoji: "🔮", label: "guess what"),
+                // The words typed after picking it are the news, sealed until scratched open.
+                Mood(emoji: "🔮", label: "guess what", celebration: .reveal),
                 Mood(emoji: "🎁", label: "got you something"),
                 Mood(emoji: "🌹", label: "date night?"),
                 Mood(emoji: "🎬", label: "movie tonight?"),
-                // Deliberately mixed in with ordinary presets: one more thing
-                // you can say, not a feature.
-                Mood(emoji: "🎉", label: "happy anniversary", isCelebration: true),
+                // Celebrations are mixed in with ordinary presets: one more
+                // thing you can say, not a feature — and so kept few.
+                Mood(emoji: "🎉", label: "happy anniversary", celebration: .confetti),
+                Mood(emoji: "🎂", label: "happy birthday", celebration: .birthday),
+                Mood(emoji: "💖", label: "love you lots", celebration: .hearts),
+                Mood(emoji: "🏆", label: "you did it!", celebration: .trophy),
                 Mood(emoji: "🛫", label: "see you soon"),
                 Mood(emoji: "⏳", label: "waiting for you"),
                 Mood(emoji: "📸", label: "send me a pic"),
@@ -169,8 +175,10 @@ enum MoodGroup: String, CaseIterable, Identifiable {
 
     static var allMoods: [Mood] { allCases.flatMap(\.moods) }
 
-    /// The celebration preset, so callers don't hard-code the emoji.
-    static var celebration: Mood? { allMoods.first(where: \.isCelebration) }
+    /// "Us" opens with whatever holiday is in season.
+    func moods(on date: Date) -> [Mood] {
+        self == .us ? SeasonalMoods.moods(on: date) + moods : moods
+    }
 }
 
 extension StatusHistoryEntry {

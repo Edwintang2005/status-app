@@ -42,7 +42,8 @@ final class CameraModel {
     /// A dark shot is still being gathered: "Hold still".
     private(set) var isHoldingStill = false
     /// Held sideways, from the accelerometer (no permission needed).
-    private(set) var isLandscape = false
+    private(set) var tilt: CameraTilt = .upright
+    var isLandscape: Bool { tilt.isLandscape }
 
     @ObservationIgnored var onCapture: (UIImage) -> Void = { _ in }
     /// Lazy: `@State` builds a throwaway model each time the view is re-created.
@@ -105,9 +106,10 @@ final class CameraModel {
     }
 
     private func tilted(x: Double, y: Double, z: Double) {
-        let landscape = CameraTilt.isLandscape(x: x, y: y, z: z, was: isLandscape)
-        guard landscape != isLandscape else { return }
-        isLandscape = landscape
+        let wasLandscape = isLandscape
+        tilt = CameraTilt.reading(x: x, y: y, z: z, was: tilt)
+        let landscape = isLandscape
+        guard landscape != wasLandscape else { return }
         // Like the system camera: turning the phone re-frames a selfie, over
         // whatever the button or a pinch had chosen.
         if let lenses, lenses.selfieNarrowZoom != nil {
@@ -246,7 +248,7 @@ final class CameraModel {
                 isHoldingStill = false
             }
             do {
-                let data = try await engine.capture(flash: flash)
+                let data = try await engine.capture(flash: flash, rotationAngle: tilt.captureAngle)
                 guard let image = UIImage(data: data) else { throw CameraEngine.CaptureError.noData }
                 onCapture(image)
             } catch {

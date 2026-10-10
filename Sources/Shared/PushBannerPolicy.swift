@@ -150,7 +150,9 @@ enum PushBannerPolicy {
                             body: String(localized: "is now going by \(newName)"),
                             thread: "status-updates")
             case (.update?, let status?):
-                return Plan(title: name, body: statusBody(status, reportedAt: reportedAt), thread: "status-updates")
+                return Plan(title: name,
+                            body: statusBody(status, reportedAt: reportedAt, sealed: snapshot.partnerStatusSealed),
+                            thread: "status-updates")
             default:
                 if result.heldPartnerStatus {
                     var plan = held(String(localized: "updated their status"),
@@ -171,8 +173,12 @@ enum PushBannerPolicy {
         }
     }
 
-    /// Same rule as every screen: a reported or filtered status shows no words.
-    static func statusBody(_ status: StatusPayload, reportedAt: Date?) -> String {
+    /// Same rule as every screen: a reported or filtered status shows no words,
+    /// and an unopened surprise keeps them for the app.
+    static func statusBody(_ status: StatusPayload, reportedAt: Date?, sealed: Bool = false) -> String {
+        if sealed, status.moderation(reportedAt: reportedAt, sealed: true) == .sealed {
+            return String(localized: "🎁 has a surprise for you — open \(AppConfig.appName) to see it")
+        }
         let shown = status.moderated(reportedAt: reportedAt)
         if shown.message != status.message { return String(localized: "updated their status") }
         return shown.message.isEmpty ? shown.emoji : "\(shown.emoji) \(shown.message)"

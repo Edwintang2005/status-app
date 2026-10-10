@@ -31,7 +31,6 @@ final class CameraEngine: NSObject, @unchecked Sendable {
     private let photoOutput = AVCapturePhotoOutput()
     private var input: AVCaptureDeviceInput?
     private var lenses: CameraLensPlan?
-    private var rotation: AVCaptureDevice.RotationCoordinator?
     private var captures: [Int64: PhotoCapture] = [:]
     /// `AVCaptureIndexPicker` (iOS 18), kept to mirror the on-screen timer.
     private var timerPicker: AnyObject?
@@ -194,8 +193,6 @@ final class CameraEngine: NSObject, @unchecked Sendable {
             if $0.isFocusModeSupported(.continuousAutoFocus) { $0.focusMode = .continuousAutoFocus }
             if $0.isExposureModeSupported(.continuousAutoExposure) { $0.exposureMode = .continuousAutoExposure }
         }
-        // Only for the shot's own rotation; `CameraModel` reads the tilt itself.
-        rotation = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
         if #available(iOS 18.0, *) { installControls(for: device) }
 
         let flashModes = photoOutput.supportedFlashModes.compactMap { mode -> CameraFlash? in
@@ -316,18 +313,17 @@ final class CameraEngine: NSObject, @unchecked Sendable {
     // MARK: - Capture
 
     /// The shot's encoded bytes (HEIC or JPEG, orientation in its metadata).
-    func capture(flash: CameraFlash) async throws -> Data {
+    func capture(flash: CameraFlash, rotationAngle: CGFloat) async throws -> Data {
         try await withCheckedThrowingContinuation { done in
             queue.async {
                 guard self.session.isRunning,
                       let connection = self.photoOutput.connection(with: .video) else {
                     return done.resume(throwing: CaptureError.notRunning)
                 }
-                // The UI is portrait-only; the coordinator still knows how the
-                // phone is held, so a sideways shot comes out level.
-                if let angle = self.rotation?.videoRotationAngleForHorizonLevelCapture,
-                   connection.isVideoRotationAngleSupported(angle) {
-                    connection.videoRotationAngle = angle
+                // From `CameraTilt`: `RotationCoordinator` never saw the phone
+                // turn in this portrait-only app, so sideways shots came out on their side.
+                if connection.isVideoRotationAngleSupported(rotationAngle) {
+                    connection.videoRotationAngle = rotationAngle
                 }
                 let settings = AVCapturePhotoSettings()
                 // Multi-frame fusion (the nearest an app gets to Night mode)

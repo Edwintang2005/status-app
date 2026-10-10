@@ -210,6 +210,8 @@ struct MomentGalleryView: View {
                                  isLoading: loading.contains(moment.id),
                                  isUnavailable: unavailable.contains(moment.id),
                                  isOffline: model.isOffline)
+                    // A pinched photo covers the caption and heart below it, not the reverse.
+                    .raisedWhilePinched()
             }
 
             VStack(spacing: 5) {

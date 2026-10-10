@@ -21,6 +21,7 @@ struct WidgetContent: Hashable {
         isPaired = snapshot.isPaired
         mine = snapshot.mine
         partner = snapshot.theirs?.moderated(reportedAt: reportedAt,
+                                             sealed: snapshot.partnerStatusSealed,
                                              filteredText: String(localized: "Hidden"),
                                              filterEnabled: filterEnabled)
         let name = partner.map { ContentFilter.displayName($0.displayName, fallback: "", enabled: filterEnabled) }

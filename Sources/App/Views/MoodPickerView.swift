@@ -9,16 +9,18 @@ struct MoodPickerView: View {
     var currentMessage: String = ""
     /// Your own recent statuses, newest first and distinct — the quick way back.
     var recent: [StatusHistoryEntry] = []
-    let onSelect: (String, String, Bool) -> Void
+    let onSelect: (String, String, CelebrationStyle?) -> Void
 
     @Environment(\.dismiss) private var dismiss
 
     @State private var emoji = ""
     @State private var message = ""
     @State private var query = ""
-    /// Armed by the celebration preset and kept while the wording is retyped —
-    /// inferring it from the text would lose it.
-    @State private var isCelebration = false
+    /// Armed only by a celebration preset, by design — never inferred from a
+    /// typed emoji — and kept while the wording is retyped.
+    @State private var celebration: CelebrationStyle?
+    /// Read once, so a picker left open over midnight doesn't reshuffle "Us".
+    @State private var today = Date()
     /// Tile for the selection highlight, tracked by id: a preset tap keeps a
     /// hand-typed message, and some presets share an emoji, so neither identifies the tile.
     @State private var selectedPresetID: String?
@@ -30,7 +32,7 @@ struct MoodPickerView: View {
     /// Groups with their matching presets, empty groups dropped.
     private var filteredGroups: [(group: MoodGroup, moods: [Mood])] {
         MoodGroup.allCases.compactMap { group in
-            let matches = group.moods.filter { $0.matches(query) }
+            let matches = group.moods(on: today).filter { $0.matches(query) }
             return matches.isEmpty ? nil : (group, matches)
         }
     }
@@ -101,7 +103,7 @@ struct MoodPickerView: View {
                 // pick hands focus on to the words.
                 EmojiField(emoji: $emoji) {
                     selectedPresetID = nil
-                    isCelebration = false
+                    celebration = nil
                     messageFocused = true
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 }
@@ -111,7 +113,7 @@ struct MoodPickerView: View {
                 .accessibilityLabel(emoji.isEmpty ? String(localized: "Emoji") : String(localized: "Emoji: \(emoji)"))
                 .accessibilityHint("Choose any emoji")
 
-                TextField(currentMessage.isEmpty ? String(localized: "Say anything") : currentMessage, text: $message)
+                TextField(fieldPrompt, text: $message)
                     .font(Theme.rounded(17))
                     .focused($messageFocused)
                     .submitLabel(.done)
@@ -135,17 +137,23 @@ struct MoodPickerView: View {
             }
             CharacterCount(count: message.count, limit: AppConfig.statusMessageMaxLength)
 
-            if isCelebration { celebrationChip }
+            if let celebration { celebrationChip(celebration) }
         }
-        .animation(.smooth(duration: 0.25), value: isCelebration)
+        .animation(.smooth(duration: 0.25), value: celebration)
+    }
+
+    private var fieldPrompt: String {
+        if celebration == .reveal { return String(localized: "Your news, kept secret") }
+        return currentMessage.isEmpty ? String(localized: "Say anything") : currentMessage
     }
 
     private var trimmedMessage: String { message.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     /// A tapped tile (even the current status, re-posted on purpose), a
-    /// different emoji, or words typed.
+    /// different emoji, or words typed. A surprise needs its news.
     private var hasChange: Bool {
-        selectedPresetID != nil || emoji != initialEmoji || !trimmedMessage.isEmpty
+        if celebration == .reveal, trimmedMessage.isEmpty { return false }
+        return selectedPresetID != nil || emoji != initialEmoji || !trimmedMessage.isEmpty
     }
 
     private var recentSection: some View {
@@ -162,7 +170,7 @@ struct MoodPickerView: View {
                         emoji = entry.emoji
                         message = entry.message
                         selectedPresetID = entry.id
-                        isCelebration = false
+                        celebration = nil
                         messageFocused = false
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     }
@@ -171,18 +179,18 @@ struct MoodPickerView: View {
         }
     }
 
-    /// The only visible sign of the flag once the wording is edited — and the
-    /// only way to turn it off without picking another preset.
-    private var celebrationChip: some View {
+    /// The only visible sign of the celebration once the wording is edited —
+    /// and the only way to turn it off without picking another preset.
+    private func celebrationChip(_ style: CelebrationStyle) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: "sparkles")
+            Image(systemName: style == .reveal ? "gift" : "sparkles")
                 .font(Theme.rounded(13, .semibold))
-            Text("Fills their screen when they next open the app")
+            Text(chipText(style))
                 .font(Theme.rounded(13, .medium))
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
             Button {
-                isCelebration = false
+                celebration = nil
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(Theme.rounded(15))
@@ -196,6 +204,14 @@ struct MoodPickerView: View {
         .background(Theme.warm.opacity(0.12),
                     in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+    }
+
+    private func chipText(_ style: CelebrationStyle) -> LocalizedStringKey {
+        switch style {
+        case .reveal: "Kept secret — even from their Lock Screen — until they scratch it open in the app"
+        case .birthday: "They blow out the candles, then your words appear"
+        default: "Fills their screen when they next open the app"
+        }
     }
 
     private var searchField: some View {
@@ -243,14 +259,19 @@ struct MoodPickerView: View {
              celebration: mood.isCelebration) {
             emoji = mood.emoji
             selectedPresetID = mood.id
-            // Seed the field only when that wouldn't erase hand-typed words —
-            // tapping a preset then is picking its emoji, not a replacement message.
-            if message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || isPresetLabel(message) {
-                message = mood.label
+            let untouched = message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || isPresetLabel(message)
+            celebration = mood.celebration
+            if mood.celebration == .reveal {
+                // The words are the news: a sealed "guess what" would reveal nothing.
+                if untouched { message = "" }
+                messageFocused = true
+            } else {
+                // Seed the field only when that wouldn't erase hand-typed words —
+                // tapping a preset then is picking its emoji, not a replacement message.
+                if untouched { message = mood.label }
+                messageFocused = false
             }
-            isCelebration = mood.isCelebration
-            messageFocused = false
             if mood.isCelebration {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             } else {
@@ -311,14 +332,14 @@ struct MoodPickerView: View {
     /// Whether the text is (still) one of the preset labels — in which case
     /// tapping another preset should swap it as it always has.
     private func isPresetLabel(_ text: String) -> Bool {
-        MoodGroup.allCases.contains { $0.moods.contains { $0.label == text } }
+        MoodGroup.allCases.contains { $0.moods(on: today).contains { $0.label == text } }
     }
 
     private func commit() {
         guard hasChange, !committed else { return }
         committed = true
         // Words alone go with 💬, as a banner reply does.
-        onSelect(emoji.isEmpty ? "💬" : emoji, message, isCelebration)
+        onSelect(emoji.isEmpty ? "💬" : emoji, message, celebration)
         dismiss()
     }
 }

@@ -18,6 +18,9 @@ struct StatusPayload: Codable, Hashable {
     /// first open (see `Snapshot.pendingCelebration`). Rides on the status so a
     /// celebration still renders like any other status.
     var isCelebration: Bool = false
+    /// Which animation (`celebration` reads the two together); `nil` on a
+    /// celebration from a build before styles means confetti.
+    var celebrationStyle: CelebrationStyle?
 
     /// Local only, never on the record: when these *words* began, if a rename
     /// has since restamped `updatedAt`. `nil` means the words are as new as the
@@ -30,7 +33,7 @@ struct StatusPayload: Codable, Hashable {
 
     private enum CodingKeys: String, CodingKey {
         case emoji, message, displayName, updatedAt, nudgeCount, lastNudgeAt
-        case isCelebration, wordsSince, serverSavedAt
+        case isCelebration, celebrationStyle, wordsSince, serverSavedAt
     }
 
     init(emoji: String,
@@ -39,7 +42,8 @@ struct StatusPayload: Codable, Hashable {
          updatedAt: Date,
          nudgeCount: Int,
          lastNudgeAt: Date?,
-         isCelebration: Bool = false) {
+         isCelebration: Bool = false,
+         celebrationStyle: CelebrationStyle? = nil) {
         self.emoji = emoji
         self.message = message
         self.displayName = displayName
@@ -47,6 +51,7 @@ struct StatusPayload: Codable, Hashable {
         self.nudgeCount = nudgeCount
         self.lastNudgeAt = lastNudgeAt
         self.isCelebration = isCelebration
+        self.celebrationStyle = celebrationStyle
     }
 
     /// Hand-written: synthesised decoding errors on missing keys, so a payload
@@ -60,6 +65,8 @@ struct StatusPayload: Codable, Hashable {
         nudgeCount = try container.decodeIfPresent(Int.self, forKey: .nudgeCount) ?? 0
         lastNudgeAt = try container.decodeIfPresent(Date.self, forKey: .lastNudgeAt)
         isCelebration = try container.decodeIfPresent(Bool.self, forKey: .isCelebration) ?? false
+        // A style from a newer build reads as plain confetti, not a broken snapshot.
+        celebrationStyle = try? container.decodeIfPresent(CelebrationStyle.self, forKey: .celebrationStyle)
         // Absent for pre-field payloads: their words date from `updatedAt`.
         wordsSince = try container.decodeIfPresent(Date.self, forKey: .wordsSince)
         serverSavedAt = try container.decodeIfPresent(Date.self, forKey: .serverSavedAt)
@@ -70,7 +77,7 @@ struct StatusPayload: Codable, Hashable {
 
     /// Same status, whatever the name on it: a rename changes neither.
     func sameWords(as other: StatusPayload) -> Bool {
-        emoji == other.emoji && message == other.message && isCelebration == other.isCelebration
+        emoji == other.emoji && message == other.message && celebration == other.celebration
     }
 
     static let placeholder = StatusPayload(

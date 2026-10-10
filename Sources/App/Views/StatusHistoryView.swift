@@ -80,9 +80,11 @@ struct StatusHistoryView: View {
         }
         .task {
             let reportedAt = model.hiddenPartnerStatusAt
+            let sealedAt = model.snapshot.sealedPartnerWordsAt
             let filterOn = model.contentFilterEnabled
             entries = StatusHistoryLog.shared.load().map {
-                Row(entry: $0, shown: $0.moderation(reportedAt: reportedAt, filterEnabled: filterOn))
+                Row(entry: $0, shown: $0.moderation(reportedAt: reportedAt, sealedAt: sealedAt,
+                                                    filterEnabled: filterOn))
             }
         }
     }

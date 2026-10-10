@@ -146,6 +146,8 @@ struct FreshStartView: View {
         case .clearing:
             if model.isClearingHistory {
                 busyRow(String(localized: "Clearing your shared history…"))
+                Text("Keep \(AppConfig.appName) open until this finishes. If you leave, it carries on the next time the app opens.")
+                    .foregroundStyle(Theme.mutedText)
             } else if let failure = model.freshStartFailure {
                 Text("The clear couldn't finish yet.")
                     .font(Theme.rounded(17, .semibold))

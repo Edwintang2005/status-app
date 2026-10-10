@@ -162,6 +162,25 @@ exactly this). Investigated September 2026; the shape that fits the app:
 - Schema: one new `Moment` field (`bpm`); redeploy. Widget and NSE untouched
   beyond the new kind's wording.
 
+### Countdown status — "see you in N days" (M–L) — shelved, brainstorm
+
+A status with a date that counts down on the other phone, with a splash on the
+day. Shelved from the celebration round (October 2026) to think through first.
+- **What it counts to:** a reunion, a trip, a date night, a birthday. One at a
+  time per person, or one shared by the pair (like `Anniversary`)?
+- **Where it shows:** Home's partner card ("✈️ 12 days"), the status widget
+  (`Text(date, style: .relative)` ticks without reloads), the lock screen; the
+  day itself plays a splash (fireworks or confetti) on both phones, once.
+- **Data:** an encrypted `countdownTo` date on `Status`, or its own record so it
+  outlives the next status (which would otherwise wipe it). The latter fits
+  better: you set a countdown, then keep posting ordinary statuses.
+- **Edges:** time zones (whose midnight is "the day" — reuse the anniversary's
+  stored `timeZone`?), editing or cancelling it, a date in the past, the
+  partner's clock (invariant 23's `TrustedTime` bounds), older builds that
+  don't know it.
+- **Extras:** milestone nudges ("one week to go"), a shared countdown both can
+  see on the photo widget, and pairing it with a reveal on the day.
+
 ### Camera follow-ups (S each, except where noted)
 
 - **Lock Screen camera (M–L):** a `LockedCameraCapture` extension (iOS 18)

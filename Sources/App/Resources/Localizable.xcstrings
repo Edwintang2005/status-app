@@ -84,6 +84,9 @@
     "%@ had already agreed, so the fresh start is going ahead." : {
 
     },
+    "%@ has a surprise for you." : {
+
+    },
     "%@ has already left. Deletes the shared space from your iCloud, with everything you sent. Your name stays on this iPhone, so you can send a new invite link." : {
 
     },
@@ -122,6 +125,9 @@
 
     },
     "%@ sent a voice memo" : {
+
+    },
+    "%@ sent you a birthday cake. Make a wish, then blow out the candles." : {
 
     },
     "%@, %@" : {
@@ -324,7 +330,13 @@
         }
       }
     },
+    "✨ 🎁 ✨" : {
+
+    },
     "❤️" : {
+
+    },
+    "🎁 has a surprise for you — open %@ to see it" : {
 
     },
     "🐟" : {
@@ -372,6 +384,9 @@
     "10s" : {
 
     },
+    "A birthday cake" : {
+
+    },
     "A fox and a fish" : {
 
     },
@@ -391,6 +406,9 @@
 
     },
     "A private status app for two people." : {
+
+    },
+    "A surprise — open %@ to see it" : {
 
     },
     "Account" : {
@@ -508,6 +526,9 @@
     "Blocking" : {
 
     },
+    "Blow out the candles" : {
+
+    },
     "Brush size %lld" : {
 
     },
@@ -569,6 +590,12 @@
 
     },
     "Clearing the history you share — moments, status history and read receipts — from both iPhones. Your link, your statuses and the heart stay. Nothing changes unless you agree." : {
+
+    },
+    "Clearing your shared history" : {
+
+    },
+    "Clearing your shared history. Keep %@ open until it finishes." : {
 
     },
     "Clearing your shared history…" : {
@@ -835,10 +862,19 @@
     "Got it" : {
 
     },
+    "Guess what…" : {
+
+    },
     "Happy %@" : {
 
     },
     "Happy anniversary" : {
+
+    },
+    "Happy birthday" : {
+
+    },
+    "Happy New Year" : {
 
     },
     "Hearts wait out your Focus" : {
@@ -940,6 +976,12 @@
     "Join me on %@" : {
 
     },
+    "Just show me" : {
+
+    },
+    "Keep %@ open until this finishes. If you leave, it carries on the next time the app opens." : {
+
+    },
     "Keep asking" : {
 
     },
@@ -953,6 +995,9 @@
 
     },
     "Keep this take" : {
+
+    },
+    "Kept secret — even from their Lock Screen — until they scratch it open in the app" : {
 
     },
     "Last fresh start" : {
@@ -988,6 +1033,9 @@
     "Long-press a status or open a photo's menu to report it. Reports and blocks go to %@ and are acted on within 24 hours." : {
 
     },
+    "Love you" : {
+
+    },
     "Low light" : {
 
     },
@@ -1000,6 +1048,9 @@
           }
         }
       }
+    },
+    "Make a wish, then tap the candles to blow them out" : {
+
     },
     "Memories" : {
 
@@ -1019,6 +1070,9 @@
           }
         }
       }
+    },
+    "Merry Christmas" : {
+
     },
     "Milestone reminders" : {
 
@@ -1368,6 +1422,9 @@
     "Retry" : {
 
     },
+    "Reveal" : {
+
+    },
     "Review…" : {
 
     },
@@ -1408,6 +1465,12 @@
 
     },
     "Say anything" : {
+
+    },
+    "Scratch here" : {
+
+    },
+    "Scratch the card to see what %@ has to tell you" : {
 
     },
     "Search statuses" : {
@@ -1572,6 +1635,9 @@
     "Stop" : {
 
     },
+    "Surprise!" : {
+
+    },
     "Switch camera" : {
 
     },
@@ -1654,6 +1720,9 @@
 
     },
     "These terms supplement Apple's standard Licensed Application End User License Agreement, which also applies." : {
+
+    },
+    "They blow out the candles, then your words appear" : {
 
     },
     "They tap it and you're linked — no accounts, nothing to type. If they don't have %@ yet, they install it first, then tap the link again." : {
@@ -1911,6 +1980,9 @@
     "You changed your status from another device." : {
 
     },
+    "You did it!" : {
+
+    },
     "You sent a %@" : {
 
     },
@@ -1976,6 +2048,9 @@
 
     },
     "Your name" : {
+
+    },
+    "Your news, kept secret" : {
 
     },
     "Your partner" : {

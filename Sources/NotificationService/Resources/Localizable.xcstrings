@@ -10,6 +10,9 @@
     "%lld years" : {
 
     },
+    "🎁 has a surprise for you — open %@ to see it" : {
+
+    },
     "1 month" : {
 
     },
@@ -17,6 +20,9 @@
 
     },
     "a new name" : {
+
+    },
+    "A surprise — open %@ to see it" : {
 
     },
     "CloudKit didn't return an invite link. Try again." : {
@@ -41,6 +47,15 @@
 
     },
     "From a shared space you've left." : {
+
+    },
+    "Happy anniversary" : {
+
+    },
+    "Happy birthday" : {
+
+    },
+    "Happy New Year" : {
 
     },
     "Hidden" : {
@@ -74,6 +89,12 @@
 
     },
     "left your shared space" : {
+
+    },
+    "Love you" : {
+
+    },
+    "Merry Christmas" : {
 
     },
     "moment" : {
@@ -118,6 +139,9 @@
     "Sign in to iCloud in Settings to use %@." : {
 
     },
+    "Surprise!" : {
+
+    },
     "That recording is no longer on this device." : {
 
     },
@@ -152,6 +176,9 @@
 
     },
     "You changed your status from another device." : {
+
+    },
+    "You did it!" : {
 
     },
     "You sent a nudge from another device." : {
