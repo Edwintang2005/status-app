@@ -68,8 +68,14 @@ final class ThumbnailFetcherTests: XCTestCase {
         let moments = (0..<120).map { Fixtures.moment("m\($0)") }
 
         // Main-actor Tasks, not a task group: Xcode 26's region checker rejects
-        // a `@MainActor` group child.
-        let tiles = moments.map { moment in Task { (moment.id, await fetcher.thumbnail(for: moment)) } }
+        // a `@MainActor` group child. Immediate where it exists: every tile is
+        // queued before `map` returns, so the coalesce window can't close early.
+        let tiles = moments.map { moment in
+            if #available(iOS 26.0, *) {
+                return Task.immediate { (moment.id, await fetcher.thumbnail(for: moment)) }
+            }
+            return Task { (moment.id, await fetcher.thumbnail(for: moment)) }
+        }
         var results: [String: Bool] = [:]
         for tile in tiles {
             let (id, fetched) = await tile.value

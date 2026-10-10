@@ -6,18 +6,6 @@ import XCTest
 /// told apart from a new status (`StatusPayload.wordsSince`). The partner's
 /// build — or a modified one — writes these fields, so none are trusted.
 final class IngestTests: XCTestCase {
-    private let zone = CKRecordZone.ID(zoneName: AppConfig.coupleZoneName, ownerName: CKCurrentUserDefaultName)
-
-    private func statusRecord(emoji: String, message: String, name: String, at date: Date) -> CKRecord {
-        let record = CKRecord(recordType: CloudSync.RecordType.status,
-                              recordID: CKRecord.ID(recordName: PairRole.participant.statusRecordName, zoneID: zone))
-        record.encryptedValues[CloudSync.Field.emoji] = emoji
-        record.encryptedValues[CloudSync.Field.message] = message
-        record.encryptedValues[CloudSync.Field.displayName] = name
-        record[CloudSync.Field.updatedAt] = date as CKRecordValue
-        return record
-    }
-
     // MARK: TrustedTime
 
     func testPlausibleCapsFutureAndPreEpochDates() {
@@ -37,12 +25,12 @@ final class IngestTests: XCTestCase {
 
     func testRenameKeepsWhenTheWordsBegan() {
         let before = Fixtures.status("🥰", "missing you", at: Fixtures.t0)
-        let renamed = statusRecord(emoji: "🥰", message: "missing you", name: "Sammy", at: Fixtures.date(100))
+        let renamed = Fixtures.statusRecord(emoji: "🥰", message: "missing you", name: "Sammy", at: Fixtures.date(100))
         let payload = CloudSync.payload(from: renamed, nudge: nil, existing: before)
         XCTAssertEqual(payload?.updatedAt, Fixtures.date(100))
         XCTAssertEqual(payload?.wordsAt, Fixtures.t0, "a rename doesn't make old words new")
 
-        let changed = statusRecord(emoji: "☕️", message: "coffee?", name: "Sammy", at: Fixtures.date(200))
+        let changed = Fixtures.statusRecord(emoji: "☕️", message: "coffee?", name: "Sammy", at: Fixtures.date(200))
         let next = CloudSync.payload(from: changed, nudge: nil, existing: payload)
         XCTAssertNil(next?.wordsSince)
         XCTAssertEqual(next?.wordsAt, Fixtures.date(200))
@@ -50,7 +38,7 @@ final class IngestTests: XCTestCase {
 
     func testIngestedStatusIsBounded() {
         let farFuture = Date().addingTimeInterval(10 * 365 * 86_400)
-        let record = statusRecord(emoji: String(repeating: "🔥", count: 50),
+        let record = Fixtures.statusRecord(emoji: String(repeating: "🔥", count: 50),
                                   message: String(repeating: "a", count: 5_000),
                                   name: String(repeating: "n", count: 500),
                                   at: farFuture)
@@ -64,7 +52,7 @@ final class IngestTests: XCTestCase {
 
     func testNudgeCountIsClamped() {
         let nudge = CKRecord(recordType: CloudSync.RecordType.nudge,
-                             recordID: CKRecord.ID(recordName: PairRole.participant.nudgeRecordName, zoneID: zone))
+                             recordID: CKRecord.ID(recordName: PairRole.participant.nudgeRecordName, zoneID: Fixtures.zone))
         nudge[CloudSync.Field.count] = Int.max as CKRecordValue
         let payload = CloudSync.payload(from: nil, nudge: nudge, existing: nil)
         XCTAssertEqual(payload?.nudgeCount, AppConfig.nudgeCountCeiling)
@@ -77,7 +65,7 @@ final class IngestTests: XCTestCase {
     func testCraftedMomentIsSanitisedAndStorable() throws {
         let record = CKRecord(recordType: CloudSync.RecordType.moment,
                               recordID: CKRecord.ID(recordName: PairRole.participant.momentRecordName(id: "m1"),
-                                                    zoneID: zone))
+                                                    zoneID: Fixtures.zone))
         record[CloudSync.Field.momentID] = "m1" as CKRecordValue
         record[CloudSync.Field.kind] = Moment.Kind.voice.rawValue as CKRecordValue
         record[CloudSync.Field.sentAt] = Date(timeIntervalSince1970: -99_999_999_999) as CKRecordValue
@@ -102,7 +90,7 @@ final class IngestTests: XCTestCase {
     /// only a changed name makes it a rename.
     func testRepickingTheSameStatusIsNew() {
         let before = Fixtures.status("💤", "sleeping", at: Fixtures.t0)
-        let again = statusRecord(emoji: "💤", message: "sleeping", name: before.displayName, at: Fixtures.date(86_400))
+        let again = Fixtures.statusRecord(emoji: "💤", message: "sleeping", name: before.displayName, at: Fixtures.date(86_400))
         let payload = CloudSync.payload(from: again, nudge: nil, existing: before)
         XCTAssertNil(payload?.wordsSince)
         XCTAssertEqual(payload?.wordsAt, Fixtures.date(86_400), "the card says just now, not a day ago")
@@ -135,7 +123,7 @@ final class IngestTests: XCTestCase {
     /// Our own records aren't capped: a long name must survive its own echo.
     func testOwnRecordTextIsNotCapped() {
         let longName = String(repeating: "n", count: 60)
-        let record = statusRecord(emoji: "💼", message: "working", name: longName, at: Fixtures.t0)
+        let record = Fixtures.statusRecord(emoji: "💼", message: "working", name: longName, at: Fixtures.t0)
         XCTAssertEqual(CloudSync.payload(from: record, nudge: nil, existing: nil, fromPartner: false)?.displayName,
                        longName)
     }
