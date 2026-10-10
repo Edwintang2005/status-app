@@ -155,18 +155,9 @@ extension CloudSync {
         )
     }
 
-    /// The paired zone's share record. `nil` when the zone or share isn't
-    /// there — for a diagnostic that's an answer, not a failure.
+    /// The paired zone's share record, from whichever side's database holds it.
     private func pairedZoneShare(for pairing: PairingInfo) async throws -> CKShare? {
-        let database = self.database(for: pairing)
-        let zoneID = CKRecordZone.ID(zoneName: pairing.zoneName,
-                                     ownerName: pairing.zoneOwnerName)
-        let zones = try await database.recordZones(for: [zoneID])
-        guard case .success(let zone)? = zones[zoneID],
-              let shareID = zone.share?.recordID else { return nil }
-        let records = try await database.records(for: [shareID])
-        guard case .success(let record)? = records[shareID] else { return nil }
-        return record as? CKShare
+        try await existingZoneShare(in: database(for: pairing), zoneID: zoneID(for: pairing))
     }
 
     private static func describe(_ status: CKAccountStatus) -> String {
