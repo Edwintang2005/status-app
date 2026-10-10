@@ -76,35 +76,20 @@ extension CloudSync {
         try Self.confirmDeleted(try await database.modifyRecords(saving: [], deleting: [shareID]), shareID)
     }
 
-    /// Whether an error means "it isn't there any more". Partial failures are
-    /// unwrapped because a batch delete reports per-item errors.
+    /// Whether an error means "it isn't there any more", bare or for every item
+    /// of a batch — one real error among them must still surface.
     static func isAlreadyGone(_ error: CKError) -> Bool {
-        let gone: Set<CKError.Code> = [.unknownItem, .zoneNotFound, .userDeletedZone]
-        if gone.contains(error.code) { return true }
-        guard error.code == .partialFailure,
-              let partials = error.partialErrorsByItemID?.values else { return false }
-        // Every failure must be a "gone" one; a real error must still surface.
-        let codes = partials.compactMap { ($0 as? CKError)?.code }
-        return !codes.isEmpty && codes.allSatisfy(gone.contains)
+        error.isEvery(of: [.unknownItem, .zoneNotFound, .userDeletedZone])
     }
 
-    /// "That record doesn't exist" only — bare or per-item — without the
-    /// zone-gone codes `isAlreadyGone` also accepts.
+    /// "That record doesn't exist" only, without the zone-gone codes `isAlreadyGone` accepts.
     static func isUnknownItem(_ error: CKError) -> Bool {
-        if error.code == .unknownItem { return true }
-        guard error.code == .partialFailure,
-              let partials = error.partialErrorsByItemID?.values else { return false }
-        let codes = partials.compactMap { ($0 as? CKError)?.code }
-        return !codes.isEmpty && codes.allSatisfy { $0 == .unknownItem }
+        error.isEvery(of: [.unknownItem])
     }
 
-    /// A change-tag conflict, bare or per-item inside `.partialFailure`.
+    /// A change-tag conflict, bare or on any item.
     static func isServerRecordChanged(_ error: Error) -> Bool {
-        guard let error = error as? CKError else { return false }
-        if error.code == .serverRecordChanged { return true }
-        guard error.code == .partialFailure,
-              let partials = error.partialErrorsByItemID?.values else { return false }
-        return partials.contains { ($0 as? CKError)?.code == .serverRecordChanged }
+        (error as? CKError)?.isAny(.serverRecordChanged) ?? false
     }
 
     /// Runs a fetch-modify-save until it lands without a change-tag conflict:
@@ -122,11 +107,28 @@ extension CloudSync {
         return try await save()
     }
 
-    /// Token expiry arrives either bare or wrapped in `.partialFailure` (zone-scoped).
+    /// Token expiry is zone-scoped, so it usually arrives inside `.partialFailure`.
     static func isTokenExpired(_ error: CKError) -> Bool {
-        if error.code == .changeTokenExpired { return true }
-        guard error.code == .partialFailure,
-              let partials = error.partialErrorsByItemID?.values else { return false }
-        return partials.contains { ($0 as? CKError)?.code == .changeTokenExpired }
+        error.isAny(.changeTokenExpired)
+    }
+}
+
+extension CKError {
+    /// The per-item errors of a `.partialFailure`; empty for any other code.
+    var itemErrors: [CKError] {
+        guard code == .partialFailure else { return [] }
+        return partialErrorsByItemID?.values.compactMap { $0 as? CKError } ?? []
+    }
+
+    /// One of `codes` bare, or every item's code is.
+    func isEvery(of codes: Set<CKError.Code>) -> Bool {
+        if codes.contains(code) { return true }
+        let items = itemErrors.map(\.code)
+        return !items.isEmpty && items.allSatisfy(codes.contains)
+    }
+
+    /// `code` bare, or on any item.
+    func isAny(_ code: CKError.Code) -> Bool {
+        self.code == code || itemErrors.contains { $0.code == code }
     }
 }

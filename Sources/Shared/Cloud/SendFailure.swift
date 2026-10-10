@@ -23,20 +23,18 @@ enum SendFailure: Equatable, Sendable {
             self = .transient
             return
         }
-        let items = error.partialErrorsByItemID?.values.compactMap { $0 as? CKError } ?? []
+        let items = error.itemErrors
         let itemCodes = items.map(\.code)
-        if error.code == .quotaExceeded {
-            self = .storageFull
-        } else if error.code == .partialFailure, itemCodes.contains(.quotaExceeded) {
+        if error.isAny(.quotaExceeded) {
             self = .storageFull
         } else if Self.isThrottle(error.code) {
             self = .throttled(until: now.addingTimeInterval(Self.delay(error.retryAfterSeconds)))
-        } else if error.code == .partialFailure, let throttle = items.first(where: { Self.isThrottle($0.code) }) {
+        } else if let throttle = items.first(where: { Self.isThrottle($0.code) }) {
             let delay = Self.delay(throttle.retryAfterSeconds ?? error.retryAfterSeconds)
             self = .throttled(until: now.addingTimeInterval(delay))
         } else if Self.isNetwork(error.code) {
             self = .offline
-        } else if error.code == .partialFailure, !itemCodes.isEmpty,
+        } else if !itemCodes.isEmpty,
                   itemCodes.allSatisfy({ Self.isNetwork($0) || $0 == .batchRequestFailed }),
                   itemCodes.contains(where: Self.isNetwork) {
             self = .offline
@@ -53,10 +51,9 @@ enum SendFailure: Equatable, Sendable {
         code == .requestRateLimited || code == .zoneBusy || code == .serviceUnavailable
     }
 
-    /// The server's own figure, within reason: a crafted or absurd one can't
-    /// park the queue for days.
+    /// The server's own figure, within `AppConfig.throttleMaxDelay`.
     private static func delay(_ retryAfter: TimeInterval?) -> TimeInterval {
         guard let retryAfter, retryAfter.isFinite, retryAfter > 0 else { return AppConfig.throttleDefaultDelay }
-        return min(retryAfter, AppConfig.storageFullRetryInterval)
+        return min(retryAfter, AppConfig.throttleMaxDelay)
     }
 }
