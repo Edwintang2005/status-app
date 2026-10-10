@@ -23,7 +23,9 @@ enum MediaPrefetchPlan {
     }
 
     /// The app keeps the newest few whole, so a reinstall doesn't pull the
-    /// whole history at once; the widget only ever draws the newest photo.
+    /// whole history at once. The widget takes thumbnails of the partner's
+    /// newest few pictures, and the newest — the one it draws — in full: one
+    /// full image is within its memory ceiling.
     static let appLimit = 10
     static let widgetLimit = 3
 
@@ -49,9 +51,11 @@ enum MediaPrefetchPlan {
                 .filter { !hasMedia($0) }
                 .map { Item(moment: $0, fetch: .full) }
         case .widget:
-            return partnerVisual.prefix(widgetLimit)
-                .filter { !hasThumbnail($0) }
-                .map { Item(moment: $0, fetch: .thumbnail) }
+            return partnerVisual.prefix(widgetLimit).enumerated().compactMap { index, moment in
+                // `.full` brings the thumbnail along.
+                if index == 0, !hasMedia(moment) { return Item(moment: moment, fetch: .full) }
+                return hasThumbnail(moment) ? nil : Item(moment: moment, fetch: .thumbnail)
+            }
         case .notificationService:
             return partnerVisual.prefix(1)
                 .filter { !hasThumbnail($0) }

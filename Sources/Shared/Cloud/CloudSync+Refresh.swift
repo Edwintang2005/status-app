@@ -32,8 +32,6 @@ extension CloudSync {
         do {
             changes = try await fetchZoneChanges(zone: zone, in: database, since: previous, oneBatch: oneBatch)
         } catch let error as CKError where Self.isTokenExpired(error) {
-            // Token expiry is zone-scoped, so it arrives wrapped in .partialFailure —
-            // matching only the bare code left every refresh failing forever.
             log.notice("Change token expired, resyncing the whole zone.")
             previous = nil
             await MainActor.run { SharedStore.shared.setChangeToken(nil, for: tokenKey) }
@@ -53,9 +51,7 @@ extension CloudSync {
             log.notice("Took one batch of \(changes.records.count) records; the app will fetch the rest.")
         }
 
-        // Apply first, then advance the token: the other order can persist the token
-        // without the records (the extension gets killed on a deadline), losing them
-        // forever. Re-applying the same delta twice is tolerated everywhere here.
+        // Apply before the token (invariant 2); re-applying a delta is harmless.
         let applied = await apply(changes, pairing: pairing, fullResync: previous == nil)
         var result = applied.result
         result.incomplete = changes.moreComing
@@ -84,14 +80,7 @@ extension CloudSync {
             }
         }
 
-        // Readable before token: a record whose encrypted fields came back empty
-        // (a background process without the share's keys) carried nothing into
-        // local state, and advancing past it would lose its words for good. The
-        // one exception is the app giving up on records it has failed to read on
-        // several separate looks — otherwise a single unreadable record pins the
-        // token, and the whole delta behind it, forever (`noteUnreadableRecords`).
-        // One batch of a larger delta (an extension's) that read everything
-        // still leaves the hold: the held records may be in the rest.
+        // Readable before token, and the app's give-up (invariant 2, `TokenAdvancePolicy`).
         var readable = true
         switch TokenAdvancePolicy.holdStep(unreadable: result.unreadableRecordNames, incomplete: changes.moreComing) {
         case .note(let names):
@@ -110,8 +99,7 @@ extension CloudSync {
             let readable = readable
             await MainActor.run {
                 let store = SharedStore.shared
-                let persists = TokenAdvancePolicy.persists(fetchedToken: true,
-                                                           readable: readable,
+                let persists = TokenAdvancePolicy.persists(readable: readable,
                                                            samePairing: store.pairing?.sameZone(as: pairing) == true,
                                                            hadToken: hadToken,
                                                            tokenStillStored: store.changeToken(for: tokenKey) != nil)
@@ -137,15 +125,6 @@ extension CloudSync {
         } else {
             await prefetchMedia(for: applied.arrived, pairing: pairing)
         }
-
-        // Automatic promote-and-close is OFF: promoting a link-joined (public)
-        // participant evicted them from the share instead of converting them
-        // (observed in Production, 2026-09: the atomic close+add landed, but the
-        // partner survived as neither public nor private). Until a conversion
-        // that provably preserves membership is found, closing is manual-only —
-        // the Diagnostics button — so a failure is a deliberate, watched act
-        // rather than a background loop that re-evicts the partner every refresh.
-        // await closeInviteIfPartnerJoined(pairing)
         return result
     }
 
@@ -186,14 +165,16 @@ extension CloudSync {
     /// every photo and recording ever sent. Media is fetched separately, on demand.
     /// `oneBatch` returns after the first page with `moreComing` set; the page's
     /// token is a valid cursor, so applying it before persisting stays safe.
+    /// A caller that needs only names and system fields passes fewer `desiredKeys`.
     func fetchZoneChanges(zone: CKRecordZone.ID,
-                                  in database: CKDatabase,
-                                  since previous: CKServerChangeToken?,
-                                  oneBatch: Bool = false) async throws -> ZoneChanges {
+                          in database: CKDatabase,
+                          since previous: CKServerChangeToken?,
+                          oneBatch: Bool = false,
+                          desiredKeys: [String] = CloudSync.changeFetchKeys) async throws -> ZoneChanges {
         let configuration = CKFetchRecordZoneChangesOperation.ZoneConfiguration(
             previousServerChangeToken: previous,
             resultsLimit: oneBatch ? Self.extensionBatchLimit : nil,
-            desiredKeys: Self.changeFetchKeys
+            desiredKeys: desiredKeys
         )
 
         let operation = CKFetchRecordZoneChangesOperation(
@@ -247,10 +228,9 @@ extension CloudSync {
     func apply(_ changes: ZoneChanges,
                pairing: PairingInfo,
                fullResync: Bool = false) async -> (result: RefreshResult, arrived: [Moment]) {
-        let (hidden, freshStart, announcedFloor) = await MainActor.run {
-            let snapshot = SharedStore.shared.snapshot
-            return (SharedStore.shared.hiddenMomentIDs, snapshot.freshStart, snapshot.lastAnnouncedMomentSentAt)
-        }
+        let store = SharedStore.shared
+        // One decode for every judgement below; the fold itself re-reads under the lock.
+        let (hidden, held) = await MainActor.run { (store.hiddenMomentIDs, store.snapshot) }
         let names = myRecordNames(pairing)
         var metadata = RecordMetadata.server
         metadata.isForeign = { Self.isForeign($0, names: names) }
@@ -258,7 +238,7 @@ extension CloudSync {
                                        deletedIDs: changes.deletedIDs,
                                        mineRole: pairing.role,
                                        hidden: hidden,
-                                       freshStart: freshStart,
+                                       freshStart: held.freshStart,
                                        metadata: metadata)
         if !parsed.unreadable.isEmpty {
             log.notice("\(parsed.unreadable.count) records in this delta had unreadable encrypted fields.")
@@ -272,48 +252,46 @@ extension CloudSync {
 
         // Captured before the deletions and the insert below, so "new" can mean
         // "not already stored".
-        let held = MomentIndex.shared.load()
-        let alreadyKnown = Set(held.map(\.id))
-        let oldestRetained = held.count >= AppConfig.momentHistoryLimit
-            ? held[AppConfig.momentHistoryLimit - 1].sentAt : nil
+        let indexed = MomentIndex.shared.load()
+        let alreadyKnown = Set(indexed.map(\.id))
+        let oldestRetained = indexed.count >= AppConfig.momentHistoryLimit
+            ? indexed[AppConfig.momentHistoryLimit - 1].sentAt : nil
 
-        for id in parsed.removedMomentIDs {
-            MomentIndex.shared.remove(id: id)
-            MomentStore.shared.delete(id: id)
-        }
+        MomentIndex.shared.remove(ids: Set(parsed.removedMomentIDs))
+        parsed.removedMomentIDs.forEach(MomentStore.shared.delete(id:))
         // The cloud cap pruning the oldest entries, mirrored locally.
         StatusHistoryLog.shared.remove(fromMe: true, at: parsed.removedMyLogs)
         StatusHistoryLog.shared.remove(fromMe: false, at: parsed.removedTheirLogs)
 
-        let store = SharedStore.shared
-        let (previousTheirs, previousMine, minePublished) = await MainActor.run {
-            (store.snapshot.theirs, store.snapshot.mine, store.snapshot.myStatusPublished)
-        }
         let outcome = parsed.outcome(mineRole: pairing.role,
-                                     previousMine: previousMine,
-                                     previousTheirs: previousTheirs,
-                                     minePublished: minePublished,
+                                     previousMine: held.mine,
+                                     previousTheirs: held.theirs,
+                                     minePublished: held.myStatusPublished,
                                      alreadyKnown: alreadyKnown,
                                      hidden: hidden,
                                      oldestRetained: oldestRetained,
                                      fullResync: fullResync,
-                                     announcedFloor: announcedFloor)
+                                     announcedFloor: held.lastAnnouncedMomentSentAt)
         // Bound to `let`s before crossing actors.
         let fold = outcome.fold
         let complete = !changes.moreComing
 
-        await MainActor.run {
-            _ = store.mutate(reloadWidgets: false) {
+        let snapshotChanged = await MainActor.run {
+            var changed = false
+            store.mutate(reloadWidgets: false) {
                 // Checked *inside* the locked mutate, by zone identity: an unlink
                 // — or an unlink and a new pairing — can land mid-refresh, and
                 // writing this delta would file the ex's records onto the wrong snapshot.
                 guard store.pairing?.sameZone(as: pairing) == true else { return }
+                let before = $0
                 fold.fold(into: &$0)
                 $0.isPaired = true
+                changed = $0 != before
                 // Only a complete fetch counts as synced: the widget skips its own
                 // fetch after a recent sync, and one batch of a large delta isn't one.
                 if complete { $0.lastSyncedAt = Date() }
             }
+            return changed
         }
 
         // An unlink can land mid-refresh (the status write above checks under the
@@ -338,8 +316,9 @@ extension CloudSync {
                 // A deletions-only delta still invalidates snapshot fields derived from
                 // the index — otherwise the photo widget points at deleted files.
                 await MainActor.run { _ = store.refreshDerived() }
-            } else {
-                SharedStore.reloadWidgets()
+            } else if snapshotChanged {
+                // An empty delta reloads nothing: each reload costs every widget kind budget.
+                store.requestWidgetReload()
             }
         } else {
             await MainActor.run {
@@ -410,7 +389,6 @@ extension CloudSync {
     /// changed underneath (the ex's photos must not land in the new pairing's
     /// store) — the records are already applied and the token saved, so nothing is lost.
     func prefetchMedia(for arrived: [Moment], pairing: PairingInfo) async {
-        let database = self.database(for: pairing)
         let store = MomentStore.shared
         let process = Self.prefetchProcess
         let recent = process == .app ? Array(MomentIndex.shared.load().prefix(MediaPrefetchPlan.appLimit)) : []
@@ -421,24 +399,29 @@ extension CloudSync {
                                             hasThumbnail: { store.hasThumbnail(for: $0.id) })
         guard !items.isEmpty else { return }
         let samePairing = { await MainActor.run { SharedStore.shared.pairing?.sameZone(as: pairing) == true } }
-        for item in items {
-            // Per item: ten photos can outlast an unlink.
+        // One batched fetch per kind of file, not one per moment.
+        for fetch in [MediaPrefetchPlan.Fetch.thumbnail, .full] {
+            let moments = items.filter { $0.fetch == fetch }.map(\.moment)
+            guard !moments.isEmpty else { continue }
             guard !Task.isCancelled, await samePairing() else { break }
-            if process == .app {
-                try? await download(item.fetch, for: item.moment, pairing: pairing, in: database)
-            } else {
-                // Extensions are inside a budget (the banner's, the timeline's):
-                // a stalled thumbnail gives up rather than eat it.
-                let fetch = item.fetch, moment = item.moment
-                try? await withDeadline(AppConfig.widgetDeadline) {
-                    try await self.download(fetch, for: moment, pairing: pairing, in: self.database(for: pairing))
+            do {
+                if process == .app {
+                    try await download(fetch, for: moments, pairing: pairing, in: database(for: pairing))
+                } else {
+                    // Extensions are inside a budget (the banner's, the timeline's):
+                    // a stalled fetch gives up rather than eat it.
+                    try await withDeadline(AppConfig.widgetDeadline) {
+                        try await self.download(fetch, for: moments, pairing: pairing, in: self.database(for: pairing))
+                    }
                 }
+            } catch {
+                log.notice("Media prefetch stopped: \(error.localizedDescription, privacy: .public)")
             }
-            // Landed after an unlink's wipe: not this pairing's any more.
-            if await !samePairing() {
-                store.delete(id: item.moment.id)
-                break
-            }
+        }
+        // Landed after an unlink's wipe: not this pairing's any more.
+        guard await samePairing() else {
+            items.forEach { store.delete(id: $0.moment.id) }
+            return
         }
         SharedStore.reloadWidgets()
     }

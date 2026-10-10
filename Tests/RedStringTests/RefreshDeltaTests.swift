@@ -71,7 +71,7 @@ final class RefreshDeltaTests: XCTestCase {
         XCTAssertEqual(snapshot.anniversaryRequestedAt, Fixtures.date(500))
         XCTAssertTrue(snapshot.anniversaryRequestPending)
         // Unreadable: neither value nor removal.
-        RefreshDelta(unreadableRecords: 1).fold(into: &snapshot)
+        RefreshDelta().fold(into: &snapshot)
         XCTAssertEqual(snapshot.anniversaryRequestedAt, Fixtures.date(500))
         RefreshDelta(anniversaryRequestErased: true).fold(into: &snapshot)
         XCTAssertNil(snapshot.anniversaryRequestedAt)
@@ -92,7 +92,7 @@ final class RefreshDeltaTests: XCTestCase {
         var snapshot = paired
         snapshot.anniversary = Anniversary(startsAt: Fixtures.t0)
         // A record arrived but parsed to nothing: neither value nor deletion.
-        RefreshDelta(anniversary: nil, anniversaryErased: false, unreadableRecords: 1).fold(into: &snapshot)
+        RefreshDelta(anniversary: nil, anniversaryErased: false).fold(into: &snapshot)
         XCTAssertEqual(snapshot.anniversary?.startsAt, Fixtures.t0)
     }
 

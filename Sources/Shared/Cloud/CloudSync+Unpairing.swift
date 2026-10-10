@@ -45,7 +45,8 @@ extension CloudSync {
     func deleteOwnRecords(role: PairRole,
                                   in zone: CKRecordZone.ID,
                                   database: CKDatabase) async throws {
-        let changes = try await fetchZoneChanges(zone: zone, in: database, since: nil)
+        // Names are all it judges: no fields.
+        let changes = try await fetchZoneChanges(zone: zone, in: database, since: nil, desiredKeys: [])
         let mine = changes.records.map(\.recordID).filter {
             ZoneClearPlan.deletes($0.recordName, role: role, scope: .unlink)
         }

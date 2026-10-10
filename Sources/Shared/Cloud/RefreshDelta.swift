@@ -1,8 +1,9 @@
 import Foundation
 
 /// One change fetch, parsed, and how it folds into `Snapshot`. No CloudKit in
-/// sight so every decision here runs under `make test`; `CloudSync.apply` does
-/// the record parsing and calls `fold` inside the locked mutate.
+/// sight so every decision here runs under `make test`; `ParsedDelta` builds it
+/// from the records and `CloudSync.apply` calls `fold` inside the locked mutate.
+/// A record that arrived unreadable is simply absent here: neither value nor removal.
 struct RefreshDelta: Sendable, Equatable {
     /// Own status, already merged with the nudge counter (`CloudSync.payload(from:)`).
     var mine: StatusPayload?
@@ -25,10 +26,6 @@ struct RefreshDelta: Sendable, Equatable {
 
     /// Both sides' `FreshStart` records, when they arrived readable or were deleted.
     var freshStart = FreshStart.Incoming()
-
-    /// Records whose encrypted fields came back empty. Whatever they carried is
-    /// not in this delta, so the change token must not advance past them.
-    var unreadableRecords = 0
 
     /// The partner's nudge counter's creation time, and its deletion.
     var partnerNudgeCreatedAt: Date?
