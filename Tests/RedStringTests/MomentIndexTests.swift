@@ -135,13 +135,17 @@ final class MomentIndexTests: XCTestCase {
     }
 
     func testMarkUploadedAndRemove() {
-        let (index, _) = makeIndex()
+        let (index, url) = makeIndex()
         index.insert([Fixtures.moment("o1", fromMe: true, uploaded: false)])
         XCTAssertFalse(index.load()[0].uploaded)
         XCTAssertTrue(index.markUploaded(ids: ["o1"])[0].uploaded)
         index.remove(id: "o1")
         XCTAssertEqual(index.load(), [])
-        XCTAssertEqual(index.knownIDs(), [])
+
+        let identity = FileIdentity(url)
+        XCTAssertNotNil(identity)
+        index.remove(id: "absent")
+        XCTAssertEqual(FileIdentity(url), identity, "removing nothing must not rewrite the file")
     }
 
     func testCapKeepsTheNewest() {

@@ -19,6 +19,9 @@ final class GroupFileStore: GroupKeyValueStore {
     /// Old `UserDefaults` home; read at init so pre-existing pairings survive.
     private let legacy: UserDefaults?
     private let lock = NSLock()
+    /// The last bytes read per key, by the file's identity: most reads then
+    /// cost a `stat`, and only a write (an atomic replace) costs a read again.
+    private var cache: [String: (identity: FileIdentity, data: Data)] = [:]
 
     /// Keys migrated from `UserDefaults`; change tokens matched by prefix.
     private static let migratedKeys = ["snapshot", "pairing"]
@@ -60,7 +63,17 @@ final class GroupFileStore: GroupKeyValueStore {
         guard let url = url(for: key) else { return nil }
         lock.lock()
         defer { lock.unlock() }
-        return try? Data(contentsOf: url)
+        // Identity before the read: a replace landing in between costs one more
+        // read next time, where the other order would cache stale bytes.
+        guard let identity = FileIdentity(url) else {
+            let missing = errno == ENOENT
+            cache[key] = nil
+            return missing ? nil : try? Data(contentsOf: url)
+        }
+        if let cached = cache[key], cached.identity == identity { return cached.data }
+        let data = try? Data(contentsOf: url)
+        cache[key] = data.map { (identity, $0) }
+        return data
     }
 
     func bool(forKey key: String) -> Bool {
@@ -71,6 +84,9 @@ final class GroupFileStore: GroupKeyValueStore {
         guard let url = url(for: key) else { return }
         lock.lock()
         defer { lock.unlock() }
+        // Not re-cached from a stat after the write: another process's write
+        // could land between the two.
+        cache[key] = nil
         do {
             if let data {
                 try data.write(to: url, options: .atomic)
@@ -132,6 +148,27 @@ final class GroupFileStore: GroupKeyValueStore {
             // otherwise fresh installs re-scan the legacy suite on every init.
             try? Data().write(to: marker, options: .atomic)
         }
+    }
+}
+
+/// A shared file's identity, for in-memory caches of it. Every write to these
+/// files is an atomic replace, so another process's write changes inode and mtime.
+struct FileIdentity: Equatable {
+    private let device: Int32
+    private let inode: UInt64
+    private let size: Int64
+    private let modifiedSeconds: Int
+    private let modifiedNanoseconds: Int
+
+    /// `nil` when the file can't be stat'ed; `errno` says why.
+    init?(_ url: URL) {
+        var info = stat()
+        guard stat(url.path, &info) == 0 else { return nil }
+        device = info.st_dev
+        inode = info.st_ino
+        size = info.st_size
+        modifiedSeconds = info.st_mtimespec.tv_sec
+        modifiedNanoseconds = info.st_mtimespec.tv_nsec
     }
 }
 

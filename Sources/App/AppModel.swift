@@ -297,13 +297,14 @@ final class AppModel {
     func markSeen(_ moment: Moment, reloadWidgets: Bool = true) {
         guard !moment.seen, !moment.fromMe else { return }
         history = Self.shownHistory(MomentIndex.shared.markSeen(ids: [moment.id]))
+        let owesReceipt = readReceiptsEnabled && isPaired
         // The widget's unheard-memo badge is a snapshot field; this is what clears it.
-        if store.refreshDerived(reloadWidgets: reloadWidgets), !reloadWidgets { widgetReloadOwed = true }
-        snapshot = store.snapshot
-        if readReceiptsEnabled, isPaired {
-            store.mutate(reloadWidgets: false) { $0.receiptsDirty = true }
-            outbox.scheduleReceiptFlush()
+        let refreshed = store.refreshDerived(reloadWidgets: reloadWidgets) { snapshot in
+            if owesReceipt { snapshot.receiptsDirty = true }
         }
+        if refreshed.changed, !reloadWidgets { widgetReloadOwed = true }
+        snapshot = refreshed.snapshot
+        if owesReceipt { outbox.scheduleReceiptFlush() }
     }
 
     // MARK: - Celebrations

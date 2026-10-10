@@ -26,13 +26,7 @@ final class MomentIndex: @unchecked Sendable {
     /// The last list read or written, keyed by the file's identity: a refresh
     /// loads the index several times, and only another process's write (an
     /// atomic replace, so a new inode and mtime) makes decoding it again worth it.
-    private var cache: (key: FileKey, moments: [Moment])?
-
-    private struct FileKey: Equatable {
-        let modified: Date?
-        let size: Int?
-        let inode: Int?
-    }
+    private var cache: (key: FileIdentity, moments: [Moment])?
 
     /// Waveforms as bytes: the index is rewritten whole on every change.
     private static let encoder: JSONEncoder = {
@@ -70,19 +64,12 @@ final class MomentIndex: @unchecked Sendable {
         return readFailed ? nil : all
     }
 
-    private func fileKey(_ url: URL) -> FileKey? {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else { return nil }
-        return FileKey(modified: attributes[.modificationDate] as? Date,
-                       size: (attributes[.size] as? NSNumber)?.intValue,
-                       inode: (attributes[.systemFileNumber] as? NSNumber)?.intValue)
-    }
-
     /// `writing` only under `crossLock`: entries that failed to decode are then
     /// dealt with for good — bytes kept, the zone asked to refill them, the
     /// rest saved — where a plain read just leaves the file be.
     private func loadUnlocked(writing: Bool = false) -> [Moment] {
         guard let fileURL else { return [] }
-        let key = fileKey(fileURL)
+        let key = FileIdentity(fileURL)
         if let key, let cache, cache.key == key {
             readFailed = false
             return cache.moments
@@ -140,7 +127,7 @@ final class MomentIndex: @unchecked Sendable {
                 .filter { $0.fromMe && !$0.uploaded }
             let trimmed = Array(moments.prefix(AppConfig.momentHistoryLimit)) + pendingBeyondCap
             try Self.encoder.encode(trimmed).write(to: fileURL, options: .atomic)
-            cache = fileKey(fileURL).map { ($0, trimmed) }
+            cache = FileIdentity(fileURL).map { ($0, trimmed) }
         } catch {
             cache = nil
             log.error("Failed to write moment index: \(error.localizedDescription)")
@@ -173,14 +160,9 @@ final class MomentIndex: @unchecked Sendable {
             let isCleared = cleared?() ?? { _ in false }
             for moment in moments where !isCleared(moment) {
                 var moment = moment
-                // `seen` is local-only; a full resync re-inserts everything, and
-                // without this merge heard voice memos would re-badge as new.
+                // Local-only fields are sticky: a copy rebuilt from a CloudKit record carries none.
                 if let existing = byID[moment.id] {
                     moment.seen = moment.seen || existing.seen
-                    // All local-only fields are sticky: a copy rebuilt from a
-                    // CloudKit record carries none of them, and every delta that
-                    // re-delivers a moment (own-send echoes, full resyncs) would
-                    // otherwise wipe seen times and partner receipts.
                     moment.seenAt = moment.seenAt ?? existing.seenAt
                     moment.seenByPartnerAt = moment.seenByPartnerAt ?? existing.seenByPartnerAt
                     moment.uploaded = moment.uploaded || existing.uploaded
@@ -303,8 +285,9 @@ final class MomentIndex: @unchecked Sendable {
         defer { lock.unlock() }
         crossLock.withLock {
             var all = loadUnlocked(writing: true)
+            let before = all.count
             all.removeAll { $0.id == id }
-            saveUnlocked(all)
+            if all.count != before { saveUnlocked(all) }
         }
     }
 
@@ -319,10 +302,6 @@ final class MomentIndex: @unchecked Sendable {
             all.removeAll { ids.contains($0.id) }
             if all.count != before { saveUnlocked(all) }
         }
-    }
-
-    func knownIDs() -> Set<String> {
-        Set(load().map(\.id))
     }
 
     /// Drops everything except own sends that never reached CloudKit — the

@@ -1,11 +1,13 @@
 import XCTest
 
-/// Status history dedups by `(fromMe, whole-second updatedAt)` across its two
+/// Status history dedups by `(fromMe, whole-second wordsAt)` across its two
 /// feeds (CLAUDE.md invariant 14) and mirrors cloud deletions.
 final class StatusHistoryLogTests: XCTestCase {
+    private var corruptHits = 0
+
     private func makeLog() -> (StatusHistoryLog, URL) {
         let url = temporaryFile("status-history.json")
-        return (StatusHistoryLog(fileURL: url), url)
+        return (StatusHistoryLog(fileURL: url, onCorrupt: { [self] in corruptHits += 1 }), url)
     }
 
     func testSameStatusFromBothFeedsIsOneEntry() {
@@ -72,15 +74,38 @@ final class StatusHistoryLogTests: XCTestCase {
         try Data("{oops".utf8).write(to: url)
         XCTAssertEqual(log.load(), [])
         XCTAssertEqual(try Data(contentsOf: url.appendingPathExtension("corrupt")), Data("{oops".utf8))
+        XCTAssertEqual(corruptHits, 1, "the change tokens go, so the zone's StatusLog records refill it")
         log.record(Fixtures.status(), fromMe: true)
         XCTAssertEqual(log.load().count, 1)
     }
 
-    func testLegacyDuplicatesSelfHeal() throws {
+    func testClearRemovesTheSidecarToo() throws {
         let (log, url) = makeLog()
-        // Two copies of one entry, as written before dedup dates were whole seconds.
+        try Data("{oops".utf8).write(to: url)
+        _ = log.load()
+        log.clear()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.appendingPathExtension("corrupt").path))
+        XCTAssertEqual(log.load(), [])
+    }
+
+    func testDuplicatesCollapse() throws {
+        let (log, url) = makeLog()
         let entry = StatusHistoryEntry(Fixtures.status(), fromMe: true)
         try JSONEncoder.shared.encode([entry, entry]).write(to: url)
         XCTAssertEqual(log.load().count, 1)
+    }
+
+    /// Another process's write replaces the file; the cached list must not hide it.
+    func testTheCacheFollowsAnotherProcesssWrite() {
+        let (here, url) = makeLog()
+        let there = StatusHistoryLog(fileURL: url, onCorrupt: {})
+        here.record(Fixtures.status(at: Fixtures.t0), fromMe: true)
+        XCTAssertEqual(here.load().count, 1)
+        there.record(Fixtures.status(at: Fixtures.date(10)), fromMe: false)
+        XCTAssertEqual(here.load().count, 2)
+        there.remove(fromMe: true, at: [Fixtures.t0])
+        XCTAssertEqual(here.load().map(\.fromMe), [false])
+        there.clear()
+        XCTAssertEqual(here.load(), [])
     }
 }

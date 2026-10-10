@@ -176,15 +176,107 @@ final class SharedStoreTests: XCTestCase {
             Fixtures.moment("p1", at: Fixtures.date(-20)),
             heard,
         ]
-        store.applyDerived(from: all, reloadWidgets: false)
+        let index = MomentIndex(fileURL: temporaryFile("moments-index.json"), onCorrupt: {})
+        index.insert(all)
+        XCTAssertTrue(store.refreshDerived(reloadWidgets: false, index: index).changed)
         let snapshot = store.snapshot
         XCTAssertEqual(snapshot.latestOwnMoment?.id, "o1")
         XCTAssertEqual(snapshot.latestPartnerMoment?.id, "v1")
         XCTAssertEqual(snapshot.latestPartnerVisualMoment?.id, "p1", "a memo never displaces the picture")
         XCTAssertEqual(snapshot.unheardVoiceMemoCount, 1)
 
-        store.applyDerived(from: [], reloadWidgets: false)
+        index.markSeen(ids: ["p1"])
+        XCTAssertFalse(store.refreshDerived(reloadWidgets: false, index: index).changed,
+                       "a photo marked seen changes nothing a widget draws")
+
+        index.clear()
+        store.refreshDerived(reloadWidgets: false, index: index)
         XCTAssertNil(store.snapshot.latestPartnerVisualMoment, "must return to nil when the last picture goes")
         XCTAssertEqual(store.snapshot.unheardVoiceMemoCount, 0)
+    }
+
+    /// `markSeen`'s path: the receipt flag lands in the same write as the
+    /// derived fields, and the returned snapshot is what was stored.
+    func testRefreshDerivedAppliesTheCallersChangeInTheSameWrite() {
+        let (store, _) = makeStore()
+        let index = MomentIndex(fileURL: temporaryFile("moments-index.json"), onCorrupt: {})
+        index.insert([Fixtures.moment("v1", kind: .voice)])
+        let refreshed = store.refreshDerived(reloadWidgets: false, index: index) { $0.receiptsDirty = true }
+        XCTAssertTrue(refreshed.changed)
+        XCTAssertTrue(refreshed.snapshot.receiptsDirty)
+        XCTAssertEqual(refreshed.snapshot.unheardVoiceMemoCount, 1)
+        XCTAssertEqual(store.snapshot, refreshed.snapshot)
+    }
+
+    /// The caller's change lands even when the index can't be read.
+    func testRefreshDerivedAppliesTheCallersChangeOverAnUnreadableIndex() throws {
+        let (store, _) = makeStore()
+        let url = temporaryFile("moments-index.json")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let index = MomentIndex(fileURL: url, onCorrupt: {})
+        let refreshed = store.refreshDerived(reloadWidgets: false, index: index) { $0.receiptsDirty = true }
+        XCTAssertFalse(refreshed.changed)
+        XCTAssertTrue(store.snapshot.receiptsDirty)
+    }
+
+    // MARK: Caches (two stores on one directory stand in for two processes)
+
+    func testCachedValuesFollowAnotherProcesssWrite() {
+        let directory = temporaryFile("unused").deletingLastPathComponent().appendingPathComponent("State")
+        let here = SharedStore(store: GroupFileStore(directory: directory, legacy: nil, isAppExtension: false))
+        let there = SharedStore(store: GroupFileStore(directory: directory, legacy: nil, isAppExtension: true))
+
+        here.mutate(reloadWidgets: false) { $0.lastSeenPartnerNudgeCount = 1 }
+        XCTAssertEqual(here.snapshot.lastSeenPartnerNudgeCount, 1)
+        XCTAssertEqual(there.snapshot.lastSeenPartnerNudgeCount, 1)
+        there.mutate(reloadWidgets: false) { $0.lastSeenPartnerNudgeCount = 2 }
+        XCTAssertEqual(here.snapshot.lastSeenPartnerNudgeCount, 2)
+
+        XCTAssertTrue(here.contentFilterEnabled)
+        there.contentFilterEnabled = false
+        XCTAssertFalse(here.contentFilterEnabled)
+
+        XCTAssertNil(here.hiddenPartnerStatusAt)
+        there.hiddenPartnerStatusAt = Fixtures.t0
+        XCTAssertEqual(here.hiddenPartnerStatusAt, Fixtures.t0)
+        there.hiddenPartnerStatusAt = Fixtures.date(1)
+        XCTAssertEqual(here.hiddenPartnerStatusAt, Fixtures.date(1))
+        there.hiddenPartnerStatusAt = nil
+        XCTAssertNil(here.hiddenPartnerStatusAt)
+    }
+
+    /// The decoded copy is a stored value, never the pre-encode one: ISO-8601
+    /// drops fractions, so a cached fractional date would never match its file.
+    func testCachedSnapshotIsTheDecodedCopy() {
+        let (store, _) = makeStore()
+        store.mutate(reloadWidgets: false) { $0.lastSyncedAt = Fixtures.date(0.6) }
+        XCTAssertEqual(store.snapshot.lastSyncedAt, Fixtures.t0)
+    }
+
+    func testUnlinkDropsCorruptSidecars() {
+        let (store, defaults) = makeStore()
+        defaults.set(Data("not a snapshot".utf8), forKey: "snapshot")
+        defaults.set(Data("not a pairing".utf8), forKey: "pairing")
+        _ = store.snapshot
+        _ = store.pairing
+        XCTAssertNotNil(defaults.data(forKey: "snapshot.corrupt"))
+        store.clearPairing(keepingName: true)
+        XCTAssertNil(defaults.data(forKey: "snapshot.corrupt"))
+        XCTAssertNil(defaults.data(forKey: "pairing.corrupt"))
+    }
+
+    func testUnlinkKeepsOnlyTheName() {
+        let (store, _) = makeStore()
+        store.mutate(reloadWidgets: false) {
+            $0.mine = Fixtures.status()
+            $0.theirs = Fixtures.status()
+            $0.isPaired = true
+        }
+        store.clearPairing(keepingName: true)
+        XCTAssertEqual(store.snapshot.mine?.displayName, "Sam")
+        XCTAssertNil(store.snapshot.theirs)
+        XCTAssertFalse(store.snapshot.isPaired)
+        store.clearPairing(keepingName: false)
+        XCTAssertEqual(store.snapshot, .empty)
     }
 }

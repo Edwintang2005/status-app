@@ -56,6 +56,23 @@ final class GroupStoreTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("snapshot").path))
     }
 
+    /// Two stores on one directory stand in for two processes: a cached read
+    /// must follow the other's replace and delete, however close together.
+    func testCachedReadsFollowAnotherProcesssWrites() {
+        let (here, directory) = makeStore()
+        let (there, _) = makeStore(isAppExtension: true, in: directory)
+        here.setData(Data([1]), forKey: "snapshot")
+        XCTAssertEqual(there.data(forKey: "snapshot"), Data([1]))
+        for value in UInt8(2)...20 {
+            here.setData(Data([value]), forKey: "snapshot")
+            XCTAssertEqual(there.data(forKey: "snapshot"), Data([value]))
+        }
+        here.setData(nil, forKey: "snapshot")
+        XCTAssertNil(there.data(forKey: "snapshot"))
+        there.setData(Data([7, 7]), forKey: "snapshot")
+        XCTAssertEqual(here.data(forKey: "snapshot"), Data([7, 7]))
+    }
+
     /// Only the snapshot, pairing and change tokens move; an existing file wins.
     func testMigrationCopiesOnlyTheListedKeysOnce() throws {
         let legacy = temporaryDefaults()

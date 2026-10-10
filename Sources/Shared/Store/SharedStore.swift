@@ -7,13 +7,18 @@ import WidgetKit
 
 /// App Group state shared between the app, widget and notification processes.
 /// File-backed, not `UserDefaults` — see `GroupFileStore` for why.
-/// `@unchecked`: all state is the key-value store (internally locked) and the
-/// cross-process locks, so any thread or actor may call in.
+/// `@unchecked`: all state is the key-value store (internally locked), the
+/// decoded-value cache (under `decodedLock`) and the cross-process locks, so
+/// any thread or actor may call in.
 final class SharedStore: @unchecked Sendable {
     static let shared = SharedStore()
 
     private let store: GroupKeyValueStore
     private let log = Logger(subsystem: AppConfig.appGroupID, category: "SharedStore")
+    /// Decoded values by the bytes they came from: comparing bytes is far
+    /// cheaper than decoding them again, and any other writer changes them.
+    private var decoded: [String: (data: Data, value: Any)] = [:]
+    private let decodedLock = NSLock()
 
     private enum Key {
         static let snapshot = "snapshot"
@@ -79,13 +84,7 @@ final class SharedStore: @unchecked Sendable {
 
     var pairing: PairingInfo? {
         get { decode(PairingInfo.self, forKey: Key.pairing) }
-        set {
-            if let newValue {
-                encode(newValue, forKey: Key.pairing)
-            } else {
-                store.setData(nil, forKey: Key.pairing)
-            }
-        }
+        set { encodeOptional(newValue, forKey: Key.pairing) }
     }
 
     /// Whether this device sends (and shows) read receipts. On by default —
@@ -120,17 +119,11 @@ final class SharedStore: @unchecked Sendable {
         set { encode(newValue, forKey: Key.hiddenMoments) }
     }
 
-    /// `updatedAt` of a reported partner status; its text is never shown while
-    /// that status is current. Cleared with the pairing.
+    /// `wordsAt` of a reported partner status (an older report's `updatedAt`);
+    /// its text is never shown while that status is current. Cleared with the pairing.
     var hiddenPartnerStatusAt: Date? {
         get { decode(Date.self, forKey: Key.hiddenStatusAt) }
-        set {
-            if let newValue {
-                encode(newValue, forKey: Key.hiddenStatusAt)
-            } else {
-                store.setData(nil, forKey: Key.hiddenStatusAt)
-            }
-        }
+        set { encodeOptional(newValue, forKey: Key.hiddenStatusAt) }
     }
 
     /// Owner side: the "when did you two begin?" prompt is owed — set when the
@@ -146,13 +139,7 @@ final class SharedStore: @unchecked Sendable {
     /// (`CloudSync.zoneGoneVerdict`); any successful fetch clears it.
     var zoneGoneSeenAt: Date? {
         get { decode(Date.self, forKey: Key.zoneGone) }
-        set {
-            if let newValue {
-                encode(newValue, forKey: Key.zoneGone)
-            } else {
-                store.setData(nil, forKey: Key.zoneGone)
-            }
-        }
+        set { encodeOptional(newValue, forKey: Key.zoneGone) }
     }
 
     /// The pairing this device was last cut loose from (`clearPairing(keepingName:)`),
@@ -160,13 +147,7 @@ final class SharedStore: @unchecked Sendable {
     /// tapping the link again — can keep its unsent media instead of wiping.
     var lastPairing: PairingInfo? {
         get { decode(PairingInfo.self, forKey: Key.lastPairing) }
-        set {
-            if let newValue {
-                encode(newValue, forKey: Key.lastPairing)
-            } else {
-                store.setData(nil, forKey: Key.lastPairing)
-            }
-        }
+        set { encodeOptional(newValue, forKey: Key.lastPairing) }
     }
 
     /// CloudKit user record names of blocked people; their invites are refused.
@@ -207,13 +188,7 @@ final class SharedStore: @unchecked Sendable {
     /// so launch re-asserts them daily rather than every time. Per pairing.
     var subscriptionsVerifiedAt: Date? {
         get { decode(Date.self, forKey: Key.subscriptionsVerified) }
-        set {
-            if let newValue {
-                encode(newValue, forKey: Key.subscriptionsVerified)
-            } else {
-                store.setData(nil, forKey: Key.subscriptionsVerified)
-            }
-        }
+        set { encodeOptional(newValue, forKey: Key.subscriptionsVerified) }
     }
 
     /// The home card on adding the lock-screen widget was dismissed, or a
@@ -226,13 +201,7 @@ final class SharedStore: @unchecked Sendable {
     /// The `partnerLeftAt` whose Home notice was waved away; a later departure shows again.
     var partnerLeftNoticeDismissed: Date? {
         get { decode(Date.self, forKey: Key.partnerLeftNoticeDismissed) }
-        set {
-            if let newValue {
-                encode(newValue, forKey: Key.partnerLeftNoticeDismissed)
-            } else {
-                store.setData(nil, forKey: Key.partnerLeftNoticeDismissed)
-            }
-        }
+        set { encodeOptional(newValue, forKey: Key.partnerLeftNoticeDismissed) }
     }
 
     /// Opt-in local reminders on milestone mornings (`MilestoneReminderPlan`).
@@ -260,13 +229,7 @@ final class SharedStore: @unchecked Sendable {
 
     var verifiedAccount: VerifiedAccount? {
         get { decode(VerifiedAccount.self, forKey: Key.verifiedAccount) }
-        set {
-            if let newValue {
-                encode(newValue, forKey: Key.verifiedAccount)
-            } else {
-                store.setData(nil, forKey: Key.verifiedAccount)
-            }
-        }
+        set { encodeOptional(newValue, forKey: Key.verifiedAccount) }
     }
 
     /// The old pairing's subscriptions may still be registered: an unlink that
@@ -281,13 +244,7 @@ final class SharedStore: @unchecked Sendable {
 
     var subscriptionCleanup: SubscriptionCleanup? {
         get { decode(SubscriptionCleanup.self, forKey: Key.subscriptionCleanup) }
-        set {
-            if let newValue {
-                encode(newValue, forKey: Key.subscriptionCleanup)
-            } else {
-                store.setData(nil, forKey: Key.subscriptionCleanup)
-            }
-        }
+        set { encodeOptional(newValue, forKey: Key.subscriptionCleanup) }
     }
 
     /// Which "notifications are off" notice Home's card was waved away for —
@@ -322,17 +279,14 @@ final class SharedStore: @unchecked Sendable {
             subscriptionsVerifiedAt = nil
             store.setData(nil, forKey: Key.unreadable)
             clearChangeTokens()
-            snapshot = Snapshot(
-                mine: (name?.isEmpty == false) ? .initial(displayName: name!) : nil,
-                theirs: nil,
-                isPaired: false,
-                lastSyncedAt: nil,
-                lastSeenPartnerNudgeCount: 0,
-                lastNudgeSentAt: nil,
-                latestPartnerMoment: nil,
-                latestOwnMoment: nil,
-                lastNotifiedMomentID: nil
-            )
+            var fresh = Snapshot.empty
+            if let name, !name.isEmpty { fresh.mine = .initial(displayName: name) }
+            snapshot = fresh
+            // Preserved corrupt bytes are the ex's data too.
+            for key in [Key.snapshot, Key.pairing, Key.lastPairing, Key.hiddenStatusAt, Key.unreadable] {
+                store.setData(nil, forKey: "\(key).corrupt")
+            }
+            decodedLock.withLock { decoded.removeAll() }
         }
         requestWidgetReload()
     }
@@ -395,19 +349,23 @@ final class SharedStore: @unchecked Sendable {
     /// captured earlier can be applied after another process's newer one, and
     /// the widget would regress to an older moment.
     /// Reloads the widgets only when a derived field moved: a moment marked
-    /// seen deep in the history changes nothing they draw.
+    /// seen deep in the history changes nothing they draw. `alongside` runs in
+    /// the same locked write, so a caller's own change costs no second one.
     @discardableResult
-    func refreshDerived(reloadWidgets: Bool = true) -> Bool {
+    func refreshDerived(reloadWidgets: Bool = true,
+                        index: MomentIndex = .shared,
+                        alongside: ((inout Snapshot) -> Void)? = nil) -> (changed: Bool, snapshot: Snapshot) {
         var changed = false
-        mutate(reloadWidgets: false) { snapshot in
+        let snapshot = mutate(reloadWidgets: false) { snapshot in
+            alongside?(&snapshot)
             // Unreadable isn't empty; the widget keeps what it last showed.
-            guard let all = MomentIndex.shared.loadReadable() else { return }
+            guard let all = index.loadReadable() else { return }
             let before = Derived(snapshot)
             Self.fillDerived(&snapshot, from: all)
             changed = Derived(snapshot) != before
         }
         if changed, reloadWidgets { requestWidgetReload() }
-        return changed
+        return (changed, snapshot)
     }
 
     /// What the widgets draw from the fields `fillDerived` owns. Not whole
@@ -430,11 +388,6 @@ final class SharedStore: @unchecked Sendable {
             visual = Drawn(snapshot.latestPartnerVisualMoment)
             unheard = snapshot.unheardVoiceMemoCount
         }
-    }
-
-    /// Same, from a list the caller already holds (tests and previews).
-    func applyDerived(from all: [Moment], reloadWidgets: Bool = true) {
-        mutate(reloadWidgets: reloadWidgets) { Self.fillDerived(&$0, from: all) }
     }
 
     /// `all` is the whole index, newest first.
@@ -633,22 +586,15 @@ final class SharedStore: @unchecked Sendable {
     /// didn't need the widget to fetch for; `nil` when the last one did.
     var widgetReloadRequestedAt: Date? {
         get { decode(Date.self, forKey: Key.widgetReloadRequestedAt) }
-        set {
-            if let newValue {
-                encode(newValue, forKey: Key.widgetReloadRequestedAt)
-            } else {
-                store.setData(nil, forKey: Key.widgetReloadRequestedAt)
-            }
-        }
+        set { encodeOptional(newValue, forKey: Key.widgetReloadRequestedAt) }
     }
 
     /// Open holds in this process. While any is open, `reloadWidgets` is
     /// absorbed; each hold's release reloads once.
     private static let reloadHolds = OSAllocatedUnfairLock(initialState: 0)
 
-    /// Collapses a run's reloads into one: the notification service's refresh
-    /// asked for three per push, each a WidgetKit budget spend per kind. The
-    /// hold is process-wide; the release's reload stamps this store.
+    /// Collapses a run's reloads into one — each is a WidgetKit budget spend per
+    /// kind. The hold is process-wide; the release's reload stamps this store.
     func holdWidgetReloads() -> WidgetReloadHold {
         Self.reloadHolds.withLock { $0 += 1 }
         return WidgetReloadHold(store: self)
@@ -674,8 +620,13 @@ final class SharedStore: @unchecked Sendable {
 
     private func decode<T: Decodable>(_ type: T.Type, forKey key: String) -> T? {
         guard let data = store.data(forKey: key) else { return nil }
+        if let hit = decodedLock.withLock({ decoded[key] }), hit.data == data, let value = hit.value as? T {
+            return value
+        }
         do {
-            return try JSONDecoder.shared.decode(type, from: data)
+            let value = try JSONDecoder.shared.decode(type, from: data)
+            decodedLock.withLock { decoded[key] = (data, value) }
+            return value
         } catch {
             log.error("Failed to decode \(String(describing: type)): \(error.localizedDescription)")
             // Preserve the bytes: the caller falls back to an empty value, and the
@@ -690,6 +641,14 @@ final class SharedStore: @unchecked Sendable {
             store.setData(try JSONEncoder.shared.encode(value), forKey: key)
         } catch {
             log.error("Failed to encode \(String(describing: T.self)): \(error.localizedDescription)")
+        }
+    }
+
+    private func encodeOptional<T: Encodable>(_ value: T?, forKey key: String) {
+        if let value {
+            encode(value, forKey: key)
+        } else {
+            store.setData(nil, forKey: key)
         }
     }
 }

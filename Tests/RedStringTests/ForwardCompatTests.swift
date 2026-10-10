@@ -89,11 +89,27 @@ final class ForwardCompatTests: XCTestCase {
         let url = temporaryFile("status-history.json")
         let good = #"{"emoji":"🍜","message":"lunch","isCelebration":false,"at":"2025-09-01T10:00:00Z","fromMe":true}"#
         try Data("[\(good),{\"at\":5}]".utf8).write(to: url)
-        let log = StatusHistoryLog(fileURL: url)
+        let hits = Counter()
+        let log = StatusHistoryLog(fileURL: url, onCorrupt: { hits.value += 1 })
         XCTAssertEqual(log.load().map(\.message), ["lunch"])
+        XCTAssertEqual(hits.value, 0, "a plain read leaves the file be")
         log.record(Fixtures.status(at: Fixtures.date(1)), fromMe: false)
         XCTAssertEqual(log.load().count, 2)
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.appendingPathExtension("corrupt").path))
+        XCTAssertEqual(hits.value, 1, "the zone is asked to refill what was lost")
+    }
+
+    /// Like the index: the first write saves the readable rest, even with nothing new to add.
+    func testTheStatusLogSavesTheRestOnTheFirstWrite() throws {
+        let url = temporaryFile("status-history.json")
+        let good = #"{"emoji":"🍜","message":"lunch","isCelebration":false,"at":"2025-09-01T10:00:00Z","fromMe":true}"#
+        try Data("[\(good),{\"at\":5}]".utf8).write(to: url)
+        let log = StatusHistoryLog(fileURL: url, onCorrupt: {})
+        let existing = try XCTUnwrap(log.load().first)
+        log.record([existing])
+        let stored = try JSONDecoder.shared.decode(LossyArray<StatusHistoryEntry>.self, from: Data(contentsOf: url))
+        XCTAssertEqual(stored.dropped, 0)
+        XCTAssertEqual(stored.elements.map(\.message), ["lunch"])
     }
 
     // MARK: Unreadable isn't empty
@@ -101,7 +117,7 @@ final class ForwardCompatTests: XCTestCase {
     func testAnUnreadableStatusLogIsLeftUntouched() throws {
         let url = temporaryFile("status-history.json")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        let log = StatusHistoryLog(fileURL: url)
+        let log = StatusHistoryLog(fileURL: url, onCorrupt: {})
         log.record(Fixtures.status(), fromMe: true)
         XCTAssertTrue(log.readFailed)
         XCTAssertNil(log.loadReadable())
