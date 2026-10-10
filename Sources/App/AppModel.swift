@@ -14,44 +14,44 @@ final class AppModel {
     /// the only caller with no view hierarchy to reach it through.
     @ObservationIgnored static weak var current: AppModel?
 
-    private let store: SharedStore
-    private let log = Logger(subsystem: AppConfig.appGroupID, category: "AppModel")
+    let store: SharedStore
+    let log = Logger(subsystem: AppConfig.appGroupID, category: "AppModel")
 
     private(set) var snapshot: Snapshot
     private(set) var isPaired: Bool
     private(set) var role: PairRole?
     /// Owner side: invite revoked from Settings or Diagnostics.
-    private(set) var inviteClosed: Bool
-    private(set) var isBusy = false
+    var inviteClosed: Bool
+    var isBusy = false
     /// The fetch only (`RefreshGate`): a request mid-fetch runs it once more.
-    private var refreshGate = RefreshGate()
+    var refreshGate = RefreshGate()
     var isRefreshing: Bool { refreshGate.isRunning }
     /// The post-fetch recovery pass (republishes, retries, receipts) — outside
     /// `isRefreshing`, so a stalled send can't hold off the next fetch.
-    @ObservationIgnored private var recoveryGate = RefreshGate()
+    @ObservationIgnored var recoveryGate = RefreshGate()
     /// The offline-send loops, over the same store and backend as this model.
-    @ObservationIgnored private let outbox: Outbox
+    @ObservationIgnored let outbox: Outbox
     @ObservationIgnored private let backendProvider: () -> any SyncBackend
-    private var backend: any SyncBackend { backendProvider() }
+    var backend: any SyncBackend { backendProvider() }
     /// The home footer shows "Sending…" while it runs.
     var isRetryingUploads: Bool { outbox.isRetryingUploads }
     /// When a send last failed on a full iCloud (`SendFailure.storageFull`).
     var storageFullAt: Date? { outbox.storageFullAt }
 
     /// Fires a refresh on the offline→online edge — the only trigger that watches the network itself.
-    @ObservationIgnored private let pathMonitor = NWPathMonitor()
+    @ObservationIgnored let pathMonitor = NWPathMonitor()
     /// Starts `true` so the monitor's immediate first callback doesn't double up with `onLaunch`'s refresh.
-    @ObservationIgnored private var networkWasSatisfied = true
+    @ObservationIgnored var networkWasSatisfied = true
     /// No network path — display only (Home's card, the gallery's wording). Sends
     /// never gate on it: it goes stale while suspended, and a banner action wakes
     /// the app before the monitor catches up. They try, and fail quietly offline.
-    private(set) var isOffline = false
+    var isOffline = false
     /// The path is down because mobile data is off for this app — the one cause the user can fix.
-    private(set) var mobileDataDenied = false
-    @ObservationIgnored private var offlineShowTask: Task<Void, Never>?
-    @ObservationIgnored private var catchUpTask: Task<Void, Never>?
+    var mobileDataDenied = false
+    @ObservationIgnored var offlineShowTask: Task<Void, Never>?
+    @ObservationIgnored var catchUpTask: Task<Void, Never>?
     /// Whichever refresh last fetched — the reconnect catch-up judges by it, not by who ran it.
-    @ObservationIgnored private var lastFetchSucceededAt: Date?
+    @ObservationIgnored var lastFetchSucceededAt: Date?
     /// Status publishes this model has in flight — not yet "waiting to send".
     private var statusSendsInFlight = 0
     /// The footer's tap-to-retry is running.
@@ -59,19 +59,19 @@ final class AppModel {
     /// Owner side: the link to hand to the partner. Kept after the invite
     /// closes — the same link re-admits the existing partner on a new phone.
     /// Seeded from the store so it survives a relaunch — see `refreshInviteURL()`.
-    private(set) var inviteURL: URL?
+    var inviteURL: URL?
     /// A pairing found on the server with no local state — a fresh install on
     /// a new phone. The pairing screen offers it as "Rejoin".
-    private(set) var rejoinablePairing: (role: PairRole, zoneID: CKRecordZone.ID)?
+    var rejoinablePairing: (role: PairRole, zoneID: CKRecordZone.ID)?
     /// The server has no share at all (vs. one that was closed) — keeps Settings from spinning forever.
-    private(set) var inviteLinkUnavailable = false
+    var inviteLinkUnavailable = false
     /// Non-nil when the backend can't work — no iCloud account, and so on.
-    private(set) var readinessMessage: String?
+    var readinessMessage: String?
     /// Full moment history, newest first, from `MomentIndex` (the snapshot only carries the newest each way).
     private(set) var history: [Moment] = []
     /// `recentOwnStatuses()`, cached: the picker's sheet content reads it on every Home render.
     private(set) var recentStatuses: [StatusHistoryEntry] = []
-    @ObservationIgnored private var recentStatusesKey: RecentStatusesKey?
+    @ObservationIgnored var recentStatusesKey: RecentStatusesKey?
 
     /// Set when an invite was just created so `RootView` can present it.
     /// Wrapped, not a plain `URL`: `sheet(item:)` needs identity.
@@ -108,31 +108,31 @@ final class AppModel {
     private(set) var sendConfirmedAt: Date?
 
     /// A tapped invite held until `WelcomeView` has a display name — see `acceptInvite(name:)`.
-    private(set) var pendingInvite: CKShare.Metadata?
+    var pendingInvite: CKShare.Metadata?
 
     /// Guideline 1.2: nothing else shows until the current terms are agreed to.
-    private(set) var termsAccepted: Bool
+    var termsAccepted: Bool
     /// `updatedAt` of a reported partner status — see `SharedStore.hiddenPartnerStatusAt`.
-    private(set) var hiddenPartnerStatusAt: Date?
+    var hiddenPartnerStatusAt: Date?
     /// Owner side: the "when did you two begin?" prompt is owed — see `SharedStore.anniversaryPromptPending`.
-    private(set) var anniversaryPromptPending = false
+    var anniversaryPromptPending = false
     /// `HomeView` has a sheet up. Root-level presentations (the anniversary
     /// prompt) wait for it to close rather than being dropped by SwiftUI.
     var homeSheetShowing = false
     /// Owner side: people other than the owner on the share, from the last
     /// check (`checkShareMembers`). More than one is the stranger warning.
-    private(set) var shareMemberCount: Int?
-    @ObservationIgnored private var shareMembersCheckedAt: Date?
-    private(set) var closeLinkPromptDismissed: Bool
-    private(set) var widgetTipDismissed: Bool
+    var shareMemberCount: Int?
+    @ObservationIgnored var shareMembersCheckedAt: Date?
+    var closeLinkPromptDismissed: Bool
+    var widgetTipDismissed: Bool
     /// Home's "notifications are off" card, re-read on every foregrounding.
-    private(set) var notificationsNotice: NotificationsNotice?
+    var notificationsNotice: NotificationsNotice?
     /// A heart is on its way. The app's nudge has no deadline (its cooldown
     /// release lives in `CloudSync.sendNudge`), so the button holds still meanwhile.
     private(set) var isSendingNudge = false
     /// `wordsAt` of the partner status whose filter-hidden words were revealed
     /// here — until they change it.
-    private var revealedPartnerWordsAt: Date?
+    var revealedPartnerWordsAt: Date?
     /// Library tiles' missing thumbnails, batched (`ThumbnailFetcher`).
     @ObservationIgnored private let thumbnailFetcher: ThumbnailFetcher
     /// `createInvite` found this account's old space still has someone in it;
@@ -157,6 +157,47 @@ final class AppModel {
     @ObservationIgnored private var isCleaningSubscriptions = false
     /// The gallery marked moments seen without reloading the widgets each page.
     @ObservationIgnored private var widgetReloadOwed = false
+
+    // State of the extensions in the AppModel+ files (an extension can't hold any).
+
+    /// The on-device word filter over the partner's text; widgets read the same switch.
+    var contentFilterEnabled: Bool {
+        didSet {
+            guard oldValue != contentFilterEnabled else { return }
+            store.contentFilterEnabled = contentFilterEnabled
+            SharedStore.reloadWidgets()
+        }
+    }
+    /// When readiness was last asked; `nil` forces the next fetch to ask again.
+    @ObservationIgnored var readinessCheckedAt: Date?
+
+    /// The old space the replace dialog would delete has someone on it.
+    var replacingSpaceHasPartner = false
+    /// The server's view of the link backs Home's close prompt this launch.
+    var invitePostureChecked = false
+    /// An invite close or reopen is in flight. Its own flag, not `isBusy`: a
+    /// photo send finishing would clear that one mid-handshake and admit a second close.
+    var isChangingInviteLink = false
+    /// Bumped by every close or reopen from here, so a posture check that
+    /// started before one can't write its older answer over it.
+    @ObservationIgnored var inviteChanges = 0
+    /// Settings asks before the re-seat handshake: set when a plain close found
+    /// someone on the share (or the partner is known to be in).
+    var confirmingInviteReseat = false
+    /// Settings' result line after a close or reopen.
+    var inviteNotice: String?
+
+    /// `0...1` while an archive is being written, `nil` otherwise.
+    var archiveProgress: Double?
+    @ObservationIgnored var archiveTask: Task<MemoryArchive.Outcome?, Never>?
+    /// Bumped per archive and by a cancel: a cancelled run winding down in the
+    /// background no longer reports progress or offers a share.
+    @ObservationIgnored var archiveRun = 0
+    /// The last archive that only reached this device — must be offered for sharing before any delete.
+    var archiveToShare: URL?
+
+    /// An ask, agree or withdraw is in flight.
+    var isChangingFreshStart = false
 
     /// Only the snapshot store and the backend are injected (`nil` is
     /// `Backend.current`, looked up per call): the moment index, status log,
@@ -320,95 +361,6 @@ final class AppModel {
         reload()
     }
 
-    // MARK: - Onboarding
-
-    /// Invite sender's name — only available when they're discoverable by
-    /// Apple Account, so the joining screen has to read well without it.
-    var pendingInviteOwnerName: String? {
-        guard let components = pendingInvite?.ownerIdentity.nameComponents else { return nil }
-        let name = PersonNameComponentsFormatter.localizedString(from: components, style: .short)
-        return name.isEmpty ? nil : name
-    }
-
-    /// Called when a share link opens the app; held so the welcome screen can ask for a name first.
-    /// Refused while paired: joining a second zone would break the change tokens and mix galleries.
-    func receiveInvite(_ metadata: CKShare.Metadata) {
-        guard !isPaired else {
-            let zoneID = metadata.share.recordID.zoneID
-            if let pairing = store.pairing,
-               zoneID.zoneName == pairing.zoneName,
-               zoneID.ownerName == pairing.zoneOwnerName {
-                // Our own share's link: not a new pairing, a confirmation — how
-                // a partner left `pending` by the promote handshake accepts
-                // their private seat.
-                let backend = backend
-                Task {
-                    try? await backend.reacceptShare(metadata)
-                    await refresh()
-                }
-            } else {
-                errorTitle = String(localized: "Already linked")
-                errorMessage = String(localized: "You're already linked with \(partnerName). To join a new invite, unlink first in Settings.")
-            }
-            return
-        }
-        pendingInvite = metadata
-    }
-
-    /// The name the invitee entered on the joining screen, then the join.
-    func acceptInvite(name: String) async {
-        guard let metadata = pendingInvite else { return }
-        // On failure the invite is kept — the link is still the way in.
-        await join(name: name, failureTitle: String(localized: "Couldn't join")) { backend, trimmed in
-            try await backend.acceptShare(metadata, displayName: trimmed)
-            self.pendingInvite = nil
-        }
-    }
-
-    /// The name, then `commit`, then the first fetch. A failure reloads first:
-    /// the join commits the pairing before its bootstrap publish, so the store may already say paired.
-    private func join(name: String,
-                      failureTitle: String,
-                      _ commit: (any SyncBackend, String) async throws -> Void) async {
-        isBusy = true
-        defer { isBusy = false }
-
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        setName(trimmed)
-
-        do {
-            try await commit(backend, trimmed)
-            reload()
-            await NotificationManager.requestAuthorizationIfNeeded()
-            await refresh()
-        } catch {
-            reload()
-            present(error, title: failureTitle)
-        }
-    }
-
-    /// Backing out of a join — the invite is dropped.
-    func declineInvite() {
-        pendingInvite = nil
-    }
-
-    /// Looks for a pairing the server still holds for this account — a fresh
-    /// install on a new phone can rejoin it without a new invite link.
-    func checkForRejoinablePairing() async {
-        guard !isPaired, pendingInvite == nil else { return }
-        rejoinablePairing = await backend.discoverExistingPairing()
-    }
-
-    /// Recommits the discovered pairing under the name from the pairing screen.
-    func rejoin(name: String) async {
-        guard let found = rejoinablePairing else { return }
-        await join(name: name, failureTitle: String(localized: "Couldn't rejoin")) { backend, trimmed in
-            try await backend.rejoin(role: found.role, zoneID: found.zoneID, displayName: trimmed)
-            self.rejoinablePairing = nil
-        }
-    }
-
     // MARK: - Lifecycle
 
     func onLaunch() async {
@@ -483,134 +435,21 @@ final class AppModel {
     }
 
     /// Writes a store field and this model's mirror of it together.
-    private func persist<Value>(_ value: Value,
-                                _ mirror: ReferenceWritableKeyPath<AppModel, Value>,
-                                _ stored: ReferenceWritableKeyPath<SharedStore, Value>) {
+    func persist<Value>(_ value: Value,
+                        _ mirror: ReferenceWritableKeyPath<AppModel, Value>,
+                        _ stored: ReferenceWritableKeyPath<SharedStore, Value>) {
         store[keyPath: stored] = value
         self[keyPath: mirror] = value
     }
 
     /// A backend call under a deadline: CloudKit's own timeout is a week (invariant 22).
-    private func bounded<T: Sendable>(_ seconds: TimeInterval = AppConfig.publishDeadline,
-                                      _ call: @escaping @Sendable (any SyncBackend) async throws -> T) async throws -> T {
+    func bounded<T: Sendable>(_ seconds: TimeInterval = AppConfig.publishDeadline,
+                              _ call: @escaping @Sendable (any SyncBackend) async throws -> T) async throws -> T {
         let backend = backend
         return try await withDeadline(seconds) { try await call(backend) }
     }
 
-    // MARK: - Safety (guideline 1.2)
-
-    func acceptTerms() {
-        store.acceptedTermsVersion = AppConfig.termsVersion
-        termsAccepted = true
-    }
-
-    /// The on-device word filter over the partner's text; widgets read the same switch.
-    var contentFilterEnabled: Bool {
-        didSet {
-            guard oldValue != contentFilterEnabled else { return }
-            store.contentFilterEnabled = contentFilterEnabled
-            SharedStore.reloadWidgets()
-        }
-    }
-
-    /// The current partner status has been reported: its text stays hidden.
-    var isPartnerStatusReported: Bool {
-        guard let theirs = snapshot.theirs, let hidden = hiddenPartnerStatusAt else { return false }
-        return theirs.wordsAt == hidden || theirs.updatedAt == hidden
-    }
-
-    /// The filter-hidden words of their current status were revealed on this iPhone.
-    var partnerStatusRevealed: Bool {
-        guard let revealed = revealedPartnerWordsAt else { return false }
-        return snapshot.theirs?.wordsAt == revealed
-    }
-
-    /// "Show hidden text": the words are on screen now, so the read receipt may go.
-    func revealPartnerStatus() {
-        revealedPartnerWordsAt = snapshot.theirs?.wordsAt
-        markPartnerStatusSeen()
-    }
-
-    /// Removes the moment from this device for good and mails the report.
-    /// Only ever the partner's — there's nothing to report about your own.
-    func report(_ moment: Moment) {
-        guard !moment.fromMe else { return }
-        var hidden = store.hiddenMomentIDs
-        hidden.insert(moment.id)
-        store.hiddenMomentIDs = hidden
-        MomentIndex.shared.remove(id: moment.id)
-        MomentStore.shared.delete(id: moment.id)
-        store.refreshDerived()
-        reload()
-        sendReport(Report.Details(kind: moment.noun,
-                                  identifier: moment.id,
-                                  senderName: moment.senderName,
-                                  text: moment.caption,
-                                  pairing: store.pairing,
-                                  reporterName: myDisplayName))
-    }
-
-    /// Hides the partner's current status text (until they set another) and mails the report.
-    func reportPartnerStatus() {
-        guard let theirs = snapshot.theirs else { return }
-        // The words' date, so the partner renaming themselves doesn't unhide them.
-        persist(theirs.wordsAt, \.hiddenPartnerStatusAt, \.hiddenPartnerStatusAt)
-        SharedStore.reloadWidgets()
-        sendReport(Report.Details(kind: "status",
-                                  identifier: "status at \(theirs.updatedAt.formatted(.iso8601))",
-                                  senderName: theirs.displayName,
-                                  text: "\(theirs.emoji) \(theirs.message)",
-                                  pairing: store.pairing,
-                                  reporterName: myDisplayName))
-    }
-
-    /// Blocks the partner: everything they sent leaves this iPhone at once, the
-    /// link ends, their invites are refused from now on, and the developer is
-    /// told. Local removal is not conditional on iCloud — a block must land
-    /// even offline — so, unlike `unlink`, a failed cloud step is reported
-    /// afterwards rather than stopping it.
-    func block() async {
-        isBusy = true
-        defer { isBusy = false }
-        let name = partnerName
-        let status = snapshot.theirs
-        let pairing = store.pairing
-        let backend = backend
-        let names = await backend.recordBlockedPartner()
-
-        var cloudProblem: String?
-        do {
-            try await backend.unpair()
-        } catch {
-            cloudProblem = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-        }
-        finishUnlink(startingOver: false)
-
-        sendReport(Report.Details(kind: "blocked user",
-                                  identifier: names.isEmpty ? "(unknown record)" : names.joined(separator: ", "),
-                                  senderName: name,
-                                  text: status.map { "\($0.emoji) \($0.message)" } ?? "",
-                                  pairing: pairing,
-                                  reporterName: myDisplayName))
-        if let cloudProblem {
-            errorTitle = String(localized: "Blocked, not yet unlinked")
-            errorMessage = String(localized: "\(name) is blocked and everything they sent has been removed from this iPhone. iCloud couldn't be reached to finish the unlink (\(cloudProblem)), so what you sent may still be in the shared space; try Settings → Unlink later if it reappears.")
-        }
-    }
-
-    /// Opens Mail with the report. Without a mail account the text goes to the
-    /// clipboard instead (this iPhone only, expiring), with the address to send it to.
-    private func sendReport(_ details: Report.Details) {
-        let body = Report.body(for: details)
-        guard let url = Report.mailURL(for: details) else { return }
-        UIApplication.shared.open(url) { opened in
-            guard !opened else { return }
-            Task { @MainActor in
-                Clipboard.copy(text: body, localOnly: true)
-                self.noticeMessage = String(localized: "Mail isn't set up on this iPhone, so the report has been copied to your clipboard for the next \(Clipboard.lifetimeMinutes) minutes. Please email it to \(AppConfig.supportEmail).")
-            }
-        }
-    }
+    // MARK: - Media on demand
 
     /// Older entries keep metadata but not media files; fetches the file back from CloudKit on demand.
     func ensureMedia(for moment: Moment) async -> Bool {
@@ -627,7 +466,7 @@ final class AppModel {
     /// The home card and photo widget only ever read the thumbnail; the one
     /// download attempt inside a refresh can fail (a widget deadline, a killed
     /// extension), and nothing else would fetch it again.
-    private func restoreLatestThumbnailIfMissing() async {
+    func restoreLatestThumbnailIfMissing() async {
         guard let latest = store.snapshot.latestPartnerVisualMoment,
               !MomentStore.shared.hasThumbnail(for: latest.id) else { return }
         if await ensureThumbnail(for: latest) {
@@ -643,163 +482,6 @@ final class AppModel {
         if MomentStore.shared.hasThumbnail(for: moment.id) { return true }
         guard !moment.isVoice else { return false }
         return await thumbnailFetcher.thumbnail(for: moment)
-    }
-
-    // MARK: - Sync
-
-    /// PairingView's iCloud warning. Re-checked on every foregrounding, not just
-    /// launch — the fix happens in the Settings app, so the user returns expecting it noticed.
-    private func refreshReadiness() async {
-        if case .unavailable(let message) = await backend.readiness() {
-            readinessMessage = message
-        } else {
-            readinessMessage = nil
-        }
-        readinessCheckedAt = Date()
-    }
-
-    /// When readiness was last asked; `nil` forces the next fetch to ask again.
-    @ObservationIgnored private var readinessCheckedAt: Date?
-
-    /// Refreshes on the offline→online edge — `refresh()` already handles
-    /// offline calls and re-entrancy; the job here is ignoring path churn while up.
-    /// Delivered on the main queue so updates apply in the order they happened.
-    private func startNetworkMonitoring() {
-        pathMonitor.pathUpdateHandler = { [weak self] path in
-            MainActor.assumeIsolated { self?.networkPathChanged(path) }
-        }
-        pathMonitor.start(queue: .main)
-    }
-
-    /// Only `.unsatisfied` is down: `.requiresConnection` (an on-demand VPN, a
-    /// dormant radio) comes up as soon as something uses it.
-    private func networkPathChanged(_ path: NWPath) {
-        let down = path.status == .unsatisfied
-        let cameBackOnline = !down && !networkWasSatisfied
-        networkWasSatisfied = !down
-        offlineShowTask?.cancel()
-        if down {
-            mobileDataDenied = path.unsatisfiedReason == .cellularDenied
-            // Shown after a moment: a Wi-Fi↔cellular handoff blips for under a second.
-            offlineShowTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(AppConfig.offlineCardDelay))
-                guard !Task.isCancelled, let self, !self.networkWasSatisfied else { return }
-                self.setOffline(true)
-            }
-        } else {
-            setOffline(false)
-        }
-        if cameBackOnline {
-            log.notice("Network is back; refreshing.")
-            catchUpTask?.cancel()
-            catchUpTask = Task { [weak self] in await self?.catchUpAfterReconnect() }
-        }
-    }
-
-    private func setOffline(_ offline: Bool) {
-        #if DEBUG
-        // Demo mode's backend never touches the network.
-        if DemoMode.isActive { return }
-        #endif
-        if isOffline != offline { isOffline = offline }
-    }
-
-    /// The first refresh after the path returns often beats DNS or a VPN; one
-    /// failure must not leave queued sends waiting for the next foreground.
-    /// Done once a fetch since the edge worked (whoever ran it — a request that
-    /// joined a running refresh still retries if that one failed) and nothing is
-    /// left queued: a send pass can still hit the flap after a good fetch.
-    private func catchUpAfterReconnect() async {
-        let since = Date()
-        for delay in AppConfig.reconnectRetryDelays {
-            if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
-            guard !Task.isCancelled, networkWasSatisfied, isPaired else { return }
-            await refresh()
-            if let fetched = lastFetchSucceededAt, fetched >= since, pendingSendCount == 0 { return }
-        }
-    }
-
-    /// The system reported an iCloud account change: make the next readiness
-    /// check look the account up for real, then refresh.
-    func accountDidChange() async {
-        await backend.noteAccountChanged()
-        readinessCheckedAt = nil
-        await refresh()
-    }
-
-    /// Returns once the fetch lands; the recovery pass it unlocks runs on after,
-    /// so pull-to-refresh doesn't wait on uploads.
-    func refresh(noteIfBusy: Bool = true) async {
-        guard refreshGate.begin(noteIfBusy: noteIfBusy) else { return }
-        var fetched = false
-        repeat {
-            if await fetchOnce() { fetched = true }
-        } while refreshGate.takeRequest()
-        refreshGate.end()
-        // A working refresh is the recovery moment for sends that died offline.
-        if fetched {
-            Task { await recoverAfterRefresh() }
-        }
-    }
-
-    /// Coalesced like the fetch: a pass asked for mid-pass runs once more.
-    private func recoverAfterRefresh() async {
-        guard isPaired, recoveryGate.begin() else { return }
-        repeat {
-            await sendQueued(automatic: true)
-            await outbox.flushReceipts()
-            await restoreLatestThumbnailIfMissing()
-            await checkShareMembers(throttled: true)
-            await checkInstalledWidgets()
-        } while recoveryGate.takeRequest()
-        recoveryGate.end()
-    }
-
-    /// Everything queued, in order. Re-read before the uploads, which can take
-    /// a while (each one confirms itself through `noteUploaded`), and after them.
-    private func sendQueued(automatic: Bool) async {
-        var changed = await outbox.republishStatus(automatic: automatic)
-        if await outbox.republishAnniversary(automatic: automatic) { changed = true }
-        if await outbox.republishAnniversaryRequest(automatic: automatic) { changed = true }
-        // Before the upload retry: the clear and a retry never overlap.
-        if await outbox.advanceFreshStart() { changed = true }
-        if changed { reload() }
-        if await outbox.retryPendingUploads(automatic: automatic) { reload() }
-    }
-
-    /// One fetch and reload; `false` when it failed or there was nothing to fetch for.
-    private func fetchOnce() async -> Bool {
-        // Re-checked when paired too: this is what notices an iCloud account
-        // switch (which drops the reused answer). One just asked is reused.
-        if Date().timeIntervalSince(readinessCheckedAt ?? .distantPast) >= AppConfig.readinessReuseWindow {
-            await refreshReadiness()
-        }
-        guard isPaired else {
-            await cleanUpSubscriptionsIfNeeded()
-            return false
-        }
-        do {
-            try await SyncRunner.refresh()
-            recentStatusesKey = nil
-            reload()
-            lastFetchSucceededAt = Date()
-            // A fetch that worked is proof the monitor's "down" is stale.
-            offlineShowTask?.cancel()
-            setOffline(false)
-            return true
-        } catch {
-            // The backend may have unlinked us (a vanished zone means the other
-            // person ended things), so re-read local state either way.
-            reload()
-            if let sync = error as? SyncError, case .linkEnded = sync {
-                // The one refresh failure that is really a message from another person.
-                errorTitle = String(localized: "Link ended")
-                errorMessage = sync.errorDescription
-            }
-            // Other refresh failures are routine; the "Synced …" footer already shows staleness.
-            log.error("Refresh failed: \(error.localizedDescription)")
-            return false
-        }
     }
 
     // MARK: - Status
@@ -1203,525 +885,6 @@ final class AppModel {
         return StatusHistoryLog.shared.load().map { $0.moderated(reportedAt: reportedAt, filterEnabled: filterOn) }
     }
 
-    // MARK: - Pairing
-
-    /// `RootView`'s own sheets over Home: the invite link and the date prompt
-    /// (mirrors that sheet's condition).
-    var rootSheetShowing: Bool {
-        presentedInvite != nil
-            || ((anniversaryPromptPending || anniversaryRequestPending) && canEditAnniversary && !homeSheetShowing)
-    }
-
-    /// The old space the replace dialog would delete has someone on it.
-    private(set) var replacingSpaceHasPartner = false
-
-    /// `replacingExisting` only after the user confirmed deleting the old space.
-    func createInvite(replacingExisting: Bool = false) async {
-        isBusy = true
-        defer { isBusy = false }
-        do {
-            let url = try await backend.createPairInvite(displayName: myDisplayName,
-                                                         replacingExisting: replacingExisting)
-            setInviteURL(url)
-            reload()
-            // After `reload()`, which flips `isPaired` and dismisses the pairing screen.
-            presentedInvite = InviteLink(url: url)
-            // Owed once the link sheet closes — see `RootView`.
-            persist(true, \.anniversaryPromptPending, \.anniversaryPromptPending)
-            await NotificationManager.requestAuthorizationIfNeeded()
-        } catch SyncError.existingPairing(let someoneOnIt) {
-            // Nothing written: offer Rejoin, or the confirmed replace — asked
-            // only once discovery says whether Rejoin is there to offer.
-            await checkForRejoinablePairing()
-            replacingSpaceHasPartner = someoneOnIt
-            confirmingReplacePairing = true
-        } catch {
-            // `createPairInvite` commits the pairing before its bootstrap publish;
-            // reload so the store and this model can't disagree.
-            reload()
-            present(error, title: String(localized: "Couldn't create the link"))
-        }
-    }
-
-    // MARK: - Invite link posture (manual close only — invariant 9)
-
-    /// Owner side, once the partner is in and the server says the link is still
-    /// open (the cached flag alone goes stale across devices and rejoins).
-    var showsCloseLinkPrompt: Bool {
-        usesLiveShare && isPaired && role == .owner && snapshot.theirs != nil
-            && invitePostureChecked && !inviteClosed
-            && !closeLinkPromptDismissed && extraShareMembers == nil
-    }
-
-    /// More people on the share than the one partner, or `nil`.
-    var extraShareMembers: Int? {
-        guard usesLiveShare, isPaired, role == .owner, let count = shareMemberCount, count > 1 else { return nil }
-        return count
-    }
-
-    /// Demo mode's pairing is fake: the share checks would read (and the close
-    /// would act on) whatever real share the signed-in account has.
-    private var usesLiveShare: Bool {
-        #if DEBUG
-        return !DemoMode.isActive
-        #else
-        return true
-        #endif
-    }
-
-    func dismissCloseLinkPrompt() {
-        persist(true, \.closeLinkPromptDismissed, \.closeLinkPromptDismissed)
-    }
-
-    /// The server's view of the link backs Home's close prompt this launch.
-    private(set) var invitePostureChecked = false
-
-    /// Counts who is on the share and re-reads whether the link is open.
-    /// Throttled from the refresh pass; Settings asks directly. Quiet on
-    /// failure — the last answer stands.
-    func checkShareMembers(throttled: Bool) async {
-        guard usesLiveShare, isPaired, role == .owner else { return }
-        if throttled, let last = shareMembersCheckedAt,
-           Date().timeIntervalSince(last) < AppConfig.shareMemberCheckInterval { return }
-        let changesBefore = inviteChanges
-        do {
-            let (count, state) = try await bounded { (try await $0.shareMemberCount(), try await $0.inviteState()) }
-            shareMembersCheckedAt = Date()
-            shareMemberCount = count
-            // A close or reopen landed meanwhile: its answer is newer than ours.
-            guard inviteChanges == changesBefore, !isChangingInviteLink else { return }
-            switch state {
-            case .open:
-                setInviteClosed(false)
-                invitePostureChecked = true
-            case .closed:
-                setInviteClosed(true)
-                invitePostureChecked = true
-            case .missing:
-                // No share to close: nothing verified.
-                invitePostureChecked = false
-            }
-        } catch {
-            log.error("Couldn't count the share's members: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
-    // MARK: - Notifications off
-
-    /// Re-read on every foregrounding: the fix happens in the Settings app.
-    func checkNotificationSettings() async {
-        let settings = await UNUserNotificationCenter.current().notificationSettings()
-        let current = NotificationsNotice.current(authorization: settings.authorizationStatus,
-                                                  banners: settings.alertStyle,
-                                                  lockScreen: settings.lockScreenSetting,
-                                                  notificationCenter: settings.notificationCenterSetting,
-                                                  timeSensitive: settings.timeSensitiveSetting)
-        let (shown, dismissed) = NotificationsNotice.reconcile(current: current,
-                                                               dismissed: store.notificationsNoticeDismissed)
-        if store.notificationsNoticeDismissed != dismissed { store.notificationsNoticeDismissed = dismissed }
-        if notificationsNotice != shown { notificationsNotice = shown }
-    }
-
-    func dismissNotificationsNotice() {
-        store.notificationsNoticeDismissed = notificationsNotice
-        notificationsNotice = nil
-    }
-
-    // MARK: - Lock-screen widget tip
-
-    var showsWidgetTip: Bool { isPaired && snapshot.theirs != nil && !widgetTipDismissed }
-
-    func dismissWidgetTip() {
-        persist(true, \.widgetTipDismissed, \.widgetTipDismissed)
-    }
-
-    /// A Lock Screen widget already in place retires the tip for good; a Home
-    /// Screen one doesn't — the tip is about the Lock Screen.
-    private func checkInstalledWidgets() async {
-        guard !widgetTipDismissed else { return }
-        // The async form is iOS 18+.
-        let onLockScreen = await withCheckedContinuation { continuation in
-            WidgetCenter.shared.getCurrentConfigurations { result in
-                let accessory: Set<WidgetFamily> = [.accessoryCircular, .accessoryRectangular, .accessoryInline]
-                continuation.resume(returning: (try? result.get())?.contains { accessory.contains($0.family) } ?? false)
-            }
-        }
-        if onLockScreen { dismissWidgetTip() }
-    }
-
-    /// Reconciles the cached invite link against the server. Quiet on failure —
-    /// the cached link still shows, and the next attempt tries again.
-    func refreshInviteURL() async {
-        guard usesLiveShare else {
-            // Demo mode's fake pairing has no share to look at: say so, don't spin.
-            inviteLinkUnavailable = inviteURL == nil
-            return
-        }
-        guard role == .owner else { return }
-        await checkShareMembers(throttled: false)
-        let changesBefore = inviteChanges
-        do {
-            let state = try await backend.inviteState()
-            // A close or reopen landed meanwhile: its answer is newer than ours.
-            guard inviteChanges == changesBefore, !isChangingInviteLink else { return }
-            switch state {
-            case .open(let url):
-                setInviteURL(url)
-                setInviteClosed(false)
-                inviteLinkUnavailable = false
-            case .closed(let url):
-                // How this device finds out the invite was closed from another.
-                // The URL is kept: it re-admits the existing partner on a new
-                // phone, and admits nobody else.
-                setInviteURL(url)
-                setInviteClosed(true)
-                inviteLinkUnavailable = false
-            case .missing:
-                // No link to offer, but nothing says the partner joined — don't claim closed.
-                setInviteURL(nil)
-                inviteLinkUnavailable = true
-            }
-        } catch {
-            // Couldn't reach iCloud: keep the cached link and stay quiet.
-            log.error("Couldn't refresh the invite link: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
-    private func setInviteClosed(_ closed: Bool) {
-        guard inviteClosed != closed else { return }
-        persist(closed, \.inviteClosed, \.inviteClosed)
-    }
-
-    private func setInviteURL(_ url: URL?) {
-        persist(url, \.inviteURL, \.inviteURL)
-    }
-
-    /// An invite close or reopen is in flight. Its own flag, not `isBusy`: a
-    /// photo send finishing would clear that one mid-handshake and admit a second close.
-    private(set) var isChangingInviteLink = false
-    /// Bumped by every close or reopen from here, so a posture check that
-    /// started before one can't write its older answer over it.
-    @ObservationIgnored private var inviteChanges = 0
-
-    /// Runs one close or reopen under `isChangingInviteLink`. `inviteChanges` is
-    /// bumped at both ends: a posture check that started mid-change is stale too.
-    private func withInviteChange<T>(_ body: () async -> T) async -> T {
-        isChangingInviteLink = true
-        inviteChanges += 1
-        defer { isChangingInviteLink = false; inviteChanges += 1 }
-        return await body()
-    }
-
-    /// Diagnostics' promote-and-close, under the same flag as Settings' so the
-    /// two can't race. Returns the report line (`nil`: done or nothing to do).
-    func secureInviteFromDiagnostics() async -> String? {
-        guard usesLiveShare else { return "Demo mode: the share isn't touched." }
-        guard !isChangingInviteLink else { return "A close or reopen is already running." }
-        let backend = backend
-        return await withInviteChange { await backend.secureInviteIfPartnerJoined() }
-    }
-
-    /// Settings asks before the re-seat handshake: set when a plain close found
-    /// someone on the share (or the partner is known to be in).
-    var confirmingInviteReseat = false
-    /// Settings' result line after a close or reopen.
-    var inviteNotice: String?
-
-    /// Settings' close. With the partner in, closing re-seats them, which only
-    /// ever runs after the owner confirms (invariant 9).
-    func closeInvite() async {
-        guard usesLiveShare, !isChangingInviteLink else { return }
-        if snapshot.theirs != nil {
-            confirmingInviteReseat = true
-            return
-        }
-        let backend = backend
-        await withInviteChange {
-            do {
-                try await backend.closeUnusedInvite()
-                // The URL is kept — a closed link still re-admits the existing partner.
-                setInviteClosed(true)
-            } catch SyncError.inviteInUse {
-                confirmingInviteReseat = true
-            } catch {
-                present(error, title: String(localized: "Couldn't change the invite link"))
-            }
-        }
-    }
-
-    /// The confirmed re-seat: close the link, re-add the partner privately.
-    func closeInviteReseatingPartner() async {
-        // A second confirmation mid-handshake would race the first's close and re-add.
-        guard usesLiveShare, !isChangingInviteLink, let pairing = store.pairing, pairing.role == .owner else { return }
-        let backend = backend
-        await withInviteChange {
-            do {
-                switch try await backend.lockIfPartnerOnShare(pairing) {
-                case .locked:
-                    inviteNotice = String(localized: "The link is closed. Ask \(partnerName) to tap the invite link once more to get back in.")
-                case .nobodyJoined:
-                    // Nobody *accepted*; a pending private partner survives a close,
-                    // which `closeUnusedInvite` would refuse. The full lock handles both.
-                    try await backend.lockPairing()
-                    inviteNotice = String(localized: "The link is closed.")
-                }
-            } catch {
-                present(error, title: String(localized: "Couldn't change the invite link"))
-            }
-            reload()
-            await refreshInviteURL()
-        }
-    }
-
-    /// Settings' reopen, behind a confirmation: anyone with the link can join again.
-    func reopenInvite() async {
-        guard usesLiveShare, !isChangingInviteLink else { return }
-        let backend = backend
-        await withInviteChange {
-            do {
-                try await backend.reopenInvite()
-                inviteNotice = String(localized: "The link is open again. Anyone who has it can join, so send it only to \(partnerName) — if they lost access, they tap it to get back in.")
-            } catch {
-                present(error, title: String(localized: "Couldn't change the invite link"))
-            }
-            reload()
-            await refreshInviteURL()
-        }
-    }
-
-    // MARK: - Memories
-
-    /// `0...1` while an archive is being written, `nil` otherwise.
-    private(set) var archiveProgress: Double?
-    @ObservationIgnored private var archiveTask: Task<MemoryArchive.Outcome?, Never>?
-    /// Bumped per archive and by a cancel: a cancelled run winding down in the
-    /// background no longer reports progress or offers a share.
-    @ObservationIgnored private var archiveRun = 0
-    /// The last archive that only reached this device — must be offered for sharing before any delete.
-    var archiveToShare: URL?
-
-    /// Paired, the zone may hold more than this phone's capped index, statuses included.
-    var hasMemoriesToArchive: Bool { isPaired || !history.isEmpty }
-    var canArchiveMemories: Bool { hasMemoriesToArchive && archiveProgress == nil }
-
-    /// Writes the whole zone's history, merged with this phone's, out as plain
-    /// files in iCloud Drive. Most media is fetched back from CloudKit (hence
-    /// progress), and it must finish *before* anything is deleted. An unreachable
-    /// zone still archives this phone's copy; `Outcome.isComplete` says which.
-    /// `offeringShare: false` leaves a device-only archive for the caller to
-    /// offer: Settings presents `archiveToShare`, and a view pushed over it can't.
-    @discardableResult
-    func archiveMemories(offeringShare: Bool = true) async -> MemoryArchive.Outcome? {
-        archiveRun += 1
-        let run = archiveRun
-        archiveProgress = 0
-        let task = Task { await writeArchive(offeringShare: offeringShare, run: run) }
-        archiveTask = task
-        let outcome = await task.value
-        if archiveRun == run {
-            archiveProgress = nil
-            archiveTask = nil
-        }
-        return outcome
-    }
-
-    /// Settings' and the fresh start's Cancel: stops the archive, removing what it staged.
-    func cancelArchive() {
-        archiveTask?.cancel()
-        archiveTask = nil
-        archiveRun += 1
-        archiveProgress = nil
-    }
-
-    private func writeArchive(offeringShare: Bool, run: Int) async -> MemoryArchive.Outcome? {
-        var zone: ArchiveContents.Zone?
-        do {
-            zone = try await bounded(AppConfig.refreshDeadline) { try await $0.archiveZone() }
-        } catch {
-            log.error("Archive couldn't read the zone: \(error.localizedDescription); archiving this iPhone's copy.")
-        }
-        let contents = ArchiveContents.merged(zone: zone,
-                                              localMoments: history,
-                                              localStatuses: StatusHistoryLog.shared.load(),
-                                              anniversary: snapshot.anniversary,
-                                              hidden: store.hiddenMomentIDs)
-
-        do {
-            let outcome = try await MemoryArchive.write(contents,
-                                                        myName: myDisplayName,
-                                                        partnerName: partnerName,
-                                                        reportedStatusAt: hiddenPartnerStatusAt) { fraction in
-                Task { @MainActor in
-                    guard self.archiveRun == run else { return }
-                    self.archiveProgress = fraction
-                }
-            }
-            guard archiveRun == run else { return nil }
-            if outcome.destination == .deviceOnly, offeringShare {
-                // Nothing is safe yet: the folder only exists here until the user saves it somewhere.
-                archiveToShare = outcome.folder
-            }
-            return outcome
-        } catch is CancellationError {
-            return nil
-        } catch {
-            guard archiveRun == run else { return nil }
-            present(error, title: String(localized: "Couldn't save your memories"))
-            return nil
-        }
-    }
-
-    // MARK: - Fresh start (clear the history, both agreeing)
-
-    /// Where the fresh start stands on this phone — see `FreshStartPolicy.Phase`.
-    var freshStartPhase: FreshStartPolicy.Phase {
-        guard let role else { return .idle(lastCleared: nil) }
-        return FreshStartPolicy.phase(snapshot.freshStart, role: role)
-    }
-
-    /// A change of ours is still waiting to reach iCloud.
-    var freshStartSending: Bool { snapshot.freshStart.pendingIntent != nil }
-    var isClearingHistory: Bool { outbox.isClearingHistory }
-    var freshStartFailure: String? { outbox.freshStartFailure }
-    /// An ask, agree or withdraw is in flight.
-    private(set) var isChangingFreshStart = false
-
-    /// The partner's standing ask, unless its Home card was waved away.
-    var showsFreshStartRequest: Bool {
-        guard isPaired, case .theyAsked(let asked) = freshStartPhase else { return false }
-        return snapshot.freshStart.dismissedAsk != asked
-    }
-
-    /// The clear is due here but keeps failing — worth a card of its own.
-    var freshStartNeedsAttention: Bool {
-        guard isPaired, case .clearing = freshStartPhase else { return false }
-        return freshStartFailure != nil && !isClearingHistory
-    }
-
-    /// Asks for a fresh start. Looks for a standing ask from them first — then
-    /// this is theirs to agree to instead. Returns what to tell the user, if anything.
-    func askForFreshStart() async -> String? {
-        guard isPaired, !isChangingFreshStart else { return nil }
-        isChangingFreshStart = true
-        defer { isChangingFreshStart = false }
-        await refresh()
-        switch freshStartPhase {
-        case .idle, .waitingForPartner:
-            break
-        case .theyAsked:
-            return String(localized: "\(partnerName) has just asked for a fresh start too — you can agree to theirs instead.")
-        default:
-            return nil
-        }
-        do {
-            let asked = try await outbox.askForFreshStart()
-            reload()
-            if !asked {
-                return String(localized: "Your last fresh start change is still being sent. Try again in a moment.")
-            }
-            Task { await advanceFreshStart() }
-            return nil
-        } catch is CancellationError {
-            // Abandoned at the deadline, it may still land: the next refresh reads it back.
-            reload()
-            return String(localized: "iCloud didn't answer in time. If the request got through, it shows here shortly.")
-        } catch {
-            reload()
-            let reason = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            return String(localized: "Couldn't reach iCloud, so nothing was asked. (\(reason))")
-        }
-    }
-
-    /// Agrees to the partner's standing ask — final. Re-checked against a fresh
-    /// refresh first: agreeing to an ask they've since withdrawn would do nothing.
-    func agreeToFreshStart() async -> String? {
-        guard isPaired, !isChangingFreshStart else { return nil }
-        isChangingFreshStart = true
-        defer { isChangingFreshStart = false }
-        await refresh()
-        guard case .theyAsked(let asked) = freshStartPhase else {
-            return String(localized: "\(partnerName) has withdrawn the request, so nothing changes.")
-        }
-        let result = await outbox.publishFreshStart(.agree(asked))
-        reload()
-        Task { await advanceFreshStart() }
-        if result == nil {
-            return String(localized: "Your answer is saved on this iPhone and will be sent once iCloud can be reached.")
-        }
-        return nil
-    }
-
-    /// Takes our ask back, until the partner's phone has committed to it.
-    func withdrawFreshStart() async -> String? {
-        guard isPaired, !isChangingFreshStart, case .asked = freshStartPhase else { return nil }
-        isChangingFreshStart = true
-        defer { isChangingFreshStart = false }
-        let result = await outbox.publishFreshStart(.withdraw)
-        reload()
-        switch result {
-        case .refused?:
-            Task { await advanceFreshStart() }
-            return String(localized: "\(partnerName) had already agreed, so the fresh start is going ahead.")
-        case nil where freshStartSending:
-            return String(localized: "Withdrawn on this iPhone; iCloud will be told once it can be reached.")
-        default:
-            return nil
-        }
-    }
-
-    /// The sheet's "Try again", and the start of a clear just agreed.
-    func advanceFreshStart() async {
-        await outbox.advanceFreshStart()
-        reload()
-    }
-
-    func dismissFreshStartRequest() {
-        guard case .theyAsked(let asked) = freshStartPhase else { return }
-        store.mutate(reloadWidgets: false) { $0.freshStart.dismissedAsk = asked }
-        reload()
-    }
-
-    // MARK: - Ending it
-
-    /// Ends the link, cloud first, then locally. Order matters: if iCloud can't be
-    /// cleaned up we keep the pairing and change nothing — a local reset that leaves
-    /// photos in someone else's iCloud must not look like it didn't.
-    /// - Parameter startingOver: also forgets your name.
-    /// - Returns: `false` if nothing was changed.
-    @discardableResult
-    func unlink(startingOver: Bool) async -> Bool {
-        isBusy = true
-        defer { isBusy = false }
-
-        do {
-            try await backend.unpair()
-        } catch {
-            present(error, title: String(localized: "Couldn't unlink"))
-            return false
-        }
-
-        finishUnlink(startingOver: startingOver)
-        return true
-    }
-
-    /// Cuts this device loose without touching iCloud — for when the delete can't
-    /// go through and waiting isn't acceptable. The caller must say what stays behind.
-    func forceLocalReset(startingOver: Bool) {
-        finishUnlink(startingOver: startingOver)
-    }
-
-    private func finishUnlink(startingOver: Bool) {
-        // Until both databases confirm, the ex's writes may keep pushing here.
-        store.subscriptionCleanup = .init(userRecordName: store.pairing?.userRecordName, since: Date())
-        Task { await cleanUpSubscriptionsIfNeeded() }
-        store.eraseLocalMedia()
-        store.clearPairing(keepingName: !startingOver)
-        inviteURL = nil  // `clearPairing` already cleared the stored copy.
-        pendingInvite = nil
-        reload()
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-    }
-
     // MARK: - Errors
 
     /// A failed send is filed locally and retried, and Home shows it waiting
@@ -1739,7 +902,7 @@ final class AppModel {
             : String(localized: "Your iCloud storage is full, so that \(noun) can't be sent yet. It's saved on this iPhone and will go once there's space. Your shared space lives in your iCloud, so everything either of you sends counts against it.")
     }
 
-    private func present(_ error: Error, title: String? = nil) {
+    func present(_ error: Error, title: String? = nil) {
         log.error("\(Self.codePrefix(error), privacy: .public)\(error.localizedDescription, privacy: .public)")
         errorTitle = title
         errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
