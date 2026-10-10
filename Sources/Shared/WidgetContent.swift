@@ -27,8 +27,8 @@ struct WidgetContent: Hashable {
         partnerName = name?.isEmpty == false ? name : nil
         photo = snapshot.latestPartnerVisualMoment.map { moment in
             var shown = moment
-            shown.caption = moment.displayCaption ?? ""
-            shown.senderName = moment.displaySenderName(fallback: "")
+            shown.caption = moment.displayCaption(filterEnabled: filterEnabled) ?? ""
+            shown.senderName = moment.displaySenderName(fallback: "", filterEnabled: filterEnabled)
             return shown
         }
         unheardMemos = snapshot.unheardVoiceMemoCount

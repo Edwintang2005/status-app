@@ -5,7 +5,7 @@ import XCTest
 /// A participant that marked a record delivered on the operation alone lost
 /// every photo sent on patchy signal (2026-09).
 final class SaveConfirmationTests: XCTestCase {
-    private let zone = CKRecordZone.ID(zoneName: "CoupleZone", ownerName: "_owner")
+    private let zone = Fixtures.zone
     private var id: CKRecord.ID { CKRecord.ID(recordName: "moment-participant-A", zoneID: zone) }
 
     private func result(save: Result<CKRecord, Error>? = nil,

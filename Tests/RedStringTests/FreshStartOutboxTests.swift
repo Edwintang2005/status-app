@@ -23,15 +23,8 @@ final class FreshStartOutboxTests: XCTestCase {
         backend = FakeBackend()
         backend.freshStartSavedAt = epoch
         deletedMedia = []
-        let backend = backend!
-        outbox = Outbox(store: store,
-                        index: index,
-                        statusLog: statusLog,
-                        backend: { backend },
-                        hasMedia: { _ in true },
-                        deleteMedia: { [unowned self] in self.deletedMedia.append($0) },
-                        protect: { _, body in try await body() },
-                        indexChanged: {})
+        outbox = .testing(store: store, index: index, statusLog: statusLog, backend: backend,
+                          deleteMedia: { [unowned self] in self.deletedMedia.append($0) })
     }
 
     private var freshStart: FreshStart { store.snapshot.freshStart }

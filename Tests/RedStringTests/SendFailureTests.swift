@@ -5,7 +5,7 @@ import XCTest
 /// whose storage it is and automatic retries back off. No connection is quiet (the footer
 /// says so); everything else is transient.
 final class SendFailureTests: XCTestCase {
-    private let zone = CKRecordZone.ID(zoneName: "CoupleZone", ownerName: "_owner")
+    private let zone = Fixtures.zone
 
     private func partial(_ codes: [CKError.Code]) -> CKError {
         let errors = Dictionary(uniqueKeysWithValues: codes.enumerated().map { index, code in

@@ -5,7 +5,7 @@ import XCTest
 /// error codes bare or per item, the share lookup failing closed, the
 /// subscriptions' payloads, and the status log's confirmation mark.
 final class CloudJudgementTests: XCTestCase {
-    private let zone = CKRecordZone.ID(zoneName: "CoupleZone", ownerName: "_owner")
+    private let zone = Fixtures.zone
 
     private func partial(_ codes: [CKError.Code]) -> CKError {
         let errors = Dictionary(uniqueKeysWithValues: codes.enumerated().map { index, code in

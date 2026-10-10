@@ -317,6 +317,7 @@
 		E108C281D4DC9B873BBC8D3F /* MomentWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9DB927AC93A1FEF6AD3652F /* MomentWidget.swift */; };
 		E1D3B6CE0A3B5263CFC06009 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68217B2049E1E37F4824759E /* Theme.swift */; };
 		E2A6707635D27E4FD4C1F6EC /* SingleFlight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3164BCEFDC39A3844EB96DD8 /* SingleFlight.swift */; };
+		E2F7F4DD62E4FBBC4BC9027D /* FakeBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6536106D58AB93DF24538794 /* FakeBackend.swift */; };
 		E447968BC1B5D75988B10939 /* Anniversary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7561BA90FD6BA87B3BD03EB9 /* Anniversary.swift */; };
 		E4D3732F713DB805B0D8B4C9 /* WidgetReloadPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E73BF08B6971385C71653A2D /* WidgetReloadPolicy.swift */; };
 		E5AC15A2ABF2B2EA77896795 /* CloudSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30D8E86092F4D16270481EB1 /* CloudSync.swift */; };
@@ -465,6 +466,7 @@
 		5FCAF221553AA030FF7D660D /* IngestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngestTests.swift; sourceTree = "<group>"; };
 		63A7F81CBAFF99201F303756 /* RedString.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RedString.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		652B3CE8C44B5FDA32C9E0F1 /* MomentGalleryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentGalleryView.swift; sourceTree = "<group>"; };
+		6536106D58AB93DF24538794 /* FakeBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeBackend.swift; sourceTree = "<group>"; };
 		6659B4328446713268E053C5 /* CameraEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraEngine.swift; sourceTree = "<group>"; };
 		668DF1E7F6BA116D79645727 /* CloudSync+Moments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSync+Moments.swift"; sourceTree = "<group>"; };
 		68217B2049E1E37F4824759E /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
@@ -625,6 +627,7 @@
 				59BFBC618C5A474EACB1A55F /* CameraPlanTests.swift */,
 				442C8976BE8ADD55A603C7DD /* CloudJudgementTests.swift */,
 				C4E5AE61959FB317695B431F /* DeadlineTests.swift */,
+				6536106D58AB93DF24538794 /* FakeBackend.swift */,
 				DA8526DA2EBD360D6EB82A70 /* ForwardCompatTests.swift */,
 				1E3093CD6D82E1FCB8D4B010 /* FreshStartIngestTests.swift */,
 				23092366C4EADD1540797517 /* FreshStartOutboxTests.swift */,
@@ -1144,6 +1147,7 @@
 				E5AC15A2ABF2B2EA77896795 /* CloudSync.swift in Sources */,
 				4018A7913FA702B1B5DFA555 /* CrossProcessLock.swift in Sources */,
 				759CB3F62A5514BC06411415 /* DeadlineTests.swift in Sources */,
+				E2F7F4DD62E4FBBC4BC9027D /* FakeBackend.swift in Sources */,
 				3DEAD8513BBB317BA50D3869 /* ForwardCompatTests.swift in Sources */,
 				0AF8DF77DBAC4D1C72B2EA04 /* FoundationExtensions.swift in Sources */,
 				37DF8322A1320223C2ACE231 /* FreshStart.swift in Sources */,

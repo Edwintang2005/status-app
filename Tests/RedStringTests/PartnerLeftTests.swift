@@ -5,7 +5,7 @@ import XCTest
 /// in the delta, kept as a local-only mark with the name they went by, and
 /// undone if their status comes back.
 final class PartnerLeftTests: XCTestCase {
-    private let zone = CKRecordZone.ID(zoneName: AppConfig.coupleZoneName, ownerName: CKCurrentUserDefaultName)
+    private let zone = Fixtures.zone
 
     private var paired: Snapshot {
         var snapshot = Snapshot.empty

@@ -247,6 +247,19 @@ extension AppModel {
         return await body()
     }
 
+    #if DEBUG
+    /// Diagnostics' sweep, under the same flag: it closes and reopens the share,
+    /// which can evict a link-joined partner.
+    func sweepPublicJoiners() async -> String {
+        guard usesLiveShare else { return "Demo mode: the share isn't touched." }
+        guard !isChangingInviteLink else { return "A close or reopen is already running." }
+        let line = await withInviteChange { await CloudSync.shared.sweepPublicJoiners() }
+        reload()
+        await refreshInviteURL()
+        return line
+    }
+    #endif
+
     /// Diagnostics' promote-and-close, under the same flag as Settings' so the
     /// two can't race. Returns the report line (`nil`: done or nothing to do).
     func secureInviteFromDiagnostics() async -> String? {

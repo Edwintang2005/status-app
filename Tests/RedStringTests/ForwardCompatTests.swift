@@ -6,7 +6,7 @@ import XCTest
 /// date no decoder reads back, an unreadable status log — and the index's
 /// cache and compact waveforms, which must change none of it.
 final class ForwardCompatTests: XCTestCase {
-    private let zone = CKRecordZone.ID(zoneName: AppConfig.coupleZoneName, ownerName: CKCurrentUserDefaultName)
+    private let zone = Fixtures.zone
 
     // MARK: Unknown moment kinds
 

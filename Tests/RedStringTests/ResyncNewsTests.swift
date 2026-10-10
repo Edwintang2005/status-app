@@ -4,7 +4,7 @@ import XCTest
 /// A full resync re-delivers every moment the index doesn't hold — past its
 /// 500 cap, or after a rebuild — and none of that is news (invariant 10).
 final class ResyncNewsTests: XCTestCase {
-    private let zone = CKRecordZone.ID(zoneName: AppConfig.coupleZoneName, ownerName: CKCurrentUserDefaultName)
+    private let zone = Fixtures.zone
 
     private func momentRecord(_ role: PairRole, _ id: String, at date: Date) -> CKRecord {
         let record = CKRecord(recordType: CloudSync.RecordType.moment,

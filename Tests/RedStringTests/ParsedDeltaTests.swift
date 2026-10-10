@@ -6,7 +6,7 @@ import XCTest
 /// dropped, deletions by role, delete-then-recreate, and what counts as new or
 /// as our own write. Owner's view throughout: "mine" is `owner`, the partner `participant`.
 final class ParsedDeltaTests: XCTestCase {
-    private let zone = CKRecordZone.ID(zoneName: AppConfig.coupleZoneName, ownerName: CKCurrentUserDefaultName)
+    private let zone = Fixtures.zone
     private let me = PairRole.owner
     private var them: PairRole { me.other }
 

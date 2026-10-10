@@ -516,7 +516,7 @@ struct Snapshot: Codable, Hashable {
     /// like an unset one. Every surface that prints it uses this. Once they've
     /// left, the name they went by.
     var moderatedPartnerName: String {
-        ContentFilter.displayName(theirs?.displayName ?? partnerLeftName ?? "", fallback: String(localized: "Partner"))
+        partnerName(filterEnabled: SharedStore.shared.contentFilterEnabled)
     }
 
     /// The partner unlinked from their side and hasn't come back.

@@ -5,7 +5,7 @@ import XCTest
 /// out of every later delta (invariant 2's holds included). Server dates and
 /// authors are injected: a test-built `CKRecord` has neither.
 final class FreshStartIngestTests: XCTestCase {
-    private let zone = CKRecordZone.ID(zoneName: AppConfig.coupleZoneName, ownerName: CKCurrentUserDefaultName)
+    private let zone = Fixtures.zone
     private let me = PairRole.owner
     private let epoch = Fixtures.date(1_000)
 

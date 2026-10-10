@@ -69,7 +69,8 @@ final class AppModel {
     var readinessMessage: String?
     /// Full moment history, newest first, from `MomentIndex` (the snapshot only carries the newest each way).
     private(set) var history: [Moment] = []
-    /// `recentOwnStatuses()`, cached: the picker's sheet content reads it on every Home render.
+    /// Your own last few distinct statuses, newest first — the picker's "Recent".
+    /// Cached: the picker's sheet content reads it on every Home render.
     private(set) var recentStatuses: [StatusHistoryEntry] = []
     @ObservationIgnored var recentStatusesKey: RecentStatusesKey?
 
@@ -247,7 +248,7 @@ final class AppModel {
     // MARK: - Derived
 
     /// The partner's name as shown everywhere — filtered like any of their text.
-    var partnerName: String { snapshot.moderatedPartnerName }
+    var partnerName: String { snapshot.partnerName(filterEnabled: contentFilterEnabled) }
 
     /// When the two of them began, as the owner set it — `nil` until they do.
     var anniversary: Anniversary? { snapshot.anniversary }
@@ -848,13 +849,6 @@ final class AppModel {
 
     // MARK: - Status history
 
-    /// Your own last few distinct statuses, newest first — the picker's "Recent".
-    /// Own words only, so no moderation applies.
-    func recentOwnStatuses(limit: Int = AppModel.recentStatusLimit) -> [StatusHistoryEntry] {
-        guard limit != Self.recentStatusLimit else { return recentStatuses }
-        return StatusHistoryEntry.recentOwn(in: StatusHistoryLog.shared.load(), limit: limit)
-    }
-
     static let recentStatusLimit = 8
 
     /// Own entries only move with `mine`, a fresh start's clear or the pairing;
@@ -877,14 +871,6 @@ final class AppModel {
         var emoji: String?
         var message: String?
         var clearedBefore: Date?
-    }
-
-    /// The rolling status log, newest first, with a reported or filtered partner
-    /// status shown as such — loaded on demand by the history sheet.
-    func loadStatusHistory() -> [StatusHistoryEntry] {
-        let reportedAt = hiddenPartnerStatusAt
-        let filterOn = contentFilterEnabled
-        return StatusHistoryLog.shared.load().map { $0.moderated(reportedAt: reportedAt, filterEnabled: filterOn) }
     }
 
     // MARK: - Errors

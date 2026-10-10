@@ -39,7 +39,7 @@ final class ZoneClearPlanTests: XCTestCase {
 
     /// The partner's phone reads a deleted status record as an unlink.
     func testFreshStartIsNotReadAsAnUnlink() {
-        let zone = CKRecordZone.ID(zoneName: AppConfig.coupleZoneName, ownerName: CKCurrentUserDefaultName)
+        let zone = Fixtures.zone
         let deletions = everyName()
             .filter { ZoneClearPlan.deletes($0, role: .participant, scope: .freshStart) }
             .map { CKRecord.ID(recordName: $0, zoneID: zone) }

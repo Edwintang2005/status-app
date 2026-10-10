@@ -410,7 +410,7 @@ private struct HomeSheets: ViewModifier {
             .sheet(isPresented: $showingPicker) {
                 MoodPickerView(initialEmoji: model.snapshot.mine?.emoji ?? "",
                                currentMessage: model.snapshot.mine?.message ?? "",
-                               recent: model.recentOwnStatuses()) { emoji, message, isCelebration in
+                               recent: model.recentStatuses) { emoji, message, isCelebration in
                     Task {
                         await model.setStatus(emoji: emoji,
                                               message: message,

@@ -209,7 +209,7 @@ struct DiagnosticsView: View {
     private func sweepNow() async {
         securing = true
         defer { securing = false }
-        sweepResult = await CloudSync.shared.sweepPublicJoiners()
+        sweepResult = await model.sweepPublicJoiners()
         await reload()
     }
     #endif
