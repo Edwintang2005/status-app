@@ -119,14 +119,15 @@ enum CameraTilt: Equatable, Sendable {
 
     var isLandscape: Bool { self == .topLeft || self == .topRight }
 
-    /// `AVCaptureConnection.videoRotationAngle` for a level shot: the sensor's
-    /// native frame is the phone held top-left.
-    var captureAngle: CGFloat {
+    /// `AVCaptureConnection.videoRotationAngle` for a level shot: the back
+    /// sensor's native frame is the phone held top-left. The front sensor is
+    /// mounted mirrored, so its two sideways angles swap (upright is the same).
+    func captureAngle(frontCamera: Bool) -> CGFloat {
         switch self {
         case .upright: 90
         case .upsideDown: 270
-        case .topLeft: 0
-        case .topRight: 180
+        case .topLeft: frontCamera ? 180 : 0
+        case .topRight: frontCamera ? 0 : 180
         }
     }
 }

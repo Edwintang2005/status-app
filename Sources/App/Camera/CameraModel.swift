@@ -248,7 +248,7 @@ final class CameraModel {
                 isHoldingStill = false
             }
             do {
-                let data = try await engine.capture(flash: flash, rotationAngle: tilt.captureAngle)
+                let data = try await engine.capture(flash: flash, rotationAngle: tilt.captureAngle(frontCamera: position == .front))
                 guard let image = UIImage(data: data) else { throw CameraEngine.CaptureError.noData }
                 onCapture(image)
             } catch {

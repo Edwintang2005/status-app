@@ -144,10 +144,14 @@ final class CameraPlanTests: XCTestCase {
     }
 
     func testTiltGivesTheLevelCaptureAngle() {
-        XCTAssertEqual(CameraTilt.upright.captureAngle, 90)
-        XCTAssertEqual(CameraTilt.topLeft.captureAngle, 0, "the sensor's native frame")
-        XCTAssertEqual(CameraTilt.topRight.captureAngle, 180)
-        XCTAssertEqual(CameraTilt.upsideDown.captureAngle, 270)
+        for front in [false, true] {
+            XCTAssertEqual(CameraTilt.upright.captureAngle(frontCamera: front), 90)
+            XCTAssertEqual(CameraTilt.upsideDown.captureAngle(frontCamera: front), 270)
+        }
+        XCTAssertEqual(CameraTilt.topLeft.captureAngle(frontCamera: false), 0, "the back sensor's native frame")
+        XCTAssertEqual(CameraTilt.topRight.captureAngle(frontCamera: false), 180)
+        XCTAssertEqual(CameraTilt.topLeft.captureAngle(frontCamera: true), 180, "the front sensor is mounted mirrored")
+        XCTAssertEqual(CameraTilt.topRight.captureAngle(frontCamera: true), 0)
         XCTAssertTrue(CameraTilt.topRight.isLandscape)
         XCTAssertFalse(CameraTilt.upsideDown.isLandscape)
     }
