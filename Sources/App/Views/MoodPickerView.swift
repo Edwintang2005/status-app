@@ -41,8 +41,6 @@ struct MoodPickerView: View {
         }
     }
 
-    private let columns = [GridItem(.adaptive(minimum: 78), spacing: 12)]
-
     var body: some View {
         NavigationStack {
             ZStack {
@@ -51,7 +49,6 @@ struct MoodPickerView: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 26) {
                             customRow
-                                .id(Self.wordsRowID)
                             searchField
                             if query.isEmpty, !recent.isEmpty {
                                 recentSection
@@ -71,11 +68,12 @@ struct MoodPickerView: View {
                         .padding(20)
                         .padding(.bottom, 24)
                         .containerRelativeFrame(.horizontal)
+                        .id(Self.topID)
                     }
                     .scrollDismissesKeyboard(.interactively)
                     .onChange(of: wordsScrollRequest) {
                         withAnimation(reduceMotion ? nil : .smooth(duration: 0.35)) {
-                            proxy.scrollTo(Self.wordsRowID, anchor: .top)
+                            proxy.scrollTo(Self.topID, anchor: .top)
                         }
                     }
                 }
@@ -103,7 +101,7 @@ struct MoodPickerView: View {
         }
     }
 
-    private static let wordsRowID = "words"
+    private static let topID = "top"
 
     private var customRow: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -175,7 +173,7 @@ struct MoodPickerView: View {
             Text("RECENT")
                 .eyebrow(size: 12, color: .primary)
 
-            LazyVGrid(columns: columns, spacing: 12) {
+            TileGrid {
                 ForEach(recent) { entry in
                     tile(emoji: entry.emoji,
                          label: entry.message,
@@ -259,7 +257,7 @@ struct MoodPickerView: View {
             Text(group.rawValue)
                 .eyebrow(size: 12, color: .primary)
 
-            LazyVGrid(columns: columns, spacing: 12) {
+            TileGrid {
                 ForEach(moods) { mood in
                     moodTile(mood)
                 }
@@ -357,6 +355,50 @@ struct MoodPickerView: View {
         // Words alone go with 💬, as a banner reply does.
         onSelect(emoji.isEmpty ? "💬" : emoji, message, celebration)
         dismiss()
+    }
+}
+
+// MARK: - Tile grid
+
+/// The adaptive grid, but eager: a `LazyVGrid` guesses the heights of rows it
+/// hasn't laid out, so the scroll back up to the words fell short after a flick.
+private struct TileGrid: Layout {
+    var minimumWidth: CGFloat = 78
+    var spacing: CGFloat = 12
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let grid = rows(width: proposal.width, subviews: subviews)
+        let height = grid.heights.reduce(0, +) + spacing * CGFloat(max(grid.heights.count - 1, 0))
+        return CGSize(width: proposal.width ?? grid.width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let grid = rows(width: bounds.width, subviews: subviews)
+        var y = bounds.minY
+        for (row, height) in grid.heights.enumerated() {
+            for column in 0..<grid.columns {
+                let index = row * grid.columns + column
+                guard index < subviews.count else { break }
+                let x = bounds.minX + CGFloat(column) * (grid.cellWidth + spacing)
+                subviews[index].place(at: CGPoint(x: x + grid.cellWidth / 2, y: y + height / 2),
+                                      anchor: .center,
+                                      proposal: ProposedViewSize(width: grid.cellWidth, height: nil))
+            }
+            y += height + spacing
+        }
+    }
+
+    private func rows(width: CGFloat?, subviews: Subviews) -> (columns: Int, cellWidth: CGFloat, width: CGFloat, heights: [CGFloat]) {
+        let width = width ?? (minimumWidth + spacing) * CGFloat(subviews.count) - spacing
+        let columns = max(1, Int((width + spacing) / (minimumWidth + spacing)))
+        let cellWidth = (width - spacing * CGFloat(columns - 1)) / CGFloat(columns)
+        let cell = ProposedViewSize(width: cellWidth, height: nil)
+        let heights = stride(from: 0, to: subviews.count, by: columns).map { start in
+            subviews[start..<min(start + columns, subviews.count)]
+                .map { $0.sizeThatFits(cell).height }
+                .max() ?? 0
+        }
+        return (columns, cellWidth, width, heights)
     }
 }
 
