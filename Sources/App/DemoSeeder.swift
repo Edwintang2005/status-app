@@ -15,6 +15,9 @@ enum DemoSeeder {
 
         let store = SharedStore.shared
         let now = Date()
+        // `REDSTRING_DEMO_BULK=1`: weeks of older history below the screenshot set,
+        // so the library and status history are long enough to scroll.
+        let bulk = ProcessInfo.processInfo.environment["REDSTRING_DEMO_BULK"] == "1"
 
         store.pairing = PairingInfo(role: .owner,
                                     zoneName: AppConfig.coupleZoneName,
@@ -61,6 +64,15 @@ enum DemoSeeder {
             age: 6 * 86_400, seen: true, image: beachPhoto())
         add("demo-dinner", kind: .drawing, caption: "dinner at 7?", from: false,
             age: 8 * 86_400, seen: true, image: dinnerDoodle())
+        if bulk {
+            let older: [(Moment.Kind, UIImage)] = [(.photo, coffeePhoto()), (.photo, skyPhoto()),
+                                                   (.drawing, heartDoodle()), (.photo, beachPhoto())]
+            for i in 0..<48 {
+                let (kind, image) = older[i % older.count]
+                add("demo-bulk-\(i)", kind: kind, caption: "", from: i.isMultiple(of: 2),
+                    age: Double(9 + i) * 86_400, seen: true, image: image)
+            }
+        }
 
         store.record(moments)
 
@@ -102,7 +114,7 @@ enum DemoSeeder {
                                                         seenAt: now.addingTimeInterval(-38 * 60))
         }
 
-        seedStatusHistory(now: now)
+        seedStatusHistory(now: now, bulk: bulk)
         // Read receipts on, with a couple of own moments already seen by Sam.
         store.readReceiptsEnabled = true
         MomentIndex.shared.applyPartnerReceipts([
@@ -111,9 +123,9 @@ enum DemoSeeder {
         ])
     }
 
-    private static func seedStatusHistory(now: Date) {
+    private static func seedStatusHistory(now: Date, bulk: Bool) {
         StatusHistoryLog.shared.clear()
-        let statuses: [(emoji: String, message: String, age: TimeInterval, fromMe: Bool)] = [
+        var statuses: [(emoji: String, message: String, age: TimeInterval, fromMe: Bool)] = [
             ("🥰", "missing you", 18 * 60, false),
             ("🎨", "making something for you", 45 * 60, true),
             ("💤", "sleeping in", 9 * 3_600, false),
@@ -121,6 +133,13 @@ enum DemoSeeder {
             ("🍜", "ramen night", 2 * 86_400, false),
             ("🚶", "long walk home", 3 * 86_400, true),
         ]
+        if bulk {
+            let older = [("☕️", "coffee break"), ("📚", "studying"), ("🏃", "running"), ("😴", "sleepy")]
+            for i in 0..<60 {
+                let (emoji, message) = older[i % older.count]
+                statuses.append((emoji, message, Double(4 * 86_400 + i * 43_200), i.isMultiple(of: 2)))
+            }
+        }
         for status in statuses {
             StatusHistoryLog.shared.record(
                 StatusPayload(emoji: status.emoji,

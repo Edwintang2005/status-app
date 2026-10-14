@@ -765,4 +765,5 @@ with a fixed Alex/Sam pairing — statuses, doodles, photos and a playable
 voice memo — so the whole app (widgets included) can be driven on a Simulator
 with no iCloud account. It is `#if DEBUG` and environment-gated; a Release
 build contains none of it. The App Store screenshots and previews were made
-this way.
+this way. Add `SIMCTL_CHILD_REDSTRING_DEMO_BULK=1` for weeks of older moments
+and statuses below that set, so the library and status history scroll.

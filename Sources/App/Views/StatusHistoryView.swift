@@ -65,6 +65,8 @@ struct StatusHistoryView: View {
                             }
                         }
                         .scrollContentBackground(.hidden)
+                        // A new filter starts at the top, not wherever the old list was.
+                        .id(filter)
                         .topBarBacking()
                     }
                 }

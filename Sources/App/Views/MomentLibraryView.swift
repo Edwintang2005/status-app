@@ -7,6 +7,9 @@ struct MomentLibraryView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var opened: Moment?
+    /// The gallery's page order, fixed when it opens: a moment arriving
+    /// mid-swipe would otherwise shift every page under the finger.
+    @State private var galleryOrder: [String] = []
     /// Failed tiles and their retry count — held here, not in the tile, so the
     /// cell can offer Retry to VoiceOver (it reads the cell as one element).
     @State private var failedTiles: Set<String> = []
@@ -58,6 +61,8 @@ struct MomentLibraryView: View {
                             }
                             .padding(12)
                         }
+                        // A new filter starts at the top, not wherever the old list was.
+                        .id("\(filter.rawValue).\(kind.rawValue)")
                         .topBarBacking()
                     }
                 }
@@ -91,8 +96,8 @@ struct MomentLibraryView: View {
                 }
             }
             .sheet(item: $opened) { moment in
-                // The filtered list, so paging stays within what was on screen.
-                MomentGalleryView(moments: filtered, startAt: moment)
+                // What was on screen, in that order; each moment still read live.
+                MomentGalleryView(moments: galleryMoments, startAt: moment)
             }
             .confirmationDialog("Report this \(reporting?.noun ?? "moment")?",
                                 isPresented: $reporting.isPresent(),
@@ -108,6 +113,11 @@ struct MomentLibraryView: View {
         }
     }
 
+    private var galleryMoments: [Moment] {
+        let byID = Dictionary(model.history.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return galleryOrder.compactMap { byID[$0] }
+    }
+
     private var title: String {
         let count = filtered.count
         return count == 0 ? String(localized: "Moments") : String(localized: "Moments · \(count)")
@@ -115,6 +125,7 @@ struct MomentLibraryView: View {
 
     private func cell(_ moment: Moment, partnerName: String, filterOn: Bool) -> some View {
         Button {
+            galleryOrder = filtered.map(\.id)
             opened = moment
         } label: {
             ZStack(alignment: .topTrailing) {
