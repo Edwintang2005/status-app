@@ -12,6 +12,7 @@ struct MoodPickerView: View {
     let onSelect: (String, String, CelebrationStyle?) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var emoji = ""
     @State private var message = ""
@@ -27,6 +28,9 @@ struct MoodPickerView: View {
     /// Set once: a second tap on "Set" while the sheet is on its way out
     /// would send the same status twice.
     @State private var committed = false
+    /// Bumped by a tile tap: the tiles sit below the words, so the sheet
+    /// scrolls back up to show (and allow editing) what was just picked.
+    @State private var wordsScrollRequest = 0
     @FocusState private var messageFocused: Bool
 
     /// Groups with their matching presets, empty groups dropped.
@@ -43,30 +47,38 @@ struct MoodPickerView: View {
         NavigationStack {
             ZStack {
                 Theme.Background()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 26) {
-                        customRow
-                        searchField
-                        if query.isEmpty, !recent.isEmpty {
-                            recentSection
-                        }
-                        if filteredGroups.isEmpty {
-                            Text("No status matches \u{201C}\(query)\u{201D}")
-                                .font(Theme.rounded(15))
-                                .foregroundStyle(Theme.mutedText)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 40)
-                        } else {
-                            ForEach(filteredGroups, id: \.group) { entry in
-                                section(entry.group, moods: entry.moods)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 26) {
+                            customRow
+                                .id(Self.wordsRowID)
+                            searchField
+                            if query.isEmpty, !recent.isEmpty {
+                                recentSection
+                            }
+                            if filteredGroups.isEmpty {
+                                Text("No status matches \u{201C}\(query)\u{201D}")
+                                    .font(Theme.rounded(15))
+                                    .foregroundStyle(Theme.mutedText)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 40)
+                            } else {
+                                ForEach(filteredGroups, id: \.group) { entry in
+                                    section(entry.group, moods: entry.moods)
+                                }
                             }
                         }
+                        .padding(20)
+                        .padding(.bottom, 24)
+                        .containerRelativeFrame(.horizontal)
                     }
-                    .padding(20)
-                    .padding(.bottom, 24)
-                    .containerRelativeFrame(.horizontal)
+                    .scrollDismissesKeyboard(.interactively)
+                    .onChange(of: wordsScrollRequest) {
+                        withAnimation(reduceMotion ? nil : .smooth(duration: 0.35)) {
+                            proxy.scrollTo(Self.wordsRowID, anchor: .top)
+                        }
+                    }
                 }
-                .scrollDismissesKeyboard(.interactively)
             }
             .navigationTitle("Your status")
             .navigationBarTitleDisplayMode(.inline)
@@ -90,6 +102,8 @@ struct MoodPickerView: View {
             emoji = initialEmoji
         }
     }
+
+    private static let wordsRowID = "words"
 
     private var customRow: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -172,6 +186,7 @@ struct MoodPickerView: View {
                         selectedPresetID = entry.id
                         celebration = nil
                         messageFocused = false
+                        wordsScrollRequest += 1
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     }
                 }
@@ -272,6 +287,7 @@ struct MoodPickerView: View {
                 if untouched { message = mood.label }
                 messageFocused = false
             }
+            wordsScrollRequest += 1
             if mood.isCelebration {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             } else {
