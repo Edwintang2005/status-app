@@ -472,7 +472,9 @@ final class OutboxTests: XCTestCase {
         await outbox.retryPendingUploads(automatic: true)
         XCTAssertEqual(backend.sent, [], "b stands aside for a")
         gate.open()
-        await waitUntil { self.backend.sent == ["a", "b"] }
+        // On `confirmed`, not `sent`: the fake records a send before it's marked uploaded.
+        await waitUntil { self.confirmed == ["a", "b"] }
+        XCTAssertEqual(backend.sent, ["a", "b"])
         XCTAssertTrue(index.load().allSatisfy(\.uploaded))
     }
 
