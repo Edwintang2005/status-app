@@ -7,7 +7,7 @@ import os
 extension CloudSync {
     /// Writes a new moment record. One record per moment, kept indefinitely —
     /// that's what makes the history durable and recoverable.
-    func send(_ moment: Moment) async throws {
+    func send(_ moment: Moment, progress: @escaping @Sendable (Double) -> Void) async throws {
         let pairing = try await requirePairing()
         let database = self.database(for: pairing)
 
@@ -40,11 +40,98 @@ extension CloudSync {
         }
 
         try await withZoneRecovery(pairing) {
-            let result = try await database.modifyRecords(saving: [record],
-                                                          deleting: [],
-                                                          savePolicy: .allKeys)
-            try Self.confirmSaved(result, recordID)
+            let operation = Self.uploadOperation(record)
+            let handle = Self.attach(operation, recordID: recordID)
+            handle.observe(progress)
+            try Task.checkCancellation()
+            startedUploads.insert(operation.operationID)
+            defer { startedUploads.remove(operation.operationID) }
+            database.add(operation)
+            try await handle.value()
         }
+    }
+
+    /// Long-lived, so iCloud finishes it after the app closes (`resumeUploads`
+    /// picks it up). `.userInitiated`: at `.utility` CloudKit retries network
+    /// errors itself for days and goes discretionary in the background, so an
+    /// offline send would sit silent instead of failing as offline.
+    static func uploadOperation(_ record: CKRecord) -> CKModifyRecordsOperation {
+        let operation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
+        operation.savePolicy = .allKeys
+        operation.configuration.isLongLived = true
+        operation.configuration.qualityOfService = .userInitiated
+        return operation
+    }
+
+    /// Decided by the record's own result (invariant 22), either way, as
+    /// `confirmSaved` does; the operation's only when the record has none.
+    static func attach(_ operation: CKModifyRecordsOperation, recordID: CKRecord.ID) -> UploadHandle {
+        let box = OperationBox(operation)
+        let handle = UploadHandle(cancel: { box.operation?.cancel() })
+        let saved = SavedRecord()
+        operation.perRecordProgressBlock = { record, fraction in
+            if record.recordID == recordID { handle.progressed(fraction) }
+        }
+        operation.perRecordSaveBlock = { id, result in
+            if id == recordID { saved.set(result.map { _ in () }) }
+        }
+        operation.modifyRecordsResultBlock = { result in
+            switch result {
+            case .failure(let error):
+                // A record that saved is sent, even if the operation then failed (a late cancel).
+                handle.settle(saved.get() ?? .failure(error))
+            case .success:
+                handle.settle(saved.get() ?? .failure(SyncError.saveUnconfirmed))
+            }
+        }
+        return handle
+    }
+
+    /// Re-attaches the moment uploads iCloud kept running while the app was
+    /// gone. One for another zone (an unlink since) is cancelled, never confirmed.
+    func resumeUploads() async -> [ResumedUpload]? {
+        guard let pairing = try? await requirePairing() else { return nil }
+        let database = self.database(for: pairing)
+        let zone = zoneID(for: pairing)
+        let ids: [CKOperation.ID]
+        do {
+            ids = try await container.allLongLivedOperationIDs()
+        } catch {
+            log.error("Couldn't list background uploads: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        var resumed: [ResumedUpload] = []
+        for id in ids where !startedUploads.contains(id) {
+            guard let operation = try? await container.longLivedOperation(for: id) as? CKModifyRecordsOperation,
+                  let record = operation.recordsToSave?.first,
+                  record.recordType == RecordType.moment else { continue }
+            let recordID = record.recordID
+            guard recordID.zoneID == zone,
+                  let momentID = record[Field.momentID] as? String,
+                  recordID.recordName == pairing.role.momentRecordName(id: momentID) else {
+                operation.cancel()
+                database.add(operation)
+                continue
+            }
+            let handle = Self.attach(operation, recordID: recordID)
+            database.add(operation)
+            resumed.append(ResumedUpload(momentID: momentID, handle: handle))
+        }
+        if !resumed.isEmpty { log.info("Resumed \(resumed.count) background upload(s)") }
+        return resumed
+    }
+
+    /// Weak: the operation's blocks hold the handle that holds this.
+    private final class OperationBox: @unchecked Sendable {
+        weak var operation: CKModifyRecordsOperation?
+        init(_ operation: CKModifyRecordsOperation) { self.operation = operation }
+    }
+
+    private final class SavedRecord: @unchecked Sendable {
+        private let lock = NSLock()
+        private var result: Result<Void, Error>?
+        func set(_ result: Result<Void, Error>) { lock.withLock { self.result = result } }
+        func get() -> Result<Void, Error>? { lock.withLock { result } }
     }
 
     static func logEntry(from record: CKRecord,

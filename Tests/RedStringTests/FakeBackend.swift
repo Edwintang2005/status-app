@@ -64,10 +64,19 @@ final class FakeBackend: SyncBackend, @unchecked Sendable {
     }
     @discardableResult func refresh() async throws -> RefreshResult { .empty }
     @discardableResult func sendNudge() async throws -> Bool { true }
-    func send(_ moment: Moment) async throws {
+    func send(_ moment: Moment, progress: @escaping @Sendable (Double) -> Void) async throws {
         await duringSend?(moment.id)
         try check("send")
         lock.withLock { _sent.append(moment.id) }
+    }
+    /// What `resumeUploads` hands back: uploads iCloud kept running, `nil` for a failed look.
+    var backgroundUploads: [ResumedUpload]? = []
+    private(set) var resumeCalls = 0
+    func resumeUploads() async -> [ResumedUpload]? {
+        lock.withLock {
+            resumeCalls += 1
+            return backgroundUploads
+        }
     }
     func fetchMedia(for moment: Moment) async throws {}
     func fetchThumbnails(for moments: [Moment]) async throws {}
@@ -147,11 +156,12 @@ extension Outbox {
                         statusLog: StatusHistoryLog,
                         backend: FakeBackend,
                         hasMedia: @escaping (Moment) -> Bool = { _ in true },
+                        uploadSize: @escaping (Moment) -> Int = { _ in 0 },
                         deleteMedia: @escaping (String) -> Void = { _ in },
                         indexChanged: @escaping () -> Void = {},
                         uploaded: @escaping (Moment) -> Void = { _ in }) -> Outbox {
         Outbox(store: store, index: index, statusLog: statusLog, backend: { backend },
-               hasMedia: hasMedia, deleteMedia: deleteMedia,
+               hasMedia: hasMedia, uploadSize: uploadSize, deleteMedia: deleteMedia,
                protect: { _, body in try await body() },
                indexChanged: indexChanged, uploaded: uploaded)
     }

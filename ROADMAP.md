@@ -24,8 +24,23 @@ its own discretion, often within the hour for an app used daily, never
 guaranteed), or a `BGProcessingTask` with `requiresNetworkConnectivity`
 (runs later still, usually idle/charging). Either runs `refresh()` + the
 recovery pass under the existing upload protection. Long-lived CloudKit
-operations were considered and set aside — they don't wait for a
-connection, and their results arrive only on relaunch.
+operations don't solve this — they don't wait for a connection — though
+moment uploads already under way are now long-lived, so one in progress
+finishes in the background.
+
+### Moments on weak signal — next steps (M each)
+Uploads now give up only when stuck, run long-lived, and retry smallest
+first (October 2026). Not picked yet:
+- **Thumbnail first.** Save the moment with only its ~50 KB thumbnail so the
+  partner sees it at once, then add the full photo as an update of the same
+  record. Needs a receiving-side "full photo still on its way" state (gallery,
+  widget, `MediaPrefetchPlan`), a re-fetch once the photo lands, and a check
+  that `requeueMissingUploads` and the fresh start's purge treat a
+  thumbnail-only record as sent. The update fires the subscription again;
+  `claimMomentBanner` already keeps that quiet.
+- **Smaller photos on a poor network.** Encode at ~1280 px when the path is
+  constrained (Low Data Mode) or recent sends failed — roughly 3–4× smaller —
+  at the cost of permanent quality unless paired with an upgrade later.
 
 ### Fresh start — follow-ups (S each)
 

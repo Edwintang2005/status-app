@@ -394,9 +394,218 @@ final class OutboxTests: XCTestCase {
         await outbox.flushReceipts()
         XCTAssertTrue(backend.published.isEmpty && backend.sent.isEmpty && backend.receipts.isEmpty)
     }
+
+    // MARK: Weak signal: uploads outliving their caller, order, background
+
+    /// The caller stops waiting; the upload doesn't. It stays in flight — a
+    /// retry pass mustn't send it a second time — and confirms when it lands.
+    func testAnUploadOutlastingItsCallerStaysInFlightAndConfirms() async throws {
+        queue(["a"])
+        let moment = try XCTUnwrap(index.load().first)
+        let gate = Gate()
+        backend.duringSend = { _ in await gate.wait() }
+        do {
+            try await outbox.upload(moment, waitAtMost: 0.05)
+            XCTFail("the caller gives up waiting")
+        } catch {}
+        XCTAssertTrue(outbox.uploadsInFlight.contains("a"))
+        await outbox.retryPendingUploads(automatic: true)
+        gate.open()
+        await waitUntil { self.confirmed == ["a"] }
+        XCTAssertEqual(backend.sent, ["a"], "sent once, not again by the retry")
+        XCTAssertEqual(index.load().first?.uploaded, true)
+        await waitUntil { self.outbox.uploadsInFlight.isEmpty }
+    }
+
+    func testRetriesGoSmallestFirst() async {
+        queue(["photo", "memo", "doodle"])
+        let sizes = ["photo": 900_000, "memo": 60_000, "doodle": 300_000]
+        let outbox = Outbox.testing(store: store, index: index, statusLog: statusLog, backend: backend,
+                                    uploadSize: { sizes[$0.id] ?? 0 })
+        await outbox.retryPendingUploads(automatic: true)
+        XCTAssertEqual(backend.sent, ["memo", "doodle", "photo"])
+    }
+
+    /// One upload at a time: a pass that finds another running stands aside.
+    func testARetryPassStandsAsideWhileAnotherUploadRuns() async throws {
+        queue(["a", "b"])
+        let outbox = outbox!
+        let moment = try XCTUnwrap(index.load().first { $0.id == "a" })
+        backend.duringSend = { id in
+            guard id == "a" else { return }
+            await outbox.retryPendingUploads(automatic: true)
+        }
+        try await outbox.upload(moment)
+        XCTAssertEqual(backend.sent, ["a"], "b waits for the link")
+        await outbox.retryPendingUploads(automatic: true)
+        XCTAssertEqual(backend.sent, ["a", "b"])
+    }
+
+    /// An upload iCloud carried on with across a relaunch is adopted, not
+    /// re-sent, holds the link, and confirms when it lands.
+    func testABackgroundUploadIsAdoptedNotSentAgain() async {
+        queue(["a", "b"])
+        let handle = UploadHandle(cancel: {})
+        backend.backgroundUploads = [ResumedUpload(momentID: "a", handle: handle)]
+        await outbox.retryPendingUploads(automatic: true)
+        XCTAssertTrue(backend.sent.isEmpty, "a is iCloud's; b waits for it")
+        XCTAssertTrue(outbox.uploadsInFlight.contains("a"))
+        handle.settle(.success(()))
+        await waitUntil { self.confirmed == ["a"] }
+        XCTAssertEqual(index.load().first { $0.id == "a" }?.uploaded, true)
+        await waitUntil { self.outbox.uploadsInFlight.isEmpty }
+        await outbox.retryPendingUploads(automatic: true)
+        XCTAssertEqual(backend.sent, ["b"])
+        XCTAssertEqual(backend.resumeCalls, 1, "adopted once per launch")
+    }
+
+    /// A pass stood aside for an upload that outlived its caller; when it
+    /// lands with nothing else running, the queue is sent on at once.
+    func testALateLandingSendsTheRestOfTheQueue() async throws {
+        queue(["a", "b"])
+        let outbox = outbox!
+        outbox.linkFreed = { Task { await outbox.retryPendingUploads(automatic: true) } }
+        let moment = try XCTUnwrap(index.load().first { $0.id == "a" })
+        let gate = Gate()
+        backend.duringSend = { id in if id == "a" { await gate.wait() } }
+        try? await outbox.upload(moment, waitAtMost: 0.05)
+        await outbox.retryPendingUploads(automatic: true)
+        XCTAssertEqual(backend.sent, [], "b stands aside for a")
+        gate.open()
+        await waitUntil { self.backend.sent == ["a", "b"] }
+        XCTAssertTrue(index.load().allSatisfy(\.uploaded))
+    }
+
+    /// The link is free only when the last upload lands, not the first of two.
+    func testNoKickWhileAnotherUploadRuns() async throws {
+        queue(["a", "b"])
+        var freed = 0
+        outbox.linkFreed = { freed += 1 }
+        let gateA = Gate(), gateB = Gate()
+        backend.duringSend = { id in await (id == "a" ? gateA : gateB).wait() }
+        for id in ["a", "b"] {
+            let moment = try XCTUnwrap(index.load().first { $0.id == id })
+            try? await outbox.upload(moment, waitAtMost: 0.02)
+        }
+        gateA.open()
+        await waitUntil { self.confirmed == ["a"] }
+        XCTAssertEqual(freed, 0, "b still holds the link")
+        gateB.open()
+        await waitUntil { freed == 1 }
+    }
+
+    /// A background upload a refresh already filed doesn't say "Sent" again,
+    /// but its landing still frees the link for the rest.
+    func testAnAlreadyFiledBackgroundLandingStillFreesTheLink() async {
+        queue(["a"])
+        var freed = 0
+        outbox.linkFreed = { freed += 1 }
+        let handle = UploadHandle(cancel: {})
+        backend.backgroundUploads = [ResumedUpload(momentID: "a", handle: handle)]
+        await outbox.adoptBackgroundUploads()
+        index.markUploaded(ids: ["a"])
+        handle.settle(.success(()))
+        await waitUntil { freed == 1 }
+        XCTAssertTrue(confirmed.isEmpty)
+    }
+
+    /// No kick from a pass's own sends: the pass carries on by itself.
+    func testARetryPassDoesntFreeTheLinkMidPass() async {
+        queue(["a", "b"])
+        var freed = 0
+        outbox.linkFreed = { freed += 1 }
+        await outbox.retryPendingUploads(automatic: true)
+        XCTAssertEqual(Set(backend.sent), ["a", "b"])
+        XCTAssertEqual(freed, 0)
+    }
+
+    /// A look that failed (offline at launch) is tried again, never skipped
+    /// for the rest of the launch — else a live background upload goes twice.
+    func testAFailedLookForBackgroundUploadsIsTriedAgain() async {
+        queue(["a"])
+        backend.backgroundUploads = nil
+        await outbox.retryPendingUploads(automatic: true)
+        XCTAssertEqual(backend.resumeCalls, 1)
+        let handle = UploadHandle(cancel: {})
+        backend.backgroundUploads = [ResumedUpload(momentID: "b", handle: handle)]
+        await outbox.adoptBackgroundUploads()
+        XCTAssertEqual(backend.resumeCalls, 2)
+        XCTAssertTrue(outbox.uploadsInFlight.contains("b"))
+        handle.settle(.failure(CKError(.networkFailure)))
+        await waitUntil { self.outbox.uploadsInFlight.isEmpty }
+    }
+
+    /// iCloud's copy of a moment this launch is already sending is cancelled, not run twice.
+    func testABackgroundCopyOfASendUnderWayIsCancelled() async throws {
+        queue(["a"])
+        let cancelled = Flag()
+        let handle = UploadHandle(cancel: { cancelled.value = true })
+        backend.backgroundUploads = [ResumedUpload(momentID: "a", handle: handle)]
+        let outbox = outbox!
+        let moment = try XCTUnwrap(index.load().first)
+        backend.duringSend = { _ in await outbox.adoptBackgroundUploads() }
+        try await outbox.upload(moment)
+        XCTAssertTrue(cancelled.value)
+        XCTAssertEqual(backend.sent, ["a"])
+    }
+
+    /// Unlinked and re-paired mid-upload: landing in the old zone isn't a send to the new one.
+    func testALandingAfterThePairingMovedIsNotMarkedSent() async throws {
+        queue(["a"])
+        let store = store!
+        let moment = try XCTUnwrap(index.load().first)
+        backend.duringSend = { _ in
+            await MainActor.run {
+                store.pairing = PairingInfo(role: .participant, zoneName: "OtherZone",
+                                            zoneOwnerName: "someone", pairedAt: Fixtures.t0)
+            }
+        }
+        try await outbox.upload(moment)
+        XCTAssertEqual(index.load().first?.uploaded, false)
+        XCTAssertTrue(confirmed.isEmpty)
+    }
+
+    func testAFailedBackgroundUploadStaysPending() async {
+        queue(["a"])
+        let handle = UploadHandle(cancel: {})
+        backend.backgroundUploads = [ResumedUpload(momentID: "a", handle: handle)]
+        await outbox.retryPendingUploads(automatic: true)
+        handle.settle(.failure(CKError(.networkFailure)))
+        await waitUntil { self.outbox.uploadsInFlight.isEmpty }
+        XCTAssertTrue(confirmed.isEmpty)
+        XCTAssertEqual(index.load().first?.uploaded, false)
+        await outbox.retryPendingUploads(automatic: true)
+        XCTAssertEqual(backend.sent, ["a"], "the next pass sends it itself")
+    }
 }
 
 /// A flag a `@Sendable` test hook can set.
 private final class Flag: @unchecked Sendable {
     var value = false
+}
+
+/// Holds a fake upload until the test lets it land.
+private final class Gate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            let go = lock.withLock {
+                if !isOpen { waiters.append(continuation) }
+                return isOpen
+            }
+            if go { continuation.resume() }
+        }
+    }
+
+    func open() {
+        let waiting = lock.withLock {
+            isOpen = true
+            defer { waiters = [] }
+            return waiters
+        }
+        waiting.forEach { $0.resume() }
+    }
 }

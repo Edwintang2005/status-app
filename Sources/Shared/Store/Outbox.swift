@@ -16,6 +16,8 @@ final class Outbox {
     @ObservationIgnored private let statusLog: StatusHistoryLog
     @ObservationIgnored private let backend: () -> any SyncBackend
     @ObservationIgnored private let hasMedia: (Moment) -> Bool
+    /// Bytes a moment's upload carries, for the retry order: `MomentStore.uploadSize` in the app.
+    @ObservationIgnored private let uploadSize: (Moment) -> Int
     /// Wraps each upload: the app's UIKit background task, a pass-through in tests.
     @ObservationIgnored private let protect: @MainActor (String, @MainActor () async throws -> Void) async throws -> Void
     /// Runs after the index lost an entry: `SharedStore.refreshDerived` in the app.
@@ -24,13 +26,21 @@ final class Outbox {
     @ObservationIgnored private let deleteMedia: (String) -> Void
     /// A moment reached iCloud, first time or on a retry: Home's "Sent to …".
     @ObservationIgnored var uploaded: (Moment) -> Void
+    /// An upload landed with nothing else running and no pass under way: a
+    /// pass stands aside while one runs, so `AppModel` sends the rest now.
+    @ObservationIgnored var linkFreed: () -> Void = {}
     @ObservationIgnored private let log = Logger(subsystem: AppConfig.appGroupID, category: "Outbox")
 
     /// Observed: the home footer shows "Sending…" while it runs.
     private(set) var isRetryingUploads = false
-    /// Moments being uploaded right now, by id. Observed: they aren't "waiting
-    /// to send", and a retry pass must not send them a second time.
+    /// Moments being uploaded right now, by id — until the upload itself ends,
+    /// not when its caller stops waiting. Observed: they aren't "waiting to
+    /// send", and a retry pass must not send them a second time.
     private(set) var uploadsInFlight: Set<String> = []
+    /// Background uploads from before a relaunch: adopted once, ahead of the
+    /// first retry pass or clear, every caller awaiting the same look.
+    @ObservationIgnored private var adoptedBackgroundUploads = false
+    @ObservationIgnored private var adoption: Task<Void, Never>?
     /// When a send last failed on a full iCloud (`SendFailure.storageFull`). In
     /// memory: after a relaunch one retry finds out again.
     private(set) var storageFullAt: Date?
@@ -58,6 +68,7 @@ final class Outbox {
          statusLog: StatusHistoryLog,
          backend: @escaping () -> any SyncBackend,
          hasMedia: @escaping (Moment) -> Bool,
+         uploadSize: @escaping (Moment) -> Int = { _ in 0 },
          deleteMedia: @escaping (String) -> Void,
          protect: @escaping @MainActor (String, @MainActor () async throws -> Void) async throws -> Void,
          indexChanged: @escaping () -> Void,
@@ -67,6 +78,7 @@ final class Outbox {
         self.statusLog = statusLog
         self.backend = backend
         self.hasMedia = hasMedia
+        self.uploadSize = uploadSize
         self.deleteMedia = deleteMedia
         self.protect = protect
         self.indexChanged = indexChanged
@@ -229,38 +241,141 @@ final class Outbox {
     /// pass leaves it alone (`uploadsInFlight`). Throws without noting the
     /// failure: the caller words it (`AppModel.presentSendFailure`) or the retry
     /// pass notes it. A moment already in flight returns at once.
-    func upload(_ moment: Moment, taskName: String = "moment-upload") async throws {
+    ///
+    /// The caller waits at most `wait`; the upload runs on while it moves,
+    /// stays in flight until it ends, confirms itself if it lands, and notes
+    /// its own failure if nobody is waiting for it any more.
+    func upload(_ moment: Moment, taskName: String = "moment-upload",
+                waitAtMost wait: TimeInterval = AppConfig.uploadDeadline) async throws {
         guard uploadsInFlight.insert(moment.id).inserted else { return }
-        defer { uploadsInFlight.remove(moment.id) }
         let backend = backend()
-        // Bookkeeping inside `protect`: ending the assertion lets iOS
-        // suspend, and a file lock taken after it is a 0xdead10cc kill.
-        try await protect(taskName) { [index] in
-            try await withDeadline(AppConfig.uploadDeadline) { try await backend.send(moment) }
-            _ = index.markUploaded(ids: [moment.id])
+        let pairing = store.pairing
+        let caller = CallerWaiting()
+        let work = Task { @MainActor in
+            do {
+                let landed = try await land(moment.id, pairing: pairing, taskName: taskName) {
+                    try await withStallWatch { progress in try await backend.send(moment, progress: progress) }
+                }
+                uploadsInFlight.remove(moment.id)
+                if landed != nil { confirm(moment) }
+            } catch {
+                uploadsInFlight.remove(moment.id)
+                if caller.isWaiting { caller.failure = error } else { noteSendFailed(error) }
+                throw error
+            }
         }
+        do {
+            try await withDeadline(wait) { try await work.value }
+        } catch {
+            caller.isWaiting = false
+            // The upload failed just as the wait ran out: its reason, not the timeout's.
+            if error is CancellationError, let failure = caller.failure { throw failure }
+            throw error
+        }
+    }
+
+    /// Runs `transfer`, then marks the moment uploaded and says whether it was
+    /// still pending (a refresh may have filed it first) — or `nil` when the
+    /// pairing moved meanwhile: a landing in the old zone isn't a send to this one.
+    /// Bookkeeping inside `protect`: ending the assertion lets iOS suspend,
+    /// and a file lock taken after it is a 0xdead10cc kill.
+    private func land(_ id: String, pairing: PairingInfo?, taskName: String,
+                      _ transfer: @escaping @MainActor () async throws -> Void) async throws -> Bool? {
+        var wasPending: Bool?
+        try await protect(taskName) { [index, store] in
+            try await transfer()
+            guard let pairing, store.pairing?.sameZone(as: pairing) == true else { return }
+            wasPending = index.load().contains { $0.id == id && !$0.uploaded }
+            index.markUploaded(ids: [id])
+        }
+        return wasPending
+    }
+
+    private func confirm(_ moment: Moment) {
         noteSendSucceeded()
         uploaded(moment)
+        freeLinkIfIdle()
+    }
+
+    /// After a landing, never a failure: re-sending a failed upload at once would loop.
+    private func freeLinkIfIdle() {
+        if uploadsInFlight.isEmpty, !isRetryingUploads { linkFreed() }
+    }
+
+    /// Adopts uploads iCloud carried on with while the app was closed, so a
+    /// retry pass doesn't send them again and a clear waits for them. A look
+    /// that failed is tried again by the next caller.
+    func adoptBackgroundUploads() async {
+        guard !adoptedBackgroundUploads else { return }
+        if let adoption { return await adoption.value }
+        let look = Task { @MainActor in await lookForBackgroundUploads() }
+        adoption = look
+        await look.value
+        adoption = nil
+    }
+
+    private func lookForBackgroundUploads() async {
+        guard let pairing = store.pairing, let uploads = await backend().resumeUploads() else { return }
+        guard store.pairing?.sameZone(as: pairing) == true else {
+            // Unlinked during the look: these belong to the old zone.
+            uploads.forEach { $0.handle.cancel() }
+            return
+        }
+        adoptedBackgroundUploads = true
+        for upload in uploads {
+            let id = upload.momentID
+            guard uploadsInFlight.insert(id).inserted else {
+                // Already being sent again here: iCloud's copy would only double it.
+                upload.handle.cancel()
+                continue
+            }
+            Task { @MainActor in
+                do {
+                    let landed = try await land(id, pairing: pairing, taskName: "moment-resume") {
+                        try await withStallWatch { progress in
+                            upload.handle.observe(progress)
+                            try await upload.handle.value()
+                        }
+                    }
+                    uploadsInFlight.remove(id)
+                    // Only a first landing says "Sent"; any landing frees the link.
+                    if landed == true, let moment = index.load().first(where: { $0.id == id }) {
+                        confirm(moment)
+                    } else if landed != nil {
+                        freeLinkIfIdle()
+                    }
+                } catch {
+                    uploadsInFlight.remove(id)
+                    noteSendFailed(error)
+                    log.error("Background upload of \(id, privacy: .public) didn't finish: \(error.localizedDescription, privacy: .public)")
+                }
+            }
+        }
     }
 
     /// Re-sends own moments whose upload never completed; quiet on failure (the
     /// footer says so). Safe to re-run — `send` overwrites a deterministic
     /// record name. `automatic` passes are held off for a while after a full
-    /// iCloud or a throttle.
+    /// iCloud or a throttle. Smallest first, one at a time: a pass stops while
+    /// any other upload is running, rather than splitting a weak link.
     @discardableResult
     func retryPendingUploads(automatic: Bool, now: Date = Date()) async -> Bool {
         // Not while clearing: a send the clear is deleting would come straight back.
         guard store.pairing != nil, !isRetryingUploads, !isClearingHistory else { return false }
         if automatic, !automaticRetryAllowed(now: now) { return false }
+        await adoptBackgroundUploads()
+        guard !isRetryingUploads, !isClearingHistory else { return false }
         var changed = !index.salvagePendingUploads(hasMedia: hasMedia).isEmpty
-        let pending = index.load().filter { $0.fromMe && !$0.uploaded && !uploadsInFlight.contains($0.id) }
+        let pending = UploadOrder.smallestFirst(
+            index.load().filter { $0.fromMe && !$0.uploaded && !uploadsInFlight.contains($0.id) },
+            size: uploadSize)
         guard !pending.isEmpty else { return changed }
         isRetryingUploads = true
         defer { isRetryingUploads = false }
 
         for moment in pending {
-            // A send that started since this list was read is its own.
-            guard !uploadsInFlight.contains(moment.id) else { continue }
+            // Another upload owns the link (or this one) until it ends.
+            guard uploadsInFlight.isEmpty else { return changed }
             // Pruned/wiped media can never be delivered; drop the ghost entry
             // rather than retrying forever or falsely marking it uploaded.
             guard hasMedia(moment) else {
@@ -348,10 +463,15 @@ final class Outbox {
     /// failed pass leaves nothing half-cleared here and simply runs again.
     /// Never on a locked phone: without the keys the commit can't be re-read.
     private func clearHistory(before epoch: Date) async -> Bool {
-        guard let pairing = store.pairing, SharedStore.protectedDataAvailable,
-              !isRetryingUploads, !isClearingHistory else { return false }
+        guard !isClearingHistory else { return false }
+        // Claimed before the look below, so a retry pass can't slip in during it.
         isClearingHistory = true
         defer { isClearingHistory = false }
+        // No upload running either, last launch's included: one could land mid-clear.
+        // Standing aside here, the clear runs again once the link frees (`linkFreed`).
+        await adoptBackgroundUploads()
+        guard let pairing = store.pairing, SharedStore.protectedDataAvailable,
+              !isRetryingUploads, uploadsInFlight.isEmpty else { return false }
         let keep = store.snapshot.mine?.wordsAt
         let backend = backend()
         var cleared = false
@@ -511,4 +631,13 @@ extension SharedStore {
         mutate(reloadWidgets: false) { claimed = $0.claimReceiptsDirty() }
         return claimed
     }
+}
+
+/// Whether `Outbox.upload`'s caller is still waiting: once it isn't, the
+/// upload words its own failure.
+@MainActor
+private final class CallerWaiting {
+    var isWaiting = true
+    /// What the upload failed with while still awaited.
+    var failure: Error?
 }

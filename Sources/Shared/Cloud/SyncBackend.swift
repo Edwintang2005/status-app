@@ -52,7 +52,12 @@ protocol SyncBackend: Sendable {
     /// `false` when the cooldown blocked it.
     @discardableResult func sendNudge() async throws -> Bool
     /// Media files are already on disk in the App Group under `moment.id`.
-    func send(_ moment: Moment) async throws
+    /// `progress` reports the upload's fraction; cancelling the task cancels it.
+    func send(_ moment: Moment, progress: @escaping @Sendable (Double) -> Void) async throws
+    /// Uploads iCloud kept running after the app last closed, re-attached so
+    /// they confirm here instead of being sent a second time; `nil` when the
+    /// look itself failed.
+    func resumeUploads() async -> [ResumedUpload]?
     /// Pulls the media files for a history entry whose photo or recording
     /// isn't cached locally any more. No-op for backends that never evict.
     func fetchMedia(for moment: Moment) async throws
@@ -114,6 +119,111 @@ extension SyncBackend {
     func publish(_ payload: StatusPayload) async throws {
         try await publish(payload, logged: true)
     }
+
+    func send(_ moment: Moment) async throws {
+        try await send(moment, progress: { _ in })
+    }
+}
+
+/// One upload already running when the app came back to it.
+struct ResumedUpload: Sendable {
+    let momentID: String
+    let handle: UploadHandle
+}
+
+/// An upload's progress and outcome, from CloudKit's callbacks to whoever
+/// awaits it — before or after it lands.
+final class UploadHandle: @unchecked Sendable {
+    private let lock = NSLock()
+    private let cancelOperation: @Sendable () -> Void
+    private var result: Result<Void, Error>?
+    private var waiters: [CheckedContinuation<Void, Error>] = []
+    private var onProgress: (@Sendable (Double) -> Void)?
+
+    init(cancel: @escaping @Sendable () -> Void) {
+        cancelOperation = cancel
+    }
+
+    func observe(_ progress: @escaping @Sendable (Double) -> Void) {
+        lock.withLock { onProgress = progress }
+    }
+
+    func progressed(_ fraction: Double) {
+        lock.withLock { onProgress }?(fraction)
+    }
+
+    /// The first outcome wins.
+    func settle(_ outcome: Result<Void, Error>) {
+        let waiting: [CheckedContinuation<Void, Error>] = lock.withLock {
+            guard result == nil else { return [] }
+            result = outcome
+            defer { waiters = [] }
+            return waiters
+        }
+        waiting.forEach { $0.resume(with: outcome) }
+    }
+
+    func cancel() { cancelOperation() }
+
+    /// Cancelling the waiting task cancels the upload.
+    func value() async throws {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let settled: Result<Void, Error>? = lock.withLock {
+                    if result == nil { waiters.append(continuation) }
+                    return result
+                }
+                if let settled { continuation.resume(with: settled) }
+            }
+        } onCancel: {
+            cancel()
+        }
+    }
+}
+
+/// The upload stopped moving for `AppConfig.uploadStallTimeout` (`UploadWatch`).
+struct UploadStalled: Error {}
+
+/// Runs an upload until it lands or stops moving. On a stall the upload is
+/// cancelled — CloudKit operations honour that, unlike the async API — and
+/// the caller resumes at once rather than waiting on the cancellation.
+func withStallWatch(interval: TimeInterval = AppConfig.uploadTickInterval,
+                    timeout: TimeInterval = AppConfig.uploadStallTimeout,
+                    _ body: @escaping @Sendable (_ progress: @escaping @Sendable (Double) -> Void) async throws -> Void) async throws {
+    let watch = LockedWatch(UploadWatch(startedAt: Date()))
+    let settled = DeadlineSettled()
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        let work = Task {
+            let result: Result<Void, Error>
+            do {
+                try await body { fraction in watch.update { $0.progressed(to: fraction, at: Date()) } }
+                result = .success(())
+            } catch {
+                result = .failure(error)
+            }
+            if settled.claim() { continuation.resume(with: result) }
+        }
+        Task {
+            while !settled.isDone {
+                try? await Task.sleep(for: .seconds(interval))
+                guard watch.update({ $0.tick(at: Date(), interval: interval, timeout: timeout) }) == .stalled,
+                      settled.claim() else { continue }
+                work.cancel()
+                continuation.resume(throwing: UploadStalled())
+            }
+        }
+    }
+}
+
+private final class LockedWatch: @unchecked Sendable {
+    private let lock = NSLock()
+    private var watch: UploadWatch
+
+    init(_ watch: UploadWatch) { self.watch = watch }
+
+    func update<T>(_ change: (inout UploadWatch) -> T) -> T {
+        lock.withLock { change(&watch) }
+    }
 }
 
 /// Runs `body` or gives up after `seconds`. For the widget and its intent:
@@ -153,6 +263,8 @@ private final class DeadlineSettled: @unchecked Sendable {
         done = true
         return true
     }
+
+    var isDone: Bool { lock.withLock { done } }
 }
 
 /// The backend the app talks to.
@@ -198,7 +310,8 @@ struct DemoBackend: SyncBackend {
         }
         return claimed
     }
-    func send(_ moment: Moment) async throws {}
+    func send(_ moment: Moment, progress: @escaping @Sendable (Double) -> Void) async throws {}
+    func resumeUploads() async -> [ResumedUpload]? { [] }
     func fetchMedia(for moment: Moment) async throws {}
     func fetchThumbnails(for moments: [Moment]) async throws {}
     func archiveZone() async throws -> ArchiveContents.Zone {

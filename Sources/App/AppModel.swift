@@ -35,6 +35,8 @@ final class AppModel {
     var backend: any SyncBackend { backendProvider() }
     /// The home footer shows "Sending…" while it runs.
     var isRetryingUploads: Bool { outbox.isRetryingUploads }
+    /// Any moment upload running, including one still going after its caller stopped waiting.
+    var isUploading: Bool { !outbox.uploadsInFlight.isEmpty }
     /// When a send last failed on a full iCloud (`SendFailure.storageFull`).
     var storageFullAt: Date? { outbox.storageFullAt }
 
@@ -213,6 +215,7 @@ final class AppModel {
                              statusLog: .shared,
                              backend: backendProvider,
                              hasMedia: { MomentStore.shared.hasMedia(for: $0) },
+                             uploadSize: { MomentStore.shared.uploadSize(for: $0) },
                              deleteMedia: { MomentStore.shared.delete(id: $0) },
                              protect: { name, body in try await AppModel.withUploadProtection(name, body) },
                              indexChanged: { store.refreshDerived() })
@@ -242,6 +245,8 @@ final class AppModel {
         self.milestoneRemindersEnabled = store.milestoneRemindersEnabled
         // A retried send confirms like a first one.
         outbox.uploaded = { [weak self] _ in self?.noteUploaded() }
+        // Includes a clear that stood aside for the upload.
+        outbox.linkFreed = { [weak self] in Task { await self?.sendQueued(automatic: true) } }
         refreshRecentStatusesIfNeeded()
     }
 
@@ -801,8 +806,9 @@ final class AppModel {
         isSendingNow = true
         defer { isSendingNow = false }
         await sendQueued(automatic: false)
-        // A full iCloud already names itself in the footer.
-        if pendingSendCount > 0, storageFullAt == nil {
+        // A full iCloud already names itself in the footer; an upload still
+        // running ("Sending…") isn't "not sent".
+        if pendingSendCount > 0, storageFullAt == nil, !isUploading {
             errorTitle = String(localized: "Not sent yet")
             errorMessage = String(localized: "Couldn't reach iCloud just now. Everything is saved on this iPhone and will send on the next sync.")
         }

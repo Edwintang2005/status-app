@@ -292,7 +292,12 @@ only when the partner gets it. Each send type recovers its own way:
   `Outbox.retryPendingUploads(automatic:)` — the grid badges them with a clock, and the sync
   footer counts them, with any unpublished status, date or date request
   ("1 waiting to send · tap to retry"), until they're out; tapping the footer
-  runs the same retries at once instead of waiting for the next refresh. A
+  runs the same retries at once instead of waiting for the next refresh. On
+  weak signal an upload is given up only when its bytes stop moving
+  (`UploadWatch`), not after a fixed time; it keeps going in iCloud's
+  background daemon if the app closes, and is adopted again on relaunch
+  rather than sent twice. Retries go smallest first and one at a time, the
+  queue moving on as soon as a long upload lands. A
   retry pass that hits no connection stops there rather than trying each
   send in turn. Pending media is exempt from the cache prune, and a pending
   entry whose media is genuinely gone is dropped (with a log) rather than

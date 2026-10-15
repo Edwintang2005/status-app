@@ -148,7 +148,7 @@ struct HomeView: View {
                        lastSyncedAt: model.snapshot.lastSyncedAt,
                        isRefreshing: model.isRefreshing,
                        needsICloudAttention: model.readinessMessage != nil,
-                       isSending: model.isRetryingUploads || model.isSendingNow,
+                       isSending: model.isRetryingUploads || model.isSendingNow || model.isUploading,
                        pendingCount: pendingCount,
                        onlyStatusPending: model.myStatusWaitingToSend,
                        storageFull: model.storageFullAt != nil,

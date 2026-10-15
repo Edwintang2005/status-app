@@ -686,6 +686,11 @@ extension CloudSync {
         do {
             return try await body()
         } catch let error as CKError where Self.isAlreadyGone(error) {
+            // Unlinked or re-paired since the call began (an upload can outlive
+            // its caller): the old zone being gone says nothing of the current one.
+            guard await MainActor.run(body: { SharedStore.shared.pairing?.sameZone(as: pairing) }) == true else {
+                throw error
+            }
             throw try await zoneGoneVerdict(pairing)
         }
     }

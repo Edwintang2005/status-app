@@ -241,6 +241,14 @@ struct MomentStore {
         moment.isVoice ? hasAudio(for: moment.id) : hasImage(for: moment.id)
     }
 
+    /// Bytes an upload of `moment` carries: the recording, or photo and thumbnail.
+    func uploadSize(for moment: Moment) -> Int {
+        let urls = moment.isVoice ? [audioURL(for: moment.id)] : [imageURL(for: moment.id), thumbURL(for: moment.id)]
+        return urls.compactMap { $0 }.reduce(0) { total, url in
+            total + ((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        }
+    }
+
     /// The playable/loadable file, or `nil` when it isn't cached here.
     func mediaURL(for moment: Moment) -> URL? {
         guard let url = moment.isVoice ? audioURL(for: moment.id) : imageURL(for: moment.id),

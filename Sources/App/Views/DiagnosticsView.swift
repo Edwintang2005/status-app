@@ -236,6 +236,8 @@ struct DiagnosticsView: View {
         let stillPending = model.pendingUploadCount
         if found == 0 {
             resyncResult = String(localized: "Everything this phone sent is in iCloud.")
+        } else if stillPending == 0, model.isUploading {
+            resyncResult = String(localized: "\(found) moment(s) were missing from iCloud and are being sent now.")
         } else if stillPending == 0 {
             resyncResult = String(localized: "\(found) moment(s) were missing from iCloud and have now been sent.")
         } else {

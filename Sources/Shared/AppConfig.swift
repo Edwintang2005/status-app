@@ -119,13 +119,18 @@ enum AppConfig {
     /// kills the process past its budget, and a kill mid-write leaves claims unreleased.
     static let widgetDeadline: TimeInterval = 8
 
-    /// Ceilings on the app's uploads and refreshes. CloudKit's own resource
+    /// Ceilings on waiting for an upload and on refreshes. CloudKit's own resource
     /// timeout is seven days, so on bad signal an operation can sit for hours —
     /// and while it does, the re-entrancy guards block every retry behind it.
-    /// A timed-out send stays pending and is retried; a timed-out refresh is
-    /// abandoned and finishes or fails on its own (its apply-before-token order
-    /// makes that safe).
+    /// Past `uploadDeadline` the caller stops waiting but the upload runs on,
+    /// still in flight, while it moves (`uploadStallTimeout`); a timed-out
+    /// refresh is abandoned and finishes or fails on its own (its
+    /// apply-before-token order makes that safe).
     static let uploadDeadline: TimeInterval = 180
+    /// An upload whose bytes haven't moved for this long is cancelled and left
+    /// pending (`UploadWatch`), checked every `uploadTickInterval`.
+    static let uploadStallTimeout: TimeInterval = 90
+    static let uploadTickInterval: TimeInterval = 5
     static let refreshDeadline: TimeInterval = 120
     /// Status, receipt, anniversary and subscription writes: small records, so
     /// anything slower is a stall. Abandoning one is safe — the published flags

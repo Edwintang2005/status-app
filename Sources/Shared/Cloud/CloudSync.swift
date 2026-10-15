@@ -132,6 +132,9 @@ actor CloudSync: SyncBackend {
     var accountCheckPending = false
     static let accountCacheLifetime: TimeInterval = 5 * 60
     let log = Logger(subsystem: AppConfig.appGroupID, category: "CloudSync")
+    /// Uploads this process started: `resumeUploads` lists every long-lived
+    /// operation, running ones included, and must leave these to their sender.
+    var startedUploads: Set<CKOperation.ID> = []
 
     enum RecordType {
         static let status = "Status"
