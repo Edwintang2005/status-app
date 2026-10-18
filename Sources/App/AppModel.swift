@@ -230,6 +230,9 @@ final class AppModel {
             return Set(moments.lazy.map(\.id).filter { MomentStore.shared.hasThumbnail(for: $0) })
         }
         self.snapshot = store.snapshot
+        // Now, not after the first fetch: offline that can take minutes, and an
+        // empty history greys out the library and hides the moment card.
+        self.history = Self.shownHistory(MomentIndex.shared.load())
         self.isPaired = store.pairing != nil
         self.role = store.pairing?.role
         self.inviteClosed = store.inviteClosed

@@ -33,6 +33,9 @@ struct RedStringApp: App {
                         // incoming call and every app switch, and swept banners the
                         // user had not read.
                         NotificationManager.clearDelivered()
+                        // What's on this phone first: the fetch may be minutes offline, and a
+                        // read made while suspended (or before first unlock) can be stale.
+                        model.reload()
                         Task { await model.refresh() }
                     case .background:
                         // Receipts wait out a short debounce; leaving sends them now.
