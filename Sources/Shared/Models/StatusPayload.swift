@@ -252,6 +252,10 @@ struct Snapshot: Codable, Hashable {
     /// When a nudge last failed, so the lock-screen heart can show it (the widget
     /// intent can't show an alert). Cleared on the next claim or success.
     var lastNudgeFailedAt: Date?
+    /// When this device's last nudge was handed to iCloud: from there it lands
+    /// on its own, so a deadline after it isn't a failure, and the heart shows
+    /// ✓ for `nudgeSentNotice` from then rather than from the tap.
+    var lastNudgeIssuedAt: Date?
 
     /// Whether `mine` has reached CloudKit; stays `false` offline and is
     /// republished on the next refresh — the status twin of `Moment.uploaded`.
@@ -353,7 +357,7 @@ struct Snapshot: Codable, Hashable {
         case lastNudgeSentAt, latestPartnerMoment, latestOwnMoment
         case lastNotifiedMomentID, latestPartnerVisualMoment, unheardVoiceMemoCount
         case lastCelebratedAt, notifiedMomentIDs
-        case lastNudgeFailedAt, myStatusPublished
+        case lastNudgeFailedAt, lastNudgeIssuedAt, myStatusPublished
         case lastAnnouncedPartnerStatusAt
         case receiptsDirty
         case partnerStatusSeen, myStatusSeenByPartner
@@ -398,6 +402,7 @@ struct Snapshot: Codable, Hashable {
         lastCelebratedAt = value(Date.self, .lastCelebratedAt)
         notifiedMomentIDs = value([String].self, .notifiedMomentIDs) ?? []
         lastNudgeFailedAt = value(Date.self, .lastNudgeFailedAt)
+        lastNudgeIssuedAt = value(Date.self, .lastNudgeIssuedAt)
         // Assume published for pre-field snapshots to avoid re-pushing an old status.
         myStatusPublished = value(Bool.self, .myStatusPublished) ?? true
         lastAnnouncedPartnerStatusAt = value(Date.self, .lastAnnouncedPartnerStatusAt)
@@ -448,6 +453,7 @@ struct Snapshot: Codable, Hashable {
         try container.encodeIfPresent(lastCelebratedAt, forKey: .lastCelebratedAt)
         try container.encode(notifiedMomentIDs, forKey: .notifiedMomentIDs)
         try container.encodeIfPresent(lastNudgeFailedAt, forKey: .lastNudgeFailedAt)
+        try container.encodeIfPresent(lastNudgeIssuedAt, forKey: .lastNudgeIssuedAt)
         try container.encode(myStatusPublished, forKey: .myStatusPublished)
         try container.encodeIfPresent(lastAnnouncedPartnerStatusAt,
                                       forKey: .lastAnnouncedPartnerStatusAt)

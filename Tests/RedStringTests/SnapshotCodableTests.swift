@@ -177,6 +177,7 @@ final class SnapshotCodableTests: XCTestCase {
         snapshot.lastSeenPartnerNudgeCount = 6
         snapshot.lastNudgeSentAt = Fixtures.date(2)
         snapshot.lastNudgeFailedAt = Fixtures.date(3)
+        snapshot.lastNudgeIssuedAt = Fixtures.date(2)
         snapshot.myStatusPublished = false
         snapshot.myStatusLoggedAt = Fixtures.date(4)
         snapshot.lastBreakthroughNudgeAt = Fixtures.date(5)

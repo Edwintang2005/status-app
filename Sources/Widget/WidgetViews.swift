@@ -215,9 +215,12 @@ struct NudgeWidgetView: View {
 
     /// Measured from `entry.date`, not `Date()`: WidgetKit renders every entry
     /// at delivery, so a wall-clock read would draw the expiry entry as a checkmark too.
+    /// From the tap, or from its hand-off to iCloud: a slow send redraws only once it's out.
     private var recentlySent: Bool {
-        guard let last = entry.content.lastNudgeSentAt else { return false }
-        return entry.date.timeIntervalSince(last) < AppConfig.nudgeCooldown
+        if let last = entry.content.lastNudgeSentAt,
+           entry.date.timeIntervalSince(last) < AppConfig.nudgeCooldown { return true }
+        guard let issued = entry.content.lastNudgeIssuedAt else { return false }
+        return entry.date.timeIntervalSince(issued) < AppConfig.nudgeSentNotice
     }
 
     /// The last tap never made it out; the intent can't alert, so the heart

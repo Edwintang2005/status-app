@@ -222,6 +222,42 @@ final class PushBannerPolicyTests: XCTestCase {
                        String(localized: "You sent a nudge from another device."))
     }
 
+    /// The widget's own refresh took our save before its push came: an empty
+    /// delta, but the latest heart in the space is ours.
+    func testAnEmptyDeltaAfterOurTapIsStillOurs() {
+        var snapshot = paired(theirs: Fixtures.status(nudges: 1))
+        snapshot.theirs?.lastNudgeAt = Fixtures.date(500)
+        snapshot.mine = Fixtures.status(nudges: 4)
+        snapshot.mine?.lastNudgeAt = Fixtures.date(900)
+        snapshot.lastSeenPartnerNudgeCount = 1
+        snapshot.lastNudgeSentAt = Fixtures.date(900)
+        let plan = decide(.nudge, RefreshResult(partnerStatus: snapshot.theirs, newPartnerMoments: []), in: &snapshot)
+        XCTAssertEqual(plan.body, String(localized: "Your nudge was sent to Sam."))
+        XCTAssertEqual(plan.volume, .quiet)
+    }
+
+    /// Their heart, already announced elsewhere, is still worded as theirs.
+    func testAnEmptyDeltaAfterTheirHeartStaysTheirs() {
+        var snapshot = paired(theirs: Fixtures.status(nudges: 2))
+        snapshot.theirs?.lastNudgeAt = Fixtures.date(950)
+        snapshot.mine = Fixtures.status(nudges: 4)
+        snapshot.mine?.lastNudgeAt = Fixtures.date(900)
+        snapshot.lastSeenPartnerNudgeCount = 2
+        let plan = decide(.nudge, RefreshResult(partnerStatus: snapshot.theirs, newPartnerMoments: []), in: &snapshot)
+        XCTAssertEqual(plan.title, "Sam")
+        XCTAssertEqual(plan.volume, .quiet)
+    }
+
+    /// A burst of slow taps lands together: an earlier one is still this phone's.
+    func testAnEarlierTapOfABurstIsStillThisPhones() {
+        var snapshot = paired(theirs: Fixtures.status(nudges: 1))
+        snapshot.lastSeenPartnerNudgeCount = 1
+        snapshot.lastNudgeSentAt = Fixtures.date(960)
+        var result = RefreshResult(partnerStatus: Fixtures.status(nudges: 1), newPartnerMoments: [])
+        result.ownNudgeSentAt = Fixtures.date(900)
+        XCTAssertEqual(decide(.nudge, result, in: &snapshot).body, String(localized: "Your nudge was sent to Sam."))
+    }
+
     /// Both hearts in one delta: theirs is still announced as theirs.
     func testTheirHeartBesideOursIsStillTheirs() {
         var snapshot = paired(theirs: Fixtures.status(nudges: 1))

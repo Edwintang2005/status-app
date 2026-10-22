@@ -117,11 +117,12 @@ enum PushBannerPolicy {
                 let interruption = AnnouncementPolicy.nudgeInterruption(sentAt: sentAt, in: &snapshot, now: now)
                 return heart(name: name, interruption: interruption)
             }
-            // Only our record moved: our tap, never their heart. This phone's own
-            // (the lock-screen heart pushes back to its sender) matches the cooldown
-            // it claimed before saving, even before its count reaches the snapshot.
-            if let sentAt = result.ownNudgeSentAt, !result.partnerNudgeArrived {
-                return sentAt.wholeSeconds == snapshot.lastNudgeSentAt?.wholeSeconds
+            // Our tap, never their heart: only our record moved, or nothing new
+            // was read (the widget's own refresh took our save before its push
+            // came) and the latest heart in the space is ours.
+            if !result.partnerNudgeArrived,
+               let sentAt = result.ownNudgeSentAt ?? (couldNotRead ? nil : ourLatestHeart(in: snapshot)) {
+                return isThisPhones(sentAt, snapshot)
                     ? own(String(localized: "Your nudge was sent to \(name)."))
                     : own(String(localized: "You sent a nudge from another device."))
             }
@@ -227,6 +228,20 @@ enum PushBannerPolicy {
 
     private static func held(_ body: String, category: String, name: String) -> Plan {
         Plan(title: name, body: body, heldCategory: category)
+    }
+
+    private static func ourLatestHeart(in snapshot: Snapshot) -> Date? {
+        guard let ours = snapshot.mine?.lastNudgeAt else { return nil }
+        if let theirs = snapshot.theirs?.lastNudgeAt, theirs >= ours { return nil }
+        return ours
+    }
+
+    /// At or up to `nudgeEchoWindow` before this phone's latest tap: the push of
+    /// one of a burst of slow taps lands after the later taps moved the claim.
+    private static func isThisPhones(_ sentAt: Date, _ snapshot: Snapshot) -> Bool {
+        guard let latest = snapshot.lastNudgeSentAt ?? snapshot.lastNudgeIssuedAt else { return false }
+        let gap = latest.wholeSeconds.timeIntervalSince(sentAt.wholeSeconds)
+        return gap >= 0 && gap <= AppConfig.nudgeEchoWindow
     }
 
     private static func own(_ body: String) -> Plan {

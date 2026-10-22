@@ -13,6 +13,8 @@ enum NudgeCooldownPolicy {
         guard let claim = snapshot.lastNudgeSentAt, claim >= started,
               claim.timeIntervalSince(started) < AppConfig.nudgeCooldown,
               snapshot.mine?.lastNudgeAt != claim else { return false }
+        // Handed to iCloud already: it lands on its own, and a "didn't send" invites a second tap.
+        if let issued = snapshot.lastNudgeIssuedAt, issued >= claim { return false }
         snapshot.lastNudgeSentAt = nil
         snapshot.lastNudgeFailedAt = now
         return true

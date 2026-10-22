@@ -307,6 +307,7 @@ struct DemoBackend: SyncBackend {
             if let last = snapshot.lastNudgeSentAt, now.timeIntervalSince(last) < AppConfig.nudgeCooldown { return }
             snapshot.lastNudgeSentAt = now
             snapshot.lastNudgeFailedAt = nil
+            snapshot.lastNudgeIssuedAt = now
             var mine = snapshot.mine ?? .initial(displayName: "")
             mine.nudgeCount += 1
             mine.lastNudgeAt = now

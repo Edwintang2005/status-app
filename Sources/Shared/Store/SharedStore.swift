@@ -41,6 +41,7 @@ final class SharedStore: @unchecked Sendable {
         static let subscriptionsVerified = "subscriptionsVerifiedAt"
         static let widgetReloadRequestedAt = "widgetReloadRequestedAt"
         static let verifiedAccount = "verifiedAccount"
+        static let nudgeRecordCache = "nudgeRecordCache"
         static let subscriptionCleanup = "subscriptionCleanup"
         static let milestoneReminders = "milestoneRemindersEnabled"
         static let notificationsNoticeDismissed = "notificationsNoticeDismissed"
@@ -232,6 +233,19 @@ final class SharedStore: @unchecked Sendable {
         set { encodeOptional(newValue, forKey: Key.verifiedAccount) }
     }
 
+    /// Our nudge record's system fields and count as last saved or fetched, so
+    /// the lock-screen heart saves without a fetch first (`CloudSync.saveNudge`).
+    /// A stale copy only costs a conflict, which hands back the server's.
+    struct NudgeRecordCache: Codable, Equatable, Sendable {
+        var systemFields: Data
+        var count: Int
+    }
+
+    var nudgeRecordCache: NudgeRecordCache? {
+        get { decode(NudgeRecordCache.self, forKey: Key.nudgeRecordCache) }
+        set { encodeOptional(newValue, forKey: Key.nudgeRecordCache) }
+    }
+
     /// The old pairing's subscriptions may still be registered: an unlink that
     /// never reached iCloud (an offline block, a local-only reset) left them, and
     /// the ex's every write would keep pushing here. Retried while unpaired
@@ -277,6 +291,7 @@ final class SharedStore: @unchecked Sendable {
             anniversaryPromptPending = false
             zoneGoneSeenAt = nil
             subscriptionsVerifiedAt = nil
+            nudgeRecordCache = nil
             store.setData(nil, forKey: Key.unreadable)
             clearChangeTokens()
             var fresh = Snapshot.empty

@@ -24,6 +24,20 @@ final class NudgeCooldownPolicyTests: XCTestCase {
         }
     }
 
+    /// Handed to iCloud before the deadline: it lands on its own, so no
+    /// "didn't send" inviting a second tap.
+    func testASaveHandedToICloudIsNeverAFailure() {
+        var snapshot = snapshot(claim: started)
+        snapshot.lastNudgeIssuedAt = Fixtures.date(2)
+        XCTAssertFalse(NudgeCooldownPolicy.releaseAbandoned(startedAt: started, in: &snapshot, now: now))
+        XCTAssertEqual(snapshot.lastNudgeSentAt, started)
+        XCTAssertNil(snapshot.lastNudgeFailedAt)
+
+        snapshot.lastNudgeIssuedAt = started.addingTimeInterval(-60)
+        XCTAssertTrue(NudgeCooldownPolicy.releaseAbandoned(startedAt: started, in: &snapshot, now: now),
+                      "an earlier tap's hand-off says nothing of this one")
+    }
+
     func testASaveThatLandedKeepsTheCooldown() {
         var snapshot = snapshot(claim: started, landedAt: started)
         XCTAssertFalse(NudgeCooldownPolicy.releaseAbandoned(startedAt: started, in: &snapshot, now: now))

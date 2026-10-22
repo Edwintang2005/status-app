@@ -248,6 +248,8 @@ extension CloudSync {
         if parsed.foreignFreshStart {
             log.error("Our FreshStart record was written by another account; ignored.")
         }
+        // Another zone's copy is never used: `saveNudge` matches the record ID.
+        if let ownNudge = parsed.myNudge { await cacheNudgeRecord(ownNudge) }
 
         // Captured before the deletions and the insert below, so "new" can mean
         // "not already stored".

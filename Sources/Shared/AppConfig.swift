@@ -29,6 +29,11 @@ enum AppConfig {
     /// double-tap sending twice while the first write is still in flight, not
     /// to ration affection. Sending a few hearts in a row is the point.
     static let nudgeCooldown: TimeInterval = 3
+    /// How long the lock-screen heart shows ✓ once a slow send is handed to iCloud.
+    static let nudgeSentNotice: TimeInterval = 4
+    /// A tap of ours this far before this phone's latest counts as this phone's,
+    /// for wording its push (a burst of slow taps lands together).
+    static let nudgeEchoWindow: TimeInterval = 10 * 60
     /// How far a date may run ahead of the server's save time before it's
     /// capped, and how far ahead of this phone's clock a stored mark may sit
     /// before it counts as stale (`TrustedTime`). A day, not minutes: people set

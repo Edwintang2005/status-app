@@ -47,6 +47,14 @@ final class WidgetTimelineTests: XCTestCase {
         XCTAssertEqual(plan.entries, plan.entries.sorted(), "WidgetKit expects them in order")
     }
 
+    /// A slow send's ✓ runs from its hand-off, not the tap, and flips back on its own.
+    func testTheSentTickRunsFromTheHandOff() {
+        let issued = now.addingTimeInterval(-1)
+        let plan = TimelinePlan(lastNudgeSentAt: now.addingTimeInterval(-9), lastNudgeFailedAt: nil,
+                                lastNudgeIssuedAt: issued, heldSince: nil, incomplete: false, now: now)
+        XCTAssertEqual(plan.entries, [now, issued.addingTimeInterval(AppConfig.nudgeSentNotice)])
+    }
+
     func testExpiredNoticesAddNothing() {
         let long = now.addingTimeInterval(-24 * 60 * 60)
         let plan = TimelinePlan(lastNudgeSentAt: long, lastNudgeFailedAt: long, heldSince: nil,

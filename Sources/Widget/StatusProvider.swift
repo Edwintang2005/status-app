@@ -41,6 +41,7 @@ struct StatusProvider: TimelineProvider {
             // is still held even when this refresh failed outright.
             let plan = TimelinePlan(lastNudgeSentAt: snapshot.lastNudgeSentAt,
                                     lastNudgeFailedAt: snapshot.lastNudgeFailedAt,
+                                    lastNudgeIssuedAt: snapshot.lastNudgeIssuedAt,
                                     heldSince: SharedStore.shared.unreadableTally.heldSince,
                                     incomplete: result?.incomplete ?? false)
             let drawn = entry(at: Date(), from: snapshot, size: size)

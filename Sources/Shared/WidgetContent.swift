@@ -16,6 +16,7 @@ struct WidgetContent: Hashable {
     var unheardMemos: Int
     var lastNudgeSentAt: Date?
     var lastNudgeFailedAt: Date?
+    var lastNudgeIssuedAt: Date?
 
     init(snapshot: Snapshot, reportedAt: Date?, filterEnabled: Bool) {
         isPaired = snapshot.isPaired
@@ -35,6 +36,7 @@ struct WidgetContent: Hashable {
         unheardMemos = snapshot.unheardVoiceMemoCount
         lastNudgeSentAt = snapshot.lastNudgeSentAt
         lastNudgeFailedAt = snapshot.lastNudgeFailedAt
+        lastNudgeIssuedAt = snapshot.lastNudgeIssuedAt
     }
 
     /// The gallery's sample: our own fixed text, so no store read and no filter.
@@ -47,6 +49,7 @@ struct WidgetContent: Hashable {
         unheardMemos = snapshot.unheardVoiceMemoCount
         lastNudgeSentAt = snapshot.lastNudgeSentAt
         lastNudgeFailedAt = snapshot.lastNudgeFailedAt
+        lastNudgeIssuedAt = snapshot.lastNudgeIssuedAt
     }
 
     static let preview = WidgetContent(sample: .preview)

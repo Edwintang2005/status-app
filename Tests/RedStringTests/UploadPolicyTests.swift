@@ -166,6 +166,57 @@ final class UploadPolicyTests: XCTestCase {
         XCTAssertTrue(operation.configuration.isLongLived)
     }
 
+    // MARK: The nudge's save (invariants 16, 22)
+
+    private func nudgeOperation() -> (CKModifyRecordsOperation, CKRecord) {
+        let record = CKRecord(recordType: CloudSync.RecordType.nudge,
+                              recordID: CKRecord.ID(recordName: PairRole.owner.nudgeRecordName, zoneID: Fixtures.zone))
+        return (CloudSync.nudgeOperation(record), record)
+    }
+
+    private func nudgeResult(_ fire: (CKModifyRecordsOperation, CKRecord) -> Void) async -> Result<CKRecord, Error> {
+        let (operation, record) = nudgeOperation()
+        return await withCheckedContinuation { continuation in
+            CloudSync.attachNudge(operation, recordID: record.recordID) { continuation.resume(returning: $0) }
+            fire(operation, record)
+        }
+    }
+
+    func testANudgeIsChangeTagCheckedAndLongLived() {
+        let (operation, _) = nudgeOperation()
+        XCTAssertEqual(operation.savePolicy, .ifServerRecordUnchanged)
+        XCTAssertTrue(operation.configuration.isLongLived)
+        XCTAssertEqual(operation.configuration.qualityOfService, .userInitiated)
+    }
+
+    func testANudgeConflictCarriesTheServersCopy() async {
+        let result = await nudgeResult { operation, record in
+            operation.perRecordSaveBlock?(record.recordID, .failure(CKError(.serverRecordChanged)))
+            operation.modifyRecordsResultBlock?(.failure(CKError(.partialFailure)))
+        }
+        guard case .failure(let error) = result else { return XCTFail("expected the conflict") }
+        XCTAssertTrue(CloudSync.isServerRecordChanged(error), "the record's own error, not the wrapper")
+    }
+
+    func testANudgeIsConfirmedOnlyByItsOwnRecord() async {
+        let unconfirmed = await nudgeResult { operation, _ in operation.modifyRecordsResultBlock?(.success(())) }
+        guard case .failure(SyncError.saveUnconfirmed) = unconfirmed else { return XCTFail("got \(unconfirmed)") }
+        let saved = await nudgeResult { operation, record in
+            operation.perRecordSaveBlock?(record.recordID, .success(record))
+            operation.modifyRecordsResultBlock?(.success(()))
+        }
+        XCTAssertNotNil(try? saved.get())
+    }
+
+    /// The cached copy that spares the lock-screen heart its fetch.
+    func testTheNudgeCacheRoundTripsItsRecordID() {
+        let (_, record) = nudgeOperation()
+        let copy = CloudSync.record(fromSystemFields: CloudSync.systemFields(of: record))
+        XCTAssertEqual(copy?.recordID, record.recordID)
+        XCTAssertEqual(copy?.recordType, CloudSync.RecordType.nudge)
+        XCTAssertNil(CloudSync.record(fromSystemFields: Data("junk".utf8)))
+    }
+
     // MARK: Order
 
     func testRetriesGoSmallestFirstKeepingTiesInOrder() {

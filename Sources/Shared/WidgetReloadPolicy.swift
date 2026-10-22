@@ -54,12 +54,14 @@ struct TimelinePlan: Equatable, Sendable {
 
     init(lastNudgeSentAt: Date?,
          lastNudgeFailedAt: Date?,
+         lastNudgeIssuedAt: Date? = nil,
          heldSince: Date?,
          incomplete: Bool,
          now: Date = Date()) {
         var entries = [now]
         for expiry in [lastNudgeSentAt?.addingTimeInterval(AppConfig.nudgeCooldown),
-                       lastNudgeFailedAt?.addingTimeInterval(AppConfig.nudgeFailureNotice)] {
+                       lastNudgeFailedAt?.addingTimeInterval(AppConfig.nudgeFailureNotice),
+                       lastNudgeIssuedAt?.addingTimeInterval(AppConfig.nudgeSentNotice)] {
             if let expiry, expiry > now { entries.append(expiry) }
         }
         self.entries = entries.sorted()
