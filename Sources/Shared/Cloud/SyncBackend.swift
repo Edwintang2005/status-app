@@ -32,6 +32,11 @@ struct RefreshResult: Sendable {
     /// The partner's status record was deleted in this delta — how a
     /// participant unlinks. Never news to announce loudly.
     var partnerLeft = false
+    /// Our own nudge record's `sentAt`, when it's in this delta: a tap of ours,
+    /// from this phone (the lock-screen heart) or another device.
+    var ownNudgeSentAt: Date?
+    /// The partner's nudge record is in this delta.
+    var partnerNudgeArrived = false
 
     static let empty = RefreshResult(partnerStatus: nil, newPartnerMoments: [])
 }

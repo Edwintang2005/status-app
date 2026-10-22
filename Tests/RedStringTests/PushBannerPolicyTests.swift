@@ -195,6 +195,44 @@ final class PushBannerPolicyTests: XCTestCase {
         XCTAssertEqual(plan.volume, .quiet)
     }
 
+    /// The lock-screen heart's save pushes back to this phone: never their heart.
+    func testOurOwnLockScreenHeartIsNotTheirs() {
+        var snapshot = paired(theirs: Fixtures.status(nudges: 1))
+        snapshot.lastSeenPartnerNudgeCount = 1
+        snapshot.lastNudgeSentAt = Fixtures.date(900)
+        var result = RefreshResult(partnerStatus: Fixtures.status(nudges: 1), newPartnerMoments: [])
+        result.ownNudgeSentAt = Fixtures.date(900)
+        let plan = decide(.nudge, result, in: &snapshot)
+        XCTAssertEqual(plan.body, String(localized: "Your nudge was sent to Sam."))
+        XCTAssertEqual(plan.title, AppConfig.appName)
+        XCTAssertEqual(plan.volume, .quiet)
+
+        // The push beat the widget's write of the new count: still this phone's tap.
+        result.ownRecordsChanged = true
+        XCTAssertEqual(decide(.nudge, result, in: &snapshot).body, String(localized: "Your nudge was sent to Sam."))
+    }
+
+    func testOurOwnHeartFromAnotherDeviceSaysSo() {
+        var snapshot = paired(theirs: Fixtures.status(nudges: 1))
+        snapshot.lastSeenPartnerNudgeCount = 1
+        snapshot.lastNudgeSentAt = Fixtures.date(100)
+        var result = RefreshResult(partnerStatus: Fixtures.status(nudges: 1), newPartnerMoments: [])
+        result.ownNudgeSentAt = Fixtures.date(900)
+        XCTAssertEqual(decide(.nudge, result, in: &snapshot).body,
+                       String(localized: "You sent a nudge from another device."))
+    }
+
+    /// Both hearts in one delta: theirs is still announced as theirs.
+    func testTheirHeartBesideOursIsStillTheirs() {
+        var snapshot = paired(theirs: Fixtures.status(nudges: 1))
+        snapshot.lastSeenPartnerNudgeCount = 1
+        snapshot.lastNudgeSentAt = Fixtures.date(900)
+        var result = RefreshResult(partnerStatus: Fixtures.status(nudges: 2), newPartnerMoments: [])
+        result.ownNudgeSentAt = Fixtures.date(900)
+        result.partnerNudgeArrived = true
+        XCTAssertEqual(decide(.nudge, result, in: &snapshot).title, "Sam")
+    }
+
     // MARK: Statuses
 
     func testAStatusUpdateIsClaimedOnce() {

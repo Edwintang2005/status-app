@@ -236,6 +236,19 @@ final class ParsedDeltaTests: XCTestCase {
         XCTAssertFalse(outcome(parse([nudge(me, count: 2)]), previousMine: held).result.ownRecordsChanged)
     }
 
+    /// Which side's heart arrived reaches the banner, so our own tap is never worded as theirs.
+    func testTheResultSaysWhoseNudgeArrived() {
+        let ours = nudge(me, count: 3)
+        ours[CloudSync.Field.sentAt] = Fixtures.date(900) as CKRecordValue
+        let mine = outcome(parse([ours])).result
+        XCTAssertEqual(mine.ownNudgeSentAt, Fixtures.date(900))
+        XCTAssertFalse(mine.partnerNudgeArrived)
+
+        let theirs = outcome(parse([nudge(them, count: 1)])).result
+        XCTAssertNil(theirs.ownNudgeSentAt)
+        XCTAssertTrue(theirs.partnerNudgeArrived)
+    }
+
     // MARK: Status history (invariant 14)
 
     func testRenamesAndEchoesAreNotLoggedAsStatuses() {

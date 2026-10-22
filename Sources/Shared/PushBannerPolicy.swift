@@ -117,6 +117,14 @@ enum PushBannerPolicy {
                 let interruption = AnnouncementPolicy.nudgeInterruption(sentAt: sentAt, in: &snapshot, now: now)
                 return heart(name: name, interruption: interruption)
             }
+            // Only our record moved: our tap, never their heart. This phone's own
+            // (the lock-screen heart pushes back to its sender) matches the cooldown
+            // it claimed before saving, even before its count reaches the snapshot.
+            if let sentAt = result.ownNudgeSentAt, !result.partnerNudgeArrived {
+                return sentAt.wholeSeconds == snapshot.lastNudgeSentAt?.wholeSeconds
+                    ? own(String(localized: "Your nudge was sent to \(name)."))
+                    : own(String(localized: "You sent a nudge from another device."))
+            }
             if result.ownRecordsChanged {
                 return own(String(localized: "You sent a nudge from another device."))
             }

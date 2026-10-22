@@ -282,6 +282,8 @@ struct ParsedDelta {
         result.removedMoments = removedMomentIDs.count
         result.fullResync = fullResync
         result.partnerLeft = partnerErased
+        result.ownNudgeSentAt = myNudge?[CloudSync.Field.sentAt] as? Date
+        result.partnerNudgeArrived = theirNudge != nil
         return Outcome(fold: fold,
                        partnerStatusToLog: partnerToLog,
                        myStatusToLog: myToLog,
