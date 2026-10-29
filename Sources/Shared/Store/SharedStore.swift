@@ -47,6 +47,7 @@ final class SharedStore: @unchecked Sendable {
         static let lastPushID = "lastPushID"
         static let subscriptionCleanup = "subscriptionCleanup"
         static let milestoneReminders = "milestoneRemindersEnabled"
+        static let notificationPreferences = "notificationPreferences"
         static let notificationsNoticeDismissed = "notificationsNoticeDismissed"
         static let cameraSettings = "cameraSettings"
     }
@@ -213,6 +214,13 @@ final class SharedStore: @unchecked Sendable {
     var milestoneRemindersEnabled: Bool {
         get { store.data(forKey: Key.milestoneReminders).map { $0.first == 1 } ?? false }
         set { store.setData(Data([newValue ? 1 : 0]), forKey: Key.milestoneReminders) }
+    }
+
+    /// How loudly each kind of partner notification arrives here. Per device:
+    /// an unlink keeps it.
+    var notificationPreferences: NotificationPreferences {
+        get { decode(NotificationPreferences.self, forKey: Key.notificationPreferences) ?? NotificationPreferences() }
+        set { encode(newValue, forKey: Key.notificationPreferences) }
     }
 
     /// The camera's last camera, flash and timer, per device. Not pairing

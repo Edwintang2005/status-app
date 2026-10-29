@@ -84,9 +84,13 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
             Task { await AppModel.current?.refreshAfterPush(id) }
         }
         // A quiet push (an echo, something already announced) only files itself, as on
-        // the lock screen. The app's own passive posts still show: they're its only banner.
-        if notification.request.trigger is UNPushNotificationTrigger,
-           notification.request.content.interruptionLevel == .passive { return [.list] }
+        // the lock screen; so does anything this phone's preferences set to "list only".
+        // The app's other passive posts still show: they're its only banner.
+        let content = notification.request.content
+        if content.interruptionLevel == .passive,
+           notification.request.trigger is UNPushNotificationTrigger || content.userInfo[NotificationCategory.listOnlyKey] != nil {
+            return [.list]
+        }
         return [.banner, .sound]
     }
 

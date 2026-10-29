@@ -22,6 +22,13 @@ struct MomentGalleryView: View {
     /// Filter-hidden captions the user chose to see.
     @State private var revealedCaptions: Set<String> = []
     @State private var reporting: Moment?
+    /// A reply's composer, over the gallery: sending returns here.
+    @State private var replying: ReplyKind?
+
+    private enum ReplyKind: String, Identifiable {
+        case moment, voiceMemo
+        var id: String { rawValue }
+    }
 
     private enum SaveState: Equatable {
         case idle, saving, saved
@@ -151,6 +158,29 @@ struct MomentGalleryView: View {
             } message: {
                 if case .failed(let message) = saveState { Text(message) }
             }
+            .sheet(item: $replying) { kind in
+                replyComposer(kind)
+            }
+        }
+    }
+
+    /// A new moment of its own — nothing links it to the one it answers.
+    @ViewBuilder
+    private func replyComposer(_ kind: ReplyKind) -> some View {
+        switch kind {
+        case .moment:
+            MomentComposerView { image, kind, caption in
+                Task { await model.sendMoment(image: image, kind: kind, caption: caption) }
+            }
+            .presentsModelErrors()
+        case .voiceMemo:
+            VoiceMemoComposerView { url, duration, waveform, caption in
+                Task {
+                    await model.sendVoiceMemo(fileURL: url, duration: duration,
+                                              waveform: waveform, caption: caption)
+                }
+            }
+            .presentsModelErrors()
         }
     }
 
@@ -235,10 +265,14 @@ struct MomentGalleryView: View {
                         .font(Theme.rounded(12))
                         .foregroundStyle(Theme.mutedText)
                 }
-                // Answer what you're looking at: the banner's "Send a heart back", here too.
+                // Answer what you're looking at: the banner's "Send a heart back", here
+                // too, or a moment back. Side by side when they fit, stacked when not.
                 if !moment.fromMe {
-                    HeartBackButton(prominent: false)
-                        .padding(.top, 10)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 10) { answerButtons }
+                        VStack(spacing: 10) { answerButtons }
+                    }
+                    .padding(.top, 10)
                 }
             }
 
@@ -357,6 +391,33 @@ struct MomentGalleryView: View {
                 .font(Theme.rounded(13))
                 .foregroundStyle(Theme.mutedText)
         }
+    }
+
+    @ViewBuilder
+    private var answerButtons: some View {
+        HeartBackButton(prominent: false)
+        Menu {
+            Button {
+                reply(with: .moment)
+            } label: {
+                Label("Photo or doodle", systemImage: "camera.viewfinder")
+            }
+            Button {
+                reply(with: .voiceMemo)
+            } label: {
+                Label("Voice memo", systemImage: "mic.fill")
+            }
+        } label: {
+            Label("Reply", systemImage: "arrowshape.turn.up.left.fill")
+        }
+        .menuStyle(.button)
+        .buttonStyle(SecondaryButtonStyle())
+    }
+
+    /// A playing memo would bleed into a new recording.
+    private func reply(with kind: ReplyKind) {
+        player.stop()
+        replying = kind
     }
 
     /// Shows the name attached at send time; falls back to the current partner

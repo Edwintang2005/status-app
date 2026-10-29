@@ -98,6 +98,8 @@ struct MomentLibraryView: View {
             .sheet(item: $opened) { moment in
                 // What was on screen, in that order; each moment still read live.
                 MomentGalleryView(moments: galleryMoments, startAt: moment)
+                    // A reply sent from it reports here, over the library.
+                    .presentsModelErrors()
             }
             .confirmationDialog("Report this \(reporting?.noun ?? "moment")?",
                                 isPresented: $reporting.isPresent(),

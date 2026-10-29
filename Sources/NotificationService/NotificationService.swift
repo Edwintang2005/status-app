@@ -32,12 +32,16 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         // or the expiry fallback — carries the banner actions.
         let fallback = request.content.mutableCopy() as? UNMutableNotificationContent
         fallback?.categoryIdentifier = push.category
+        // This phone's preference before anything is read: an expiry delivers no louder.
+        let preferences = SharedStore.shared.notificationPreferences
+        fallback?.limit(to: preferences.level(for: push))
         self.fallback = fallback
         reloadHold = SharedStore.shared.holdWidgetReloads()
         // Handed to the task; only the category is set on it here first.
         nonisolated(unsafe) let original = request.content
         nonisolated(unsafe) let mutable = original.mutableCopy() as? UNMutableNotificationContent
         mutable?.categoryIdentifier = push.category
+        mutable?.limit(to: preferences.level(for: push))
 
         let hold = reloadHold
         let id = request.identifier
@@ -136,7 +140,9 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
             }
             return plan
         }
-        apply(plan, to: content)
+        let level = SharedStore.shared.notificationPreferences
+            .level(for: push, momentKinds: result.newPartnerMoments.map(\.kind) + result.heldPartnerMomentKinds)
+        apply(plan.limited(to: level), to: content)
         // Worded and claimed: from here on expiry delivers these words, not
         // CloudKit's — the claim stands, so nothing would ever re-announce it.
         setFallback(content)
@@ -174,6 +180,9 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         case .quiet:
             content.sound = nil
             content.interruptionLevel = .passive
+        case .silent:
+            content.sound = nil
+            content.interruptionLevel = .active
         case .active:
             content.interruptionLevel = .active
         case .timeSensitive:

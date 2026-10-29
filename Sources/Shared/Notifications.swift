@@ -12,6 +12,9 @@ enum NotificationCategory {
     /// userInfo key the notification service stamps (value: the category) on a
     /// banner worded from unencrypted fields alone, so the app's sweep supersedes it.
     static let heldBannerKey = "held-banner"
+    /// userInfo key on a notification quietened to "list only" by this phone's
+    /// preferences: the open app files it rather than showing a banner.
+    static let listOnlyKey = "list-only"
 
     enum Action {
         /// One-tap heart back, offered on every category.

@@ -102,6 +102,10 @@ struct SettingsView: View {
                     }
                 }
 
+                if model.isPaired {
+                    notificationsSection
+                }
+
                 if model.role == .owner {
                     inviteSection
                 }
@@ -337,6 +341,31 @@ struct SettingsView: View {
     /// Owner's invite link, kept reachable here because RootView replaces the
     /// screen that created it.
     @ViewBuilder
+    /// Per kind, this phone only: a push can be made quieter, never dropped, so
+    /// the quietest choice still files it in Notification Centre.
+    private var notificationsSection: some View {
+        @Bindable var model = model
+        Section {
+            levelPicker("Statuses", level: $model.notificationPreferences.statuses)
+            levelPicker("Hearts", level: $model.notificationPreferences.hearts)
+            levelPicker("Photos and doodles", level: $model.notificationPreferences.pictures)
+            levelPicker("Voice memos", level: $model.notificationPreferences.voiceMemos)
+        } header: {
+            SettingsHeader("Notifications")
+        } footer: {
+            SettingsFooter("Silent shows the banner without a sound. List only goes straight to Notification Centre without lighting up the screen. Only this iPhone changes — \(model.partnerName) isn't told.")
+        }
+    }
+
+    private func levelPicker(_ title: LocalizedStringKey,
+                             level: Binding<NotificationPreferences.Level>) -> some View {
+        Picker(title, selection: level) {
+            Text("Sound").tag(NotificationPreferences.Level.sound)
+            Text("Silent").tag(NotificationPreferences.Level.silent)
+            Text("List only").tag(NotificationPreferences.Level.list)
+        }
+    }
+
     private var inviteSection: some View {
         Section {
             if model.inviteClosed {

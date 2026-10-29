@@ -338,6 +338,20 @@ offline recovery) runs. The lock-screen heart's intent is also an App
 Shortcut — "Send a nudge with Red String" works from Siri and the Shortcuts
 app.
 
+### How loud each kind arrives
+
+Settings → Notifications sets **statuses**, **hearts**, **photos and
+doodles** and **voice memos** each to *Sound*, *Silent* (a banner without a
+sound, never breaking through Focus) or *List only* (straight to Notification
+Centre, without lighting up the screen). It's per iPhone and the partner isn't
+told. `NotificationPreferences` (in the App Group) is read by the notification
+service, which caps its plan last (`Plan.limited`) and its content before
+anything is read, so an expiry is no louder; a moment push takes the loudest
+of the kinds it carries, or the louder of the two when nothing was read. The
+app's own posts apply the same cap (`limit(to:)`). A push can be made quieter
+but never dropped — iOS gives no way to drop one without the filtering
+entitlement — so List only is the quietest choice.
+
 Icon-only controls have VoiceOver labels, voice-memo rows are single elements
 (double-tap plays, swipe up or down scrubs), and the rounded type follows
 Dynamic Type up to 1.35× so fixed-height tiles keep fitting.
@@ -385,6 +399,11 @@ falls back to just the most recent, rather than replaying the archive.
 left: a grid of the full history, unseen ones marked with a dot, your own sends
 flagged with a small arrow. Tap any of them to open the pager over the whole
 history.
+
+Under each of the partner's moments in the pager, **Send a heart back** and
+**Reply** answer it: Reply opens the photo/doodle or voice-memo composer over
+the pager, and sending comes back to the same page. The reply is an ordinary
+new moment — nothing links the two.
 
 `Moment.seen` is local-only and never written to CloudKit — "seen" means seen
 *on this device*, and your own sends count as seen the moment you make them.
@@ -619,8 +638,9 @@ flattens to the square the strokes were drawn over.
 
 ## Possible improvements
 
-See [ROADMAP.md](ROADMAP.md) — next up is the "super nudge" escalation for
-rapid-fire hearts; reactions and a shared countdown widget are on file.
+See [ROADMAP.md](ROADMAP.md): features ranked into tiers by impact and
+feasibility, then ranked correctness, privacy and polish backlogs. Read its
+"how a feature reaches the other phone" table before designing one.
 
 ## Known limitations
 

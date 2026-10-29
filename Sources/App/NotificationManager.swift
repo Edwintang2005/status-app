@@ -107,6 +107,7 @@ enum NotificationManager {
             content.sound = .default
         }
         content.categoryIdentifier = NotificationCategory.moment
+        content.limit(to: SharedStore.shared.notificationPreferences.level(forMoment: moment.kind))
 
         // If the refresh's best-effort media download failed, fetch here rather
         // than announcing a photo with no photo. Bounded: this can run inside a
@@ -190,6 +191,7 @@ enum NotificationManager {
         content.categoryIdentifier = NotificationCategory.nudge
         // Old news, or a repeat within the interval, doesn't get to break through Focus.
         content.interruptionLevel = interruption.breaksThroughFocus ? .timeSensitive : .active
+        content.limit(to: SharedStore.shared.notificationPreferences.hearts)
 
         let request = UNNotificationRequest(identifier: "nudge-\(UUID().uuidString)",
                                             content: content,

@@ -155,6 +155,14 @@ final class AppModel {
             syncMilestoneReminders()
         }
     }
+    /// How loudly each kind of partner notification arrives on this phone —
+    /// applied by the notification service and the app's own posts.
+    var notificationPreferences: NotificationPreferences {
+        didSet {
+            guard oldValue != notificationPreferences else { return }
+            store.notificationPreferences = notificationPreferences
+        }
+    }
     /// What was last handed to the system, so `reload` reschedules only on change.
     @ObservationIgnored private var scheduledReminders: [MilestoneReminderPlan.Reminder]?
     @ObservationIgnored private var reminderSync: Task<Void, Never>?
@@ -246,6 +254,7 @@ final class AppModel {
         self.widgetTipDismissed = store.widgetTipDismissed
         self.partnerLeftNoticeDismissed = store.partnerLeftNoticeDismissed
         self.milestoneRemindersEnabled = store.milestoneRemindersEnabled
+        self.notificationPreferences = store.notificationPreferences
         // A retried send confirms like a first one.
         outbox.uploaded = { [weak self] _ in self?.noteUploaded() }
         // Includes a clear that stood aside for the upload.

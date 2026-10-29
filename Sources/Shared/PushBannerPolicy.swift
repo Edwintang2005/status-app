@@ -35,6 +35,9 @@ enum PushBannerPolicy {
         case asSent
         /// No sound, `.passive`: the push can't be dropped, but it isn't news.
         case quiet
+        /// A banner with no sound that never breaks through Focus: the
+        /// receiver's choice (`NotificationPreferences`).
+        case silent
         case active
         case timeSensitive
     }

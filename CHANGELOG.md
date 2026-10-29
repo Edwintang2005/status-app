@@ -30,6 +30,17 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
   pushes only go to Notification Centre; the app's own passive posts still
   show.
 
+- **Notifications by kind.** Settings → Notifications sets statuses, hearts,
+  photos and doodles, and voice memos each to Sound, Silent (a banner, no
+  sound, never through Focus) or List only (straight to Notification
+  Centre). Per iPhone; the partner isn't told. The notification service
+  applies it to every push (the expiry fallback included) and the app to its
+  own posts; a push is never dropped. No schema change.
+- **Reply from a moment.** Under the partner's photo, doodle or memo, "Reply"
+  opens the photo/doodle or voice-memo composer over it; sending returns to
+  where you were. A new moment of its own — nothing links the two, and
+  nothing changes in CloudKit.
+
 ## Review-fix round (October 2026)
 
 - **Mostly code health; no schema change.** `AppModel` split

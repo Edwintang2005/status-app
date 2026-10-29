@@ -37,6 +37,7 @@
 		14CE5A037149CF047EE1877C /* Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7B72EE6C19F670FF1A8BC39 /* Notifications.swift */; };
 		15465F71D533AF8CF2A81410 /* AppModel+Pairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CB93E1FA202663BC7CACF58 /* AppModel+Pairing.swift */; };
 		1557777198621044F29A02E6 /* NudgeCooldownPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C103C9F8E5EAD52498A6EC2 /* NudgeCooldownPolicyTests.swift */; };
+		15A4E7C76D21021D59295557 /* NotificationPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = E507FC304602064A1FA27FB4 /* NotificationPreferences.swift */; };
 		15DDA91187D75D7EB63AC818 /* ParsedDelta.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8E6509B289B14274CAA370E /* ParsedDelta.swift */; };
 		15FB05424D35F6D808A52CD9 /* PushBannerPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C154094576CEFD18DB54ABD0 /* PushBannerPolicy.swift */; };
 		1636FAD57306A9C6397D05B1 /* CelebrationOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFFD179DB35C743DF9D7E748 /* CelebrationOverlay.swift */; };
@@ -93,6 +94,7 @@
 		399732A1F343DD9CEC6C3CA8 /* StatusPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CC659D2468D19E1EC8CC267 /* StatusPayload.swift */; };
 		39A5F79D6DCDE13827838B2F /* FreshStartView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC66F8DF7E4C387D433B9974 /* FreshStartView.swift */; };
 		3A34B2B1CA836639D707AD2A /* FoundationExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 949D3E6BEADE2BC0D69AF39B /* FoundationExtensions.swift */; };
+		3A5A6D62BF6480AF7966DC4A /* NotificationPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = E507FC304602064A1FA27FB4 /* NotificationPreferences.swift */; };
 		3A617447C784E7E36D59635E /* HomeNotices.swift in Sources */ = {isa = PBXBuildFile; fileRef = D55084164E5BF59D8147CF2F /* HomeNotices.swift */; };
 		3AAC856BF9CBD91AB7580CC3 /* VoiceMemoComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76CBD9146BE0A00FE8443DD6 /* VoiceMemoComposerView.swift */; };
 		3ABDDC747C14821E4D588FB4 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44EDE9EF4B8224158C8BCD5F /* SettingsView.swift */; };
@@ -168,6 +170,7 @@
 		6F556AB038860E8419F0C8A3 /* ThumbnailFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFC83BAB72764559604314F9 /* ThumbnailFetcher.swift */; };
 		72031D27016DDBA95F727C4A /* WidgetTimelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB837DA9D1CCA51A481D756A /* WidgetTimelineTests.swift */; };
 		7274F96589CC69FB96892CC8 /* CloudSync+Pairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34F3D813228830FD69F5F5E5 /* CloudSync+Pairing.swift */; };
+		7323793B9A15FB9B492E88AB /* NotificationPreferencesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEF4F3171360D3D09E6D0C64 /* NotificationPreferencesTests.swift */; };
 		73792D86FF4D44D413A97580 /* Moment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0442A90D1A5DB4ABCFB5FB16 /* Moment.swift */; };
 		741145C4DDDE5F6ED6AD2077 /* NudgeCooldownPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86AE5F9B7090F65A1371C0C1 /* NudgeCooldownPolicy.swift */; };
 		7484171A362F6E4A4991A4ED /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B010D0666534AA91EF320B6F /* Assets.xcassets */; };
@@ -181,6 +184,7 @@
 		771E1EFC0E178EF3BF722FC1 /* MomentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9908897AF8F96D8BAF86FB0D /* MomentIndex.swift */; };
 		779848A0FF5B65B912ABF448 /* RelativeTime.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD7B7B4A66C4C8FE0D20011 /* RelativeTime.swift */; };
 		78289958A61B865770092A9F /* ZoneClearPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0099539F20F083E709EDD344 /* ZoneClearPlan.swift */; };
+		79010963D12E73545631B1E7 /* NotificationPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = E507FC304602064A1FA27FB4 /* NotificationPreferences.swift */; };
 		79AD5AE8FE7CAB369D18E0A3 /* WaveformTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4070DB188B61F687F8CDB03D /* WaveformTests.swift */; };
 		7A4B7A01D0312B7DBD2CC921 /* TokenAdvancePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91BE14CA5679FBA0E82631C /* TokenAdvancePolicy.swift */; };
 		7BCC03E65D89B743A208D53B /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E639AD30E2C0F3523EC9108 /* HomeView.swift */; };
@@ -230,6 +234,7 @@
 		9BA1659D44B8CAF3427374D4 /* SharedStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FA4F7953C3F1ED24AAB950F /* SharedStore.swift */; };
 		9BC23349CC5A558B2AA21411 /* StatusSavePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C038FB27A912580C3D9CBAD /* StatusSavePolicy.swift */; };
 		9CA702A78345750D38C6FBE9 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 9E958D9BEA9342B39917EFA2 /* Localizable.xcstrings */; };
+		9E38A1E9812E8C66788A9BC4 /* NotificationPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = E507FC304602064A1FA27FB4 /* NotificationPreferences.swift */; };
 		9E5191C4B18F4EAFCA632237 /* CloudSync+Moments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 668DF1E7F6BA116D79645727 /* CloudSync+Moments.swift */; };
 		9ED2BC782EEA8D3CA279254F /* TieTheStringView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6D8E9381A68B07E3D63B706 /* TieTheStringView.swift */; };
 		9F5960E94435AD5851A96BB9 /* MomentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 337B972E15547CDA25869529 /* MomentStore.swift */; };
@@ -555,6 +560,7 @@
 		BC891CC6C692EBB4C96680A6 /* VoicePlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePlayer.swift; sourceTree = "<group>"; };
 		BE27AE24C06FB3BD67B08794 /* Moderation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Moderation.swift; sourceTree = "<group>"; };
 		BEBAE422F364A692916E76DA /* GroupStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupStoreTests.swift; sourceTree = "<group>"; };
+		BEF4F3171360D3D09E6D0C64 /* NotificationPreferencesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPreferencesTests.swift; sourceTree = "<group>"; };
 		C154094576CEFD18DB54ABD0 /* PushBannerPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushBannerPolicy.swift; sourceTree = "<group>"; };
 		C1F419A7A0E3610F893D02A0 /* RedStringWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedStringWidgetBundle.swift; sourceTree = "<group>"; };
 		C2D5EE3910DD3B6E4392FF38 /* ViewSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewSupport.swift; sourceTree = "<group>"; };
@@ -578,6 +584,7 @@
 		DC66A4E4D2B44831B2832CF3 /* HomeCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeCards.swift; sourceTree = "<group>"; };
 		DE44AD5C1EC5F4C55CE788AC /* ArchiveContentsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveContentsTests.swift; sourceTree = "<group>"; };
 		DFD7B7B4A66C4C8FE0D20011 /* RelativeTime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelativeTime.swift; sourceTree = "<group>"; };
+		E507FC304602064A1FA27FB4 /* NotificationPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPreferences.swift; sourceTree = "<group>"; };
 		E6EA9BB99E90BB44D7740E4D /* ModeratedTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModeratedTextTests.swift; sourceTree = "<group>"; };
 		E6F854E2E4D2B4B969B5CFAF /* RedStringUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = RedStringUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E73BF08B6971385C71653A2D /* WidgetReloadPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetReloadPolicy.swift; sourceTree = "<group>"; };
@@ -667,6 +674,7 @@
 				501B7837F5E0190ACCA62AA6 /* ModerationTests.swift */,
 				0BA82DF0261120A5F30615DF /* MomentIndexTests.swift */,
 				EF72F6BDC72E3AE09DF7F3CE /* MoodCatalogueTests.swift */,
+				BEF4F3171360D3D09E6D0C64 /* NotificationPreferencesTests.swift */,
 				FB9E1CC2DD63B4CEF53546B9 /* NotificationUpkeepTests.swift */,
 				0C103C9F8E5EAD52498A6EC2 /* NudgeCooldownPolicyTests.swift */,
 				B5C7F73A4E31A40A74FB3C35 /* OutboxTests.swift */,
@@ -822,6 +830,7 @@
 				946360BD0041A3A7F717961B /* FreshStartPolicy.swift */,
 				EA68F3769B7B000DE4551E6C /* MilestoneReminderPlan.swift */,
 				BE27AE24C06FB3BD67B08794 /* Moderation.swift */,
+				E507FC304602064A1FA27FB4 /* NotificationPreferences.swift */,
 				B7B72EE6C19F670FF1A8BC39 /* Notifications.swift */,
 				9FCB97E445CA6B0B05D9FEDC /* NotificationsNotice.swift */,
 				86AE5F9B7090F65A1371C0C1 /* NudgeCooldownPolicy.swift */,
@@ -1208,6 +1217,8 @@
 				6C950C76172A9BC24534CC66 /* MomentStore.swift in Sources */,
 				2CBE04CAE2F2E7098FB86CB0 /* Mood.swift in Sources */,
 				B3A44B18C31EC2E9DF022364 /* MoodCatalogueTests.swift in Sources */,
+				3A5A6D62BF6480AF7966DC4A /* NotificationPreferences.swift in Sources */,
+				7323793B9A15FB9B492E88AB /* NotificationPreferencesTests.swift in Sources */,
 				D442FFAF15912960C9ED1003 /* NotificationUpkeepTests.swift in Sources */,
 				584C28C6E36A1DE4409A0AFD /* Notifications.swift in Sources */,
 				53C6CB1C20C0550986EF0983 /* NotificationsNotice.swift in Sources */,
@@ -1300,6 +1311,7 @@
 				F7E17C09D9C64309FA7FC0F4 /* MomentIndex.swift in Sources */,
 				E696A1C2A7A8CDF08713D020 /* MomentStore.swift in Sources */,
 				665513B46F4C596B2470B72A /* Mood.swift in Sources */,
+				79010963D12E73545631B1E7 /* NotificationPreferences.swift in Sources */,
 				EC2395AE41D2675A3CC6CE04 /* NotificationService.swift in Sources */,
 				AF994D8AF8F49FB82765B1DB /* Notifications.swift in Sources */,
 				14A459764D7C175D77F06919 /* NotificationsNotice.swift in Sources */,
@@ -1376,6 +1388,7 @@
 				9F5960E94435AD5851A96BB9 /* MomentStore.swift in Sources */,
 				E108C281D4DC9B873BBC8D3F /* MomentWidget.swift in Sources */,
 				6CC827F12FF3AC4B570ABF73 /* Mood.swift in Sources */,
+				15A4E7C76D21021D59295557 /* NotificationPreferences.swift in Sources */,
 				D3BF43D40DB3834A36FED1D4 /* Notifications.swift in Sources */,
 				35E7F7866B262438AAB9CFF1 /* NotificationsNotice.swift in Sources */,
 				8D144965CB526F5EFD94DD4D /* NudgeCooldownPolicy.swift in Sources */,
@@ -1480,6 +1493,7 @@
 				8CAAADECAA4216974AE366E6 /* Mood.swift in Sources */,
 				3B5136FE91AE81C436D6C951 /* MoodPickerView.swift in Sources */,
 				2EF5363DEE4A3F658794D1C6 /* NotificationManager.swift in Sources */,
+				9E38A1E9812E8C66788A9BC4 /* NotificationPreferences.swift in Sources */,
 				14CE5A037149CF047EE1877C /* Notifications.swift in Sources */,
 				B2595A3664818A580D704EF5 /* NotificationsNotice.swift in Sources */,
 				44C9E2011261C313D07A97F4 /* NudgeCooldownPolicy.swift in Sources */,
