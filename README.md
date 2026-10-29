@@ -165,7 +165,7 @@ their own record types rather than fields on `Status`:
 
 | Record type | Payload | What happens |
 |---|---|---|
-| `Status` | `alertBody` (no sound) + `shouldSendMutableContent` | **Visible but quiet** — a note in Notification Centre, not an interruption. The extension rewrites the generic text with the decrypted emoji and message. The pre-1.1 silent subscription (`status-changes`) is deleted on sight. |
+| `Status` | `alertBody` (no sound) + `shouldSendMutableContent` | **Visible, with sound.** The subscription was registered silent and can't be edited in place, so the extension adds the sound (`Push.addsSound`) as it rewrites the generic text with the decrypted emoji and message; Do Not Disturb and Sleep Focus are how a partner opts out. The pre-1.1 silent subscription (`status-changes`) is deleted on sight. |
 | `Nudge` | `alertBody` + sound + `shouldSendMutableContent` | **Visible.** APNs displays it whether or not the app is running. |
 | `Moment` | `alertBody` + sound + `shouldSendMutableContent` | **Visible**, and the image is attached by the service extension. |
 
@@ -220,6 +220,11 @@ runs under `make test`. A few rows worth knowing:
 - **A long voice memo on slow signal.** The worded banner becomes the timeout
   fallback before the attachment downloads, and the download is bounded, so
   the words always arrive even when the recording doesn't.
+- **Nothing new to say.** A push for this phone's own send coming back, or for
+  something already announced, is quiet (`.passive`, no sound) and says what it
+  is — *"Your status was sent to Sam."*, or the announced words again — never
+  CloudKit's *"Sent you something"*. Over the open app a quiet one only goes to
+  Notification Centre, no banner.
 - **Hidden previews.** With "Show Previews: When Unlocked", a locked banner
   reads *"Something new 💛"* rather than a bare "Notification".
 

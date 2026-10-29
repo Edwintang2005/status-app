@@ -19,6 +19,11 @@ enum PushBannerPolicy {
             }
         }
 
+        /// The status subscription was registered silent, and a subscription
+        /// can't be edited in place: the service adds the sound up front, so
+        /// every exit has it but a `.quiet` plan. Focus decides who hears it.
+        var addsSound: Bool { self == .status }
+
         /// Stamped up front, so every exit carries the banner actions.
         var category: String {
             switch self {
@@ -108,7 +113,7 @@ enum PushBannerPolicy {
                             thread: "fresh-start",
                             volume: .quiet)
             }
-            return couldNotRead ? .unchanged : Plan(volume: .quiet)
+            return couldNotRead ? .unchanged : momentAlreadyKnown(snapshot, name: name)
 
         case .nudge:
             let count = result.partnerStatus?.nudgeCount ?? snapshot.theirs?.nudgeCount
@@ -133,11 +138,7 @@ enum PushBannerPolicy {
             // The nudge record wasn't in what this process could read.
             if couldNotRead { return .unchanged }
             // No count is no information — a deletion, not a tap — and never a heart.
-            guard count != nil else {
-                return Plan(title: AppConfig.appName,
-                            body: String(localized: "Your shared space changed."),
-                            volume: .quiet)
-            }
+            guard count != nil else { return spaceChanged }
             // Already announced by the app or a sibling instance: the words
             // stay, the interruption goes, so it doesn't read as a second tap.
             var plan = heart(name: name, interruption: .init(stale: false, breaksThroughFocus: false))
@@ -173,7 +174,7 @@ enum PushBannerPolicy {
                     return own(String(localized: "You changed your status from another device."))
                 }
                 if let left = partnerLeft(result, name: name, in: &snapshot) { return left }
-                return couldNotRead ? .unchanged : Plan(volume: .quiet)
+                return couldNotRead ? .unchanged : statusAlreadyKnown(snapshot, name: name, reportedAt: reportedAt)
             }
 
         case .other:
@@ -225,6 +226,44 @@ enum PushBannerPolicy {
     }
 
     // MARK: - Rows
+
+    /// Nothing new from the partner in what this process read: this phone's own
+    /// send coming back (the newest in the space is ours), or something already
+    /// announced. Quiet, never CloudKit's "sent you something" for our own send.
+    private static func momentAlreadyKnown(_ snapshot: Snapshot, name: String) -> Plan {
+        let theirs = snapshot.latestPartnerMoment
+        if let ours = snapshot.latestOwnMoment, ours.sentAt > (theirs?.sentAt ?? .distantPast) {
+            return own(String(localized: "Your moment was sent to \(name)."))
+        }
+        guard let theirs, snapshot.hasAnnounced(theirs.id) else { return spaceChanged }
+        return Plan(title: theirs.displaySenderName(fallback: name),
+                    body: theirs.displayCaption ?? theirs.arrivalSummary,
+                    volume: .quiet)
+    }
+
+    /// The status twin: our own save coming back, or their status already announced.
+    /// Server save times order the two when both carry them (`claimStatusBanner`).
+    private static func statusAlreadyKnown(_ snapshot: Snapshot, name: String, reportedAt: Date?) -> Plan {
+        let theirs = snapshot.theirs
+        if let mine = snapshot.mine, mine.updatedAt > .distantPast {
+            let oursIsNewer: Bool
+            if let saved = mine.serverSavedAt, let theirSaved = theirs?.serverSavedAt {
+                oursIsNewer = saved > theirSaved
+            } else {
+                oursIsNewer = mine.updatedAt > (theirs?.updatedAt ?? .distantPast)
+            }
+            if oursIsNewer { return own(String(localized: "Your status was sent to \(name).")) }
+        }
+        guard let theirs else { return spaceChanged }
+        return Plan(title: name,
+                    body: statusBody(theirs, reportedAt: reportedAt, sealed: snapshot.partnerStatusSealed),
+                    thread: "status-updates",
+                    volume: .quiet)
+    }
+
+    private static var spaceChanged: Plan {
+        Plan(title: AppConfig.appName, body: String(localized: "Your shared space changed."), volume: .quiet)
+    }
 
     private static func held(_ body: String, category: String, name: String) -> Plan {
         Plan(title: name, body: body, heldCategory: category)

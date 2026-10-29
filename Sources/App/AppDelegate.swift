@@ -83,6 +83,8 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
             let id = notification.request.identifier
             Task { await AppModel.current?.refreshAfterPush(id) }
         }
+        // A quiet one (an echo, something already announced) only files itself, as on the lock screen.
+        if notification.request.content.interruptionLevel == .passive { return [.list] }
         return [.banner, .sound]
     }
 

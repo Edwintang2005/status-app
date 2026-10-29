@@ -16,6 +16,14 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
   service took whole (it stamps the push), and on foregrounding within 30 s
   of any complete fetch. Readiness, the send queue and the full-media top-up
   still run.
+- **Partner status updates make a sound again.** The notification service
+  adds it, as the subscription can't be changed in place; Do Not Disturb and
+  Sleep Focus silence it for whoever doesn't want it.
+- **Quiet banners say what they are.** This phone's own status or moment
+  coming back reads "Your status/moment was sent to …", and an
+  already-announced one repeats its words, instead of CloudKit's "Sent you
+  something" or "Updated their status". Over the open app they only go to
+  Notification Centre.
 
 ## Review-fix round (October 2026)
 

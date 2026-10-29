@@ -376,7 +376,6 @@ under test.)
 - `.secondary` 11 pt captions ("Seen …", timestamps) are ~3.3:1; `mint` on
   cream is 2.2:1 for the "Saved" check.
 - Voice Control: "Thinking of you" is labelled "Send a nudge".
-- `willPresent` plays banner + sound for every category, `.passive` included.
 - Settings: "Report a problem" and "Save memories…" look like the destructive rows.
 - Mood picker "Set" is disabled with no hint when the emoji is empty.
 - The anniversary prompt stacks on the invite sheet before anyone has joined.

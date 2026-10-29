@@ -15,8 +15,8 @@ extension CloudSync {
         let existing = (try? await database.allSubscriptions()) ?? []
         let existingIDs = Set(existing.map(\.subscriptionID))
 
-        // Status: visible so Notification Centre keeps the history, but deliberately
-        // no sound — a note, not an interruption.
+        // Status: registered without a sound, which can't change in place; the
+        // notification service adds it (`PushBannerPolicy.Push.addsSound`).
         let toSave = [
             Self.subscription(SubscriptionID.status, for: RecordType.status, body: GenericAlert.status, sound: nil),
             Self.subscription(SubscriptionID.nudge, for: RecordType.nudge, body: GenericAlert.nudge, sound: "default"),

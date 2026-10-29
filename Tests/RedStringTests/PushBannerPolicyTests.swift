@@ -66,7 +66,41 @@ final class PushBannerPolicyTests: XCTestCase {
 
         let again = decide(.moment, result, in: &snapshot)
         XCTAssertNil(again.attachment, "a sibling instance with the same delta must not re-describe it")
-        XCTAssertEqual(again, PushBannerPolicy.Plan(volume: .quiet))
+        XCTAssertEqual(again.volume, .quiet)
+        XCTAssertNotEqual(again.body, CloudSync.GenericAlert.moment)
+    }
+
+    /// The push of this phone's own send coming back is never worded as the partner's.
+    func testOurOwnMomentComingBackSaysSo() {
+        var snapshot = paired()
+        snapshot.latestPartnerMoment = Fixtures.moment("theirs", at: Fixtures.date(10))
+        snapshot.latestOwnMoment = Fixtures.moment("ours", at: Fixtures.date(20), fromMe: true)
+        let plan = decide(.moment, in: &snapshot)
+        XCTAssertEqual(plan.title, AppConfig.appName)
+        XCTAssertEqual(plan.body, String(localized: "Your moment was sent to Sam."))
+        XCTAssertEqual(plan.volume, .quiet)
+    }
+
+    /// Announced already (the app's refresh got there first): its words, quietly.
+    func testAnAnnouncedMomentIsWordedQuietly() {
+        var snapshot = paired()
+        let theirs = Fixtures.moment("theirs", kind: .voice, at: Fixtures.date(20))
+        snapshot.latestPartnerMoment = theirs
+        snapshot.latestOwnMoment = Fixtures.moment("ours", at: Fixtures.date(10), fromMe: true)
+        snapshot.recordAnnounced(theirs)
+        let plan = decide(.moment, in: &snapshot)
+        XCTAssertEqual(plan.title, "Sam")
+        XCTAssertEqual(plan.body, Moment.Kind.voice.arrivalSummary)
+        XCTAssertEqual(plan.volume, .quiet)
+        XCTAssertNil(plan.attachment)
+    }
+
+    func testAnUnknownMomentChangeIsNeverCreditedToThePartner() {
+        var snapshot = paired()
+        snapshot.latestPartnerMoment = Fixtures.moment("unannounced", at: Fixtures.date(20))
+        let plan = decide(.moment, in: &snapshot)
+        XCTAssertEqual(plan.body, String(localized: "Your shared space changed."))
+        XCTAssertEqual(plan.volume, .quiet)
     }
 
     func testAnUnreadableMomentIsWordedFromItsKindAndStampedHeld() {
@@ -279,7 +313,36 @@ final class PushBannerPolicyTests: XCTestCase {
         XCTAssertEqual(plan.title, "Sam")
         XCTAssertEqual(plan.body, "☕️ coffee")
         XCTAssertEqual(plan.thread, "status-updates")
-        XCTAssertEqual(decide(.status, result, in: &snapshot), PushBannerPolicy.Plan(volume: .quiet))
+        XCTAssertEqual(plan.volume, .asSent, "the service's added sound stays")
+
+        snapshot.theirs = status
+        let again = decide(.status, result, in: &snapshot)
+        XCTAssertEqual(again.body, "☕️ coffee", "already announced: its words, never CloudKit's")
+        XCTAssertEqual(again.volume, .quiet)
+    }
+
+    func testOnlyStatusPushesAreGivenASound() {
+        XCTAssertTrue(PushBannerPolicy.Push.status.addsSound)
+        XCTAssertFalse(PushBannerPolicy.Push.nudge.addsSound, "the subscription carries its own")
+        XCTAssertFalse(PushBannerPolicy.Push.moment.addsSound, "the subscription carries its own")
+        XCTAssertFalse(PushBannerPolicy.Push.other.addsSound)
+    }
+
+    /// This phone's own status save coming back: ordered by server time when both have it.
+    func testOurOwnStatusComingBackSaysSo() {
+        var theirs = Fixtures.status("🌙", "late", at: Fixtures.date(50))
+        theirs.serverSavedAt = Fixtures.date(10)
+        var snapshot = paired(theirs: theirs)
+        var mine = Fixtures.status("☕️", "coffee", at: Fixtures.date(20))
+        mine.serverSavedAt = Fixtures.date(20)
+        snapshot.mine = mine
+        let plan = decide(.status, RefreshResult(partnerStatus: theirs, newPartnerMoments: []), in: &snapshot)
+        XCTAssertEqual(snapshot.lastAnnouncedPartnerStatusAt, theirs.updatedAt, "theirs, first seen, is still news")
+
+        let echo = decide(.status, RefreshResult(partnerStatus: theirs, newPartnerMoments: []), in: &snapshot)
+        XCTAssertEqual(plan.body, "🌙 late")
+        XCTAssertEqual(echo.body, String(localized: "Your status was sent to Sam."))
+        XCTAssertEqual(echo.volume, .quiet)
     }
 
     func testARenameIsWordedAsOne() {
