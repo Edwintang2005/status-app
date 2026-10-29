@@ -130,6 +130,17 @@ final class SharedStoreTests: XCTestCase {
         XCTAssertNil(store.lastPairing)
     }
 
+    /// The cached own records name the old zone: a new pairing must fetch its own.
+    func testRecordCachesClearWithThePairing() {
+        let (store, _) = makeStore()
+        store.nudgeRecordCache = .init(systemFields: Data([1]), count: 3)
+        store.statusRecordCache = .init(systemFields: Data([2]), payload: Fixtures.status(at: Fixtures.t0))
+        XCTAssertEqual(store.statusRecordCache?.systemFields, Data([2]))
+        store.clearPairing(keepingName: true)
+        XCTAssertNil(store.nudgeRecordCache)
+        XCTAssertNil(store.statusRecordCache)
+    }
+
     func testZoneGoneSightingClearsWithThePairing() {
         let (store, _) = makeStore()
         XCTAssertNil(store.zoneGoneSeenAt)

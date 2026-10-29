@@ -81,6 +81,22 @@ final class SyncPolicyTests: XCTestCase {
         XCTAssertFalse(snapshot.claimReceiptsDirty())
     }
 
+    /// Invariant 13: a claimed write is unsettled until confirmed, and launch
+    /// re-sends only an unsettled one.
+    func testLaunchReArmsOnlyUnsettledReceipts() {
+        var snapshot = Snapshot.empty
+        XCTAssertTrue(snapshot.receiptsUnsettled, "nothing confirmed for a new pairing yet")
+        snapshot.receiptsUnsettled = false
+        snapshot.rearmUnsettledReceipts()
+        XCTAssertFalse(snapshot.receiptsDirty, "settled: no launch write")
+
+        snapshot.receiptsDirty = true
+        XCTAssertTrue(snapshot.claimReceiptsDirty())
+        XCTAssertTrue(snapshot.receiptsUnsettled, "claimed: in flight until confirmed")
+        snapshot.rearmUnsettledReceipts()
+        XCTAssertTrue(snapshot.receiptsDirty, "died mid-write: the next launch re-sends")
+    }
+
     func testStatusReceiptOnlyMovesForward() {
         var snapshot = Snapshot.empty
         XCTAssertFalse(snapshot.stampPartnerStatusSeen(nil, at: Fixtures.t0), "nothing to have seen")

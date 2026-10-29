@@ -138,7 +138,7 @@ IDs refer to the October design arena's brief (not kept in the repo).
 `recordBlockedPartner` needs the share's participant list from the network,
 so an owner who blocks while offline records nobody and the blocked person's
 next invite is accepted. Cache the participant record names on each
-successful refresh (or `inviteState()`), so the block has something to write.
+successful refresh (or `shareCheck()`), so the block has something to write.
 
 ### Heartbeat moment (M) — feasibility only, not started
 
@@ -251,6 +251,16 @@ the photo (the export is the only transform; media travels byte-for-byte).
 - **"Invite again" from the partner-left card** opens Settings (a new link
   needs the unlink first); a one-tap unlink-and-reinvite would need the unlink
   confirmation hosted on Home.
+
+### CloudKit overhead — not picked from the October 2026 look (S each)
+
+- **Widget media in parallel** — `prefetchMedia` fetches thumbnails, then the
+  full photo, one after the other; the widget's two could run together.
+- **Longer account cache in extensions** — the NSE re-looks-up the user record
+  once `accountCacheLifetime` (5 min) passes; it already overlaps the fetch, so
+  this saves a request, not time.
+- **Thumbnail inside the NSE's change fetch** — would save the banner a round
+  trip, but puts media before the token (against invariant 2). Not recommended.
 
 ### From the October 2026 whole-app review (not picked yet)
 

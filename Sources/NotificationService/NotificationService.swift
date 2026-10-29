@@ -40,12 +40,13 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         mutable?.categoryIdentifier = push.category
 
         let hold = reloadHold
+        let id = request.identifier
         work = Task { [weak self] in
             guard let self else {
                 hold?.release(widgetNeedsFetch: true)
                 return
             }
-            let enriched = await self.enrich(mutable, push: push, userInfo: original.userInfo)
+            let enriched = await self.enrich(mutable, push: push, userInfo: original.userInfo, id: id)
             self.deliver(enriched ?? original)
         }
     }
@@ -85,7 +86,8 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
 
     private func enrich(_ content: UNMutableNotificationContent?,
                         push: PushBannerPolicy.Push,
-                        userInfo: [AnyHashable: Any]) async -> UNNotificationContent? {
+                        userInfo: [AnyHashable: Any],
+                        id: String) async -> UNNotificationContent? {
         // Always release the reload hold (a reused process's reloads stay silenced
         // otherwise); the widget fetches again unless the refresh completed.
         var widgetNeedsFetch = true
@@ -114,6 +116,8 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
             return content
         }
         widgetNeedsFetch = result.incomplete
+        // Filed whether or not the banner gets worded in time.
+        if result.isWholeDelta { await MainActor.run { SharedStore.shared.wholePushID = id } }
 
         // Out of time: the expiry fallback is (or is about to be) delivered, and
         // a claim now would mark announced an event whose rich banner never shows.

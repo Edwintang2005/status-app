@@ -54,8 +54,8 @@ extension CloudSync {
         let recordID = CKRecord.ID(recordName: Self.anniversaryRequestRecordName,
                                    zoneID: zoneID(for: pairing))
         try await withZoneRecovery(pairing) {
-            let record = try await fetchRecord(recordID, in: database)
-                ?? CKRecord(recordType: RecordType.anniversaryRequest, recordID: recordID)
+            // Every field set and `.allKeys` overwrites: no fetch first.
+            let record = CKRecord(recordType: RecordType.anniversaryRequest, recordID: recordID)
             record.encryptedValues[Field.requestedAt] = date
             record[Field.updatedAt] = Date() as CKRecordValue
             let result = try await database.modifyRecords(saving: [record],

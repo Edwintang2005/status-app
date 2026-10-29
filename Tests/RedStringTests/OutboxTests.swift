@@ -232,6 +232,28 @@ final class OutboxTests: XCTestCase {
         XCTAssertFalse(store.snapshot.receiptsDirty)
     }
 
+    func testAConfirmedWriteSettlesTheReceipts() async {
+        store.mutate { $0.receiptsDirty = true }
+        await outbox.flushReceipts()
+        XCTAssertFalse(store.snapshot.receiptsUnsettled)
+        store.mutate { $0.rearmUnsettledReceipts() }
+        XCTAssertFalse(store.snapshot.receiptsDirty, "the next launch writes nothing")
+    }
+
+    /// An abandoned write can land after a later one: nothing settles the
+    /// receipts again in this process, so the next launch re-sends.
+    func testAnAbandonedWriteLeavesTheReceiptsUnsettled() async {
+        store.mutate { $0.receiptsDirty = true }
+        backend.fail("receipts", with: CKError(.networkFailure))
+        await outbox.flushReceipts()
+        await outbox.flushReceipts()
+        XCTAssertEqual(backend.receipts.count, 1)
+        XCTAssertFalse(store.snapshot.receiptsDirty)
+        XCTAssertTrue(store.snapshot.receiptsUnsettled)
+        store.mutate { $0.rearmUnsettledReceipts() }
+        XCTAssertTrue(store.snapshot.receiptsDirty)
+    }
+
     func testAMarkSeenLandingMidFlightIsPublishedToo() async {
         let store = store!
         let backend = backend!

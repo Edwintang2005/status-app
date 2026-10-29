@@ -23,6 +23,7 @@ final class SnapshotCodableTests: XCTestCase {
         XCTAssertTrue(snapshot.myStatusPublished, "pre-field snapshots must not republish")
         XCTAssertEqual(snapshot.notifiedMomentIDs, [])
         XCTAssertFalse(snapshot.receiptsDirty)
+        XCTAssertTrue(snapshot.receiptsUnsettled, "pre-field: one launch re-send, as the old build did every launch")
         XCTAssertNil(snapshot.partnerStatusSeen)
         XCTAssertNil(snapshot.anniversary)
         XCTAssertTrue(snapshot.anniversaryPublished, "pre-field snapshots must not republish")
@@ -192,6 +193,7 @@ final class SnapshotCodableTests: XCTestCase {
         snapshot.lastAnnouncedPartnerStatusAt = Fixtures.date(8)
         snapshot.lastAnnouncedPartnerStatus = theirs
         snapshot.receiptsDirty = true
+        snapshot.receiptsUnsettled = false
         snapshot.partnerStatusSeen = StatusSeen(statusUpdatedAt: Fixtures.date(9), seenAt: Fixtures.date(10))
         snapshot.myStatusSeenByPartner = StatusSeen(statusUpdatedAt: Fixtures.date(11), seenAt: Fixtures.date(12))
         snapshot.anniversary = Anniversary(startsAt: Fixtures.date(13), timeZoneID: "Australia/Sydney")

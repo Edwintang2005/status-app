@@ -301,10 +301,15 @@ struct Snapshot: Codable, Hashable {
     var lastAnnouncedPartnerStatus: StatusPayload?
 
     /// Whether this device's read-receipt record is behind its local seen-state.
-    /// Set by `markSeen`, the status receipt, the Settings toggle, each launch and
-    /// a finished fresh start; claimed (cleared) before the
+    /// Set by `markSeen`, the status receipt, the Settings toggle, a launch after
+    /// an unsettled write and a finished fresh start; claimed (cleared) before the
     /// publish and set again if it fails, so a change mid-flight is flushed too.
     var receiptsDirty: Bool = false
+    /// A receipt write may have landed in an order this device can't vouch for:
+    /// one in flight when the app last died, or one abandoned (a deadline, a
+    /// failure) that can still land over a later one. The next launch re-sends
+    /// (`rearmUnsettledReceipts`). True until a write is confirmed this pairing.
+    var receiptsUnsettled: Bool = true
 
     /// The partner status this device has had on screen — what the receipt
     /// publishes as a status read receipt. Only ever moves forward.
@@ -359,7 +364,7 @@ struct Snapshot: Codable, Hashable {
         case lastCelebratedAt, notifiedMomentIDs
         case lastNudgeFailedAt, lastNudgeIssuedAt, myStatusPublished
         case lastAnnouncedPartnerStatusAt
-        case receiptsDirty
+        case receiptsDirty, receiptsUnsettled
         case partnerStatusSeen, myStatusSeenByPartner
         case anniversary, anniversaryPublished
         case lastAnnouncedPartnerStatus
@@ -407,6 +412,8 @@ struct Snapshot: Codable, Hashable {
         myStatusPublished = value(Bool.self, .myStatusPublished) ?? true
         lastAnnouncedPartnerStatusAt = value(Date.self, .lastAnnouncedPartnerStatusAt)
         receiptsDirty = value(Bool.self, .receiptsDirty) ?? false
+        // Pre-field: the old build re-sent every launch; one more does no harm.
+        receiptsUnsettled = value(Bool.self, .receiptsUnsettled) ?? true
         partnerStatusSeen = value(StatusSeen.self, .partnerStatusSeen)
         myStatusSeenByPartner = value(StatusSeen.self, .myStatusSeenByPartner)
         anniversary = value(Anniversary.self, .anniversary)
@@ -458,6 +465,7 @@ struct Snapshot: Codable, Hashable {
         try container.encodeIfPresent(lastAnnouncedPartnerStatusAt,
                                       forKey: .lastAnnouncedPartnerStatusAt)
         try container.encode(receiptsDirty, forKey: .receiptsDirty)
+        try container.encode(receiptsUnsettled, forKey: .receiptsUnsettled)
         try container.encodeIfPresent(partnerStatusSeen, forKey: .partnerStatusSeen)
         try container.encodeIfPresent(myStatusSeenByPartner, forKey: .myStatusSeenByPartner)
         try container.encodeIfPresent(anniversary, forKey: .anniversary)

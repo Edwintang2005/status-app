@@ -52,6 +52,9 @@ final class Outbox {
     @ObservationIgnored private var isRepublishingRequest = false
     @ObservationIgnored private var isFlushingReceipts = false
     @ObservationIgnored private var receiptFlushTask: Task<Void, Never>?
+    /// A receipt write this process gave up on may still land, over any later
+    /// one: none settles the receipts until the next launch re-sends.
+    @ObservationIgnored private var receiptWriteAbandoned = false
     /// Consecutive status republishes that failed for a reason other than no
     /// route, and when automatic passes may try again.
     @ObservationIgnored private var statusFailures = 0
@@ -552,6 +555,8 @@ final class Outbox {
     /// before the network call, like the nudge cooldown: a `markSeen` or toggle
     /// landing mid-flight re-dirties it and the loop publishes that too; a
     /// failure re-sets it for the next refresh. Disabled publishes an empty map.
+    /// The claim marks the receipts unsettled; only a confirmed write, with none
+    /// abandoned in this process, settles them.
     func flushReceipts() async {
         guard store.pairing != nil, !isFlushingReceipts else { return }
         isFlushingReceipts = true
@@ -568,8 +573,12 @@ final class Outbox {
             } catch {
                 noteSendFailed(error)
                 log.error("Receipt publish failed: \(error.localizedDescription, privacy: .public)")
+                receiptWriteAbandoned = true
                 store.mutate(reloadWidgets: false) { $0.receiptsDirty = true }
                 return
+            }
+            if !receiptWriteAbandoned {
+                store.mutate(reloadWidgets: false) { $0.receiptsUnsettled = false }
             }
         }
     }
@@ -608,7 +617,15 @@ extension Snapshot {
     mutating func claimReceiptsDirty() -> Bool {
         guard receiptsDirty else { return false }
         receiptsDirty = false
+        receiptsUnsettled = true
         return true
+    }
+
+    /// Launch: the last process may have died mid-write or left one abandoned,
+    /// which can land late over a newer one — publish once more. Called before
+    /// any await, so the scene's own recovery pass picks it up.
+    mutating func rearmUnsettledReceipts() {
+        if receiptsUnsettled { receiptsDirty = true }
     }
 
     /// The status read receipt for the status `shown` on screen, forward only:

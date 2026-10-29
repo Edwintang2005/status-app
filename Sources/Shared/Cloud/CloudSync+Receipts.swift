@@ -22,8 +22,12 @@ extension CloudSync {
                               statusSeen: StatusSeen?,
                               to recordID: CKRecord.ID,
                               in database: CKDatabase) async throws {
-        let record = try await fetchRecord(recordID, in: database)
-            ?? CKRecord(recordType: RecordType.receipt, recordID: recordID)
+        // The record is wholly ours and every field is set, so `.changedKeys` (no
+        // change-tag check) overwrites it without a fetch. A retraction's removals
+        // count only on a fetched copy.
+        let record = statusSeen == nil
+            ? try await fetchRecord(recordID, in: database) ?? CKRecord(recordType: RecordType.receipt, recordID: recordID)
+            : CKRecord(recordType: RecordType.receipt, recordID: recordID)
         // 0 encodes "seen, time unknown" (.distantPast) — see Moment.seenAt.
         let raw = seen.mapValues { $0 == .distantPast ? 0 : $0.timeIntervalSince1970 }
         record.encryptedValues[Field.seenMap] = try JSONEncoder().encode(raw)

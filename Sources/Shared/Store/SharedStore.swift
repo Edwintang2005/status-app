@@ -42,6 +42,8 @@ final class SharedStore: @unchecked Sendable {
         static let widgetReloadRequestedAt = "widgetReloadRequestedAt"
         static let verifiedAccount = "verifiedAccount"
         static let nudgeRecordCache = "nudgeRecordCache"
+        static let statusRecordCache = "statusRecordCache"
+        static let wholePushID = "wholePushID"
         static let subscriptionCleanup = "subscriptionCleanup"
         static let milestoneReminders = "milestoneRemindersEnabled"
         static let notificationsNoticeDismissed = "notificationsNoticeDismissed"
@@ -166,7 +168,7 @@ final class SharedStore: @unchecked Sendable {
     }
 
     /// Owner side: cached invite link so Settings can show it instantly and
-    /// offline; `CloudSync.inviteState()` is the truth.
+    /// offline; `CloudSync.shareCheck()` is the truth.
     var inviteURL: URL? {
         get {
             guard let data = store.data(forKey: Key.inviteURL),
@@ -246,6 +248,27 @@ final class SharedStore: @unchecked Sendable {
         set { encodeOptional(newValue, forKey: Key.nudgeRecordCache) }
     }
 
+    /// Our status record's system fields and what it held when last saved or
+    /// fetched, so a status save skips the fetch (`CloudSync.saveStatus`). A
+    /// stale copy only costs a conflict, which falls back to the fetch.
+    struct StatusRecordCache: Codable, Equatable, Sendable {
+        var systemFields: Data
+        var payload: StatusPayload
+    }
+
+    var statusRecordCache: StatusRecordCache? {
+        get { decode(StatusRecordCache.self, forKey: Key.statusRecordCache) }
+        set { encodeOptional(newValue, forKey: Key.statusRecordCache) }
+    }
+
+    /// The last push whose refresh in the notification service took the whole
+    /// delta, readable (`RefreshResult.isWholeDelta`): the open app showing
+    /// that banner has nothing left to fetch for it.
+    var wholePushID: String? {
+        get { store.data(forKey: Key.wholePushID).flatMap { String(data: $0, encoding: .utf8) } }
+        set { store.setData(newValue.flatMap { $0.data(using: .utf8) }, forKey: Key.wholePushID) }
+    }
+
     /// The old pairing's subscriptions may still be registered: an unlink that
     /// never reached iCloud (an offline block, a local-only reset) left them, and
     /// the ex's every write would keep pushing here. Retried while unpaired
@@ -292,6 +315,7 @@ final class SharedStore: @unchecked Sendable {
             zoneGoneSeenAt = nil
             subscriptionsVerifiedAt = nil
             nudgeRecordCache = nil
+            statusRecordCache = nil
             store.setData(nil, forKey: Key.unreadable)
             clearChangeTokens()
             var fresh = Snapshot.empty

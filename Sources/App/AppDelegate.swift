@@ -80,7 +80,8 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
         // service extension may have taken one batch of it: fetch the rest. The
         // app's own local notifications come from inside a refresh.
         if notification.request.trigger is UNPushNotificationTrigger {
-            Task { await AppModel.current?.refresh() }
+            let id = notification.request.identifier
+            Task { await AppModel.current?.refreshAfterPush(id) }
         }
         return [.banner, .sound]
     }

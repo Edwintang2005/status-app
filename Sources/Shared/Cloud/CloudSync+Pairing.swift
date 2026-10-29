@@ -173,28 +173,21 @@ extension CloudSync {
         return try await saveShare(share, in: database)
     }
 
-    /// Owner side. Asks the server for the invite link's state — the share is
-    /// the durable thing; a cached URL goes stale the moment it's closed elsewhere.
-    func inviteState() async throws -> InviteState {
-        guard let pairing = try await ownerPairing() else { return .missing }
-        let database = container.privateCloudDatabase
-        guard let share = try await existingZoneShare(in: database,
+    /// Owner side, one share lookup: whether the invite link is open — the share
+    /// is the durable thing; a cached URL goes stale the moment it's closed
+    /// elsewhere — and `SharePosture.memberCount`, where more than one means
+    /// someone besides the partner joined through the link.
+    func shareCheck() async throws -> ShareCheck {
+        guard let pairing = try await ownerPairing(),
+              let share = try await existingZoneShare(in: container.privateCloudDatabase,
                                                       zoneID: zoneID(for: pairing)) else {
-            return .missing
+            return ShareCheck(memberCount: nil, invite: .missing)
         }
+        let memberCount = SharePosture(share).memberCount
         guard share.publicPermission == .readWrite, let url = share.url else {
-            return .closed(share.url)
+            return ShareCheck(memberCount: memberCount, invite: .closed(share.url))
         }
-        return .open(url)
-    }
-
-    /// Owner side: `SharePosture.memberCount`. More than one means someone besides
-    /// the partner joined through the link. `nil` when there's no share to look at.
-    func shareMemberCount() async throws -> Int? {
-        guard let pairing = try await ownerPairing() else { return nil }
-        guard let share = try await existingZoneShare(in: container.privateCloudDatabase,
-                                                      zoneID: zoneID(for: pairing)) else { return nil }
-        return SharePosture(share).memberCount
+        return ShareCheck(memberCount: memberCount, invite: .open(url))
     }
 
     /// The pairing for an owner share call, `nil` when this side isn't the owner.

@@ -117,6 +117,13 @@ enum InviteState: Sendable, Equatable {
     case missing
 }
 
+/// The owner's share as one lookup reads it. `memberCount` is `nil` when
+/// there's no share to look at.
+struct ShareCheck: Sendable, Equatable {
+    var memberCount: Int?
+    var invite: InviteState
+}
+
 /// All CloudKit access, shared by the app, the widget and the notification
 /// service extension. Pairing is a zone-wide `CKShare`; each side writes only
 /// records named after its own role, so the two phones can never conflict.

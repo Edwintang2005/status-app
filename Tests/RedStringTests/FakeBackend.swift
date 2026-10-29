@@ -80,6 +80,7 @@ final class FakeBackend: SyncBackend, @unchecked Sendable {
     }
     func fetchMedia(for moment: Moment) async throws {}
     func fetchThumbnails(for moments: [Moment]) async throws {}
+    func prefetchRecentMedia() async {}
     func archiveZone() async throws -> ArchiveContents.Zone {
         ArchiveContents.Zone(moments: [], statuses: [], unreadable: 0)
     }
@@ -138,8 +139,7 @@ final class FakeBackend: SyncBackend, @unchecked Sendable {
     func reacceptShare(_ metadata: CKShare.Metadata) async throws {}
     func discoverExistingPairing() async -> (role: PairRole, zoneID: CKRecordZone.ID)? { nil }
     func rejoin(role: PairRole, zoneID: CKRecordZone.ID, displayName: String) async throws {}
-    func inviteState() async throws -> InviteState { .missing }
-    func shareMemberCount() async throws -> Int? { nil }
+    func shareCheck() async throws -> ShareCheck { ShareCheck(memberCount: nil, invite: .missing) }
     func closeUnusedInvite() async throws {}
     func lockIfPartnerOnShare(_ pairing: PairingInfo) async throws -> CloudSync.LockOutcome { .nobodyJoined }
     func lockPairing() async throws {}

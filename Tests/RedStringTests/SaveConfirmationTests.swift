@@ -34,6 +34,18 @@ final class SaveConfirmationTests: XCTestCase {
         }
     }
 
+    /// The status log prune: gone or never there leaves the local log; anything else stays for next time.
+    func testOnlyConfirmedPrunesLeaveTheLocalLog() {
+        let ids = (0..<4).map { CKRecord.ID(recordName: "statuslog-owner-\($0)", zoneID: zone) }
+        let stale = ids.enumerated().map { CloudSync.StaleStatusLog(id: $1, at: Fixtures.date(Double($0))) }
+        let result: CloudSync.ModifyResult = (saveResults: [:], deleteResults: [
+            ids[0]: .success(()),
+            ids[1]: .failure(CKError(.unknownItem)),
+            ids[2]: .failure(CKError(.networkFailure)),
+        ])
+        XCTAssertEqual(CloudSync.confirmedPrunes(result, stale), [Fixtures.date(0), Fixtures.date(1)])
+    }
+
     func testDeletionIsConfirmedTheSameWay() {
         XCTAssertNoThrow(try CloudSync.confirmDeleted(result(delete: .success(())), id))
         XCTAssertThrowsError(try CloudSync.confirmDeleted(result(delete: .failure(CKError(.unknownItem))), id))

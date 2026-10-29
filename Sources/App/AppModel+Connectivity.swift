@@ -98,6 +98,32 @@ extension AppModel {
         }
     }
 
+    /// The scene came to the foreground. A complete fetch by any process moments
+    /// ago is reused (`AppFetchPolicy`); readiness and the queued sends still run.
+    func refreshOnForeground() async {
+        guard isPaired,
+              !AppFetchPolicy.fetchesOnForeground(lastSyncedAt: store.snapshot.lastSyncedAt,
+                                                  heldSince: store.unreadableTally.heldSince) else {
+            await refresh()
+            return
+        }
+        if Date().timeIntervalSince(readinessCheckedAt ?? .distantPast) >= AppConfig.readinessReuseWindow {
+            await refreshReadiness()
+        }
+        await recoverAfterRefresh()
+    }
+
+    /// A push shown over the open app. The service extension may have taken one
+    /// batch of it: fetch the rest — unless it took the whole delta, when only
+    /// the full-size media an app fetch brings along is left to get.
+    func refreshAfterPush(_ identifier: String) async {
+        guard isPaired, !AppFetchPolicy.fetchesAfterPush(identifier, wholePushID: store.wholePushID) else {
+            await refresh()
+            return
+        }
+        await backend.prefetchRecentMedia()
+    }
+
     /// Coalesced like the fetch: a pass asked for mid-pass runs once more.
     func recoverAfterRefresh() async {
         guard isPaired, recoveryGate.begin() else { return }

@@ -172,20 +172,16 @@ extension AppModel {
         if throttled, let last = shareMembersCheckedAt,
            Date().timeIntervalSince(last) < AppConfig.shareMemberCheckInterval { return nil }
         let changesBefore = inviteChanges
-        // Separate reads: a failed state lookup mustn't cost a good member count.
+        let check: ShareCheck
         do {
-            shareMemberCount = try await bounded { try await $0.shareMemberCount() }
-            shareMembersCheckedAt = Date()
+            check = try await bounded { try await $0.shareCheck() }
         } catch {
-            log.error("Couldn't count the share's members: \(error.localizedDescription, privacy: .public)")
-        }
-        let state: InviteState
-        do {
-            state = try await bounded { try await $0.inviteState() }
-        } catch {
-            log.error("Couldn't read the invite link: \(error.localizedDescription, privacy: .public)")
+            log.error("Couldn't read the share: \(error.localizedDescription, privacy: .public)")
             return nil
         }
+        shareMemberCount = check.memberCount
+        shareMembersCheckedAt = Date()
+        let state = check.invite
         // A close or reopen landed meanwhile: its answer is newer than ours.
         guard inviteChanges == changesBefore, !isChangingInviteLink else { return nil }
         switch state {

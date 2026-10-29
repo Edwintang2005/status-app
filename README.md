@@ -232,8 +232,11 @@ delivery path. The widget and the open app still rely on:
    posts `.snapshotDidChange`, so the home screen re-reads the store the
    extension just updated instead of going stale under the banner; for a
    remote push it also refreshes, since the extension may have taken only one
-   batch.
-2. **Foreground refresh**, whenever the app becomes active.
+   batch — unless the extension stamped that very push as a whole, readable
+   delta (`SharedStore.wholePushID`), when only the app's full-media top-up runs.
+2. **Foreground refresh**, whenever the app becomes active — reusing a
+   complete fetch any process made in the last 30 s (`AppFetchPolicy`; never
+   while records are held unreadable). Readiness and the send queue still run.
 3. **The widget's own fetch**, on its timeline refresh, with an 8s
    timeout and the cached snapshot as fallback. This is the only battery cost
    in the widget: one process launch and one CloudKit round trip per widget
@@ -434,7 +437,8 @@ run since is picked up on its next launch. No schema change.
 
 On by default, one switch per side in Settings, and the switch gates both
 directions: a device only *publishes* receipts while its own toggle is on (off,
-each launch re-sends an empty one, so a retraction a late write overtook heals),
+a launch after a write it couldn't confirm re-sends an empty one, so a
+retraction a late write overtook heals),
 and only *shows* the partner's while it's on.
 
 Each side owns one `Receipt` record (`receipt-owner` / `receipt-participant`)

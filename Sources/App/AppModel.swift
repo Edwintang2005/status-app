@@ -382,11 +382,10 @@ final class AppModel {
         if let invite = InviteInbox.shared.take() {
             receiveInvite(invite)
         }
-        // One receipt publish per launch even when nothing marked itself dirty:
-        // covers moments seen before receipts existed and heals lost publishes —
-        // with receipts off too, so a retraction a stale write overtook is re-sent.
-        // Before any await: the scene's own refresh may run its recovery pass first.
-        if isPaired { store.mutate(reloadWidgets: false) { $0.receiptsDirty = true } }
+        // A receipt write the last run couldn't confirm is re-sent, receipts off
+        // too, so a retraction a stale write overtook is healed. Before any
+        // await: the scene's own refresh may run its recovery pass first.
+        if isPaired { store.mutate(reloadWidgets: false) { $0.rearmUnsettledReceipts() } }
         await refreshReadiness()
         guard isPaired else { return }
         // Easy to lose across reinstalls, but re-asserted daily rather than on

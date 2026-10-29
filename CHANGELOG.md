@@ -2,6 +2,21 @@
 
 What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
+## 1.6.1 — fewer CloudKit round trips (October 2026)
+
+- **No schema change.** Sends skip fetches they didn't need: receipts and
+  the anniversary request overwrite without reading first (a receipt
+  retraction still reads); a status saves from the cached record (a stale
+  cache costs one conflict, then the old fetch-and-decide) and its log save
+  carries the prune — 1–2 round trips instead of 3–4.
+- The owner's share check is one lookup, not two. Receipts are re-sent at
+  launch only when a write went unconfirmed (`receiptsUnsettled`), not every
+  launch.
+- The open app reuses another process's fetch: after a push the notification
+  service took whole (it stamps the push), and on foregrounding within 30 s
+  of any complete fetch. Readiness, the send queue and the full-media top-up
+  still run.
+
 ## Review-fix round (October 2026)
 
 - **Mostly code health; no schema change.** `AppModel` split

@@ -39,6 +39,9 @@ struct RefreshResult: Sendable {
     var partnerNudgeArrived = false
 
     static let empty = RefreshResult(partnerStatus: nil, newPartnerMoments: [])
+
+    /// Every change up to now filed and readable: another fetch would find nothing.
+    var isWholeDelta: Bool { !incomplete && unreadableRecordNames.isEmpty }
 }
 
 /// Whether the backend can actually do anything right now.
@@ -70,6 +73,9 @@ protocol SyncBackend: Sendable {
     /// view past the cache window, batched by `ThumbnailFetcher`. Skips voice
     /// memos; a no-op for backends that never evict.
     func fetchThumbnails(for moments: [Moment]) async throws
+    /// The app's media top-up without a change fetch: the index's newest moments
+    /// whose files aren't here (`MediaPrefetchPlan`). No-op for backends that never evict.
+    func prefetchRecentMedia() async
     /// Every readable moment and status log in the zone, for the memories
     /// archive. Touches no local state or change token.
     func archiveZone() async throws -> ArchiveContents.Zone
@@ -107,8 +113,7 @@ protocol SyncBackend: Sendable {
     func reacceptShare(_ metadata: CKShare.Metadata) async throws
     func discoverExistingPairing() async -> (role: PairRole, zoneID: CKRecordZone.ID)?
     func rejoin(role: PairRole, zoneID: CKRecordZone.ID, displayName: String) async throws
-    func inviteState() async throws -> InviteState
-    func shareMemberCount() async throws -> Int?
+    func shareCheck() async throws -> ShareCheck
     func closeUnusedInvite() async throws
     func lockIfPartnerOnShare(_ pairing: PairingInfo) async throws -> CloudSync.LockOutcome
     func lockPairing() async throws
@@ -320,6 +325,7 @@ struct DemoBackend: SyncBackend {
     func resumeUploads() async -> [ResumedUpload]? { [] }
     func fetchMedia(for moment: Moment) async throws {}
     func fetchThumbnails(for moments: [Moment]) async throws {}
+    func prefetchRecentMedia() async {}
     func archiveZone() async throws -> ArchiveContents.Zone {
         ArchiveContents.Zone(moments: [], statuses: [], unreadable: 0)
     }
@@ -356,8 +362,7 @@ struct DemoBackend: SyncBackend {
     func rejoin(role: PairRole, zoneID: CKRecordZone.ID, displayName: String) async throws {
         throw SyncError.shareUnavailable
     }
-    func inviteState() async throws -> InviteState { .missing }
-    func shareMemberCount() async throws -> Int? { nil }
+    func shareCheck() async throws -> ShareCheck { ShareCheck(memberCount: nil, invite: .missing) }
     func closeUnusedInvite() async throws { throw SyncError.shareUnavailable }
     func lockIfPartnerOnShare(_ pairing: PairingInfo) async throws -> CloudSync.LockOutcome {
         throw SyncError.shareUnavailable

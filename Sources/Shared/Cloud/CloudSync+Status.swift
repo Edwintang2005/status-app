@@ -33,17 +33,26 @@ extension CloudSync {
         await MainActor.run {
             _ = SharedStore.shared.mutate { $0.recordPublished(payload, savedAt: outcome.savedAt) }
         }
+        // Never the current status's own log, which can't be saved and deleted at once anyway.
+        let logName = pairing.role.statusLogRecordName(at: payload.wordsAt)
+        var stale = staleStatusLogs(pairing).filter { $0.id.recordName != logName }
         if logged {
             // Separate save: the log wants overwrite semantics (`allKeys`), the
-            // status a conflict check. A failure still fails the publish.
-            try await withZoneRecovery(pairing) {
-                try await saveStatusLog(payload, role: pairing.role, zone: recordID.zoneID, in: database)
+            // status a conflict check. A failure still fails the publish. The
+            // prune's first batch rides along.
+            let folded = Array(stale.prefix(Self.statusLogPruneBatch))
+            let removed = try await withZoneRecovery(pairing) {
+                try await saveStatusLog(payload, role: pairing.role, zone: recordID.zoneID,
+                                        pruning: folded, in: database)
             }
             await MainActor.run {
                 _ = SharedStore.shared.mutate(reloadWidgets: false) { $0.recordLogged(payload) }
             }
+            noteStatusLogsPruned(removed)
+            let foldedNames = Set(folded.map(\.id.recordName))
+            stale.removeAll { foldedNames.contains($0.id.recordName) }
         }
-        await pruneStatusLog(pairing, in: database)
+        await pruneStatusLog(stale, in: database)
     }
 
     enum StatusSaveOutcome: Sendable {
@@ -59,10 +68,12 @@ extension CloudSync {
 
     /// The per-change history record. Named by when the words were set (not a
     /// later rename's stamp), so republishing the same status lands on the same record.
+    /// `pruning` is deleted in the same request; returns the dates confirmed gone.
     func saveStatusLog(_ payload: StatusPayload,
-                               role: PairRole,
-                               zone: CKRecordZone.ID,
-                               in database: CKDatabase) async throws {
+                       role: PairRole,
+                       zone: CKRecordZone.ID,
+                       pruning stale: [StaleStatusLog] = [],
+                       in database: CKDatabase) async throws -> [Date] {
         let recordID = CKRecord.ID(recordName: role.statusLogRecordName(at: payload.wordsAt),
                                    zoneID: zone)
         let record = CKRecord(recordType: RecordType.statusLog, recordID: recordID)
@@ -70,46 +81,68 @@ extension CloudSync {
         record.encryptedValues[Field.message] = payload.message
         record.encryptedValues[Field.isCelebration] = payload.isCelebration ? 1 : 0
         record[Field.updatedAt] = payload.wordsAt as CKRecordValue
+        // Non-atomic once deletions ride along: a pre-cloud entry's unknownItem
+        // must not fail the log.
         let result = try await database.modifyRecords(saving: [record],
-                                                      deleting: [],
-                                                      savePolicy: .allKeys)
+                                                      deleting: stale.map(\.id),
+                                                      savePolicy: .allKeys,
+                                                      atomically: stale.isEmpty)
         try Self.confirmSaved(result, recordID)
+        return Self.confirmedPrunes(result, stale)
     }
 
-    /// Deletes this side's log records past `AppConfig.statusLogLimit`, oldest
-    /// first, and drops them locally. Best effort: the cap is housekeeping, and
-    /// the next publish tries again. Record names derive from the local log's
-    /// own entries, so no query (and no index) is needed.
-    func pruneStatusLog(_ pairing: PairingInfo, in database: CKDatabase) async {
+    /// One of this side's log records past the cap, and its local entry's date.
+    struct StaleStatusLog: Sendable {
+        var id: CKRecord.ID
+        var at: Date
+    }
+
+    /// Deletions per request, well inside CloudKit's 400-item limit.
+    static let statusLogPruneBatch = 200
+
+    /// This side's log records past `AppConfig.statusLogLimit`, oldest last.
+    /// Record names derive from the local log's own entries, so no query (and
+    /// no index) is needed.
+    func staleStatusLogs(_ pairing: PairingInfo) -> [StaleStatusLog] {
         let own = StatusHistoryLog.shared.load().filter(\.fromMe)
-        guard own.count > AppConfig.statusLogLimit else { return }
-        let stale = Array(own[AppConfig.statusLogLimit...])
+        guard own.count > AppConfig.statusLogLimit else { return [] }
         let zone = zoneID(for: pairing)
-        let ids = stale.map {
-            CKRecord.ID(recordName: pairing.role.statusLogRecordName(at: $0.at), zoneID: zone)
+        return own[AppConfig.statusLogLimit...].map {
+            StaleStatusLog(id: CKRecord.ID(recordName: pairing.role.statusLogRecordName(at: $0.at), zoneID: zone),
+                           at: $0.at)
         }
-        // Entries from before the cloud log have no record: non-atomic, so their
-        // unknownItem can't fail the batch. Only what the server confirmed gone
-        // leaves the local log.
-        var removed: [Date] = []
-        for batch in Array(zip(ids, stale.map(\.at))).chunked(into: 200) {
+    }
+
+    /// Deletes stale log records and drops them locally. Best effort: the cap
+    /// is housekeeping, and the next publish tries again.
+    func pruneStatusLog(_ stale: [StaleStatusLog], in database: CKDatabase) async {
+        for batch in stale.chunked(into: Self.statusLogPruneBatch) {
             do {
-                let result = try await database.modifyRecords(saving: [], deleting: batch.map(\.0), atomically: false)
-                for (id, date) in batch {
-                    switch result.deleteResults[id] {
-                    case .success?:
-                        removed.append(date)
-                    case .failure(let error as CKError)? where error.code == .unknownItem:
-                        removed.append(date)
-                    default:
-                        break
-                    }
-                }
+                // Non-atomic: entries from before the cloud log have no record.
+                let result = try await database.modifyRecords(saving: [], deleting: batch.map(\.id), atomically: false)
+                noteStatusLogsPruned(Self.confirmedPrunes(result, batch))
             } catch {
                 log.error("Status log prune failed: \(error.localizedDescription, privacy: .public)")
                 break
             }
         }
+    }
+
+    /// Only what the server confirmed gone (or never had) leaves the local log.
+    static func confirmedPrunes(_ result: ModifyResult, _ stale: [StaleStatusLog]) -> [Date] {
+        stale.compactMap { entry in
+            switch result.deleteResults[entry.id] {
+            case .success?:
+                return entry.at
+            case .failure(let error as CKError)? where error.code == .unknownItem:
+                return entry.at
+            default:
+                return nil
+            }
+        }
+    }
+
+    func noteStatusLogsPruned(_ removed: [Date]) {
         guard !removed.isEmpty else { return }
         StatusHistoryLog.shared.remove(fromMe: true, at: removed)
         log.notice("Pruned \(removed.count) status log record(s).")
@@ -118,6 +151,19 @@ extension CloudSync {
     func saveStatus(_ payload: StatusPayload,
                     to recordID: CKRecord.ID,
                     in database: CKDatabase) async throws -> StatusSaveOutcome {
+        // One round trip from the cached record when it says "save": the change tag
+        // proves it current, and a stale one falls back to the fetch below. Any
+        // other verdict is re-judged on a fetched copy.
+        if let cached = await MainActor.run(body: { SharedStore.shared.statusRecordCache }),
+           let record = Self.record(fromSystemFields: cached.systemFields), record.recordID == recordID,
+           StatusSavePolicy.decide(server: cached.payload, payload: payload, now: Date()) == .save {
+            do {
+                return try await writeStatus(payload, onto: record, in: database)
+            } catch let error as CKError where Self.isServerRecordChanged(error) || Self.isUnknownItem(error) {
+                log.notice("Cached status record was stale; fetching.")
+                await MainActor.run { SharedStore.shared.statusRecordCache = nil }
+            }
+        }
         let existing = try await fetchRecord(recordID, in: database)
         // Never regress the server copy: a slow publish (or a republish from a
         // second device on the account) must lose to a newer status already there.
@@ -128,6 +174,7 @@ extension CloudSync {
             log.notice("Status save waiting: the server's newer copy couldn't be read here.")
             throw SyncError.saveUnconfirmed
         case .alreadySaved:
+            if let existing, let server { await cacheStatusRecord(existing, payload: server) }
             return .saved(existing?.modificationDate)
         case .superseded:
             log.notice("Status save skipped: the server already has a newer status.")
@@ -135,7 +182,14 @@ extension CloudSync {
         case .save:
             break
         }
-        let record = existing ?? CKRecord(recordType: RecordType.status, recordID: recordID)
+        return try await writeStatus(payload,
+                                     onto: existing ?? CKRecord(recordType: RecordType.status, recordID: recordID),
+                                     in: database)
+    }
+
+    private func writeStatus(_ payload: StatusPayload,
+                             onto record: CKRecord,
+                             in database: CKDatabase) async throws -> StatusSaveOutcome {
         record.encryptedValues[Field.emoji] = payload.emoji
         record.encryptedValues[Field.message] = payload.message
         record.encryptedValues[Field.displayName] = payload.displayName
@@ -147,7 +201,16 @@ extension CloudSync {
         let result = try await database.modifyRecords(saving: [record],
                                                       deleting: [],
                                                       savePolicy: .ifServerRecordUnchanged)
-        return .saved(try Self.confirmSaved(result, recordID).modificationDate)
+        let saved = try Self.confirmSaved(result, record.recordID)
+        await cacheStatusRecord(saved, payload: payload)
+        return .saved(saved.modificationDate)
+    }
+
+    /// Our status record as saved, or as a delta carried it (another device of
+    /// ours, or our own echo). Readable copies only: the cache's verdict needs the words.
+    func cacheStatusRecord(_ record: CKRecord, payload: StatusPayload) async {
+        let cache = SharedStore.StatusRecordCache(systemFields: Self.systemFields(of: record), payload: payload)
+        await MainActor.run { SharedStore.shared.statusRecordCache = cache }
     }
 }
 
