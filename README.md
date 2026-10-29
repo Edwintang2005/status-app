@@ -165,7 +165,7 @@ their own record types rather than fields on `Status`:
 
 | Record type | Payload | What happens |
 |---|---|---|
-| `Status` | `alertBody` (no sound) + `shouldSendMutableContent` | **Visible, with sound.** The subscription was registered silent and can't be edited in place, so the extension adds the sound (`Push.addsSound`) as it rewrites the generic text with the decrypted emoji and message; Do Not Disturb and Sleep Focus are how a partner opts out. The pre-1.1 silent subscription (`status-changes`) is deleted on sight. |
+| `Status` | `alertBody` (no sound) + `shouldSendMutableContent` | **Visible, with sound.** The subscription was registered silent and can't be edited in place, so the extension adds the sound (`Plan.sound`) once the plan says it's the partner's status — a claimed update or rename, or their record held unreadable; an unworded pass stays silent, as it may be our own save coming back; Do Not Disturb and Sleep Focus are how a partner opts out. The pre-1.1 silent subscription (`status-changes`) is deleted on sight. |
 | `Nudge` | `alertBody` + sound + `shouldSendMutableContent` | **Visible.** APNs displays it whether or not the app is running. |
 | `Moment` | `alertBody` + sound + `shouldSendMutableContent` | **Visible**, and the image is attached by the service extension. |
 
@@ -223,8 +223,10 @@ runs under `make test`. A few rows worth knowing:
 - **Nothing new to say.** A push for this phone's own send coming back, or for
   something already announced, is quiet (`.passive`, no sound) and says what it
   is — *"Your status was sent to Sam."*, or the announced words again — never
-  CloudKit's *"Sent you something"*. Over the open app a quiet one only goes to
-  Notification Centre, no banner.
+  CloudKit's *"Sent you something"*. "Your moment was sent" needs our record in
+  the delta, or — nothing read, another process took it — an upload sent in the
+  last 10 minutes and newer than theirs. Over the open app a quiet push only
+  goes to Notification Centre, no banner; the app's own passive posts still show.
 - **Hidden previews.** With "Show Previews: When Unlocked", a locked banner
   reads *"Something new 💛"* rather than a bare "Notification".
 
@@ -238,10 +240,14 @@ delivery path. The widget and the open app still rely on:
    extension just updated instead of going stale under the banner; for a
    remote push it also refreshes, since the extension may have taken only one
    batch — unless the extension stamped that very push as a whole, readable
-   delta (`SharedStore.wholePushID`), when only the app's full-media top-up runs.
+   delta (`SharedStore.wholePushID`), when the recovery pass and the app's
+   full-media top-up run without the fetch.
 2. **Foreground refresh**, whenever the app becomes active — reusing a
-   complete fetch any process made in the last 30 s (`AppFetchPolicy`; never
-   while records are held unreadable). Readiness and the send queue still run.
+   complete fetch any process made in the last 30 s (`AppFetchPolicy`). Only
+   while notifications reach the service and the last push it started on
+   (`SharedStore.lastPushID`, stamped on arrival) finished whole; never while
+   records are held unreadable or with no change token. Readiness and the
+   recovery pass still run.
 3. **The widget's own fetch**, on its timeline refresh, with an 8s
    timeout and the cached snapshot as fallback. This is the only battery cost
    in the widget: one process launch and one CloudKit round trip per widget

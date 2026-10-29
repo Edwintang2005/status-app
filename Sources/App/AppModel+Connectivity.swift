@@ -101,9 +101,18 @@ extension AppModel {
     /// The scene came to the foreground. A complete fetch by any process moments
     /// ago is reused (`AppFetchPolicy`); readiness and the queued sends still run.
     func refreshOnForeground() async {
-        guard isPaired,
-              !AppFetchPolicy.fetchesOnForeground(lastSyncedAt: store.snapshot.lastSyncedAt,
-                                                  heldSince: store.unreadableTally.heldSince) else {
+        guard let pairing = store.pairing else {
+            await refresh()
+            return
+        }
+        let state = AppFetchPolicy.Foreground(
+            lastSyncedAt: store.snapshot.lastSyncedAt,
+            heldSince: store.unreadableTally.heldSince,
+            pushesArrive: await NotificationManager.servicePushesArrive(),
+            hasChangeToken: store.changeToken(for: SharedStore.changeTokenKey(for: pairing.role)) != nil,
+            lastPushID: store.lastPushID,
+            wholePushID: store.wholePushID)
+        guard !AppFetchPolicy.fetchesOnForeground(state) else {
             await refresh()
             return
         }
@@ -114,13 +123,14 @@ extension AppModel {
     }
 
     /// A push shown over the open app. The service extension may have taken one
-    /// batch of it: fetch the rest — unless it took the whole delta, when only
-    /// the full-size media an app fetch brings along is left to get.
+    /// batch of it: fetch the rest — unless it took the whole delta, when what
+    /// a fetch brings along still runs: the recovery pass and full-size media.
     func refreshAfterPush(_ identifier: String) async {
         guard isPaired, !AppFetchPolicy.fetchesAfterPush(identifier, wholePushID: store.wholePushID) else {
             await refresh()
             return
         }
+        Task { await recoverAfterRefresh() }
         await backend.prefetchRecentMedia()
     }
 

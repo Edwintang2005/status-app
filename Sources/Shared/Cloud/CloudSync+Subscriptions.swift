@@ -16,7 +16,7 @@ extension CloudSync {
         let existingIDs = Set(existing.map(\.subscriptionID))
 
         // Status: registered without a sound, which can't change in place; the
-        // notification service adds it (`PushBannerPolicy.Push.addsSound`).
+        // notification service adds it for a partner's status (`PushBannerPolicy.Plan.sound`).
         let toSave = [
             Self.subscription(SubscriptionID.status, for: RecordType.status, body: GenericAlert.status, sound: nil),
             Self.subscription(SubscriptionID.nudge, for: RecordType.nudge, body: GenericAlert.nudge, sound: "default"),

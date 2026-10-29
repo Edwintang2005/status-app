@@ -19,11 +19,6 @@ enum PushBannerPolicy {
             }
         }
 
-        /// The status subscription was registered silent, and a subscription
-        /// can't be edited in place: the service adds the sound up front, so
-        /// every exit has it but a `.quiet` plan. Focus decides who hears it.
-        var addsSound: Bool { self == .status }
-
         /// Stamped up front, so every exit carries the banner actions.
         var category: String {
             switch self {
@@ -57,6 +52,10 @@ enum PushBannerPolicy {
         var dropsCategory = false
         /// The moment whose thumbnail or recording the banner attaches.
         var attachment: Moment?
+        /// Adds the default sound: the status subscription was registered silent
+        /// and can't change in place. Only once the plan knows it's the partner's
+        /// status — an unworded or failed pass may be our own save coming back.
+        var sound = false
 
         static let unchanged = Plan()
     }
@@ -113,7 +112,7 @@ enum PushBannerPolicy {
                             thread: "fresh-start",
                             volume: .quiet)
             }
-            return couldNotRead ? .unchanged : momentAlreadyKnown(snapshot, name: name)
+            return couldNotRead ? .unchanged : momentAlreadyKnown(result, snapshot, name: name, now: now)
 
         case .nudge:
             let count = result.partnerStatus?.nudgeCount ?? snapshot.theirs?.nudgeCount
@@ -158,16 +157,19 @@ enum PushBannerPolicy {
                 let newName = ContentFilter.displayName(status.displayName, fallback: String(localized: "a new name"))
                 return Plan(title: ContentFilter.displayName(previousName, fallback: fallback),
                             body: String(localized: "is now going by \(newName)"),
-                            thread: "status-updates")
+                            thread: "status-updates",
+                            sound: true)
             case (.update?, let status?):
                 return Plan(title: name,
                             body: statusBody(status, reportedAt: reportedAt, sealed: snapshot.partnerStatusSealed),
-                            thread: "status-updates")
+                            thread: "status-updates",
+                            sound: true)
             default:
                 if result.heldPartnerStatus {
                     var plan = held(String(localized: "updated their status"),
                                     category: NotificationCategory.status, name: name)
                     plan.thread = "status-updates"
+                    plan.sound = true
                     return plan
                 }
                 if result.ownRecordsChanged {
@@ -228,12 +230,19 @@ enum PushBannerPolicy {
     // MARK: - Rows
 
     /// Nothing new from the partner in what this process read: this phone's own
-    /// send coming back (the newest in the space is ours), or something already
-    /// announced. Quiet, never CloudKit's "sent you something" for our own send.
-    private static func momentAlreadyKnown(_ snapshot: Snapshot, name: String) -> Plan {
+    /// send coming back, or something already announced. Quiet, never CloudKit's
+    /// "sent you something" for our own send. "Sent" needs our record in the
+    /// delta — or, with nothing read (another process took it), our newest
+    /// moment uploaded, just now, and newer than theirs.
+    private static func momentAlreadyKnown(_ result: RefreshResult, _ snapshot: Snapshot,
+                                           name: String, now: Date) -> Plan {
+        let sent = own(String(localized: "Your moment was sent to \(name)."))
+        if result.ownMomentSent { return sent }
         let theirs = snapshot.latestPartnerMoment
-        if let ours = snapshot.latestOwnMoment, ours.sentAt > (theirs?.sentAt ?? .distantPast) {
-            return own(String(localized: "Your moment was sent to \(name)."))
+        if !result.momentsArrived, let ours = snapshot.latestOwnMoment, ours.uploaded,
+           ours.sentAt > (theirs?.sentAt ?? .distantPast),
+           now.timeIntervalSince(ours.sentAt) <= AppConfig.nudgeEchoWindow {
+            return sent
         }
         guard let theirs, snapshot.hasAnnounced(theirs.id) else { return spaceChanged }
         return Plan(title: theirs.displaySenderName(fallback: name),

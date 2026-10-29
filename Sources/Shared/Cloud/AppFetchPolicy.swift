@@ -5,12 +5,26 @@ import Foundation
 /// leaves something for the app to fetch. Pull-to-refresh always fetches.
 enum AppFetchPolicy {
     /// Coming to the foreground this soon after a complete fetch (the push's
-    /// notification service, the widget, our own) reuses it: anything newer
-    /// would have pushed, and a dropped push costs at most this long.
+    /// notification service, the widget, our own) reuses it — only while pushes
+    /// reach the service, and every push it started on took a whole delta:
+    /// the app has no timer, so anything else waits for the next trigger.
     static let foregroundReuseWindow: TimeInterval = 30
 
-    static func fetchesOnForeground(lastSyncedAt: Date?, heldSince: Date?, now: Date = Date()) -> Bool {
-        guard heldSince == nil, let lastSyncedAt, lastSyncedAt <= now else { return true }
+    struct Foreground: Equatable {
+        var lastSyncedAt: Date?
+        var heldSince: Date?
+        /// Notifications allowed and shown somewhere, so the service runs per push.
+        var pushesArrive: Bool
+        /// No token is a resync owed (a cleared or corrupt store).
+        var hasChangeToken: Bool
+        var lastPushID: String?
+        var wholePushID: String?
+    }
+
+    static func fetchesOnForeground(_ state: Foreground, now: Date = Date()) -> Bool {
+        guard state.pushesArrive, state.hasChangeToken, state.heldSince == nil,
+              state.lastPushID == nil || state.lastPushID == state.wholePushID,
+              let lastSyncedAt = state.lastSyncedAt, lastSyncedAt <= now else { return true }
         return now.timeIntervalSince(lastSyncedAt) >= foregroundReuseWindow
     }
 

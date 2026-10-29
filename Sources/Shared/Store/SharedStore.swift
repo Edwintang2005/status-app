@@ -44,6 +44,7 @@ final class SharedStore: @unchecked Sendable {
         static let nudgeRecordCache = "nudgeRecordCache"
         static let statusRecordCache = "statusRecordCache"
         static let wholePushID = "wholePushID"
+        static let lastPushID = "lastPushID"
         static let subscriptionCleanup = "subscriptionCleanup"
         static let milestoneReminders = "milestoneRemindersEnabled"
         static let notificationsNoticeDismissed = "notificationsNoticeDismissed"
@@ -267,6 +268,13 @@ final class SharedStore: @unchecked Sendable {
     var wholePushID: String? {
         get { store.data(forKey: Key.wholePushID).flatMap { String(data: $0, encoding: .utf8) } }
         set { store.setData(newValue.flatMap { $0.data(using: .utf8) }, forKey: Key.wholePushID) }
+    }
+
+    /// The last push the notification service started on. Unequal to
+    /// `wholePushID`, its pass failed, ran out of time or took part of a delta.
+    var lastPushID: String? {
+        get { store.data(forKey: Key.lastPushID).flatMap { String(data: $0, encoding: .utf8) } }
+        set { store.setData(newValue.flatMap { $0.data(using: .utf8) }, forKey: Key.lastPushID) }
     }
 
     /// The old pairing's subscriptions may still be registered: an unlink that

@@ -37,6 +37,11 @@ struct RefreshResult: Sendable {
     var ownNudgeSentAt: Date?
     /// The partner's nudge record is in this delta.
     var partnerNudgeArrived = false
+    /// A moment of ours this phone already held is in an incremental delta:
+    /// its upload landing (a retry included), the push of our own send.
+    var ownMomentSent = false
+    /// Any readable moment record is in this delta.
+    var momentsArrived = false
 
     static let empty = RefreshResult(partnerStatus: nil, newPartnerMoments: [])
 

@@ -73,12 +73,42 @@ final class PushBannerPolicyTests: XCTestCase {
     /// The push of this phone's own send coming back is never worded as the partner's.
     func testOurOwnMomentComingBackSaysSo() {
         var snapshot = paired()
-        snapshot.latestPartnerMoment = Fixtures.moment("theirs", at: Fixtures.date(10))
-        snapshot.latestOwnMoment = Fixtures.moment("ours", at: Fixtures.date(20), fromMe: true)
-        let plan = decide(.moment, in: &snapshot)
+        snapshot.latestPartnerMoment = Fixtures.moment("theirs", at: Fixtures.date(990))
+        snapshot.recordAnnounced(snapshot.latestPartnerMoment!)
+        var result = RefreshResult.empty
+        result.ownMomentSent = true
+        result.momentsArrived = true
+        let plan = decide(.moment, result, in: &snapshot)
         XCTAssertEqual(plan.title, AppConfig.appName)
-        XCTAssertEqual(plan.body, String(localized: "Your moment was sent to Sam."))
+        XCTAssertEqual(plan.body, String(localized: "Your moment was sent to Sam."),
+                       "a retried upload older than their newest is still ours")
         XCTAssertEqual(plan.volume, .quiet)
+    }
+
+    /// Nothing read (the widget took the delta first): ours only when it's
+    /// uploaded, just sent and the newest in the space.
+    func testWithNothingReadOnlyAJustSentUploadIsOurs() {
+        var snapshot = paired()
+        snapshot.latestPartnerMoment = Fixtures.moment("theirs", at: Fixtures.date(10))
+        snapshot.latestOwnMoment = Fixtures.moment("ours", at: Fixtures.date(990), fromMe: true)
+        XCTAssertEqual(decide(.moment, in: &snapshot).body, String(localized: "Your moment was sent to Sam."))
+
+        snapshot.latestOwnMoment = Fixtures.moment("pending", at: Fixtures.date(990), fromMe: true, uploaded: false)
+        XCTAssertEqual(decide(.moment, in: &snapshot).body, String(localized: "Your shared space changed."),
+                       "still waiting to send: never \"sent\"")
+
+        snapshot.latestOwnMoment = Fixtures.moment("old", at: Fixtures.date(20), fromMe: true)
+        XCTAssertEqual(decide(.moment, in: &snapshot).body, String(localized: "Your shared space changed."),
+                       "an old send isn't this push's")
+    }
+
+    /// Something was read, but not ours: never "sent" from the snapshot's guess.
+    func testAReadDeltaWithoutOurRecordIsNotOurSend() {
+        var snapshot = paired()
+        snapshot.latestOwnMoment = Fixtures.moment("ours", at: Fixtures.date(990), fromMe: true)
+        var result = RefreshResult.empty
+        result.momentsArrived = true
+        XCTAssertEqual(decide(.moment, result, in: &snapshot).body, String(localized: "Your shared space changed."))
     }
 
     /// Announced already (the app's refresh got there first): its words, quietly.
@@ -313,19 +343,33 @@ final class PushBannerPolicyTests: XCTestCase {
         XCTAssertEqual(plan.title, "Sam")
         XCTAssertEqual(plan.body, "☕️ coffee")
         XCTAssertEqual(plan.thread, "status-updates")
-        XCTAssertEqual(plan.volume, .asSent, "the service's added sound stays")
+        XCTAssertEqual(plan.volume, .asSent)
+        XCTAssertTrue(plan.sound, "the silent subscription's sound, added for the partner's status")
 
         snapshot.theirs = status
         let again = decide(.status, result, in: &snapshot)
         XCTAssertEqual(again.body, "☕️ coffee", "already announced: its words, never CloudKit's")
         XCTAssertEqual(again.volume, .quiet)
+        XCTAssertFalse(again.sound)
     }
 
-    func testOnlyStatusPushesAreGivenASound() {
-        XCTAssertTrue(PushBannerPolicy.Push.status.addsSound)
-        XCTAssertFalse(PushBannerPolicy.Push.nudge.addsSound, "the subscription carries its own")
-        XCTAssertFalse(PushBannerPolicy.Push.moment.addsSound, "the subscription carries its own")
-        XCTAssertFalse(PushBannerPolicy.Push.other.addsSound)
+    /// The sound is for the partner's status only: a pass that couldn't word
+    /// the push may be our own save coming back, so it stays as silent as it came.
+    func testOnlyAPartnerStatusIsGivenASound() {
+        var snapshot = paired()
+        var held = RefreshResult.empty
+        held.unreadableRecordNames = ["status-participant"]
+        held.heldPartnerStatus = true
+        XCTAssertTrue(decide(.status, held, in: &snapshot).sound, "their record, unreadable: still theirs")
+
+        var unread = RefreshResult.empty
+        unread.unreadableRecordNames = ["status-owner"]
+        XCTAssertEqual(decide(.status, unread, in: &snapshot), .unchanged)
+        XCTAssertFalse(decide(.status, unread, in: &snapshot).sound)
+
+        var nudge = RefreshResult(partnerStatus: Fixtures.status(nudges: 1), newPartnerMoments: [])
+        nudge.partnerNudgeArrived = true
+        XCTAssertFalse(decide(.nudge, nudge, in: &snapshot).sound, "the nudge subscription carries its own")
     }
 
     /// This phone's own status save coming back: ordered by server time when both have it.

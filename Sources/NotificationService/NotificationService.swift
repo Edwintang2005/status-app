@@ -32,17 +32,17 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         // or the expiry fallback — carries the banner actions.
         let fallback = request.content.mutableCopy() as? UNMutableNotificationContent
         fallback?.categoryIdentifier = push.category
-        if push.addsSound { fallback?.sound = .default }
         self.fallback = fallback
         reloadHold = SharedStore.shared.holdWidgetReloads()
         // Handed to the task; only the category is set on it here first.
         nonisolated(unsafe) let original = request.content
         nonisolated(unsafe) let mutable = original.mutableCopy() as? UNMutableNotificationContent
         mutable?.categoryIdentifier = push.category
-        if push.addsSound { mutable?.sound = .default }
 
         let hold = reloadHold
         let id = request.identifier
+        // Before anything can fail: the open app fetches until a pass of this push takes it whole.
+        SharedStore.shared.lastPushID = id
         work = Task { [weak self] in
             guard let self else {
                 hold?.release(widgetNeedsFetch: true)
@@ -167,6 +167,7 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         if let thread = plan.thread { content.threadIdentifier = thread }
         if let category = plan.heldCategory { content.userInfo[NotificationCategory.heldBannerKey] = category }
         if plan.dropsCategory { content.categoryIdentifier = "" }
+        if plan.sound { content.sound = .default }
         switch plan.volume {
         case .asSent:
             break

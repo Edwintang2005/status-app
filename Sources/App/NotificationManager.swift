@@ -54,6 +54,19 @@ enum NotificationManager {
         await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
     }
 
+    /// Whether CloudKit's visible pushes reach the notification service, which
+    /// files each one: allowed, and shown somewhere (`AppFetchPolicy`).
+    static func servicePushesArrive() async -> Bool {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        switch settings.authorizationStatus {
+        case .authorized, .provisional, .ephemeral:
+            return [settings.alertSetting, settings.lockScreenSetting, settings.notificationCenterSetting]
+                .contains(.enabled)
+        default:
+            return false
+        }
+    }
+
     /// Sweeps this app's delivered notifications. Called when the app becomes
     /// active — everything a banner said is then on screen.
     static func clearDelivered() {

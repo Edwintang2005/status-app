@@ -14,16 +14,21 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
   launch.
 - The open app reuses another process's fetch: after a push the notification
   service took whole (it stamps the push), and on foregrounding within 30 s
-  of any complete fetch. Readiness, the send queue and the full-media top-up
-  still run.
+  of any complete fetch — only while pushes reach the service and every push
+  it started on finished whole, and never with no change token. The recovery
+  pass (send queue, receipts) and the full-media top-up still run either way.
 - **Partner status updates make a sound again.** The notification service
-  adds it, as the subscription can't be changed in place; Do Not Disturb and
-  Sleep Focus silence it for whoever doesn't want it.
+  adds it once it knows the status is the partner's (a claimed update or
+  rename, or their record held unreadable) — never to a pass that couldn't
+  word the push, which may be our own save coming back. The subscription
+  can't be changed in place; Do Not Disturb and Sleep Focus silence it.
 - **Quiet banners say what they are.** This phone's own status or moment
-  coming back reads "Your status/moment was sent to …", and an
-  already-announced one repeats its words, instead of CloudKit's "Sent you
-  something" or "Updated their status". Over the open app they only go to
-  Notification Centre.
+  coming back reads "Your status/moment was sent to …" (a moment only when
+  its record is in the delta, or, with nothing read, an upload just sent),
+  and an already-announced one repeats its words, instead of CloudKit's
+  "Sent you something" or "Updated their status". Over the open app quiet
+  pushes only go to Notification Centre; the app's own passive posts still
+  show.
 
 ## Review-fix round (October 2026)
 
