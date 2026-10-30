@@ -231,7 +231,7 @@ struct PairingView: View {
 
     private var privacyNote: some View {
         Label {
-            Text("Your statuses, photos and drawings are end-to-end encrypted in your own iCloud. No servers, no accounts, no ads.")
+            Text("Your words are end-to-end encrypted in iCloud; photos, drawings and voice memos are encrypted by iCloud. No servers, no accounts, no ads.")
                 .font(Theme.rounded(12))
                 .foregroundStyle(Theme.mutedText)
         } icon: {

@@ -240,7 +240,7 @@ final class AppModel {
         self.snapshot = store.snapshot
         // Now, not after the first fetch: offline that can take minutes, and an
         // empty history greys out the library and hides the moment card.
-        self.history = Self.shownHistory(MomentIndex.shared.load())
+        self.history = MomentIndex.shared.load()
         self.isPaired = store.pairing != nil
         self.role = store.pairing?.role
         self.inviteClosed = store.inviteClosed
@@ -356,7 +356,7 @@ final class AppModel {
     /// closes (`flushWidgetReload`), not one per page.
     func markSeen(_ moment: Moment, reloadWidgets: Bool = true) {
         guard !moment.seen, !moment.fromMe else { return }
-        history = Self.shownHistory(MomentIndex.shared.markSeen(ids: [moment.id]))
+        history = MomentIndex.shared.markSeen(ids: [moment.id])
         let owesReceipt = readReceiptsEnabled && isPaired
         // The widget's unheard-memo badge is a snapshot field; this is what clears it.
         let refreshed = store.refreshDerived(reloadWidgets: reloadWidgets) { snapshot in
@@ -446,7 +446,7 @@ final class AppModel {
             shareMembersCheckedAt = nil
             update(\.invitePostureChecked, false)
         }
-        update(\.history, Self.shownHistory(MomentIndex.shared.load()))
+        update(\.history, MomentIndex.shared.load())
         refreshRecentStatusesIfNeeded()
         syncMilestoneReminders()
     }
@@ -475,6 +475,8 @@ final class AppModel {
     /// Older entries keep metadata but not media files; fetches the file back from CloudKit on demand.
     func ensureMedia(for moment: Moment) async -> Bool {
         if MomentStore.shared.hasMedia(for: moment) { return true }
+        // A kind from a newer build: nothing this build could store or draw.
+        guard moment.kind.isSupported else { return false }
         do {
             try await backend.fetchMedia(for: moment)
             return MomentStore.shared.hasMedia(for: moment)
@@ -738,14 +740,8 @@ final class AppModel {
 
     /// A send of ours is confirmed on the server (the outbox marked it).
     private func noteUploaded() {
-        history = Self.shownHistory(MomentIndex.shared.load())
+        history = MomentIndex.shared.load()
         sendConfirmedAt = Date()
-    }
-
-    /// What the screens list: a kind from a newer build stays in the index, so
-    /// an update shows it, but there's nothing here to draw it with.
-    private static func shownHistory(_ all: [Moment]) -> [Moment] {
-        all.filter(\.kind.isSupported)
     }
 
     // MARK: - Anniversary

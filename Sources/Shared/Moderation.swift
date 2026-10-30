@@ -17,15 +17,19 @@ enum ContentFilter {
         "kys", "rape", "rapist",
     ]
 
+    /// Listed words that are also ordinary names ("Dick", the surname "Cock"):
+    /// never hide a name on their own, still hidden in messages.
+    static let nameExemptions: Set<String> = ["dick", "cock"]
+
     /// Whether the text contains a listed word. Word-level so "Scunthorpe"
     /// and "assist" pass.
-    static func flags(_ text: String) -> Bool {
+    static func flags(_ text: String, except exempt: Set<String> = []) -> Bool {
         guard !text.isEmpty else { return false }
         let folded = text.lowercased()
             .folding(options: [.diacriticInsensitive, .widthInsensitive], locale: nil)
         return folded
             .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
-            .contains { terms.contains(String($0)) }
+            .contains { terms.contains(String($0)) && !exempt.contains(String($0)) }
     }
 
     /// The filter as the user has it set: on by default, off in Settings.
@@ -43,7 +47,7 @@ enum ContentFilter {
                             fallback: String,
                             enabled: Bool = SharedStore.shared.contentFilterEnabled) -> String {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !hides(trimmed, enabled: enabled) else { return fallback }
+        guard !trimmed.isEmpty, !(enabled && flags(trimmed, except: nameExemptions)) else { return fallback }
         return trimmed
     }
 }

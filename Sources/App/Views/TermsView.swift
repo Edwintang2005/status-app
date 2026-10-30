@@ -69,9 +69,9 @@ struct TermsView: View {
                     .foregroundStyle(Theme.mutedText)
             }
             VStack(alignment: .leading, spacing: 12) {
-                Label("What you send goes to your partner, through your own iCloud.", systemImage: "lock.fill")
+                Label("What you send goes only to your partner, through iCloud.", systemImage: "lock.fill")
                 Label("Report or block anything, anytime.", systemImage: "flag.fill")
-                Label("We act on reports within 24 hours.", systemImage: "clock.fill")
+                Label("We respond to reports within 24 hours.", systemImage: "clock.fill")
             }
             .font(Theme.rounded(15, .medium))
             .labelStyle(TermsBulletStyle())
@@ -88,15 +88,15 @@ struct TermsView: View {
 
     private static let sections: [Section] = [
         Section(title: "What Red String is",
-                body: "A private status app for two people who choose to pair with each other. Everything you send — statuses, nudges, photos, drawings and voice memos — goes only to your partner, through your own iCloud. You are responsible for what you send."),
+                body: "A private status app for two people who choose to pair with each other. Everything you send — statuses, nudges, photos, drawings and voice memos — goes only to your partner, through iCloud, in the shared space of whoever sent the invite. You are responsible for what you send."),
         Section(title: "No tolerance for objectionable content or abuse",
-                body: "Don't send anything that is threatening, harassing, hateful, sexually explicit without consent, violent, illegal, or that involves a minor in any sexual way. Don't use Red String to abuse, stalk or pressure anyone. There is no tolerance for objectionable content or abusive behaviour: content is removed and the person who sent it is ejected."),
+                body: "Don't send anything that is threatening, harassing, hateful, sexually explicit without consent, violent, illegal, or that involves a minor in any sexual way. Don't use Red String to abuse, stalk or pressure anyone. There is no tolerance for objectionable content or abusive behaviour: reported content is removed from your iPhone at once, and Block ends the link with the person who sent it."),
         Section(title: "Reporting",
-                body: "Any status, photo, drawing or voice memo your partner sends can be reported from inside the app. Reporting removes it from your iPhone immediately and sends the details to us. A word filter, on by default, hides strong language from your partner's messages; you can turn it off in Settings."),
+                body: "Any status, photo, drawing or voice memo your partner sends can be reported from inside the app. Reporting removes it from your iPhone immediately and opens an email to us with the details, ready for you to send. A word filter, on by default, hides strong language from your partner's messages; you can turn it off in Settings."),
         Section(title: "Blocking",
-                body: "Settings → Block ends the link, removes everything your partner sent from your iPhone instantly, refuses any future invite from them, and notifies us."),
+                body: "Settings → Block ends the link, removes everything your partner sent from your iPhone instantly, refuses any future invite from them, and opens an email so you can tell us."),
         Section(title: "What we do",
-                body: "We act on every report within 24 hours: the reported content is removed and, where the report is upheld, the person who sent it is ejected from the shared space and barred from pairing with the reporter again. Because messages are end-to-end encrypted in your iCloud, we can only see what you include in a report."),
+                body: "We respond to every report within 24 hours. Red String has no server, so we can't see or delete anything in iCloud ourselves: reporting removes the content from your iPhone straight away, and Block ends the link and refuses that person's invites for good. Your words are end-to-end encrypted, so we only see what you include in your email."),
         Section(title: "Contact",
                 body: "Questions, reports and appeals: \(AppConfig.supportEmail)."),
     ]

@@ -3,8 +3,9 @@
 A private lock screen status app for two people. Your partner sets a status;
 it appears on your lock screen. You tap a heart; their phone buzzes.
 
-No accounts, no servers, no ads. Everything travels through your own iCloud,
-with the text fields end-to-end encrypted.
+No accounts, no servers, no ads. Everything travels through iCloud — the
+shared space lives in the account of whoever sent the invite — with the text
+fields end-to-end encrypted.
 
 <!-- Built as an alternative to Widgetable: same core idea, none of the ads. -->
 
@@ -401,7 +402,7 @@ flagged with a small arrow. Tap any of them to open the pager over the whole
 history.
 
 Under each of the partner's moments in the pager, **Send a heart back** and
-**Reply** answer it: Reply opens the photo/doodle or voice-memo composer over
+**Send a moment** answer it: the second opens the photo/doodle or voice-memo composer over
 the pager, and sending comes back to the same page. The reply is an ordinary
 new moment — nothing links the two.
 
@@ -512,8 +513,9 @@ are still local-only. The sheet opens from the partner card on the home screen.
 ### History, and where it lives
 
 Every moment is its own CloudKit record, kept indefinitely. Nothing is
-overwritten and nothing expires, so the history is **complete and recoverable**
-— sign in on a new phone and the whole thing comes back. The one way history
+overwritten and nothing expires: sign in on a new phone and the newest 500
+come back into the app (`AppConfig.momentHistoryLimit`, the index's cap), and
+"Save memories" exports every one the zone holds. The one way history
 is deleted while you stay linked is a fresh start, which needs you both (below).
 
 Syncing uses `CKFetchRecordZoneChangesOperation` with a stored server change

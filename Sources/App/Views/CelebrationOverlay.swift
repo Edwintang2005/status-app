@@ -97,7 +97,7 @@ struct CelebrationOverlay: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Its text is hidden on this iPhone straight away, and the details go to us by email. We act on reports within 24 hours.")
+            Text("Its text is hidden on this iPhone straight away, and an email to us opens with the details — send it and we'll respond within 24 hours.")
         }
         .task {
             start = .now

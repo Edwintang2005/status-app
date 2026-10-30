@@ -6,10 +6,7 @@ struct MomentLibraryView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
 
-    @State private var opened: Moment?
-    /// The gallery's page order, fixed when it opens: a moment arriving
-    /// mid-swipe would otherwise shift every page under the finger.
-    @State private var galleryOrder: [String] = []
+    @State private var opened: GalleryRequest?
     /// Failed tiles and their retry count — held here, not in the tile, so the
     /// cell can offer Retry to VoiceOver (it reads the cell as one element).
     @State private var failedTiles: Set<String> = []
@@ -95,9 +92,9 @@ struct MomentLibraryView: View {
                     Button("Done") { dismiss() }
                 }
             }
-            .sheet(item: $opened) { moment in
+            .sheet(item: $opened) { request in
                 // What was on screen, in that order; each moment still read live.
-                MomentGalleryView(moments: galleryMoments, startAt: moment)
+                MomentGalleryView(moments: galleryMoments(request.order), startAt: request.moment)
                     // A reply sent from it reports here, over the library.
                     .presentsModelErrors()
             }
@@ -110,14 +107,23 @@ struct MomentLibraryView: View {
                 }
                 Button("Cancel", role: .cancel) { reporting = nil }
             } message: {
-                Text("It's removed from this iPhone straight away, and the details go to us by email. We act on reports within 24 hours.")
+                Text("It's removed from this iPhone straight away, and an email to us opens with the details — send it and we'll respond within 24 hours.")
             }
         }
     }
 
-    private var galleryMoments: [Moment] {
+    /// The gallery's page order rides in the sheet's item, fixed when it opens:
+    /// a moment arriving mid-swipe would otherwise shift every page under the
+    /// finger, and state only the sheet's closure reads can reach it stale (empty).
+    private struct GalleryRequest: Identifiable {
+        let moment: Moment
+        let order: [String]
+        var id: String { moment.id }
+    }
+
+    private func galleryMoments(_ order: [String]) -> [Moment] {
         let byID = Dictionary(model.history.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        return galleryOrder.compactMap { byID[$0] }
+        return order.compactMap { byID[$0] }
     }
 
     private var title: String {
@@ -127,8 +133,7 @@ struct MomentLibraryView: View {
 
     private func cell(_ moment: Moment, partnerName: String, filterOn: Bool) -> some View {
         Button {
-            galleryOrder = filtered.map(\.id)
-            opened = moment
+            opened = GalleryRequest(moment: moment, order: filtered.map(\.id))
         } label: {
             ZStack(alignment: .topTrailing) {
                 SquareFill { thumbnail(moment) }
@@ -189,6 +194,7 @@ struct MomentLibraryView: View {
             : moment.displaySenderName(fallback: partnerName, filterEnabled: filterOn)
         var parts = [String(localized: "\(moment.noun) from \(who)"),
                      moment.sentAt.relativeWording()]
+        if !moment.kind.isSupported { parts.append(String(localized: "update \(AppConfig.appName) to see it")) }
         if !moment.seen && !moment.fromMe { parts.append(String(localized: "new")) }
         if moment.fromMe {
             if !moment.uploaded {
@@ -211,6 +217,8 @@ struct MomentLibraryView: View {
     private func thumbnail(_ moment: Moment) -> some View {
         if moment.isVoice {
             VoiceMomentTile(moment: moment)
+        } else if !moment.kind.isSupported {
+            UnsupportedMomentView(compact: true)
         } else {
             LibraryThumbnail(moment: moment,
                              attempt: retries[moment.id, default: 0],

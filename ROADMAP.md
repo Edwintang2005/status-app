@@ -599,56 +599,51 @@ Ranked by harm: data loss and trust first. Numbers like #5 are the September
    partner"**: `recordBlockedPartner` needs the share's participant list from
    the network, so an owner who blocks offline records nobody; cache the
    participant record names on each successful refresh (or `shareCheck()`). (S)
-3. **Per-record fetch failures are dropped while the token advances**
-   (`CloudSync+Refresh.swift`, `recordWasChangedBlock`) — fold them into the
-   unreadable hold. (S)
-4. **`GroupFileStore` reads unreadable as absent**, so `mutate` could write
-   `.empty` over the snapshot after a transient read error. (S)
-5. **Statuses set while offline only log the last one** (S). Set A then B
+3. **Statuses set while offline only log the last one** (S). Set A then B
    offline: the reconnect republishes `mine` (B) and logs B, so A stays in this
    phone's `StatusHistoryLog` but never gets a `StatusLog` record — the
    partner's history skips it and a reinstall loses it. Fix: a local-only
    "unlogged" mark on own `StatusHistoryEntry`s and a capped republish of their
    `StatusLog` records.
-6. **#14 A failed account lookup at pairing** leaves `userRecordName` nil, which
+4. **#14 A failed account lookup at pairing** leaves `userRecordName` nil, which
    disables the different-account guard for good. (S)
-7. **An anniversary save or delete abandoned at its deadline** can land after a
+5. **An anniversary save or delete abandoned at its deadline** can land after a
    newer edit (a late delete removes the new date on both phones). (S)
-8. **A replaced zone keeps its zone ID**, so a partner rejoining it skips the
+6. **A replaced zone keeps its zone ID**, so a partner rejoining it skips the
    media wipe (`adoptPairing`'s `lastPairing.sameZone`) and re-sends unsent
    media from the old space. Same after an owner unlink and re-invite. (S)
-9. **Re-seat and zone-gone** (S): the 120 s zone-gone window is justified by
+7. **Re-seat and zone-gone** (S): the 120 s zone-gone window is justified by
    "ten seconds", but a re-seated partner is off the share until they re-tap.
    Show "tap the link once more" while `zoneGoneSeenAt` is set; reword
    `linkEnded` when `lastPairing` is kept; pass `rejoining: true` in
    `acceptShare` for the same zone (#25); clear the change tokens *before*
    erasing media in the wipe; let extensions only stamp the sighting.
-10. **Pairing edge cases** (S–M): #24 a join that half-fails leaves the join
+8. **Pairing edge cases** (S–M): #24 a join that half-fails leaves the join
     screen over a paired app; #25 re-accepting the same zone posts "👋 just
     joined"; #26 the owner's `sameZone` check is always true; #27 zone-recovery
     edge cases (token-expired retry skips the second-sighting rule;
     `unknownItem` counts as zone gone; unpair ignores the per-zone result); #42
     Rejoin picks the first shared zone.
-11. **A successful status publish clears the full-iCloud back-off** even if a
+9. **A successful status publish clears the full-iCloud back-off** even if a
     photo still can't fit. (S)
-12. **Store I/O and `flock` waits run on the main actor** from `CloudSync`; now
+10. **Store I/O and `flock` waits run on the main actor** from `CloudSync`; now
     that the stores are `Sendable`, drop the `MainActor.run` hops (profile a
     resync). (S)
-13. **One shared `isBusy` spans nine overlapping operations.** (S)
-14. **The lock-screen heart's account lookup** still precedes its write when the
+11. **One shared `isBusy` spans nine overlapping operations.** (S)
+12. **The lock-screen heart's account lookup** still precedes its write when the
     shared cache is stale (`sendNudge` → `requirePairing`); running it alongside
     the record fetch needs a `saveNudge` restructure. The app's own refresh can
     still request two widget reloads (apply, then the media prefetch's). (S)
-15. **Review notes (September 2026):** a new moment found by a background
+13. **Review notes (September 2026):** a new moment found by a background
     refresh goes out passive if an *older* generic/held moment banner is still
     in Notification Centre (stamp the moment id to match exactly); a
     lock-screen heart whose save lands after the 8 s deadline shows as failed
     although it sent (the trade for never showing a failed one as sent). (S)
-16. **The status read receipt** is forward-only by the words' date; after a
+14. **The status read receipt** is forward-only by the words' date; after a
     partner's clock ran ahead, a later status with an earlier stamp isn't
     stamped "seen" until the stored stamp is in the past (rare; would need a
     local-only order key on `StatusSeen`). (S)
-17. **Fresh start follow-ups** (shipped October 2026; left on file):
+15. **Fresh start follow-ups** (shipped October 2026; left on file):
     - Verify on the live service, as for the invite handshake: that
       `lastModifiedUserRecordID` names this account (`__defaultOwner__` or its
       own record name) on both databases, so a second device trusts its own
@@ -676,14 +671,14 @@ Ranked by harm: data loss and trust first. Numbers like #5 are the September
       own card). Extensions never purge.
     - Asks need a connection (an ask queued offline would move the epoch); the
       sheet says so rather than queueing.
-18. **#21 remainder:** an own second device writing while this phone is locked
+16. **#21 remainder:** an own second device writing while this phone is locked
     is worded as the partner's (the held record can't be told apart). (—)
-19. **CloudKit overhead leftovers** (S each): widget media in parallel
+17. **CloudKit overhead leftovers** (S each): widget media in parallel
     (`prefetchMedia` fetches thumbnails, then the full photo, one after the
     other); a longer account cache in extensions (the NSE re-looks-up the user
     record once `accountCacheLifetime`, 5 min, passes — it overlaps the fetch, so
     this saves a request, not time).
-20. **Coverage still missing (M):** `SharedStore`'s static locks still resolve
+18. **Coverage still missing (M):** `SharedStore`'s static locks still resolve
     the real container in tests (lock files only; inject a lock directory);
     `CloudSync` itself has no `CKDatabase` seam, so the per-zone fetch error
     path (#16 of the October review) and the CloudKit calls behind the pure
@@ -691,43 +686,24 @@ Ranked by harm: data loss and trust first. Numbers like #5 are the September
 
 ## Privacy, safety and App Review — ranked
 
-1. **#41 Privacy manifest**: reading the App Group's UserDefaults suite (the
-   one-time migration) needs reason `1C8F.1`; only `CA92.1` is declared. An App
-   Review risk. (S)
-2. **#32 The share title carries the owner's name in plaintext**
-   (`"Red String — <name>"`), contradicting "the names you set are encrypted".
-   One line. (S)
-3. **Copy that promises more than the design does** (S, one pass):
-   - Terms/site say the developer removes content and "ejects" the sender
-     (`TermsView.swift`, `docs/index.html`) — no server can. Word it as what
-     happens: hidden here at once, Block ends the link, we reply in 24 h.
-   - `PairingView.privacyNote` says photos are end-to-end encrypted (assets are
-     Apple-encrypted; E2E only with Advanced Data Protection). "Your own
-     iCloud" is wrong for the joiner (`WelcomeView`, Settings' version footer,
-     `TermsView`, site). "Details go to us" / "we're notified" is a `mailto:`
-     draft to send.
-   - README "complete and recoverable"/"unlimited" history vs the 500-entry
-     index. ("Save memories" reads the whole zone since October 2026.)
-4. **The default-on word filter hides ordinary names** ("Dick" → "Partner"):
-   exempt names or check them against slurs only. (S)
-5. **Decrypted JSON and media sit in device backups**: exclude the
+1. **Decrypted JSON and media sit in device backups**: exclude the
    re-downloadable `Moments/` cache and say so in the policy. (S)
-6. **Support is a personal Gmail** compiled into the binary: use a domain
+2. **Support is a personal Gmail** compiled into the binary: use a domain
    alias. (S)
-7. **The privacy page loads Google Fonts**: self-host them. (S)
-8. **Reports carry no evidence**: `report()` deletes the media before the mail,
+3. **The privacy page loads Google Fonts**: self-host them. (S)
+4. **Reports carry no evidence**: `report()` deletes the media before the mail,
    and `mailto:` can't attach. An in-app composer with the thumbnail
    snapshotted first. (M)
-9. **An owner's unlink wipes the joiner's copies of their *own* sends**: offer
+5. **An owner's unlink wipes the joiner's copies of their *own* sends**: offer
    "save what you sent" first — changes invariant 8's wipe scope, needs a
    decision. (M)
-10. **#37 Diagnostics' "Copy report"** puts participant names/emails on the
+6. **#37 Diagnostics' "Copy report"** puts participant names/emails on the
     clipboard. (S)
-11. **#36 Plaintext metadata**: memo durations, nudge counts, send times,
+7. **#36 Plaintext metadata**: memo durations, nudge counts, send times,
     receipt times (`kind` must stay plaintext for locked-phone banners). (—)
-12. **#34 remainder**: the memories archive writes plaintext to iCloud Drive
+8. **#34 remainder**: the memories archive writes plaintext to iCloud Drive
     (it's an export; say so in the policy). (S)
-13. **#33 The word filter misses** plurals, spaced letters, homoglyphs,
+9. **#33 The word filter misses** plurals, spaced letters, homoglyphs,
     leetspeak. (M)
 
 ## Polish, accessibility and copy — ranked
@@ -737,20 +713,17 @@ Ranked by harm: data loss and trust first. Numbers like #5 are the September
    relative time on systemSmall, a coarse age on the Lock Screen, dimmed past
    12 h); **WID-1** the small status widget's heart shows sent/failed, bigger
    target.
-2. **"Update to see this" tile** (S): a moment of a kind from a newer build stays
-   in the index but out of `AppModel.history`, so the library and gallery don't
-   show it at all. Needed before any new moment kind ships.
-3. **Contrast** (S): `.secondary` 11 pt captions ("Seen …", timestamps) are
+2. **Contrast** (S): `.secondary` 11 pt captions ("Seen …", timestamps) are
    ~3.3:1; `mint` on cream is 2.2:1 for the "Saved" check.
-4. **Dynamic Type** (S–M): `Theme.rounded` reads `UIFontMetrics` when a view
+3. **Dynamic Type** (S–M): `Theme.rounded` reads `UIFontMetrics` when a view
    renders and nothing re-renders on a size change (read
    `@Environment(\.dynamicTypeSize)` in a modifier or `@ScaledMetric`, then
    re-enable `.dynamicType` in `DemoSmokeTests`); the 1.35× cap also limits
    prose (Terms, Welcome, the partner's message); mood tiles are fixed-height.
-5. **#38 Audio** (S): a playing memo bleeds into a new recording; closing the
+4. **#38 Audio** (S): a playing memo bleeds into a new recording; closing the
    composer stops other audio; after granting the microphone the sheet must be
    reopened.
-6. **Small UX fixes** (S each):
+5. **Small UX fixes** (S each):
    - Mood picker "Set" is disabled with no hint when the emoji is empty.
    - Settings: "Report a problem" and "Save memories…" look like the
      destructive rows; "Report a problem" is a bare `mailto:` `Link` — a silent
@@ -761,27 +734,27 @@ Ranked by harm: data loss and trust first. Numbers like #5 are the September
    - Siri's "Send a nudge" while unpaired returns success silently
      (`SendNudgeIntent` swallows the error); a spoken dialog would be kinder.
    - The anniversary prompt stacks on the invite sheet before anyone has joined.
-7. **FIRST-1** (S–M, from the October UX brief): the owner's first run one
+6. **FIRST-1** (S–M, from the October UX brief): the owner's first run one
    interruption at a time — the notification prompt after the link sheet, no
    date sheet before anyone has joined (a Home card once they have), and a
    "Waiting for your partner" card with the link. Not yet: the owner isn't
    ready to change first run.
-8. **"Invite again" from the partner-left card** opens Settings (a new link
+7. **"Invite again" from the partner-left card** opens Settings (a new link
    needs the unlink first); a one-tap unlink-and-reinvite would need the unlink
    confirmation hosted on Home. (S)
-9. **App Store link in the invite message** once the app's ID is known
+8. **App Store link in the invite message** once the app's ID is known
    (`AppConfig.appStoreURL`). (S)
-10. **Localisation readiness** (M): ~100 mood labels bypass the catalog and key
+9. **Localisation readiness** (M): ~100 mood labels bypass the catalog and key
     `Mood.id` on English; ". Seen %@" fragment; "a \(noun)"; ternary plurals;
     locale-insensitive `uppercased()`; English `alertBody` (needs new
     subscription IDs); stale catalogs (last committed 2026-09-13).
-11. **App tint** is `Theme.accentText` (AA crimson for text) app-wide, which
+10. **App tint** is `Theme.accentText` (AA crimson for text) app-wide, which
     also darkens toggle tracks and date-picker selection; revert the one line
     in `RedStringApp` if the brighter crimson is preferred there.
-12. **UI audit exclusions** for screenshot-checked misreads (wrapped small
+11. **UI audit exclusions** for screenshot-checked misreads (wrapped small
     text, the composer's "Camera", navigation-bar glass buttons): re-check on
     each new iOS/Xcode and drop the ones the audit stops raising.
-13. **#43 remainder** (by design): in the hours before the start's time of day,
+12. **#43 remainder** (by design): in the hours before the start's time of day,
     the count's full-day number is one behind the date-based "months and days"
     (the counter ticks over at the start time).
 

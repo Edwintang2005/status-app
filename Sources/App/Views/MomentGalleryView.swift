@@ -122,7 +122,7 @@ struct MomentGalleryView: View {
                 }
                 Button("Cancel", role: .cancel) { reporting = nil }
             } message: {
-                Text("It's removed from this iPhone straight away, and the details go to us by email. We act on reports within 24 hours.")
+                Text("It's removed from this iPhone straight away, and an email to us opens with the details — send it and we'll respond within 24 hours.")
             }
             .onChange(of: model.isOffline) { _, offline in
                 guard !offline else { return }
@@ -233,6 +233,8 @@ struct MomentGalleryView: View {
                 if !MomentStore.shared.hasAudio(for: moment.id) {
                     fetchStatus(for: moment)
                 }
+            } else if !moment.kind.isSupported {
+                UnsupportedMomentView(compact: false)
             } else {
                 // Own view with its own load, so a page decodes only when it appears.
                 GalleryImageView(momentID: moment.id,
@@ -266,13 +268,10 @@ struct MomentGalleryView: View {
                         .foregroundStyle(Theme.mutedText)
                 }
                 // Answer what you're looking at: the banner's "Send a heart back", here
-                // too, or a moment back. Side by side when they fit, stacked when not.
+                // too, or a moment back.
                 if !moment.fromMe {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 10) { answerButtons }
-                        VStack(spacing: 10) { answerButtons }
-                    }
-                    .padding(.top, 10)
+                    VStack(spacing: 10) { answerButtons }
+                        .padding(.top, 10)
                 }
             }
 
@@ -408,7 +407,7 @@ struct MomentGalleryView: View {
                 Label("Voice memo", systemImage: "mic.fill")
             }
         } label: {
-            Label("Reply", systemImage: "arrowshape.turn.up.left.fill")
+            Label("Send a moment", systemImage: "paperplane.fill")
         }
         .menuStyle(.button)
         .buttonStyle(SecondaryButtonStyle())
@@ -450,7 +449,7 @@ struct MomentGalleryView: View {
     // MARK: - Lazy loading
 
     private func loadIfNeeded() async {
-        guard let moment = current,
+        guard let moment = current, moment.kind.isSupported,
               !MomentStore.shared.hasMedia(for: moment),
               !loading.contains(moment.id) else { return }
 
@@ -545,6 +544,35 @@ struct MomentGalleryView: View {
         .tint(Theme.accent)
 }
 #endif
+
+/// A moment of a kind from a newer build (`Moment.Kind.unsupported`): kept in
+/// the index so an update shows it, drawn here as a prompt. Never fetched, and
+/// opening it isn't seeing it — no "Seen" goes back for it.
+struct UnsupportedMomentView: View {
+    /// A library tile rather than a gallery page.
+    var compact: Bool
+
+    var body: some View {
+        // Square at full width, like a photo page.
+        SquareFill {
+            ZStack {
+                Color.primary.opacity(0.06)
+                VStack(spacing: compact ? 4 : 10) {
+                    Image(systemName: "questionmark.square.dashed")
+                        .font(.system(size: compact ? 22 : 40))
+                    Text("Update \(AppConfig.appName) to see this")
+                        .font(Theme.rounded(compact ? 11 : 16, .medium))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .foregroundStyle(Theme.mutedText)
+                .padding(compact ? 6 : 24)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: compact ? 0 : 28, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+}
 
 /// The heart, sent from wherever their content is: the nudge itself, so the
 /// cooldown and its failure handling are `CloudSync.sendNudge`'s.

@@ -37,6 +37,33 @@ final class GroupStoreTests: XCTestCase {
 
     // MARK: GroupFileStore
 
+    /// Invariant 15: a file that exists but can't be read is neither absent
+    /// nor written over — the snapshot's every watermark lives in it.
+    func testAnUnreadableFileIsNeverReadAsAbsentOrOverwritten() throws {
+        let (store, directory) = makeStore()
+        XCTAssertEqual(store.storedValue(forKey: "snapshot"), .absent)
+        let shared = SharedStore(store: store)
+        shared.mutate(reloadWidgets: false) { $0.lastSeenPartnerNudgeCount = 7 }
+        let file = directory.appendingPathComponent("snapshot")
+        let saved = try Data(contentsOf: file)
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: file.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path) }
+        XCTAssertEqual(store.storedValue(forKey: "snapshot"), .unreadable)
+        XCTAssertNil(store.data(forKey: "snapshot"))
+
+        var ran = false
+        shared.mutate(reloadWidgets: false) { snapshot in
+            ran = true
+            snapshot.lastSeenPartnerNudgeCount = 0
+        }
+        XCTAssertFalse(ran, "nothing decided on an empty stand-in")
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
+        XCTAssertEqual(try Data(contentsOf: file), saved)
+        XCTAssertEqual(shared.snapshot.lastSeenPartnerNudgeCount, 7)
+    }
+
     private func makeStore(legacy: UserDefaults? = nil, isAppExtension: Bool = false,
                            in directory: URL? = nil) -> (GroupFileStore, URL) {
         let directory = directory ?? temporaryDirectory().appendingPathComponent("State", isDirectory: true)

@@ -55,6 +55,10 @@ extension CloudSync {
         let applied = await apply(changes, pairing: pairing, fullResync: previous == nil)
         var result = applied.result
         result.incomplete = changes.moreComing
+        if !changes.failedIDs.isEmpty {
+            log.notice("\(changes.failedIDs.count) changed records failed to arrive; holding the change token for them.")
+            result.unreadableRecordNames += changes.failedIDs.map(\.recordName)
+        }
 
         // A complete fetch of the whole zone is the one moment "not returned"
         // means "not on the server": own sends marked delivered that it didn't
@@ -66,8 +70,9 @@ extension CloudSync {
         let freshStartNames = [pairing.role.freshStartRecordName, pairing.role.other.freshStartRecordName]
         let freshStartHeld = result.unreadableRecordNames.contains(where: freshStartNames.contains)
         if previous == nil, !changes.moreComing, !Self.isAppExtension, !freshStartHeld {
-            let delivered = Set(changes.records.compactMap {
-                pairing.role.momentID(fromRecordName: $0.recordID.recordName)
+            // A record that failed to arrive is still on the server.
+            let delivered = Set((changes.records.map(\.recordID) + changes.failedIDs).compactMap {
+                pairing.role.momentID(fromRecordName: $0.recordName)
             })
             // After a fresh start "not returned" is mostly "cleared": those stay
             // out of the queue, or a second device's old index re-sends them all.
@@ -131,6 +136,9 @@ extension CloudSync {
     /// data race to the compiler. CloudKit calls the blocks serially, so a box is enough.
     final class ZoneChanges: @unchecked Sendable {
         var records: [CKRecord] = []
+        /// Changed records the server reported but couldn't hand over: held like
+        /// unreadable ones, or the token would carry the fetch past them for good.
+        var failedIDs: [CKRecord.ID] = []
         var deletedIDs: [CKRecord.ID] = []
         var token: CKServerChangeToken?
         /// `oneBatch` stopped short; `token` continues from where it stopped.
@@ -183,8 +191,11 @@ extension CloudSync {
         operation.fetchAllChanges = !oneBatch
 
         let changes = ZoneChanges()
-        operation.recordWasChangedBlock = { _, result in
-            if case .success(let record) = result { changes.records.append(record) }
+        operation.recordWasChangedBlock = { recordID, result in
+            switch result {
+            case .success(let record): changes.records.append(record)
+            case .failure: changes.failedIDs.append(recordID)
+            }
         }
         operation.recordWithIDWasDeletedBlock = { recordID, _ in
             changes.deletedIDs.append(recordID)

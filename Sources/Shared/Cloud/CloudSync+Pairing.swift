@@ -31,7 +31,7 @@ extension CloudSync {
         _ = try await database.modifyRecordZones(saving: [CKRecordZone(zoneID: zoneID)],
                                                  deleting: [])
 
-        let share = try await zoneShare(displayName: displayName, zoneID: zoneID, in: database)
+        let share = try await zoneShare(zoneID: zoneID, in: database)
         guard let url = share.url else { throw SyncError.shareURLMissing }
 
         let info = PairingInfo(role: .owner,
@@ -110,17 +110,14 @@ extension CloudSync {
 
     /// Gets the zone into a shared, joinable state. A reset deletes the zone and
     /// the server's view briefly disagrees afterwards; both recovery paths absorb that window.
-    func zoneShare(displayName: String,
-                           zoneID: CKRecordZone.ID,
-                           in database: CKDatabase) async throws -> CKShare {
+    func zoneShare(zoneID: CKRecordZone.ID,
+                   in database: CKDatabase) async throws -> CKShare {
         if let existing = try await existingZoneShare(in: database, zoneID: zoneID) {
             return try await reopened(existing, in: database)
         }
 
         do {
-            return try await createZoneShare(displayName: displayName,
-                                             zoneID: zoneID,
-                                             in: database)
+            return try await createZoneShare(zoneID: zoneID, in: database)
         } catch let error as CKError {
             log.error("Zone share save failed (CKError \(error.code.rawValue)); recovering.")
             // A beat for the server to settle after the zone was just recreated.
@@ -137,17 +134,15 @@ extension CloudSync {
             guard Self.isAlreadyGone(error) else { throw error }
             _ = try await database.modifyRecordZones(saving: [CKRecordZone(zoneID: zoneID)],
                                                      deleting: [])
-            return try await createZoneShare(displayName: displayName,
-                                             zoneID: zoneID,
-                                             in: database)
+            return try await createZoneShare(zoneID: zoneID, in: database)
         }
     }
 
-    func createZoneShare(displayName: String,
-                                 zoneID: CKRecordZone.ID,
-                                 in database: CKDatabase) async throws -> CKShare {
+    func createZoneShare(zoneID: CKRecordZone.ID,
+                         in database: CKDatabase) async throws -> CKShare {
         let share = CKShare(recordZoneID: zoneID)
-        share[CKShare.SystemFieldKey.title] = "\(AppConfig.appName) — \(displayName)" as CKRecordValue
+        // The share's title is plaintext, readable by anyone with the link: no names.
+        share[CKShare.SystemFieldKey.title] = AppConfig.appName as CKRecordValue
         share.publicPermission = .readWrite
         return try await saveShare(share, in: database)
     }

@@ -2,6 +2,35 @@
 
 What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
+## 1.6.2 — App Review and data safety (October 2026)
+
+- **No schema change.**
+- **Privacy manifests** declare `1C8F.1` for the App Group defaults the
+  one-time migration reads (all three targets).
+- **New invite shares carry no name**: their plaintext title is just the app's
+  name. Shares created before keep the old title until a new invite.
+- **Copy says what actually happens.** No server can remove content or eject
+  anyone: Terms, the site and the report/block dialogs now say reporting hides
+  it here at once, Block ends the link, an email to us *opens* for you to send,
+  and we respond within 24 hours. "Your own iCloud" became the inviter's iCloud
+  where it applies to both; media is "encrypted by iCloud" (end-to-end only
+  with Advanced Data Protection). The site's policy and terms are re-dated.
+- **The word filter no longer hides ordinary names** ("Dick", the surname
+  "Cock"); every other listed word still hides a name, and messages keep the
+  whole list.
+- **A record that fails to arrive holds the change token**, like an unreadable
+  one, instead of being skipped for good; it also counts as present for the
+  missing-sends check after a full resync.
+- **An unreadable snapshot file is never written over**: `SharedStore.mutate`
+  drops the change rather than saving an empty snapshot over every watermark
+  (`GroupFileStore` now tells unreadable from absent).
+- **"Update Red String to see this."** A moment of a kind from a newer build
+  shows in the library and gallery as a placeholder — never fetched, never
+  marked seen — instead of not at all.
+- **The library opens the gallery again**: it presented with an empty page list
+  (its order was read stale inside the sheet); the order now rides in the
+  sheet's item.
+
 ## 1.6.1 — fewer CloudKit round trips (October 2026)
 
 - **No schema change.** Sends skip fetches they didn't need: receipts and
@@ -36,8 +65,8 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
   Centre). Per iPhone; the partner isn't told. The notification service
   applies it to every push (the expiry fallback included) and the app to its
   own posts; a push is never dropped. No schema change.
-- **Reply from a moment.** Under the partner's photo, doodle or memo, "Reply"
-  opens the photo/doodle or voice-memo composer over it; sending returns to
+- **Answer with a moment.** Under the partner's photo, doodle or memo, "Send a
+  moment" opens the photo/doodle or voice-memo composer over it; sending returns to
   where you were. A new moment of its own — nothing links the two, and
   nothing changes in CloudKit.
 

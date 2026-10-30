@@ -6,9 +6,24 @@ import os
 /// in the app's private container, leaving extensions reading an empty suite.
 protocol GroupKeyValueStore: AnyObject {
     func data(forKey key: String) -> Data?
+    /// `data(forKey:)` telling a missing value from one that exists but can't
+    /// be read (before first unlock, an I/O error) — never to be written over.
+    func storedValue(forKey key: String) -> StoredValue
     func bool(forKey key: String) -> Bool
     func setData(_ data: Data?, forKey key: String)
     func setBool(_ value: Bool, forKey key: String)
+}
+
+enum StoredValue: Equatable {
+    case absent
+    case data(Data)
+    case unreadable
+}
+
+extension GroupKeyValueStore {
+    func storedValue(forKey key: String) -> StoredValue {
+        data(forKey: key).map(StoredValue.data) ?? .absent
+    }
 }
 
 /// One file per key under `<group container>/State/` — a single dictionary file
@@ -60,7 +75,12 @@ final class GroupFileStore: GroupKeyValueStore {
     // MARK: - GroupKeyValueStore
 
     func data(forKey key: String) -> Data? {
-        guard let url = url(for: key) else { return nil }
+        if case .data(let data) = storedValue(forKey: key) { return data }
+        return nil
+    }
+
+    func storedValue(forKey key: String) -> StoredValue {
+        guard let url = url(for: key) else { return .absent }
         lock.lock()
         defer { lock.unlock() }
         // Identity before the read: a replace landing in between costs one more
@@ -68,12 +88,17 @@ final class GroupFileStore: GroupKeyValueStore {
         guard let identity = FileIdentity(url) else {
             let missing = errno == ENOENT
             cache[key] = nil
-            return missing ? nil : try? Data(contentsOf: url)
+            if missing { return .absent }
+            return (try? Data(contentsOf: url)).map(StoredValue.data) ?? .unreadable
         }
-        if let cached = cache[key], cached.identity == identity { return cached.data }
-        let data = try? Data(contentsOf: url)
-        cache[key] = data.map { (identity, $0) }
-        return data
+        if let cached = cache[key], cached.identity == identity { return .data(cached.data) }
+        guard let data = try? Data(contentsOf: url) else {
+            cache[key] = nil
+            // Gone between the stat and the read (another process's delete) is absent.
+            return FileManager.default.fileExists(atPath: url.path) ? .unreadable : .absent
+        }
+        cache[key] = (identity, data)
+        return .data(data)
     }
 
     func bool(forKey key: String) -> Bool {

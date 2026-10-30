@@ -72,14 +72,21 @@ final class SharedStore: @unchecked Sendable {
     /// service); without this lock, concurrent read-modify-writes lose updates.
     private static let snapshotLock = CrossProcessLock(name: "snapshot.lock")
 
-    /// Locked read–modify–write plus a widget reload.
+    /// Locked read–modify–write plus a widget reload. A snapshot that exists
+    /// but can't be read is left alone — the body would start from empty and
+    /// save that over every watermark — and the change is dropped.
     @discardableResult
     func mutate(reloadWidgets: Bool = true, _ body: (inout Snapshot) -> Void) -> Snapshot {
-        let result = Self.snapshotLock.withLock {
+        let result = Self.snapshotLock.withLock { () -> Snapshot? in
+            if case .unreadable = store.storedValue(forKey: Key.snapshot) { return nil }
             var current = snapshot
             body(&current)
             snapshot = current
             return current
+        }
+        guard let result else {
+            log.error("Snapshot exists but can't be read; nothing written.")
+            return snapshot
         }
         if reloadWidgets { requestWidgetReload() }
         return result

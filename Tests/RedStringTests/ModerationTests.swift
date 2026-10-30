@@ -48,6 +48,15 @@ final class ModerationTests: XCTestCase {
         XCTAssertEqual(ContentFilter.displayName("cunt", fallback: "Partner", enabled: false), "cunt")
     }
 
+    /// Words that are also ordinary names don't hide a name — only a message.
+    func testOrdinaryNamesArentHidden() {
+        XCTAssertEqual(ContentFilter.displayName("Dick", fallback: "Partner", enabled: true), "Dick")
+        XCTAssertEqual(ContentFilter.displayName("Ann Cock", fallback: "Partner", enabled: true), "Ann Cock")
+        XCTAssertEqual(ContentFilter.displayName("Dick the twat", fallback: "Partner", enabled: true), "Partner",
+                       "any other listed word still hides it")
+        XCTAssertTrue(ContentFilter.hides("suck my dick", enabled: true), "messages keep the whole list")
+    }
+
     func testReportMailCarriesTheEssentials() throws {
         let pairing = PairingInfo(role: .participant, zoneName: "CoupleZone",
                                   zoneOwnerName: "_owner123", pairedAt: Fixtures.t0)

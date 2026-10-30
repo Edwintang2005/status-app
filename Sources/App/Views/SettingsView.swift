@@ -199,7 +199,7 @@ struct SettingsView: View {
                         }
                     }
                 } footer: {
-                    SettingsFooter("Statuses are stored in your own iCloud with the text end-to-end encrypted. Photos, drawings and voice memos are CloudKit assets, which are encrypted by default.")
+                    SettingsFooter("Your shared space lives in the iCloud of whoever sent the invite. Statuses, captions and names are end-to-end encrypted; photos, drawings and voice memos are encrypted by iCloud, and end-to-end too with Advanced Data Protection.")
                 }
             }
             .scrollContentBackground(.hidden)
@@ -264,7 +264,7 @@ struct SettingsView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Everything \(partnerName) sent is removed from this iPhone immediately, the link ends, their invites are refused from now on, and we're notified. There is no undo.")
+                Text("Everything \(partnerName) sent is removed from this iPhone immediately, the link ends, their invites are refused from now on, and an email to us opens so you can tell us why. There is no undo.")
             }
             .confirmationDialog("Delete everything and start over?",
                                 isPresented: $confirmingWipe,
