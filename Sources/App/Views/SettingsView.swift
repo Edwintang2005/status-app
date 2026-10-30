@@ -428,7 +428,7 @@ struct SettingsView: View {
     }
 
     private var safetyFooter: String {
-        String(localized: "Long-press a status or open a photo's menu to report it. Reports and blocks go to \(AppConfig.supportEmail) and are acted on within 24 hours.")
+        String(localized: "Long-press a status, or open the menu on anything sent to you, to report it. Reporting and blocking open an email to \(AppConfig.supportEmail) for you to send; we respond within 24 hours.")
     }
 
     private var memoriesFooter: String {
@@ -580,12 +580,16 @@ struct SettingsView: View {
 
     /// Try the cloud; only claim it's done when it is.
     private func end(_ ending: Ending) async {
+        // A dialog dropped last time would leave this set, and an equal value never presents.
+        offeringLocalOnly = nil
         if await model.unlink(startingOver: ending == .wipe) {
             dismiss()
         } else {
             // Move the reason into the dialog rather than racing it with the alert.
             localOnlyReason = model.errorMessage
             model.errorMessage = nil
+            // An offline failure lands while the Unlink dialog is still closing.
+            try? await Task.sleep(for: Self.sheetSettleDelay)
             offeringLocalOnly = ending
         }
     }

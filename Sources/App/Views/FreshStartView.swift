@@ -16,10 +16,16 @@ struct FreshStartView: View {
         var id: Self { self }
     }
 
+    private struct SharedArchive: Identifiable {
+        let url: URL
+        var id: URL { url }
+    }
+
     @State private var confirmingSkip: Action?
     @State private var confirmingWithdraw = false
-    /// A device-only archive, offered for sharing before the action goes on.
-    @State private var shareURL: URL?
+    /// A device-only archive, offered for sharing before the action goes on —
+    /// in the sheet's item: state only its closure reads can arrive stale (empty).
+    @State private var sharing: SharedArchive?
     @State private var actionAfterShare: Action?
     @State private var noticeAfterShare: String?
     @State private var confirmingAfterShare: Action?
@@ -72,9 +78,8 @@ struct FreshStartView: View {
         }
         // Only for an archive iCloud Drive couldn't take: nothing has been asked
         // or agreed yet, so closing it can't lose anything.
-        .sheet(isPresented: $shareURL.isPresent(),
+        .sheet(item: $sharing,
                onDismiss: {
-                   shareURL = nil
                    if let text = noticeAfterShare {
                        noticeAfterShare = nil
                        notice = text
@@ -83,10 +88,8 @@ struct FreshStartView: View {
                        actionAfterShare = nil
                        confirmingAfterShare = action
                    }
-               }) {
-            if let shareURL {
-                ShareSheet(url: shareURL)
-            }
+               }) { archive in
+            ShareSheet(url: archive.url)
         }
         .confirmationDialog(confirmingAfterShare == .agree ? "Agree to the fresh start?" : "Ask for a fresh start?",
                             isPresented: $confirmingAfterShare.isPresent(),
@@ -234,7 +237,7 @@ struct FreshStartView: View {
             let text = saved + " " + String(localized: "Some of your history couldn't be read from iCloud, so nothing was asked or agreed. Try again with a better connection.")
             if outcome.destination == .deviceOnly {
                 noticeAfterShare = text
-                shareURL = outcome.folder
+                sharing = SharedArchive(url: outcome.folder)
             } else {
                 notice = text
             }
@@ -245,7 +248,7 @@ struct FreshStartView: View {
             await perform(action, after: saved)
         case .deviceOnly:
             actionAfterShare = action
-            shareURL = outcome.folder
+            sharing = SharedArchive(url: outcome.folder)
         }
     }
 

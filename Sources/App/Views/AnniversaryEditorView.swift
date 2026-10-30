@@ -65,14 +65,14 @@ struct AnniversaryEditorView: View {
                             .padding(.horizontal, 12)
 
                         VStack(spacing: 12) {
-                            Button {
-                                save()
-                            } label: {
-                                Label("Save", systemImage: "heart.fill")
-                            }
-                            .buttonStyle(PrimaryButtonStyle())
-
                             if mode == .prompt {
+                                Button {
+                                    save()
+                                } label: {
+                                    Label("Save", systemImage: "heart.fill")
+                                }
+                                .buttonStyle(PrimaryButtonStyle())
+
                                 Button("Not now") {
                                     model.dismissAnniversaryPrompt()
                                     model.dismissAnniversaryRequest()
@@ -100,6 +100,10 @@ struct AnniversaryEditorView: View {
                 if mode == .edit {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel") { dismiss() }
+                    }
+                    // Up here, not under the calendar: below it, Save sat off-screen.
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Save") { save() }
                     }
                 }
             }

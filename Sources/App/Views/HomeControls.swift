@@ -181,7 +181,7 @@ struct NudgeButton: View {
                     Text("Sending…")
                 }
             } else if !ready {
-                Label("Sent · \(Int(remaining))s", systemImage: "checkmark")
+                Label("Sent · \(Int(remaining.rounded(.up)))s", systemImage: "checkmark")
             } else if failed {
                 Label("Didn't send · tap to retry", systemImage: "heart.slash.fill")
             } else {

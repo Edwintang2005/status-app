@@ -29,7 +29,16 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
   marked seen — instead of not at all.
 - **The library opens the gallery again**: it presented with an empty page list
   (its order was read stale inside the sheet); the order now rides in the
-  sheet's item.
+  sheet's item. The fresh start's share sheet, the same shape, carries its
+  archive the same way.
+- **"Report copied" shows over sheets.** Without Mail, a report from the
+  library or gallery copied itself silently; every sheet now hosts the notice.
+- **Unlink offline always offers "Remove from this iPhone only"**: the offer
+  could arrive while the Unlink dialog was still closing, be dropped, and stay
+  latched so later tries showed nothing.
+- **"Our date" has Save in its toolbar** when editing — under the calendar it
+  sat off-screen. The heart's "Sent · 0s" now counts down to 1. The Safety
+  footer says reports open an email, matching the terms.
 
 ## 1.6.1 — fewer CloudKit round trips (October 2026)
 

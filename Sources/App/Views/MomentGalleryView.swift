@@ -592,7 +592,7 @@ struct HeartBackButton: View {
             }
         } label: {
             if remaining > 0 {
-                Label("Sent · \(Int(remaining))s", systemImage: "checkmark")
+                Label("Sent · \(Int(remaining.rounded(.up)))s", systemImage: "checkmark")
             } else {
                 Label("Send a heart back", systemImage: "heart.fill")
             }

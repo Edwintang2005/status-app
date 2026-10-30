@@ -57,16 +57,12 @@ struct RootView: View {
             AnniversaryEditorView(mode: .prompt)
         }
         .presentsModelErrors()
-        .alert("Report copied", isPresented: $model.noticeMessage.isPresent()) {
-            Button("OK", role: .cancel) { model.noticeMessage = nil }
-        } message: {
-            Text(model.noticeMessage ?? "")
-        }
     }
 }
 
 /// Errors raised while a sheet is up can't present from `RootView` (SwiftUI
-/// allows one presentation per view), so every sheet hosts the same alert.
+/// allows one presentation per view), so every sheet hosts the same alerts —
+/// "Report copied" too: most reports are made from inside a sheet.
 private struct ModelErrorAlert: ViewModifier {
     @Environment(AppModel.self) private var model: AppModel?
 
@@ -77,6 +73,13 @@ private struct ModelErrorAlert: ViewModifier {
             Button("OK", role: .cancel) { model?.errorMessage = nil }
         } message: {
             Text(model?.errorMessage ?? "")
+        }
+        .alert("Report copied",
+               isPresented: Binding(get: { model?.noticeMessage != nil },
+                                    set: { if !$0 { model?.noticeMessage = nil } })) {
+            Button("OK", role: .cancel) { model?.noticeMessage = nil }
+        } message: {
+            Text(model?.noticeMessage ?? "")
         }
     }
 }
