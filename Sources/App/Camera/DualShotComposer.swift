@@ -1,27 +1,44 @@
 import ImageIO
 import UIKit
 
-/// Draws a two-camera shot: the main photo, the other camera inset where
-/// `DualShotLayout` puts it. Off the main actor — two decodes and a draw — and
-/// at the size a moment keeps, so neither 12 MP original is ever held whole.
+/// What the camera hands back: one photo, or both cameras' still apart.
+enum CameraShot {
+    case photo(UIImage)
+    case both(DualShot)
+}
+
+/// A two-camera shot before it's flattened, so the composer can move the inset.
+/// Both at scale 1, the main at the size a moment keeps.
+struct DualShot: Sendable {
+    var main: UIImage
+    var inset: UIImage
+    var placement: DualShotLayout.Placement
+}
+
+/// Decodes a two-camera shot and draws it into one picture, the inset where
+/// `DualShotLayout` puts it. Off the main actor, and at the size a moment
+/// keeps, so neither 12 MP original is ever held whole.
 enum DualShotComposer {
-    static func compose(main: Data, inset: Data, corner: DualShotLayout.Corner) -> UIImage? {
+    static func prepare(main: Data, inset: Data, placement: DualShotLayout.Placement) -> DualShot? {
         guard let base = decoded(main, maxPixel: MomentStore.fullMaxDimension) else { return nil }
-        let size = CGSize(width: base.width, height: base.height)
         // The inset's long side is under half the main's short side.
-        guard let small = decoded(inset, maxPixel: min(size.width, size.height) * 0.6) else { return nil }
-        let rect = DualShotLayout.insetRect(main: size,
-                                            inset: CGSize(width: small.width, height: small.height),
-                                            corner: corner)
+        let side = CGFloat(min(base.width, base.height))
+        guard let small = decoded(inset, maxPixel: side * 0.6) else { return nil }
+        return DualShot(main: UIImage(cgImage: base), inset: UIImage(cgImage: small), placement: placement)
+    }
+
+    static func compose(_ shot: DualShot) -> UIImage {
+        let size = shot.main.size
+        let rect = DualShotLayout.insetRect(main: size, inset: shot.inset.size, placement: shot.placement)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
         return UIGraphicsImageRenderer(size: size, format: format).image { context in
-            UIImage(cgImage: base).draw(in: CGRect(origin: .zero, size: size))
+            shot.main.draw(in: CGRect(origin: .zero, size: size))
             let outline = UIBezierPath(roundedRect: rect, cornerRadius: DualShotLayout.cornerRadius(inset: rect.size))
             context.cgContext.saveGState()
             outline.addClip()
-            UIImage(cgImage: small).draw(in: rect)
+            shot.inset.draw(in: rect)
             context.cgContext.restoreGState()
             UIColor.white.setStroke()
             outline.lineWidth = DualShotLayout.borderWidth(main: size)

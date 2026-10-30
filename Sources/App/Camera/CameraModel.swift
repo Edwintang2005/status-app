@@ -45,7 +45,8 @@ final class CameraModel {
     private(set) var tilt: CameraTilt = .upright
     var isLandscape: Bool { tilt.isLandscape }
 
-    /// Both cameras at once, sent as one photo (`DualCameraEngine`).
+    /// Both cameras at once, sent as one photo (`DualCameraEngine`). Never
+    /// remembered: the camera always opens on one.
     private(set) var isDual = false
     /// Which camera fills the frame; the other is the inset.
     private(set) var dualMainIsBack = true
@@ -60,7 +61,7 @@ final class CameraModel {
         case unavailable
     }
 
-    @ObservationIgnored var onCapture: (UIImage) -> Void = { _ in }
+    @ObservationIgnored var onCapture: (CameraShot) -> Void = { _ in }
     /// Made on first use: `@State` builds a throwaway model each time the view
     /// is re-created. Dropped when Both takes over, and the other way round.
     @ObservationIgnored private var singleEngine: CameraEngine?
@@ -128,7 +129,6 @@ final class CameraModel {
             position = saved.frontCamera ? .front : .back
             preferredFlash = saved.flash
             timer = saved.timer
-            isDual = saved.bothCameras && supportsBothCameras
         }
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized: break
@@ -154,8 +154,6 @@ final class CameraModel {
             }
             await dropDualEngine()
             showDualNotice(.unavailable)
-            // Not offered again on its own: it would fail, and say so, every time.
-            saveSettings()
         }
         state = await engine.start(position: position) ? .running : .failed
         if isStopped { singleEngine?.stop() }
@@ -326,7 +324,7 @@ final class CameraModel {
     /// The position is saved from `.configured`, so a switch that failed isn't remembered.
     private func saveSettings() {
         store.cameraSettings = CameraSettings(frontCamera: position == .front,
-                                              flash: preferredFlash, timer: timer, bothCameras: isDual)
+                                              flash: preferredFlash, timer: timer)
     }
 
     func selectLens(_ preset: CGFloat) {
@@ -422,11 +420,11 @@ final class CameraModel {
             }
             do {
                 if isDual, let dualEngine {
-                    onCapture(try await captureBoth(dualEngine))
+                    onCapture(.both(try await captureBoth(dualEngine)))
                 } else {
                     let data = try await engine.capture(flash: flash, rotationAngle: tilt.captureAngle(frontCamera: position == .front))
                     guard let image = UIImage(data: data) else { throw CameraEngine.CaptureError.noData }
-                    onCapture(image)
+                    onCapture(.photo(image))
                 }
             } catch {
                 captureFailed = true
@@ -434,15 +432,16 @@ final class CameraModel {
         }
     }
 
-    private func captureBoth(_ dual: DualCameraEngine) async throws -> UIImage {
+    /// Left apart for the composer, where the inset can still be moved.
+    private func captureBoth(_ dual: DualCameraEngine) async throws -> DualShot {
         let mainIsBack = dualMainIsBack
-        let corner = dualCorner.inPhoto(tilt: tilt)
+        let placement = DualShotLayout.Placement(dualCorner.inPhoto(tilt: tilt))
         let shots = try await dual.capture(flash: flash, tilt: tilt, mainIsBack: mainIsBack)
         let (main, inset) = mainIsBack ? (shots.back, shots.front) : (shots.front, shots.back)
-        let image = await Task.detached(priority: .userInitiated) {
-            DualShotComposer.compose(main: main, inset: inset, corner: corner)
+        let shot = await Task.detached(priority: .userInitiated) {
+            DualShotComposer.prepare(main: main, inset: inset, placement: placement)
         }.value
-        guard let image else { throw CameraEngine.CaptureError.noData }
-        return image
+        guard let shot else { throw CameraEngine.CaptureError.noData }
+        return shot
     }
 }

@@ -7,16 +7,17 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 - **Both cameras at once.** The camera's "Both" button runs the front and back
   cameras together (`DualCameraEngine`, an `AVCaptureMultiCamSession`): one
   fills the frame, the other sits inset — tap it to swap, drag it to a corner.
-  The shutter takes one photo from each and draws them into a single picture
+  The shutter takes one photo from each; in the composer the inset can still be
+  dragged anywhere, and Send draws them into a single picture
   (`DualShotComposer`), so it sends, notifies and shows like any photo. **No
   schema change.**
   - The inset always sits inside the centred square (`DualShotLayout`), which
     thumbnails crop to, so the widget, library and banner show it too; held
-    sideways, it lands in the photo corner that was under it on screen.
+    sideways, it lands in the photo corner that was under it on screen. Its
+    white frame is a hairline (0.4% of the short side).
   - Formats step down until `hardwareCost` fits; if the cameras can't run
     together, or the phone gets warm (`systemPressureState` serious or worse),
-    it says so and goes back to one camera. The choice is remembered
-    (`CameraSettings.bothCameras`).
+    it says so and goes back to one camera. The camera always opens on one.
 
 ## 1.6.2 — App Review and data safety (October 2026)
 

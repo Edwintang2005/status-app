@@ -201,17 +201,34 @@ final class CameraPlanTests: XCTestCase {
         XCTAssertEqual(DualShotLayout.Corner.bottomLeading.next, .topLeading)
     }
 
+    /// After the shot the inset moves freely, but never out of the thumbnail's square.
+    func testMovedInsetStaysInsideTheSquare() {
+        let main = CGSize(width: 1536, height: 2048)
+        let shape = CGSize(width: 3, height: 4)
+        let square = CGRect(x: 0, y: 256, width: 1536, height: 1536)
+        let start = DualShotLayout.Placement(.topLeading)
+        let far = DualShotLayout.moved(start, by: CGSize(width: 5_000, height: -5_000), main: main, inset: shape)
+        XCTAssertEqual(far, DualShotLayout.Placement(.topTrailing), "dragged past the edge, it stops at the margin")
+        let middle = DualShotLayout.moved(start, by: CGSize(width: 300, height: 300), main: main, inset: shape)
+        XCTAssertTrue(middle.x > 0 && middle.x < 1 && middle.y > 0 && middle.y < 1)
+        let moved = DualShotLayout.insetRect(main: main, inset: shape, placement: middle)
+        let from = DualShotLayout.insetRect(main: main, inset: shape, corner: .topLeading)
+        XCTAssertEqual(moved.minX - from.minX, 300, accuracy: 0.5, "follows the finger one to one")
+        XCTAssertEqual(moved.minY - from.minY, 300, accuracy: 0.5)
+        XCTAssertTrue(square.contains(moved))
+        XCTAssertEqual(DualShotLayout.Placement(x: 0.7, y: 0.2).corner, .topTrailing)
+    }
+
+    func testBorderIsAHairline() {
+        XCTAssertEqual(DualShotLayout.borderWidth(main: CGSize(width: 1536, height: 2048)), 6.144, accuracy: 0.01)
+        XCTAssertEqual(DualShotLayout.borderWidth(main: CGSize(width: 90, height: 120)), 1, "never thinner than a pixel")
+    }
+
     func testDraggedInsetSettlesInItsQuadrant() {
         let size = CGSize(width: 300, height: 400)
         XCTAssertEqual(DualShotLayout.Corner.nearest(to: CGPoint(x: 10, y: 10), in: size), .topLeading)
         XCTAssertEqual(DualShotLayout.Corner.nearest(to: CGPoint(x: 290, y: 150), in: size), .topTrailing)
         XCTAssertEqual(DualShotLayout.Corner.nearest(to: CGPoint(x: 160, y: 390), in: size), .bottomTrailing)
         XCTAssertEqual(DualShotLayout.Corner.nearest(to: CGPoint(x: 20, y: 300), in: size), .bottomLeading)
-    }
-
-    func testBothCamerasIsRememberedAndOptional() throws {
-        XCTAssertFalse(try decode(CameraSettings.self, #"{"frontCamera":true}"#).bothCameras,
-                       "settings from before the option")
-        XCTAssertTrue(try decode(CameraSettings.self, #"{"bothCameras":true}"#).bothCameras)
     }
 }

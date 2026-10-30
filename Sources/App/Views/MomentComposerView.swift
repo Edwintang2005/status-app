@@ -11,6 +11,9 @@ struct MomentComposerView: View {
 
     @State private var controller = DrawingController()
     @State private var photo: UIImage?
+    /// A two-camera shot: `photo` is its main picture, and the inset stays
+    /// movable until Send flattens it.
+    @State private var dualShot: DualShot?
     @State private var caption = ""
     @State private var isDrawing = false
     @State private var pickerItem: PhotosPickerItem?
@@ -74,13 +77,20 @@ struct MomentComposerView: View {
         // A doodle is minutes of work; a pull-down must not throw it away.
         .interactiveDismissDisabled(hasContent)
         .fullScreenCover(isPresented: $showingCamera) {
-            CameraView { image in
-                // Off the main thread, like the library path: a full camera
-                // frame decodes to hundreds of MB while the camera is still up.
+            CameraView { shot in
                 Task {
-                    photo = await Task.detached(priority: .userInitiated) {
-                        image.composerSized()
-                    }.value
+                    switch shot {
+                    case .photo(let image):
+                        // Off the main thread, like the library path: a full camera
+                        // frame decodes to hundreds of MB while the camera is still up.
+                        photo = await Task.detached(priority: .userInitiated) {
+                            image.composerSized()
+                        }.value
+                        dualShot = nil
+                    case .both(let shot):
+                        photo = shot.main
+                        dualShot = shot
+                    }
                     isDrawing = false
                 }
             }
@@ -95,6 +105,7 @@ struct MomentComposerView: View {
                     photo = await Task.detached(priority: .userInitiated) {
                         image.composerSized()
                     }.value
+                    dualShot = nil
                 } else {
                     // iCloud-only original with no network lands here.
                     importFailed = true
@@ -124,6 +135,11 @@ struct MomentComposerView: View {
                     Color.clear
                         .overlay { Image(uiImage: photo).resizable().scaledToFill() }
                         .clipped()
+                    if let dualShot {
+                        DualInsetOverlay(shot: dualShot, isMovable: !isDrawing) { placement in
+                            self.dualShot?.placement = placement
+                        }
+                    }
                 } else if !isDrawing && controller.strokeCount == 0 {
                     // Only on a genuinely blank square, so the placeholder
                     // never draws over a finished doodle.
@@ -188,6 +204,7 @@ struct MomentComposerView: View {
             if photo != nil {
                 Button {
                     photo = nil
+                    dualShot = nil
                 } label: {
                     sourceLabel("Clear", systemImage: "xmark")
                 }
@@ -241,20 +258,74 @@ struct MomentComposerView: View {
         // An undrawn photo travels in its own frame: every surface shows the
         // centred square regardless, and "Save to Photos" returns the whole shot.
         // Strokes were laid over that square, so a doodle flattens to it.
-        if controller.strokeCount == 0, let photo {
+        if controller.strokeCount == 0, dualShot == nil, let photo {
             onSend(photo, kind, caption)
         } else {
-            let (controller, photo, kind, caption, onSend) = (controller, photo, kind, caption, onSend)
+            let (controller, photo, dualShot, kind, caption, onSend) = (controller, photo, dualShot, kind, caption, onSend)
             Task {
-                // The sheet is gone and the doodle has no other copy yet: a kill
+                // The sheet is gone and the moment has no other copy yet: a kill
                 // mid-render would lose it before the local write (invariant 11).
-                let image = await AppModel.withUploadProtection("doodle-render") {
-                    await controller.render(over: photo)
+                let image = await AppModel.withUploadProtection("moment-render") {
+                    var base = photo
+                    if let dualShot {
+                        // Flattened first, so strokes land over the inset too.
+                        base = await Task.detached(priority: .userInitiated) {
+                            DualShotComposer.compose(dualShot)
+                        }.value
+                    }
+                    if controller.strokeCount == 0, let base { return base }
+                    return await controller.render(over: base)
                 }
                 onSend(image, kind, caption)
             }
         }
         dismiss()
+    }
+}
+
+/// A two-camera shot's inset, still movable: dragged anywhere inside the
+/// square — all of which the thumbnail shows — and flattened only on Send.
+private struct DualInsetOverlay: View {
+    let shot: DualShot
+    let isMovable: Bool
+    var onMove: (DualShotLayout.Placement) -> Void
+
+    @State private var dragging: DualShotLayout.Placement?
+
+    var body: some View {
+        GeometryReader { proxy in
+            let square = proxy.size
+            let rect = DualShotLayout.insetRect(main: square, inset: shot.inset.size,
+                                                placement: dragging ?? shot.placement)
+            let outline = RoundedRectangle(cornerRadius: DualShotLayout.cornerRadius(inset: rect.size))
+            Image(uiImage: shot.inset)
+                .resizable()
+                .scaledToFill()
+                .frame(width: rect.width, height: rect.height)
+                .clipShape(outline)
+                .overlay { outline.stroke(.white, lineWidth: DualShotLayout.borderWidth(main: square)) }
+                .position(x: rect.midX, y: rect.midY)
+                // High priority, or the composer's scroll view takes the drag (invariant 17).
+                .highPriorityGesture(
+                    DragGesture(minimumDistance: 2)
+                        .onChanged { value in
+                            dragging = DualShotLayout.moved(shot.placement, by: value.translation,
+                                                            main: square, inset: shot.inset.size)
+                        }
+                        .onEnded { value in
+                            onMove(DualShotLayout.moved(shot.placement, by: value.translation,
+                                                        main: square, inset: shot.inset.size))
+                            dragging = nil
+                        },
+                    isEnabled: isMovable)
+                .accessibilityElement()
+                .accessibilityLabel("Small picture")
+                .accessibilityHint("Drag to move it.")
+                .accessibilityAction(named: "Move to the next corner") {
+                    onMove(DualShotLayout.Placement(shot.placement.corner.next))
+                }
+        }
+        .allowsHitTesting(isMovable)
     }
 }
 

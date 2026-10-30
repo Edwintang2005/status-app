@@ -168,27 +168,72 @@ enum DualShotLayout {
         }
     }
 
+    /// Where the inset sits along each axis of the square, 0 at the leading
+    /// (top) margin, 1 at the trailing (bottom) one. The live preview snaps to
+    /// corners; once the shot is in, the composer lets it sit anywhere.
+    struct Placement: Equatable, Sendable {
+        var x: CGFloat
+        var y: CGFloat
+
+        init(x: CGFloat, y: CGFloat) {
+            self.x = min(max(x, 0), 1)
+            self.y = min(max(y, 0), 1)
+        }
+
+        init(_ corner: Corner) {
+            self.init(x: corner.isLeading ? 0 : 1, y: corner.isTop ? 0 : 1)
+        }
+
+        /// The corner it's nearest, for stepping round them by assistive action.
+        var corner: Corner {
+            switch (y < 0.5, x < 0.5) {
+            case (true, true): .topLeading
+            case (true, false): .topTrailing
+            case (false, false): .bottomTrailing
+            case (false, true): .bottomLeading
+            }
+        }
+    }
+
     /// The inset's short side, as a share of the main picture's.
     static let insetShare: CGFloat = 0.3
 
-    /// `inset` gives only the shape: its short side becomes `insetShare` of
-    /// the main picture's, a margin in from the centred square's corner.
     static func insetRect(main: CGSize, inset: CGSize, corner: Corner) -> CGRect {
+        insetRect(main: main, inset: inset, placement: Placement(corner))
+    }
+
+    /// `inset` gives only the shape: its short side becomes `insetShare` of
+    /// the main picture's, kept a margin inside the centred square.
+    static func insetRect(main: CGSize, inset: CGSize, placement: Placement) -> CGRect {
+        let (square, margin, size) = frame(main: main, inset: inset)
+        return CGRect(x: square.minX + margin + placement.x * (square.width - 2 * margin - size.width),
+                      y: square.minY + margin + placement.y * (square.height - 2 * margin - size.height),
+                      width: size.width, height: size.height)
+    }
+
+    /// A drag of `translation` (in `main`'s units) from `placement`, held inside the square.
+    static func moved(_ placement: Placement, by translation: CGSize, main: CGSize, inset: CGSize) -> Placement {
+        let (square, margin, size) = frame(main: main, inset: inset)
+        let travel = CGSize(width: square.width - 2 * margin - size.width,
+                            height: square.height - 2 * margin - size.height)
+        return Placement(x: placement.x + translation.width / max(travel.width, 1),
+                         y: placement.y + translation.height / max(travel.height, 1))
+    }
+
+    private static func frame(main: CGSize, inset: CGSize) -> (square: CGRect, margin: CGFloat, size: CGSize) {
         let side = min(main.width, main.height)
         let short = side * insetShare
         let size = inset.width <= inset.height
             ? CGSize(width: short, height: short * inset.height / max(inset.width, 1))
             : CGSize(width: short * inset.width / max(inset.height, 1), height: short)
-        let margin = side * 0.04
         let square = CGRect(x: (main.width - side) / 2, y: (main.height - side) / 2, width: side, height: side)
-        return CGRect(x: corner.isLeading ? square.minX + margin : square.maxX - margin - size.width,
-                      y: corner.isTop ? square.minY + margin : square.maxY - margin - size.height,
-                      width: size.width, height: size.height)
+        return (square, side * 0.04, size)
     }
 
     static func cornerRadius(inset: CGSize) -> CGFloat { min(inset.width, inset.height) * 0.1 }
 
-    static func borderWidth(main: CGSize) -> CGFloat { max(1, min(main.width, main.height) * 0.008) }
+    /// A hairline frame: about 6 px on a 1536 px-wide shot.
+    static func borderWidth(main: CGSize) -> CGFloat { max(1, min(main.width, main.height) * 0.004) }
 }
 
 /// Whether the scene is dark enough that "best quality" capture gathers
@@ -246,15 +291,11 @@ struct CameraSettings: Codable, Equatable, Sendable {
     var frontCamera = true
     var flash: CameraFlash = .auto
     var timer: CameraTimer = .off
-    /// Both cameras at once (`DualShotLayout`).
-    var bothCameras = false
 
-    init(frontCamera: Bool = true, flash: CameraFlash = .auto, timer: CameraTimer = .off,
-         bothCameras: Bool = false) {
+    init(frontCamera: Bool = true, flash: CameraFlash = .auto, timer: CameraTimer = .off) {
         self.frontCamera = frontCamera
         self.flash = flash
         self.timer = timer
-        self.bothCameras = bothCameras
     }
 
     /// Field by field: a value another build wrote that this one can't read
@@ -264,6 +305,5 @@ struct CameraSettings: Codable, Equatable, Sendable {
         frontCamera = (try? container.decodeIfPresent(Bool.self, forKey: .frontCamera)) ?? true
         flash = (try? container.decodeIfPresent(CameraFlash.self, forKey: .flash)) ?? .auto
         timer = (try? container.decodeIfPresent(CameraTimer.self, forKey: .timer)) ?? .off
-        bothCameras = (try? container.decodeIfPresent(Bool.self, forKey: .bothCameras)) ?? false
     }
 }

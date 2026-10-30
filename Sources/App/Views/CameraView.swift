@@ -7,7 +7,7 @@ import SwiftUI
 /// the 4:3 frame that's sent. Nothing in this body reads `model.zoom`: a pinch
 /// would re-render it, and the preview with it, every frame.
 struct CameraView: View {
-    var onCapture: (UIImage) -> Void
+    var onCapture: (CameraShot) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var model = CameraModel()
@@ -31,8 +31,8 @@ struct CameraView: View {
         }
         .statusBarHidden()
         .task {
-            model.onCapture = { image in
-                onCapture(image)
+            model.onCapture = { shot in
+                onCapture(shot)
                 dismiss()
             }
             await model.start()
