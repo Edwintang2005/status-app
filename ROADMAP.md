@@ -66,6 +66,88 @@ Older builds ignore fields they don't read; a new moment kind shows as
 
 ## Tier 1 — next: high impact, ready to build
 
+### Share from anywhere (M–L) ★★★ 🔬
+A Share Extension, so you can send a photo, screenshot or saved meme from any
+app's share sheet without opening Red String. It's the lowest-effort way to
+send that the app could have: whatever you were looking at goes to them in two
+taps. No schema change: a shared image is an ordinary `.photo` moment.
+- **The sheet:** a preview, a caption field (`captionMaxLength`), "To
+  \<partner\>" and Send. SwiftUI hosted in the extension's principal view
+  controller, using `Theme`. Accept one image at first
+  (`NSExtensionActivationSupportsImageWithMaxCount = 1`). Several images
+  would become several moments later; text and URLs wait for links as moments.
+- **Same send path, stage for stage** (invariant 11):
+  - Media goes on disk first, then the index entry (`SharedStore.record`,
+    under the index's flock), then `Outbox.upload`.
+  - Two app-only pieces need extension stand-ins.
+    `AppModel.withUploadProtection` uses `UIApplication`, so the extension uses
+    `ProcessInfo.performExpiringActivity`. `senderName` comes from
+    `snapshot.mine`.
+  - `newMoment`/`send` move from `AppModel` into `Outbox` or a shared helper,
+    so both callers file moments identically.
+- **Memory:** share extensions get a much smaller memory ceiling than the app
+  (about 120 MB; measure it). A 48 MP HEIC decoded whole would overflow it.
+  - Load the shared item as a file (`loadFileRepresentation`) and downsample it
+    with ImageIO to `MomentStore.fullMaxDimension`, as `MomentStore.decoded`
+    already does.
+  - Then hand `MomentStore.write` a 2048-px image, never the original.
+- **When it lands:**
+  - The sheet stays up with a progress ring until the record is confirmed. A
+    1 MB photo usually takes a second or two. Then it shows ✓ and dismisses.
+  - If the person dismisses early, or it's offline, the moment stays queued
+    (`uploaded == false`) and the sheet says so honestly: "Saved — it'll send
+    next time Red String opens." The queue's footer count already covers it.
+  - "Send the queue while the app is suspended" (Tier 2) is what would make
+    this send without opening the app. Build them together if the probe below
+    fails.
+- **A send from the extension overlapping an app retry of the same moment is
+  safe:**
+  - The record name is fixed, so the second save only overwrites.
+  - The partner's NSE claims the second push as already announced
+    (`claimMomentBanner`).
+  - To spare the duplicate upload, stamp the index entry with a short "sending
+    from the share sheet" lease the app's retry pass waits out. That's cheaper
+    than a cross-process `uploadsInFlight`.
+- **Gates:**
+  - Terms accepted (`acceptedTermsVersion`), paired, and the pairing's account
+    signed in (`requirePairing` already checks that). Otherwise the sheet
+    says "Open Red String to finish setting up" and sends nothing.
+  - The share sheet only runs unlocked, so encrypted fields are always
+    writable here, unlike in the NSE.
+- **Afterwards:** `SharedStore.reloadWidgets()` from the extension is allowed
+  (invariant 6 forbids it only in the widget process). The app re-reads the
+  index on foregrounding, so the new moment appears there with no new
+  signalling.
+- **Phase 2: the partner in the share sheet's top row.**
+  - Donate an `INSendMessageIntent` (the partner as an `INPerson`, using
+    `moderatedPartnerName`) on every send. Declare `INSendMessageIntent` in the
+    extension's `IntentsSupported`.
+  - Their name and avatar then sit in the share sheet's suggestion row. Picking
+    it opens the sheet with `extensionContext.intent` set.
+  - Delete the donations on unlink, block and local reset
+    (`INInteraction.deleteAll`), next to `finishUnlink`.
+- **Build:**
+  - A fourth shipping target in `project.yml`, compiling `Sources/Shared/`,
+    with its own `Localizable.xcstrings` and privacy manifest. Then
+    `make project` and commit.
+  - A fifth entitlements file (App Group + iCloud container): invariant 12's
+    lockstep list grows by one.
+  - CI builds it with the app.
+- 🔬 **Probe first, on a device:**
+  1. Does a long-lived `CKModifyRecordsOperation` started in a share extension
+     finish after `completeRequest` and the extension's termination? And does
+     the app's `container.allLongLivedOperationIDs()` list it
+     (`Outbox.adoptBackgroundUploads`)? Long-lived operations may be tracked
+     per bundle, not per container.
+     - If it finishes but the app can't see it, the lease above covers the
+       overlap.
+     - If it doesn't finish, the queued fallback is the design, and the
+       suspended-queue item becomes a prerequisite.
+  2. The extension's real memory ceiling, with a 48 MP HEIC, a ProRAW and a
+     panorama shared from Photos.
+  3. Cold-start time to a usable sheet. `Shared/` is large, so measure before
+     trimming.
+
 ### Pause notifications for a while (S) ★★
 Per-kind levels shipped in 1.6.1 (`NotificationPreferences`: sound, silent,
 list only). Left: a temporary override on top — "quiet everything for an hour"
@@ -434,7 +516,8 @@ both participants write. Manual and confirmed only (invariant 9). No schema.
 An estimate of the shared space's size from locally recorded asset sizes and an
 explicit, opt-in "make room" that drops old full-size media but keeps thumbnail,
 caption and record. Depends on "Delete your own moment" and changes the
-complete-history promise (copy). Optional plaintext `bytes` on `Moment`.
+complete-history promise (copy). Optional plaintext `bytes` on `Moment`. (This
+phone's own copies already clear from Settings → Storage; this is about iCloud.)
 
 ### Alternate app icons (S) ★
 Let each person pick the Home Screen icon from Settings.
@@ -473,6 +556,17 @@ your own moment"; worth it only if people send by accident.
 - **Back-camera timer cue:** blink the torch through the countdown, like the
   system camera, for a phone propped up facing away.
 - **Night mode:** revisit each WWDC; no third-party API as of iOS 26.
+- **Both cameras, next (shipped as `DualCameraEngine`):**
+  - 🔬 Device probes still owed, on the oldest supported model (XR / SE 2) and a
+    current one: multi-cam photo size, heat over two minutes of dual preview
+    (the `.tooWarm` fallback's trigger), the real gap between the two shots.
+  - A sequential fallback (shoot one, switch, shoot the other ~0.7 s later)
+    for when multi-cam can't start; today Both just says it couldn't and
+    reverts to one camera.
+  - Swap in the gallery (schema): keep both shots as assets (an `inset`
+    `CKAsset` and a plaintext `layout`) so the receiver can flip them.
+  - The Camera Control's zoom and timer aren't installed on the multi-cam
+    session; zoom is a pinch on the back camera only.
 
 ### Finer detail in doodles: the other options (S–M each) ★
 After pinch to zoom (Tier 2), roughly in order of value:

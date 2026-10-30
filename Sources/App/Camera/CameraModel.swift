@@ -45,10 +45,35 @@ final class CameraModel {
     private(set) var tilt: CameraTilt = .upright
     var isLandscape: Bool { tilt.isLandscape }
 
+    /// Both cameras at once, sent as one photo (`DualCameraEngine`).
+    private(set) var isDual = false
+    /// Which camera fills the frame; the other is the inset.
+    private(set) var dualMainIsBack = true
+    /// Where the inset sits, as the portrait screen shows it.
+    private(set) var dualCorner: DualShotLayout.Corner = .topLeading
+    /// Why Both turned itself off; cleared after a few seconds.
+    private(set) var dualNotice: DualNotice?
+    var supportsBothCameras: Bool { DualCameraEngine.isSupported }
+
+    enum DualNotice: Equatable {
+        case tooWarm
+        case unavailable
+    }
+
     @ObservationIgnored var onCapture: (UIImage) -> Void = { _ in }
-    /// Lazy: `@State` builds a throwaway model each time the view is re-created.
-    @ObservationIgnored private lazy var engine = CameraEngine()
+    /// Made on first use: `@State` builds a throwaway model each time the view
+    /// is re-created. Dropped when Both takes over, and the other way round.
+    @ObservationIgnored private var singleEngine: CameraEngine?
+    @ObservationIgnored private var dualEngine: DualCameraEngine?
     @ObservationIgnored private var listener: Task<Void, Never>?
+    @ObservationIgnored private var dualListener: Task<Void, Never>?
+    @ObservationIgnored private var loadedSettings = false
+    @ObservationIgnored private var isSwitching = false
+    @ObservationIgnored private var noticeTask: Task<Void, Never>?
+    /// Too warm mid-shot: back to one camera once the shot is in.
+    @ObservationIgnored private var leaveDualAfterCapture = false
+    /// The screen has gone: a switch still under way mustn't start a camera.
+    @ObservationIgnored private var isStopped = false
     @ObservationIgnored private var countdownTask: Task<Void, Never>?
     @ObservationIgnored private var pinchStart: CGFloat?
     @ObservationIgnored private let store: SharedStore
@@ -60,23 +85,50 @@ final class CameraModel {
 
     var session: AVCaptureSession { engine.session }
 
+    /// The two previews while Both runs.
+    var dualPreviews: (back: AVCaptureVideoPreviewLayer, front: AVCaptureVideoPreviewLayer)? {
+        dualEngine.map { ($0.backPreview, $0.frontPreview) }
+    }
+
     var canShoot: Bool { state == .running && !isCapturing && !isInterrupted }
 
+    private var engine: CameraEngine {
+        if let singleEngine { return singleEngine }
+        let engine = CameraEngine()
+        singleEngine = engine
+        // Queued ahead of `start`, so the Camera Control's picker opens on it.
+        engine.setTimer(timer)
+        listener = Task { [weak self, events = engine.events] in
+            for await event in events {
+                guard let self else { return }
+                self.handle(event)
+            }
+        }
+        return engine
+    }
+
+    private func makeDualEngine() -> DualCameraEngine {
+        if let dualEngine { return dualEngine }
+        let engine = DualCameraEngine()
+        dualEngine = engine
+        dualListener = Task { [weak self, events = engine.events] in
+            for await event in events {
+                guard let self else { return }
+                self.handle(event)
+            }
+        }
+        return engine
+    }
+
     func start() async {
-        if listener == nil {
+        isStopped = false
+        if !loadedSettings {
+            loadedSettings = true
             let saved = store.cameraSettings
             position = saved.frontCamera ? .front : .back
             preferredFlash = saved.flash
             timer = saved.timer
-            // Queued ahead of `start`, so the Camera Control's picker opens on it.
-            engine.setTimer(timer)
-            // Ends on its own when the engine (and its stream) goes.
-            listener = Task { [weak self, events = engine.events] in
-                for await event in events {
-                    guard let self else { return }
-                    self.handle(event)
-                }
-            }
+            isDual = saved.bothCameras && supportsBothCameras
         }
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized: break
@@ -87,13 +139,94 @@ final class CameraModel {
             return
         }
         startTiltUpdates()
+        await startEngine()
+    }
+
+    /// Both if chosen, falling back to one camera with a notice.
+    private func startEngine() async {
+        guard !isStopped else { return }
+        if isDual {
+            let dual = makeDualEngine()
+            if await dual.start() {
+                state = .running
+                if isStopped { dual.stop() }
+                return
+            }
+            await dropDualEngine()
+            showDualNotice(.unavailable)
+            // Not offered again on its own: it would fail, and say so, every time.
+            saveSettings()
+        }
         state = await engine.start(position: position) ? .running : .failed
+        if isStopped { singleEngine?.stop() }
     }
 
     func stop() {
+        isStopped = true
         cancelCountdown(announce: false)
         motion.stopAccelerometerUpdates()
-        engine.stop()
+        singleEngine?.stop()
+        dualEngine?.stop()
+    }
+
+    // MARK: - Both cameras
+
+    func toggleBothCameras() {
+        guard state == .running, countdown == nil, !isCapturing, !isSwitching else { return }
+        Task { await switchTo(dual: !isDual) }
+    }
+
+    /// One session lets go of the cameras before the other starts.
+    private func switchTo(dual: Bool) async {
+        isSwitching = true
+        defer { isSwitching = false }
+        state = .starting
+        if dual {
+            dualNotice = nil
+            // Made first: the preview swaps to its layers as `isDual` flips.
+            _ = makeDualEngine()
+            isDual = true
+            isLowLight = false
+            lenses = nil
+            zoom = 1
+            await singleEngine?.halt()
+            listener?.cancel()
+            singleEngine = nil
+        } else {
+            await dropDualEngine()
+        }
+        await startEngine()
+        saveSettings()
+    }
+
+    private func dropDualEngine() async {
+        await dualEngine?.halt()
+        _ = engine
+        isDual = false
+        dualListener?.cancel()
+        dualEngine = nil
+    }
+
+    private func showDualNotice(_ notice: DualNotice) {
+        dualNotice = notice
+        noticeTask?.cancel()
+        noticeTask = Task {
+            try? await Task.sleep(for: .seconds(4))
+            if !Task.isCancelled { dualNotice = nil }
+        }
+        let text = notice == .tooWarm
+            ? String(localized: "Back to one camera: the iPhone is warm")
+            : String(localized: "Both cameras couldn't start")
+        AccessibilityNotification.Announcement(text).post()
+    }
+
+    func swapDualCameras() {
+        guard isDual, !isCapturing else { return }
+        dualMainIsBack.toggle()
+    }
+
+    func moveDualInset(to corner: DualShotLayout.Corner) {
+        dualCorner = corner
     }
 
     private func startTiltUpdates() {
@@ -114,6 +247,28 @@ final class CameraModel {
         // whatever the button or a pinch had chosen.
         if let lenses, lenses.selfieNarrowZoom != nil {
             selectLens(lenses.openingZoom(landscape: landscape))
+        }
+    }
+
+    private func handle(_ event: DualCameraEngine.Event) {
+        switch event {
+        case let .ready(flashModes, format):
+            formatSummary = format
+            self.flashModes = flashModes
+        case let .interrupted(on):
+            isInterrupted = on
+            if on { cancelCountdown(announce: false) }
+        case .willCapture:
+            shutterCount += 1
+        case .tooWarm:
+            guard isDual, !isSwitching else { return }
+            cancelCountdown(announce: false)
+            showDualNotice(.tooWarm)
+            if isCapturing {
+                leaveDualAfterCapture = true
+            } else {
+                Task { await switchTo(dual: false) }
+            }
         }
     }
 
@@ -153,6 +308,7 @@ final class CameraModel {
 
     func flip() {
         guard state == .running, countdown == nil, !isCapturing else { return }
+        if isDual { return swapDualCameras() }
         engine.switchCamera(to: position == .front ? .back : .front)
     }
 
@@ -170,7 +326,7 @@ final class CameraModel {
     /// The position is saved from `.configured`, so a switch that failed isn't remembered.
     private func saveSettings() {
         store.cameraSettings = CameraSettings(frontCamera: position == .front,
-                                              flash: preferredFlash, timer: timer)
+                                              flash: preferredFlash, timer: timer, bothCameras: isDual)
     }
 
     func selectLens(_ preset: CGFloat) {
@@ -186,6 +342,14 @@ final class CameraModel {
     }
 
     func pinchChanged(_ scale: CGFloat) {
+        if isDual {
+            // Only the back camera zooms, and only while it fills the frame.
+            guard dualMainIsBack, let dualEngine else { return }
+            let start = pinchStart ?? zoom
+            pinchStart = start
+            zoom = min(max(start * scale, 1), DualCameraEngine.maxZoom)
+            return dualEngine.setZoom(zoom)
+        }
         guard let lenses else { return }
         let start = pinchStart ?? zoom
         pinchStart = start
@@ -197,8 +361,13 @@ final class CameraModel {
         pinchStart = nil
     }
 
+    /// `devicePoint` in the main camera's 0…1 space.
     func focus(at devicePoint: CGPoint) {
-        engine.focus(at: devicePoint)
+        if isDual {
+            dualEngine?.focus(at: devicePoint, back: dualMainIsBack)
+        } else {
+            engine.focus(at: devicePoint)
+        }
     }
 
     // MARK: - Shutter
@@ -246,14 +415,34 @@ final class CameraModel {
             defer {
                 isCapturing = false
                 isHoldingStill = false
+                if leaveDualAfterCapture {
+                    leaveDualAfterCapture = false
+                    Task { await switchTo(dual: false) }
+                }
             }
             do {
-                let data = try await engine.capture(flash: flash, rotationAngle: tilt.captureAngle(frontCamera: position == .front))
-                guard let image = UIImage(data: data) else { throw CameraEngine.CaptureError.noData }
-                onCapture(image)
+                if isDual, let dualEngine {
+                    onCapture(try await captureBoth(dualEngine))
+                } else {
+                    let data = try await engine.capture(flash: flash, rotationAngle: tilt.captureAngle(frontCamera: position == .front))
+                    guard let image = UIImage(data: data) else { throw CameraEngine.CaptureError.noData }
+                    onCapture(image)
+                }
             } catch {
                 captureFailed = true
             }
         }
+    }
+
+    private func captureBoth(_ dual: DualCameraEngine) async throws -> UIImage {
+        let mainIsBack = dualMainIsBack
+        let corner = dualCorner.inPhoto(tilt: tilt)
+        let shots = try await dual.capture(flash: flash, tilt: tilt, mainIsBack: mainIsBack)
+        let (main, inset) = mainIsBack ? (shots.back, shots.front) : (shots.front, shots.back)
+        let image = await Task.detached(priority: .userInitiated) {
+            DualShotComposer.compose(main: main, inset: inset, corner: corner)
+        }.value
+        guard let image else { throw CameraEngine.CaptureError.noData }
+        return image
     }
 }

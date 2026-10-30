@@ -105,12 +105,25 @@ final class CameraEngine: NSObject, @unchecked Sendable {
     }
 
     func stop() {
-        queue.async {
-            self.wantsRunning = false
-            self.lightSampler?.cancel()
-            self.lightSampler = nil
-            if self.session.isRunning { self.session.stopRunning() }
+        queue.async { self.stopOnQueue() }
+    }
+
+    /// Returns once the camera is released: the two-camera session can't
+    /// start while this one still holds it.
+    func halt() async {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            queue.async {
+                self.stopOnQueue()
+                done.resume()
+            }
         }
+    }
+
+    private func stopOnQueue() {
+        wantsRunning = false
+        lightSampler?.cancel()
+        lightSampler = nil
+        if session.isRunning { session.stopRunning() }
     }
 
     /// Twice a second, not KVO: exposure and ISO change every frame.
@@ -380,7 +393,7 @@ extension CameraTimer {
 
 /// One shot's delegate. Resumes its continuation exactly once, whichever
 /// callback gets there first.
-private final class PhotoCapture: NSObject, AVCapturePhotoCaptureDelegate, @unchecked Sendable {
+final class PhotoCapture: NSObject, AVCapturePhotoCaptureDelegate, @unchecked Sendable {
     private let done: OSAllocatedUnfairLock<CheckedContinuation<Data, Error>?>
     private let willCapture: @Sendable () -> Void
     private let didCapture: @Sendable () -> Void

@@ -597,6 +597,9 @@ hundred bytes each, so well under 100 KB — but image files only for the
 something to draw; a tile whose thumbnail is missing fetches just that as it
 scrolls into view. Scroll further back in the gallery and the full image is
 **fetched from CloudKit on demand**, with a spinner while it lands.
+Settings → Storage clears those full files early (thumbnails, the newest ten
+and unsent sends stay — `Outbox.mediaToKeep`), along with the app's temporary
+leftovers.
 
 That split is what lets the history be unlimited without the phone carrying
 every photo you've ever exchanged. The index is a JSON file in the App Group

@@ -13,6 +13,12 @@ struct MomentStore {
     static let shared = MomentStore()
 
     private let log = Logger(subsystem: AppConfig.appGroupID, category: "MomentStore")
+    /// `nil` is the App Group's `Moments` folder; tests pass a temporary one.
+    private let root: URL?
+
+    init(directory: URL? = nil) {
+        root = directory
+    }
 
     /// Longest edge, in pixels. The full copy is sized for viewing and pinch-zoom
     /// on the phone; the composer and doodle export key off it so nothing upstream
@@ -23,11 +29,11 @@ struct MomentStore {
     private static let thumbQuality: CGFloat = 0.7
 
     var directory: URL? {
-        guard let container = FileManager.default
-            .containerURL(forSecurityApplicationGroupIdentifier: AppConfig.appGroupID) else {
+        guard let dir = root ?? FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: AppConfig.appGroupID)?
+            .appendingPathComponent("Moments", isDirectory: true) else {
             return nil
         }
-        let dir = container.appendingPathComponent("Moments", isDirectory: true)
         if !FileManager.default.fileExists(atPath: dir.path) {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }
@@ -300,9 +306,7 @@ struct MomentStore {
             at: directory,
             includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
         for url in contents {
-            let name = url.deletingPathExtension().lastPathComponent
-            let isThumb = name.hasSuffix("-thumb")
-            let id = isThumb ? String(name.dropLast("-thumb".count)) : name
+            let (id, isThumb) = Self.momentID(of: url)
             guard !keep.contains(id), !(isThumb && keepThumbs.contains(id)) else { continue }
             if graceInterval > 0,
                let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey])
@@ -315,6 +319,52 @@ struct MomentStore {
             Self.evictThumbnail(id: id)
             #endif
         }
+    }
+
+    /// Settings' "Clear downloaded media": full photos and recordings outside
+    /// `ids`, each re-fetched from CloudKit when opened. Thumbnails stay — the
+    /// library grid and widget draw from them, and the whole index's worth is
+    /// small. The grace window spares a file another process has just written
+    /// (a delivery, a send not yet in the index). Returns the bytes removed.
+    @discardableResult
+    func clearDownloaded(keeping ids: Set<String>,
+                         graceInterval: TimeInterval = 300,
+                         now: Date = Date()) -> Int {
+        downloaded(keeping: ids, graceInterval: graceInterval, now: now).reduce(0) { freed, file in
+            (try? FileManager.default.removeItem(at: file.url)) == nil ? freed : freed + file.bytes
+        }
+    }
+
+    /// What `clearDownloaded` would remove now, in bytes.
+    func downloadedSize(keeping ids: Set<String>,
+                        graceInterval: TimeInterval = 300,
+                        now: Date = Date()) -> Int {
+        downloaded(keeping: ids, graceInterval: graceInterval, now: now).reduce(0) { $0 + $1.bytes }
+    }
+
+    private func downloaded(keeping ids: Set<String>,
+                            graceInterval: TimeInterval,
+                            now: Date) -> [(url: URL, bytes: Int)] {
+        guard let directory else { return [] }
+        let keys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey]
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: keys)) ?? []
+        return contents.compactMap { url in
+            let (id, isThumb) = Self.momentID(of: url)
+            guard !isThumb, !ids.contains(id),
+                  let values = try? url.resourceValues(forKeys: Set(keys)),
+                  values.isRegularFile == true else { return nil }
+            if let modified = values.contentModificationDate,
+               now.timeIntervalSince(modified) < graceInterval { return nil }
+            return (url, values.fileSize ?? 0)
+        }
+    }
+
+    /// `<id>.jpg`, `<id>-thumb.jpg`, `<id>.m4a`.
+    private static func momentID(of url: URL) -> (id: String, isThumb: Bool) {
+        let name = url.deletingPathExtension().lastPathComponent
+        let isThumb = name.hasSuffix("-thumb")
+        return (isThumb ? String(name.dropLast("-thumb".count)) : name, isThumb)
     }
 }
 

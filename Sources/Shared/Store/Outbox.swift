@@ -404,6 +404,22 @@ final class Outbox {
         return changed
     }
 
+    /// The media "Clear downloaded media" must leave: own sends not yet in
+    /// iCloud (their files are the only copy, and the retry pass drops a
+    /// pending entry whose media is gone), uploads in flight, the index's
+    /// `newest` (the app would fetch them straight back) and the widget's
+    /// picture. A corrupt index's unsent sends are re-queued first, so they
+    /// count. `nil` for an unreadable index: what's unsent would be a guess.
+    func mediaToKeep(newest: Int = MediaPrefetchPlan.appLimit) -> Set<String>? {
+        if !index.salvagePendingUploads(hasMedia: hasMedia).isEmpty { indexChanged() }
+        guard let all = index.loadReadable() else { return nil }
+        var keep = Set(all.prefix(newest).map(\.id))
+            .union(all.lazy.filter { $0.fromMe && !$0.uploaded }.map(\.id))
+            .union(uploadsInFlight)
+        if let drawn = store.snapshot.latestPartnerVisualMoment { keep.insert(drawn.id) }
+        return keep
+    }
+
     // MARK: - Fresh start
 
     /// Sent now or not at all — never queued: the epoch is when the ask reaches

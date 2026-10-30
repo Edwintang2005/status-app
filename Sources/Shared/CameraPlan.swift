@@ -132,6 +132,65 @@ enum CameraTilt: Equatable, Sendable {
     }
 }
 
+/// Where the other camera's inset sits in a two-camera shot. Always inside the
+/// centred square: `MomentStore` crops thumbnails to it, so the widget, the
+/// library tile and the banner show the inset too.
+enum DualShotLayout {
+    /// Clockwise, so a quarter turn of the phone is a step through them.
+    enum Corner: Int, CaseIterable, Codable, Sendable {
+        case topLeading, topTrailing, bottomTrailing, bottomLeading
+
+        var next: Corner { Corner(rawValue: (rawValue + 1) % 4) ?? .topLeading }
+
+        var isTop: Bool { self == .topLeading || self == .topTrailing }
+        var isLeading: Bool { self == .topLeading || self == .bottomLeading }
+
+        /// The photo's corner under this corner of the portrait screen, the
+        /// phone held `tilt`: the photo is shot level, the screen doesn't turn.
+        func inPhoto(tilt: CameraTilt) -> Corner {
+            let steps = switch tilt {
+            case .upright: 0
+            case .topLeft: 3
+            case .upsideDown: 2
+            case .topRight: 1
+            }
+            return Corner(rawValue: (rawValue + steps) % 4) ?? self
+        }
+
+        /// Where a dragged inset settles: the corner of the quadrant its centre is in.
+        static func nearest(to point: CGPoint, in size: CGSize) -> Corner {
+            switch (point.y < size.height / 2, point.x < size.width / 2) {
+            case (true, true): .topLeading
+            case (true, false): .topTrailing
+            case (false, false): .bottomTrailing
+            case (false, true): .bottomLeading
+            }
+        }
+    }
+
+    /// The inset's short side, as a share of the main picture's.
+    static let insetShare: CGFloat = 0.3
+
+    /// `inset` gives only the shape: its short side becomes `insetShare` of
+    /// the main picture's, a margin in from the centred square's corner.
+    static func insetRect(main: CGSize, inset: CGSize, corner: Corner) -> CGRect {
+        let side = min(main.width, main.height)
+        let short = side * insetShare
+        let size = inset.width <= inset.height
+            ? CGSize(width: short, height: short * inset.height / max(inset.width, 1))
+            : CGSize(width: short * inset.width / max(inset.height, 1), height: short)
+        let margin = side * 0.04
+        let square = CGRect(x: (main.width - side) / 2, y: (main.height - side) / 2, width: side, height: side)
+        return CGRect(x: corner.isLeading ? square.minX + margin : square.maxX - margin - size.width,
+                      y: corner.isTop ? square.minY + margin : square.maxY - margin - size.height,
+                      width: size.width, height: size.height)
+    }
+
+    static func cornerRadius(inset: CGSize) -> CGFloat { min(inset.width, inset.height) * 0.1 }
+
+    static func borderWidth(main: CGSize) -> CGFloat { max(1, min(main.width, main.height) * 0.008) }
+}
+
 /// Whether the scene is dark enough that "best quality" capture gathers
 /// frames for a while after the press, so the phone must be held still.
 enum CameraLowLight {
@@ -187,11 +246,15 @@ struct CameraSettings: Codable, Equatable, Sendable {
     var frontCamera = true
     var flash: CameraFlash = .auto
     var timer: CameraTimer = .off
+    /// Both cameras at once (`DualShotLayout`).
+    var bothCameras = false
 
-    init(frontCamera: Bool = true, flash: CameraFlash = .auto, timer: CameraTimer = .off) {
+    init(frontCamera: Bool = true, flash: CameraFlash = .auto, timer: CameraTimer = .off,
+         bothCameras: Bool = false) {
         self.frontCamera = frontCamera
         self.flash = flash
         self.timer = timer
+        self.bothCameras = bothCameras
     }
 
     /// Field by field: a value another build wrote that this one can't read
@@ -201,5 +264,6 @@ struct CameraSettings: Codable, Equatable, Sendable {
         frontCamera = (try? container.decodeIfPresent(Bool.self, forKey: .frontCamera)) ?? true
         flash = (try? container.decodeIfPresent(CameraFlash.self, forKey: .flash)) ?? .auto
         timer = (try? container.decodeIfPresent(CameraTimer.self, forKey: .timer)) ?? .off
+        bothCameras = (try? container.decodeIfPresent(Bool.self, forKey: .bothCameras)) ?? false
     }
 }

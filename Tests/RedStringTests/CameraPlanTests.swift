@@ -169,4 +169,49 @@ final class CameraPlanTests: XCTestCase {
         XCTAssertFalse(CameraLowLight.isDark(exposure: 1, maxExposure: 0, iso: 1, minISO: 1, maxISO: 1, was: true),
                        "a format with no ranges never reads dark")
     }
+
+    // MARK: Both cameras
+
+    /// Thumbnails crop to the centred square: the inset must be wholly inside it, every corner, either way up.
+    func testInsetSitsInsideTheThumbnailSquare() {
+        for main in [CGSize(width: 1536, height: 2048), CGSize(width: 2048, height: 1536)] {
+            let side = min(main.width, main.height)
+            let square = CGRect(x: (main.width - side) / 2, y: (main.height - side) / 2, width: side, height: side)
+            for corner in DualShotLayout.Corner.allCases {
+                let shape = CGSize(width: main.width, height: main.height)
+                let rect = DualShotLayout.insetRect(main: main, inset: shape, corner: corner)
+                XCTAssertTrue(square.contains(rect), "\(corner) in \(main)")
+                XCTAssertEqual(min(rect.width, rect.height), side * DualShotLayout.insetShare, accuracy: 0.5)
+                XCTAssertEqual(rect.width / rect.height, main.width / main.height, accuracy: 0.01, "keeps its shape")
+                XCTAssertEqual(rect.midX < main.width / 2, corner.isLeading)
+                XCTAssertEqual(rect.midY < main.height / 2, corner.isTop)
+            }
+        }
+    }
+
+    /// The screen doesn't turn but the photo is shot level: the inset lands in
+    /// the photo's corner that sat under the chosen one on screen.
+    func testInsetCornerFollowsTheTurnedPhone() {
+        let corner = DualShotLayout.Corner.topLeading
+        XCTAssertEqual(corner.inPhoto(tilt: .upright), .topLeading)
+        XCTAssertEqual(corner.inPhoto(tilt: .topLeft), .bottomLeading, "top of the phone to the left")
+        XCTAssertEqual(corner.inPhoto(tilt: .topRight), .topTrailing)
+        XCTAssertEqual(corner.inPhoto(tilt: .upsideDown), .bottomTrailing)
+        XCTAssertEqual(DualShotLayout.Corner.topTrailing.inPhoto(tilt: .topLeft), .topLeading)
+        XCTAssertEqual(DualShotLayout.Corner.bottomLeading.next, .topLeading)
+    }
+
+    func testDraggedInsetSettlesInItsQuadrant() {
+        let size = CGSize(width: 300, height: 400)
+        XCTAssertEqual(DualShotLayout.Corner.nearest(to: CGPoint(x: 10, y: 10), in: size), .topLeading)
+        XCTAssertEqual(DualShotLayout.Corner.nearest(to: CGPoint(x: 290, y: 150), in: size), .topTrailing)
+        XCTAssertEqual(DualShotLayout.Corner.nearest(to: CGPoint(x: 160, y: 390), in: size), .bottomTrailing)
+        XCTAssertEqual(DualShotLayout.Corner.nearest(to: CGPoint(x: 20, y: 300), in: size), .bottomLeading)
+    }
+
+    func testBothCamerasIsRememberedAndOptional() throws {
+        XCTAssertFalse(try decode(CameraSettings.self, #"{"frontCamera":true}"#).bothCameras,
+                       "settings from before the option")
+        XCTAssertTrue(try decode(CameraSettings.self, #"{"bothCameras":true}"#).bothCameras)
+    }
 }

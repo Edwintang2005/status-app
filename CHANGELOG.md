@@ -2,6 +2,22 @@
 
 What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
+## Unreleased
+
+- **Both cameras at once.** The camera's "Both" button runs the front and back
+  cameras together (`DualCameraEngine`, an `AVCaptureMultiCamSession`): one
+  fills the frame, the other sits inset — tap it to swap, drag it to a corner.
+  The shutter takes one photo from each and draws them into a single picture
+  (`DualShotComposer`), so it sends, notifies and shows like any photo. **No
+  schema change.**
+  - The inset always sits inside the centred square (`DualShotLayout`), which
+    thumbnails crop to, so the widget, library and banner show it too; held
+    sideways, it lands in the photo corner that was under it on screen.
+  - Formats step down until `hardwareCost` fits; if the cameras can't run
+    together, or the phone gets warm (`systemPressureState` serious or worse),
+    it says so and goes back to one camera. The choice is remembered
+    (`CameraSettings.bothCameras`).
+
 ## 1.6.2 — App Review and data safety (October 2026)
 
 - **No schema change.**
@@ -39,6 +55,12 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 - **"Our date" has Save in its toolbar** when editing — under the calendar it
   sat off-screen. The heart's "Sent · 0s" now counts down to 1. The Safety
   footer says reports open an email, matching the terms.
+- **Settings → Storage clears downloaded media**: it shows what this iPhone
+  holds of photos, drawings and voice memos iCloud still has, and clears them
+  (`MomentStore.clearDownloaded`) along with the app's temporary leftovers.
+  Thumbnails, the newest ten, the widget's picture and every unsent or
+  uploading send stay (`Outbox.mediaToKeep`); an unreadable index clears
+  nothing, and not while a memories archive is being written.
 
 ## 1.6.1 — fewer CloudKit round trips (October 2026)
 

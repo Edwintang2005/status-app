@@ -35,6 +35,12 @@ struct SettingsView: View {
     /// A dialog raised mid-presentation is dropped: wait out the sheet's own.
     private static let sheetSettleDelay: Duration = .milliseconds(400)
     @State private var editingOurDate = false
+    /// What "Clear downloaded media" would free; `nil` before it's measured or
+    /// when the history can't be read (`mediaMeasured` tells which).
+    @State private var downloadedBytes: Int?
+    @State private var mediaMeasured = false
+    @State private var confirmingClearMedia = false
+    @State private var clearingMedia = false
 
     var body: some View {
         @Bindable var model = model
@@ -132,7 +138,7 @@ struct SettingsView: View {
                             }
                             // Primary, not accent: a Form tints buttons, and crimson read as destructive.
                             .tint(.primary)
-                            .disabled(!model.canArchiveMemories)
+                            .disabled(!model.canArchiveMemories || clearingMedia)
                             if model.archiveProgress != nil {
                                 Button("Cancel saving memories") { model.cancelArchive() }
                                     .tint(.primary)
@@ -150,6 +156,10 @@ struct SettingsView: View {
                     } footer: {
                         SettingsFooter(memoriesFooter)
                     }
+                }
+
+                if model.hasMemoriesToArchive {
+                    storageSection
                 }
 
                 Section {
@@ -330,12 +340,74 @@ struct SettingsView: View {
             } message: {
                 Text("The archive was only shared from this iPhone — continue only if you saved it somewhere safe.")
             }
+            .confirmationDialog("Clear downloaded media?",
+                                isPresented: $confirmingClearMedia,
+                                titleVisibility: .visible) {
+                Button("Clear \(downloadedBytes.map(Self.byteCount) ?? "")") {
+                    Task { await clearMedia() }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Photos, drawings and voice memos stay in iCloud and download again when you open them, which needs a connection. The newest few, and anything not sent yet, stay on this iPhone.")
+            }
+            // An archive fetches media back, so the figure moves when one ends.
+            .task(id: model.archiveProgress == nil) { await measureMedia() }
             .alert("Memories saved", isPresented: $archiveSummary.isPresent()) {
                 Button("OK", role: .cancel) { archiveSummary = nil }
             } message: {
                 Text(archiveSummary?.text ?? "")
             }
         }
+    }
+
+    private var storageSection: some View {
+        Section {
+            LabeledContent("Downloaded photos and memos") {
+                if let downloadedBytes {
+                    Text(Self.byteCount(downloadedBytes))
+                } else if mediaMeasured {
+                    Text("Unavailable")
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            Button {
+                confirmingClearMedia = true
+            } label: {
+                HStack {
+                    Text("Clear downloaded media…")
+                    if clearingMedia {
+                        Spacer(minLength: 12)
+                        ProgressView().controlSize(.small)
+                    }
+                }
+            }
+            // Primary, not accent: nothing here is lost, and crimson reads as destructive.
+            .tint(.primary)
+            .disabled(clearingMedia || (downloadedBytes ?? 0) == 0 || !model.canClearDownloadedMedia)
+        } header: {
+            SettingsHeader("Storage")
+        } footer: {
+            SettingsFooter("Older photos, drawings and voice memos download again from iCloud when you open them. Nothing is removed from iCloud.")
+        }
+    }
+
+    private func measureMedia() async {
+        downloadedBytes = await model.downloadedMediaSize()
+        mediaMeasured = true
+    }
+
+    private func clearMedia() async {
+        clearingMedia = true
+        if let freed = await model.clearDownloadedMedia() {
+            AccessibilityNotification.Announcement(String(localized: "Cleared \(Self.byteCount(freed))")).post()
+        }
+        await measureMedia()
+        clearingMedia = false
+    }
+
+    private static func byteCount(_ bytes: Int) -> String {
+        Int64(bytes).formatted(.byteCount(style: .file))
     }
 
     /// Owner's invite link, kept reachable here because RootView replaces the

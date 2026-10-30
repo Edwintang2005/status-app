@@ -417,6 +417,54 @@ final class OutboxTests: XCTestCase {
         XCTAssertTrue(backend.published.isEmpty && backend.sent.isEmpty && backend.receipts.isEmpty)
     }
 
+    // MARK: Clearing downloaded media
+
+    /// Unsent sends have no other copy; the newest few and the widget's picture
+    /// would only be fetched straight back.
+    func testClearingKeepsUnsentNewestAndTheWidgetsPicture() throws {
+        index.insert((0..<12).map { Fixtures.moment("m\($0)", at: Fixtures.date(Double($0))) })
+        queue(["unsent"], at: -100)
+        store.mutate { $0.latestPartnerVisualMoment = Fixtures.moment("drawn", at: Fixtures.date(-50)) }
+        XCTAssertEqual(outbox.mediaToKeep(newest: 3), ["m11", "m10", "m9", "unsent", "drawn"])
+    }
+
+    func testClearingKeepsAnUploadInFlight() async throws {
+        index.insert([Fixtures.moment("a", fromMe: true, uploaded: true)])
+        let moment = try XCTUnwrap(index.load().first)
+        let gate = Gate()
+        backend.duringSend = { _ in await gate.wait() }
+        let upload = Task { try await outbox.upload(moment) }
+        await waitUntil { self.outbox.uploadsInFlight.contains("a") }
+        XCTAssertEqual(outbox.mediaToKeep(newest: 0), ["a"])
+        gate.open()
+        try await upload.value
+    }
+
+    /// An older build's corrupt index took this send into its sidecar: it's
+    /// re-queued before anything is judged, so its files stay.
+    func testClearingKeepsUnsentSendsStillInACorruptSidecar() throws {
+        let url = temporaryFile("moments-index.json")
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode([Fixtures.moment("lost", fromMe: true, uploaded: false)])
+            .write(to: url.appendingPathExtension("corrupt"))
+        let index = MomentIndex(fileURL: url, onCorrupt: {})
+        media = ["lost"]
+        let outbox = Outbox.testing(store: store, index: index, statusLog: statusLog, backend: backend,
+                                    hasMedia: { [unowned self] in self.media.contains($0.id) })
+        XCTAssertEqual(outbox.mediaToKeep(newest: 0), ["lost"])
+        XCTAssertEqual(index.load().map(\.id), ["lost"])
+    }
+
+    /// Before first unlock the index can't be read: which sends are unsent would be a guess.
+    func testClearingRefusesWithAnUnreadableIndex() throws {
+        let url = temporaryFile("moments-index.json")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let outbox = Outbox.testing(store: store, index: MomentIndex(fileURL: url, onCorrupt: {}),
+                                    statusLog: statusLog, backend: backend)
+        XCTAssertNil(outbox.mediaToKeep())
+    }
+
     // MARK: Weak signal: uploads outliving their caller, order, background
 
     /// The caller stops waiting; the upload doesn't. It stays in flight — a

@@ -65,6 +65,14 @@ struct CameraView: View {
             iconButton("xmark", label: "Close") { dismiss() }
             Spacer()
             Group {
+                if model.supportsBothCameras {
+                    iconButton("pip", label: "Both cameras",
+                               value: model.isDual ? String(localized: "On") : String(localized: "Off"),
+                               tint: model.isDual ? Theme.warm : .white) {
+                        model.toggleBothCameras()
+                    }
+                    .disabled(model.countdown != nil || model.isCapturing || model.state != .running)
+                }
                 if model.flashModes.count > 1 {
                     iconButton(flashSymbol, label: "Flash", value: flashValue,
                                tint: model.flash == .on ? Theme.warm : .white) {
@@ -85,8 +93,12 @@ struct CameraView: View {
     }
 
     private var viewfinder: some View {
-        CameraPreview(model: model) { point in
-            focusPoint = point
+        Group {
+            if model.isDual {
+                DualCameraPreview(model: model) { point in focusPoint = point }
+            } else {
+                CameraPreview(model: model) { point in focusPoint = point }
+            }
         }
         .aspectRatio(3 / 4, contentMode: .fit)
         .overlay { focusRing }
@@ -99,12 +111,19 @@ struct CameraView: View {
         .accessibilityElement()
         .accessibilityLabel("Viewfinder")
         .accessibilityValue(statusText.map { Text($0) } ?? Text(model.isLowLight ? "Low light" : ""))
+        .accessibilityActions {
+            if model.isDual {
+                Button("Move the small picture") { model.moveDualInset(to: model.dualCorner.next) }
+            }
+        }
     }
 
     private var statusText: LocalizedStringKey? {
         if model.isInterrupted { "Camera unavailable" }
         else if model.isHoldingStill { "Hold still…" }
         else if model.captureFailed { "Couldn't take the photo. Try again." }
+        else if model.dualNotice == .tooWarm { "Back to one camera: the iPhone is warm" }
+        else if model.dualNotice == .unavailable { "Both cameras couldn't start" }
         else { nil }
     }
 
@@ -184,7 +203,8 @@ struct CameraView: View {
             Spacer()
             shutterButton
             Spacer()
-            iconButton("arrow.triangle.2.circlepath", label: "Switch camera", size: 52) {
+            iconButton("arrow.triangle.2.circlepath", label: model.isDual ? "Swap cameras" : "Switch camera",
+                       size: 52) {
                 model.flip()
             }
             .disabled(model.countdown != nil || model.isCapturing || model.state != .running)
@@ -435,6 +455,146 @@ private struct CameraPreview: UIViewRepresentable {
             if let connection = previewLayer.connection, connection.isVideoRotationAngleSupported(90) {
                 connection.videoRotationAngle = 90
             }
+        }
+    }
+}
+
+/// Both cameras' previews: the main one filling the frame, the other inset
+/// where the shot will put it (`DualShotLayout`). Tap the inset to swap, drag
+/// it to a corner; elsewhere, tap to focus and pinch to zoom.
+private struct DualCameraPreview: UIViewRepresentable {
+    let model: CameraModel
+    var onFocus: (CGPoint) -> Void
+
+    func makeUIView(context: Context) -> DualPreviewView {
+        let view = DualPreviewView()
+        if let previews = model.dualPreviews {
+            view.attach(back: previews.back, front: previews.front)
+        }
+        let coordinator = context.coordinator
+        view.addGestureRecognizer(UITapGestureRecognizer(target: coordinator,
+                                                         action: #selector(Coordinator.tapped)))
+        view.addGestureRecognizer(UIPinchGestureRecognizer(target: coordinator,
+                                                           action: #selector(Coordinator.pinched)))
+        let drag = UIPanGestureRecognizer(target: coordinator, action: #selector(Coordinator.dragged))
+        drag.delegate = coordinator
+        view.addGestureRecognizer(drag)
+        if #available(iOS 17.2, *) {
+            let interaction = AVCaptureEventInteraction { [weak model] event in
+                guard event.phase == .ended else { return }
+                MainActor.assumeIsolated { model?.shutter() }
+            }
+            view.addInteraction(interaction)
+            coordinator.interaction = interaction
+        }
+        return view
+    }
+
+    func updateUIView(_ view: DualPreviewView, context: Context) {
+        context.coordinator.parent = self
+        view.mainIsBack = model.dualMainIsBack
+        view.corner = model.dualCorner
+        if #available(iOS 17.2, *),
+           let interaction = context.coordinator.interaction as? AVCaptureEventInteraction {
+            interaction.isEnabled = model.state == .running
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    @MainActor
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var parent: DualCameraPreview
+        /// `AVCaptureEventInteraction` (iOS 17.2).
+        var interaction: AnyObject?
+
+        init(parent: DualCameraPreview) { self.parent = parent }
+
+        @objc func tapped(_ gesture: UITapGestureRecognizer) {
+            guard let view = gesture.view as? DualPreviewView else { return }
+            let point = gesture.location(in: view)
+            if view.insetFrame.contains(point) {
+                parent.model.swapDualCameras()
+            } else if let main = view.mainLayer {
+                parent.model.focus(at: main.captureDevicePointConverted(fromLayerPoint: point))
+                parent.onFocus(point)
+            }
+        }
+
+        @objc func pinched(_ gesture: UIPinchGestureRecognizer) {
+            switch gesture.state {
+            case .began, .changed: parent.model.pinchChanged(gesture.scale)
+            default: parent.model.pinchEnded()
+            }
+        }
+
+        @objc func dragged(_ gesture: UIPanGestureRecognizer) {
+            guard let view = gesture.view as? DualPreviewView else { return }
+            switch gesture.state {
+            case .began, .changed:
+                view.dragOffset = gesture.translation(in: view)
+            default:
+                let center = CGPoint(x: view.insetFrame.midX, y: view.insetFrame.midY)
+                view.dragOffset = .zero
+                parent.model.moveDualInset(to: .nearest(to: center, in: view.bounds.size))
+            }
+        }
+
+        /// Only a drag that starts on the inset moves it.
+        func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
+            guard let view = gesture.view as? DualPreviewView else { return false }
+            return view.insetFrame.contains(gesture.location(in: view))
+        }
+    }
+
+    final class DualPreviewView: UIView {
+        private var back: AVCaptureVideoPreviewLayer?
+        private var front: AVCaptureVideoPreviewLayer?
+        /// Clips the inset's preview to the rounded, bordered frame the shot draws.
+        private let insetHost = CALayer()
+
+        var mainIsBack = true { didSet { if mainIsBack != oldValue { restack() } } }
+        var corner: DualShotLayout.Corner = .topLeading { didSet { if corner != oldValue { setNeedsLayout() } } }
+        var dragOffset: CGPoint = .zero { didSet { setNeedsLayout() } }
+        private(set) var insetFrame: CGRect = .zero
+
+        var mainLayer: AVCaptureVideoPreviewLayer? { mainIsBack ? back : front }
+        private var insetLayer: AVCaptureVideoPreviewLayer? { mainIsBack ? front : back }
+
+        func attach(back: AVCaptureVideoPreviewLayer, front: AVCaptureVideoPreviewLayer) {
+            self.back = back
+            self.front = front
+            insetHost.masksToBounds = true
+            insetHost.borderColor = UIColor.white.cgColor
+            restack()
+        }
+
+        private func restack() {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            [back, front].forEach { $0?.removeFromSuperlayer() }
+            insetHost.removeFromSuperlayer()
+            if let mainLayer { layer.addSublayer(mainLayer) }
+            layer.addSublayer(insetHost)
+            if let insetLayer { insetHost.addSublayer(insetLayer) }
+            CATransaction.commit()
+            setNeedsLayout()
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            let inset = DualShotLayout.insetRect(main: bounds.size, inset: CGSize(width: 3, height: 4), corner: corner)
+            insetFrame = inset.offsetBy(dx: dragOffset.x, dy: dragOffset.y)
+            CATransaction.begin()
+            // Snapping to a corner glides; following a finger doesn't lag.
+            CATransaction.setDisableActions(dragOffset != .zero)
+            CATransaction.setAnimationDuration(0.25)
+            mainLayer?.frame = bounds
+            insetHost.frame = insetFrame
+            insetHost.cornerRadius = DualShotLayout.cornerRadius(inset: insetFrame.size)
+            insetHost.borderWidth = DualShotLayout.borderWidth(main: bounds.size)
+            insetLayer?.frame = insetHost.bounds
+            CATransaction.commit()
         }
     }
 }
