@@ -52,4 +52,16 @@ final class WidgetReloadPolicyTests: XCTestCase {
     func testHeldBeatsIncomplete() {
         XCTAssertEqual(delay(heldFor: 60 * 60, incomplete: true), 20 * 60)
     }
+
+    /// Retrying a held record every 10 minutes can't fetch it offline; the
+    /// budget is kept for when it can. Reconnecting is the held push's job.
+    func testOfflineBacksOffToHourlyEvenWhenHeld() {
+        let held = WidgetReloadPolicy.nextReload(heldSince: now, incomplete: false, offline: true, now: now)
+        XCTAssertEqual(held, now.addingTimeInterval(WidgetReloadPolicy.settled))
+        XCTAssertEqual(WidgetReloadPolicy.nextReload(heldSince: now, incomplete: false, offline: false, now: now),
+                       now.addingTimeInterval(10 * 60), "online, a held record still retries soon")
+        let plan = TimelinePlan(lastNudgeSentAt: nil, lastNudgeFailedAt: nil, heldSince: now,
+                                incomplete: false, offline: true, now: now)
+        XCTAssertEqual(plan.nextReload, held)
+    }
 }

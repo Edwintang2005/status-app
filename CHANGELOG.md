@@ -18,6 +18,27 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
   - Formats step down until `hardwareCost` fits; if the cameras can't run
     together, or the phone gets warm (`systemPressureState` serious or worse),
     it says so and goes back to one camera. The camera always opens on one.
+- **Notifications are tied to what they announce.** Each banner carries its
+  subject (`BannerSubject`), and every later run — the next push, the app, the
+  widget, an expanded banner — tidies up (`BannerUpkeep`): a locked phone's
+  "Sam sent you a photo" is reworded with the caption and picture once
+  readable, a thumbnail that missed the deadline is added, banners for moments
+  that are gone or reported are withdrawn, and only the newest status banner
+  stays. Rewrites replace in place, quietly, and count as the announcement.
+  Tapping a photo or drawing banner opens that moment.
+- **Expanded banners show the real thing**: a new notification content
+  extension (long-press a moment or status) shows the photo, caption or status
+  at once, refreshes, and plays voice memos in place. A fourth target and a
+  fifth entitlements file.
+- **The widget stops retrying while offline.** A refresh that finds no route
+  (`SendFailure.offline`) schedules the next one an hour out, even with records
+  held — the 10-minute retries spent WidgetKit's daily budget on fetches that
+  couldn't succeed. The push APNs holds while offline wakes the notification
+  service on reconnect, and that reloads the widgets.
+- **"Reply with a photo" on moment notifications**: beside the heart back, it
+  opens the app on the composer with the camera already up
+  (`Route.replyWithPhoto`; Home's composer sheet now carries its options in a
+  `ComposerRequest` item).
 
 ## 1.6.2 — App Review and data safety (October 2026)
 

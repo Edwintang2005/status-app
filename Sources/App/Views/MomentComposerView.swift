@@ -5,6 +5,8 @@ import SwiftUI
 /// other person's widget. Square, like the small widget and the in-app tiles; the
 /// medium widget shows a centre band of it.
 struct MomentComposerView: View {
+    /// Straight into the camera, as a banner's "Reply with a photo" asks.
+    var opensCamera = false
     var onSend: (UIImage, Moment.Kind, String) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -18,6 +20,8 @@ struct MomentComposerView: View {
     @State private var isDrawing = false
     @State private var pickerItem: PhotosPickerItem?
     @State private var showingCamera = false
+    /// Once only: the camera's cover hides this sheet, and reappearing mustn't reopen it.
+    @State private var openedCamera = false
     @State private var importFailed = false
     @State private var confirmingDiscard = false
     @FocusState private var captionFocused: Bool
@@ -76,6 +80,13 @@ struct MomentComposerView: View {
         }
         // A doodle is minutes of work; a pull-down must not throw it away.
         .interactiveDismissDisabled(hasContent)
+        .task {
+            guard opensCamera, !openedCamera, CameraView.isAvailable else { return }
+            openedCamera = true
+            // A cover requested while this sheet is still rising is dropped.
+            try? await Task.sleep(for: .milliseconds(400))
+            showingCamera = true
+        }
         .fullScreenCover(isPresented: $showingCamera) {
             CameraView { shot in
                 Task {

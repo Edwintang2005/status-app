@@ -21,6 +21,8 @@ struct RefreshResult: Sendable {
     /// New partner moments this pass couldn't decrypt, oldest first. Only the
     /// kind travels unencrypted — all a locked phone's banner may say.
     var heldPartnerMomentKinds: [Moment.Kind] = []
+    /// Their IDs, in the same order: the banner's subject, so a later pass can reword it.
+    var heldPartnerMomentIDs: [String] = []
     /// The partner's status record arrived unreadable.
     var heldPartnerStatus = false
     /// Moment records deleted in this delta (either side's) — a fresh start

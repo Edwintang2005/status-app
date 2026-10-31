@@ -99,6 +99,8 @@ final class AppModel {
     /// until Home can present it — see `HomeView.consumePendingRoute`.
     enum Route: Equatable {
         case compose
+        /// A moment banner's "Reply with a photo": the composer, camera open.
+        case replyWithPhoto
         /// The new-arrivals carousel, or the newest moment when caught up.
         case newMoments
         case moment(String)
@@ -201,6 +203,9 @@ final class AppModel {
 
     /// `0...1` while an archive is being written, `nil` otherwise.
     var archiveProgress: Double?
+    /// Settings' "Clear downloaded media" is deleting: an archive started now
+    /// could lose files between fetching them and copying them.
+    var isClearingMedia = false
     @ObservationIgnored var archiveTask: Task<MemoryArchive.Outcome?, Never>?
     /// Bumped per archive and by a cancel: a cancelled run winding down in the
     /// background no longer reports progress or offers a share.

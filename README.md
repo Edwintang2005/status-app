@@ -231,6 +231,27 @@ runs under `make test`. A few rows worth knowing:
 - **Hidden previews.** With "Show Previews: When Unlocked", a locked banner
   reads *"Something new 💛"* rather than a bare "Notification".
 
+**Banners are tied to what they announce.** Every worded banner carries its
+subject in `userInfo` (`BannerSubject`: a moment's ID, the status, hearts).
+A locked phone can't decrypt, so its banners say only *"Sam sent you a photo"*
+— and iOS runs nothing of ours at unlock. So every later run tidies up
+(`BannerUpkeep`, deciding by `BannerUpkeepPolicy`): the service on the next
+push, the app's refreshes, the widget's refresh (every 10 minutes while
+records are held), and the expanded banner. It rewords locked-phone banners
+once readable, adds a thumbnail that missed the service's deadline, withdraws
+banners for moments that are gone (deleted, cleared, reported), and keeps only
+the newest status banner — each rewrite re-added under its own identifier,
+`.passive`, so it never alerts twice — a rewrite counts as the announcement, so
+the app never posts the same moment again. Tapping a photo or drawing banner
+opens that moment.
+
+**The expanded banner** (long-press a moment or status) is
+[RedStringNotificationContent](Sources/NotificationContent/NotificationViewController.swift),
+the one thing of ours that runs when someone looks: it shows the moment or
+status from the App Group straight away, refreshes (bounded), and redraws — so
+a locked-phone banner shows the real photo and words the moment it's opened,
+and plays a voice memo in place.
+
 ### The remaining paths
 
 Every subscription sends a visible push now, so the extension is the main
@@ -255,7 +276,9 @@ delivery path. The widget and the open app still rely on:
    kind per tick (the status, photo and heart widgets each run the provider).
    Hourly when caught up; while a locked phone's pushes sit undecrypted it
    retries every 10 minutes, then every 20 after half an hour, and back to
-   hourly after two (`WidgetReloadPolicy`); a widget kind that finds another
+   hourly after two (`WidgetReloadPolicy`). Offline (`SendFailure.offline`)
+   it's hourly regardless — a retry can't fetch, and the push APNs holds for
+   the app arrives on reconnect if anything was sent, waking the service; a widget kind that finds another
    fetched in the last minute uses that result instead of fetching again, and
    the kinds in one process share a single refresh. A reload the app or the
    extension asked for doesn't fetch at all for two minutes — they just wrote

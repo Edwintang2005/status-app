@@ -408,13 +408,17 @@ final class Outbox {
     /// iCloud (their files are the only copy, and the retry pass drops a
     /// pending entry whose media is gone), uploads in flight, the index's
     /// `newest` (the app would fetch them straight back) and the widget's
-    /// picture. A corrupt index's unsent sends are re-queued first, so they
-    /// count. `nil` for an unreadable index: what's unsent would be a guess.
-    func mediaToKeep(newest: Int = MediaPrefetchPlan.appLimit) -> Set<String>? {
+    /// picture. Own sends inside the usual cache window stay too: one marked
+    /// sent that iCloud never got can be re-sent only while its media is here
+    /// (`MomentIndex.requeueMissingUploads`). A corrupt index's unsent sends are
+    /// re-queued first, so they count. `nil` for an unreadable index.
+    func mediaToKeep(newest: Int = MediaPrefetchPlan.appLimit,
+                     ownWindow: Int = AppConfig.momentImageCacheLimit) -> Set<String>? {
         if !index.salvagePendingUploads(hasMedia: hasMedia).isEmpty { indexChanged() }
         guard let all = index.loadReadable() else { return nil }
         var keep = Set(all.prefix(newest).map(\.id))
             .union(all.lazy.filter { $0.fromMe && !$0.uploaded }.map(\.id))
+            .union(all.prefix(ownWindow).lazy.filter(\.fromMe).map(\.id))
             .union(uploadsInFlight)
         if let drawn = store.snapshot.latestPartnerVisualMoment { keep.insert(drawn.id) }
         return keep

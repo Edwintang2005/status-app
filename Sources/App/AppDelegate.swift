@@ -86,9 +86,12 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
         // A quiet push (an echo, something already announced) only files itself, as on
         // the lock screen; so does anything this phone's preferences set to "list only".
         // The app's other passive posts still show: they're its only banner.
+        // A banner `BannerUpkeep` rewrote was shown once already.
         let content = notification.request.content
         if content.interruptionLevel == .passive,
-           notification.request.trigger is UNPushNotificationTrigger || content.userInfo[NotificationCategory.listOnlyKey] != nil {
+           notification.request.trigger is UNPushNotificationTrigger
+            || content.userInfo[NotificationCategory.listOnlyKey] != nil
+            || content.userInfo[NotificationCategory.revisedKey] != nil {
             return [.list]
         }
         return [.banner, .sound]
@@ -111,13 +114,21 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
             let message = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !message.isEmpty else { return }
             await AppModel.current?.setStatus(emoji: "💬", message: message)
+        case NotificationCategory.Action.replyPhoto:
+            if let model = AppModel.current, model.isPaired { model.pendingRoute = .replyWithPhoto }
         case UNNotificationDefaultActionIdentifier:
-            // Tapping a moment's banner opens the moment, not just Home; the
-            // route waits for Home to be free to show it.
-            let category = response.notification.request.content.categoryIdentifier
+            // Tapping a moment's banner opens that moment (or the new arrivals,
+            // for one worded before it knew which); the route waits for Home.
+            let content = response.notification.request.content
             if let model = AppModel.current, model.isPaired {
-                if category == NotificationCategory.moment { model.pendingRoute = .newMoments }
-                if category == NotificationCategory.milestone { model.pendingRoute = .anniversary }
+                if content.categoryIdentifier == NotificationCategory.moment {
+                    if case .moment(let id)? = BannerSubject(userInfo: content.userInfo) {
+                        model.pendingRoute = .moment(id)
+                    } else {
+                        model.pendingRoute = .newMoments
+                    }
+                }
+                if content.categoryIdentifier == NotificationCategory.milestone { model.pendingRoute = .anniversary }
             }
         default:
             break

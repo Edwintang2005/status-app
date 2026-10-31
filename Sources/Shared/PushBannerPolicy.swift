@@ -55,6 +55,8 @@ enum PushBannerPolicy {
         var dropsCategory = false
         /// The moment whose thumbnail or recording the banner attaches.
         var attachment: Moment?
+        /// What the banner is about, for `BannerUpkeep` to find it again.
+        var subject: BannerSubject?
         /// Adds the default sound: the status subscription was registered silent
         /// and can't change in place. Only once the plan knows it's the partner's
         /// status — an unworded or failed pass may be our own save coming back.
@@ -95,10 +97,14 @@ enum PushBannerPolicy {
                 // `name` covers records written before the sender set a name.
                 return Plan(title: moment.displaySenderName(fallback: name),
                             body: moment.displayCaption ?? moment.arrivalSummary,
-                            attachment: moment)
+                            attachment: moment,
+                            subject: .moment(moment.id))
             }
             if let body = AnnouncementPolicy.heldMomentBody(kinds: result.heldPartnerMomentKinds) {
-                return held(body, category: NotificationCategory.moment, name: name)
+                var plan = held(body, category: NotificationCategory.moment, name: name)
+                // The newest of a burst: once readable, the banner names it, as a claim would.
+                plan.subject = result.heldPartnerMomentIDs.last.map(BannerSubject.moment)
+                return plan
             }
             if result.ownRecordsChanged {
                 return own(String(localized: "You sent something from another device."))
@@ -158,6 +164,8 @@ enum PushBannerPolicy {
             case (.rename(let previousName)?, let status?):
                 let fallback = String(localized: "Your partner")
                 let newName = ContentFilter.displayName(status.displayName, fallback: String(localized: "a new name"))
+                // No subject: a new name isn't new words, so it mustn't
+                // supersede the status banner that still holds them.
                 return Plan(title: ContentFilter.displayName(previousName, fallback: fallback),
                             body: String(localized: "is now going by \(newName)"),
                             thread: "status-updates",
@@ -166,12 +174,14 @@ enum PushBannerPolicy {
                 return Plan(title: name,
                             body: statusBody(status, reportedAt: reportedAt, sealed: snapshot.partnerStatusSealed),
                             thread: "status-updates",
+                            subject: .status,
                             sound: true)
             default:
                 if result.heldPartnerStatus {
                     var plan = held(String(localized: "updated their status"),
                                     category: NotificationCategory.status, name: name)
                     plan.thread = "status-updates"
+                    plan.subject = .status
                     plan.sound = true
                     return plan
                 }
@@ -250,7 +260,8 @@ enum PushBannerPolicy {
         guard let theirs, snapshot.hasAnnounced(theirs.id) else { return spaceChanged }
         return Plan(title: theirs.displaySenderName(fallback: name),
                     body: theirs.displayCaption ?? theirs.arrivalSummary,
-                    volume: .quiet)
+                    volume: .quiet,
+                    subject: .moment(theirs.id))
     }
 
     /// The status twin: our own save coming back, or their status already announced.
@@ -270,7 +281,8 @@ enum PushBannerPolicy {
         return Plan(title: name,
                     body: statusBody(theirs, reportedAt: reportedAt, sealed: snapshot.partnerStatusSealed),
                     thread: "status-updates",
-                    volume: .quiet)
+                    volume: .quiet,
+                    subject: .status)
     }
 
     private static var spaceChanged: Plan {
@@ -305,7 +317,8 @@ enum PushBannerPolicy {
              body: interruption.stale
                 ? String(localized: "was thinking of you earlier 💭")
                 : String(localized: "is thinking of you 💭"),
-             volume: interruption.breaksThroughFocus ? .timeSensitive : .active)
+             volume: interruption.breaksThroughFocus ? .timeSensitive : .active,
+             subject: .hearts)
     }
 
     /// The partner unlinked — in this delta, or in one another process already

@@ -153,6 +153,7 @@ final class CameraModel {
                 return
             }
             await dropDualEngine()
+            guard !isStopped else { return }
             showDualNotice(.unavailable)
         }
         state = await engine.start(position: position) ? .running : .failed
@@ -170,7 +171,7 @@ final class CameraModel {
     // MARK: - Both cameras
 
     func toggleBothCameras() {
-        guard state == .running, countdown == nil, !isCapturing, !isSwitching else { return }
+        guard state == .running, countdown == nil, !isCapturing, !isSwitching, !isInterrupted else { return }
         Task { await switchTo(dual: !isDual) }
     }
 
@@ -179,6 +180,9 @@ final class CameraModel {
         isSwitching = true
         defer { isSwitching = false }
         state = .starting
+        // The old session's "interruption ended" can never arrive once it's dropped.
+        isInterrupted = false
+        captureFailed = false
         if dual {
             dualNotice = nil
             // Made first: the preview swaps to its layers as `isDual` flips.
@@ -317,7 +321,9 @@ final class CameraModel {
 
     func cycleTimer() {
         timer = timer.next
-        engine.setTimer(timer)
+        // Not `engine`: under Both that would build a second session. A single
+        // engine made later takes the timer when it's made.
+        singleEngine?.setTimer(timer)
         saveSettings()
     }
 

@@ -20,7 +20,8 @@ enum NotificationManager {
     }
 
     /// Actions on the banners: a heart back on all three, a text reply on a
-    /// status. Handled in `AppDelegate.userNotificationCenter(_:didReceive:)`.
+    /// status, a photo back on a moment. Handled in
+    /// `AppDelegate.userNotificationCenter(_:didReceive:)`.
     static func registerCategories() {
         let heart = UNNotificationAction(
             identifier: NotificationCategory.Action.heartBack,
@@ -35,6 +36,12 @@ enum NotificationManager {
             icon: UNNotificationActionIcon(systemImageName: "text.bubble"),
             textInputButtonTitle: String(localized: "Set"),
             textInputPlaceholder: String(localized: "Say anything"))
+        // Foreground: the camera needs the app, and so an unlocked phone.
+        let photo = UNNotificationAction(
+            identifier: NotificationCategory.Action.replyPhoto,
+            title: String(localized: "Reply with a photo"),
+            options: [.foreground],
+            icon: UNNotificationActionIcon(systemImageName: "camera.fill"))
         // With previews hidden on a locked phone, this instead of a bare
         // "Notification" — and nothing of what it says, nor whose it is.
         let hidden = String(localized: "Something new 💛")
@@ -43,7 +50,7 @@ enum NotificationManager {
                                    intentIdentifiers: [], hiddenPreviewsBodyPlaceholder: hidden),
             UNNotificationCategory(identifier: NotificationCategory.nudge, actions: [heart],
                                    intentIdentifiers: [], hiddenPreviewsBodyPlaceholder: hidden),
-            UNNotificationCategory(identifier: NotificationCategory.moment, actions: [heart],
+            UNNotificationCategory(identifier: NotificationCategory.moment, actions: [heart, photo],
                                    intentIdentifiers: [], hiddenPreviewsBodyPlaceholder: hidden),
             UNNotificationCategory(identifier: NotificationCategory.milestone, actions: [],
                                    intentIdentifiers: [], hiddenPreviewsBodyPlaceholder: hidden),
@@ -78,14 +85,17 @@ enum NotificationManager {
     /// be posted supersedes them, and leaving both is a duplicate. Matched on the
     /// *body* (or stamp), not the app-name title alone: an unenriched status
     /// banner is never re-stated, so it must stay.
+    /// `subject` also matches a banner `BannerUpkeep` already reworded for it.
     @discardableResult
-    private static func removeGenericBanners(body: String, category: String) async -> Bool {
+    private static func removeGenericBanners(body: String, category: String,
+                                             subject: BannerSubject? = nil) async -> Bool {
         let center = UNUserNotificationCenter.current()
         let generic = await center.deliveredNotifications()
             .filter {
                 let content = $0.request.content
                 return (content.title == AppConfig.appName && content.body == body)
                     || content.userInfo[NotificationCategory.heldBannerKey] as? String == category
+                    || (subject != nil && BannerSubject(userInfo: content.userInfo) == subject)
             }
             .map(\.request.identifier)
         guard !generic.isEmpty else { return false }
@@ -95,7 +105,8 @@ enum NotificationManager {
 
     static func postMoment(_ moment: Moment, from name: String) async {
         let superseded = await removeGenericBanners(body: CloudSync.GenericAlert.moment,
-                                                    category: NotificationCategory.moment)
+                                                    category: NotificationCategory.moment,
+                                                    subject: .moment(moment.id))
         let content = UNMutableNotificationContent()
         content.title = moment.displaySenderName(fallback: name)
         content.body = moment.displayCaption ?? moment.arrivalSummary
@@ -107,6 +118,7 @@ enum NotificationManager {
             content.sound = .default
         }
         content.categoryIdentifier = NotificationCategory.moment
+        content.userInfo[BannerSubject.key] = BannerSubject.moment(moment.id).stamp
         content.limit(to: SharedStore.shared.notificationPreferences.level(forMoment: moment.kind))
 
         // If the refresh's best-effort media download failed, fetch here rather
@@ -119,6 +131,8 @@ enum NotificationManager {
         }
         if let attachment {
             content.attachments = [attachment]
+        } else {
+            content.userInfo[BannerSubject.wantsAttachmentKey] = true
         }
 
         let request = UNNotificationRequest(identifier: "moment-\(moment.id)",
@@ -189,6 +203,7 @@ enum NotificationManager {
             : String(localized: "is thinking of you 💭")
         content.sound = .default
         content.categoryIdentifier = NotificationCategory.nudge
+        content.userInfo[BannerSubject.key] = BannerSubject.hearts.stamp
         // Old news, or a repeat within the interval, doesn't get to break through Focus.
         content.interruptionLevel = interruption.breaksThroughFocus ? .timeSensitive : .active
         content.limit(to: SharedStore.shared.notificationPreferences.hearts)

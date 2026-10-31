@@ -30,6 +30,7 @@ enum SyncRunner {
             case .moment(let moment): await NotificationManager.postMoment(moment, from: name)
             }
         }
+        await BannerUpkeep.run()
 
         return AnnouncementPolicy.changed(result, previousStatus: previousStatus)
     }

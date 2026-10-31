@@ -5,11 +5,16 @@ import Foundation
 /// so while records are held unread the widget retries soon — backing off to
 /// hourly after two hours, so a long lock (or a record nobody can ever read,
 /// held until the app gives up on it) doesn't spend WidgetKit's daily budget.
+/// Offline, retrying soon can't fetch anything: hourly, and the push APNs
+/// holds for this app — delivered on reconnect if anything was sent — wakes
+/// the notification service, which refreshes and reloads the widgets.
 enum WidgetReloadPolicy {
     /// All caught up: the refresh is only a backstop for dropped pushes.
     static let settled: TimeInterval = 60 * 60
 
-    static func nextReload(heldSince: Date?, incomplete: Bool, now: Date = Date()) -> Date {
+    static func nextReload(heldSince: Date?, incomplete: Bool, offline: Bool = false, now: Date = Date()) -> Date {
+        // Budget spent here is budget gone once the phone is back online.
+        if offline { return now.addingTimeInterval(settled) }
         if let heldSince {
             let waited = now.timeIntervalSince(heldSince)
             let delay: TimeInterval = switch waited {
@@ -57,6 +62,7 @@ struct TimelinePlan: Equatable, Sendable {
          lastNudgeIssuedAt: Date? = nil,
          heldSince: Date?,
          incomplete: Bool,
+         offline: Bool = false,
          now: Date = Date()) {
         var entries = [now]
         for expiry in [lastNudgeSentAt?.addingTimeInterval(AppConfig.nudgeCooldown),
@@ -65,6 +71,7 @@ struct TimelinePlan: Equatable, Sendable {
             if let expiry, expiry > now { entries.append(expiry) }
         }
         self.entries = entries.sorted()
-        nextReload = WidgetReloadPolicy.nextReload(heldSince: heldSince, incomplete: incomplete, now: now)
+        nextReload = WidgetReloadPolicy.nextReload(heldSince: heldSince, incomplete: incomplete,
+                                                   offline: offline, now: now)
     }
 }

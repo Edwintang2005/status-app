@@ -6,7 +6,7 @@ struct HomeView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showingPicker = false
     @State private var showingSettings = false
-    @State private var showingComposer = false
+    @State private var composer: ComposerRequest?
     @State private var showingVoiceComposer = false
     @State private var showingLibrary = false
     @State private var showingStatusHistory = false
@@ -208,7 +208,7 @@ struct HomeView: View {
     private var sheets: HomeSheets {
         HomeSheets(showingPicker: $showingPicker,
                    showingSettings: $showingSettings,
-                   showingComposer: $showingComposer,
+                   composer: $composer,
                    showingVoiceComposer: $showingVoiceComposer,
                    showingLibrary: $showingLibrary,
                    showingStatusHistory: $showingStatusHistory,
@@ -314,7 +314,7 @@ struct HomeView: View {
     /// SwiftUI drops a second concurrent presentation, so the composer deep link
     /// is only consumed when it can actually be shown.
     private var anySheetShowing: Bool {
-        showingPicker || showingSettings || showingComposer || showingVoiceComposer
+        showingPicker || showingSettings || composer != nil || showingVoiceComposer
             || showingLibrary || showingStatusHistory || showingAnniversary
             || showingFreshStart || !carouselQueue.isEmpty
     }
@@ -324,7 +324,9 @@ struct HomeView: View {
         model.pendingRoute = nil
         switch route {
         case .compose:
-            showingComposer = true
+            composer = ComposerRequest()
+        case .replyWithPhoto:
+            composer = ComposerRequest(opensCamera: true)
         case .anniversary:
             showingAnniversary = true
         case .newMoments:
@@ -346,7 +348,7 @@ struct HomeView: View {
     private var sendRow: some View {
         HStack(spacing: 10) {
             Button {
-                showingComposer = true
+                composer = ComposerRequest()
             } label: {
                 Label("Moment", systemImage: "camera.viewfinder")
             }
@@ -393,12 +395,18 @@ struct HomeView: View {
     }
 }
 
+/// The composer's sheet, and whether it opens on the camera.
+private struct ComposerRequest: Identifiable {
+    let id = UUID()
+    var opensCamera = false
+}
+
 /// Home's sheets, apart from its body so neither is one long expression.
 private struct HomeSheets: ViewModifier {
     @Environment(AppModel.self) private var model
     @Binding var showingPicker: Bool
     @Binding var showingSettings: Bool
-    @Binding var showingComposer: Bool
+    @Binding var composer: ComposerRequest?
     @Binding var showingVoiceComposer: Bool
     @Binding var showingLibrary: Bool
     @Binding var showingStatusHistory: Bool
@@ -425,8 +433,9 @@ private struct HomeSheets: ViewModifier {
             .sheet(isPresented: $showingSettings) {
                 SettingsView()
             }
-            .sheet(isPresented: $showingComposer) {
-                MomentComposerView { image, kind, caption in
+            // In the item: state read only in a sheet's closure can arrive stale.
+            .sheet(item: $composer) { request in
+                MomentComposerView(opensCamera: request.opensCamera) { image, kind, caption in
                     Task { await model.sendMoment(image: image, kind: kind, caption: caption) }
                 }
                 .presentsModelErrors()

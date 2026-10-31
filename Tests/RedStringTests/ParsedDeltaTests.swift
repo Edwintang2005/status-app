@@ -91,6 +91,7 @@ final class ParsedDeltaTests: XCTestCase {
         let result = outcome(delta, previousTheirs: Fixtures.status("💤", "sleeping")).result
         XCTAssertTrue(result.heldPartnerStatus)
         XCTAssertEqual(result.heldPartnerMomentKinds, [.voice])
+        XCTAssertEqual(result.heldPartnerMomentIDs, ["m1"], "the banner's subject")
         XCTAssertEqual(result.partnerStatus?.message, "sleeping", "the held copy stands, not a placeholder")
     }
 

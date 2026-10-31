@@ -143,10 +143,16 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         let level = SharedStore.shared.notificationPreferences
             .level(for: push, momentKinds: result.newPartnerMoments.map(\.kind) + result.heldPartnerMomentKinds)
         apply(plan.limited(to: level), to: content)
+        // Stamped before the fallback: an expiry mid-fetch still leaves a later pass the picture to add.
+        if plan.attachment != nil { content.userInfo[BannerSubject.wantsAttachmentKey] = true }
         // Worded and claimed: from here on expiry delivers these words, not
         // CloudKit's — the claim stands, so nothing would ever re-announce it.
         setFallback(content)
-        guard let moment = plan.attachment else { return content }
+        // This push's own picture first; then earlier banners (`tidyUp`).
+        guard let moment = plan.attachment else {
+            await tidyUp(incoming: plan.subject)
+            return content
+        }
         // The refresh fetched at most the widget's thumbnail; pull only what the
         // banner attaches — the thumbnail, or a memo's recording — and only while
         // there's time left for the words to go out anyway.
@@ -158,8 +164,18 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         }
         if let attachment {
             content.attachments = [attachment]
+            content.userInfo[BannerSubject.wantsAttachmentKey] = nil
         }
+        await tidyUp(incoming: plan.subject)
         return content
+    }
+
+    /// Earlier banners this pass can now complete — reworded, given their
+    /// picture, withdrawn — since the phone may have been locked when they came.
+    /// Bounded, and skipped once out of time: this push's banner goes out regardless.
+    private func tidyUp(incoming: BannerSubject?) async {
+        guard !Task.isCancelled else { return }
+        try? await withDeadline(3) { await BannerUpkeep.run(incoming: incoming) }
     }
 
     private func momentCandidates() -> [Moment] {
@@ -172,6 +188,7 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         if let body = plan.body { content.body = body }
         if let thread = plan.thread { content.threadIdentifier = thread }
         if let category = plan.heldCategory { content.userInfo[NotificationCategory.heldBannerKey] = category }
+        if let subject = plan.subject { content.userInfo[BannerSubject.key] = subject.stamp }
         if plan.dropsCategory { content.categoryIdentifier = "" }
         if plan.sound { content.sound = .default }
         switch plan.volume {

@@ -66,87 +66,19 @@ Older builds ignore fields they don't read; a new moment kind shows as
 
 ## Tier 1 — next: high impact, ready to build
 
-### Share from anywhere (M–L) ★★★ 🔬
-A Share Extension, so you can send a photo, screenshot or saved meme from any
-app's share sheet without opening Red String. It's the lowest-effort way to
-send that the app could have: whatever you were looking at goes to them in two
-taps. No schema change: a shared image is an ordinary `.photo` moment.
-- **The sheet:** a preview, a caption field (`captionMaxLength`), "To
-  \<partner\>" and Send. SwiftUI hosted in the extension's principal view
-  controller, using `Theme`. Accept one image at first
-  (`NSExtensionActivationSupportsImageWithMaxCount = 1`). Several images
-  would become several moments later; text and URLs wait for links as moments.
-- **Same send path, stage for stage** (invariant 11):
-  - Media goes on disk first, then the index entry (`SharedStore.record`,
-    under the index's flock), then `Outbox.upload`.
-  - Two app-only pieces need extension stand-ins.
-    `AppModel.withUploadProtection` uses `UIApplication`, so the extension uses
-    `ProcessInfo.performExpiringActivity`. `senderName` comes from
-    `snapshot.mine`.
-  - `newMoment`/`send` move from `AppModel` into `Outbox` or a shared helper,
-    so both callers file moments identically.
-- **Memory:** share extensions get a much smaller memory ceiling than the app
-  (about 120 MB; measure it). A 48 MP HEIC decoded whole would overflow it.
-  - Load the shared item as a file (`loadFileRepresentation`) and downsample it
-    with ImageIO to `MomentStore.fullMaxDimension`, as `MomentStore.decoded`
-    already does.
-  - Then hand `MomentStore.write` a 2048-px image, never the original.
-- **When it lands:**
-  - The sheet stays up with a progress ring until the record is confirmed. A
-    1 MB photo usually takes a second or two. Then it shows ✓ and dismisses.
-  - If the person dismisses early, or it's offline, the moment stays queued
-    (`uploaded == false`) and the sheet says so honestly: "Saved — it'll send
-    next time Red String opens." The queue's footer count already covers it.
-  - "Send the queue while the app is suspended" (Tier 2) is what would make
-    this send without opening the app. Build them together if the probe below
-    fails.
-- **A send from the extension overlapping an app retry of the same moment is
-  safe:**
-  - The record name is fixed, so the second save only overwrites.
-  - The partner's NSE claims the second push as already announced
-    (`claimMomentBanner`).
-  - To spare the duplicate upload, stamp the index entry with a short "sending
-    from the share sheet" lease the app's retry pass waits out. That's cheaper
-    than a cross-process `uploadsInFlight`.
-- **Gates:**
-  - Terms accepted (`acceptedTermsVersion`), paired, and the pairing's account
-    signed in (`requirePairing` already checks that). Otherwise the sheet
-    says "Open Red String to finish setting up" and sends nothing.
-  - The share sheet only runs unlocked, so encrypted fields are always
-    writable here, unlike in the NSE.
-- **Afterwards:** `SharedStore.reloadWidgets()` from the extension is allowed
-  (invariant 6 forbids it only in the widget process). The app re-reads the
-  index on foregrounding, so the new moment appears there with no new
-  signalling.
-- **Phase 2: the partner in the share sheet's top row.**
-  - Donate an `INSendMessageIntent` (the partner as an `INPerson`, using
-    `moderatedPartnerName`) on every send. Declare `INSendMessageIntent` in the
-    extension's `IntentsSupported`.
-  - Their name and avatar then sit in the share sheet's suggestion row. Picking
-    it opens the sheet with `extensionContext.intent` set.
-  - Delete the donations on unlink, block and local reset
-    (`INInteraction.deleteAll`), next to `finishUnlink`.
-- **Build:**
-  - A fourth shipping target in `project.yml`, compiling `Sources/Shared/`,
-    with its own `Localizable.xcstrings` and privacy manifest. Then
-    `make project` and commit.
-  - A fifth entitlements file (App Group + iCloud container): invariant 12's
-    lockstep list grows by one.
-  - CI builds it with the app.
-- 🔬 **Probe first, on a device:**
-  1. Does a long-lived `CKModifyRecordsOperation` started in a share extension
-     finish after `completeRequest` and the extension's termination? And does
-     the app's `container.allLongLivedOperationIDs()` list it
-     (`Outbox.adoptBackgroundUploads`)? Long-lived operations may be tracked
-     per bundle, not per container.
-     - If it finishes but the app can't see it, the lease above covers the
-       overlap.
-     - If it doesn't finish, the queued fallback is the design, and the
-       suspended-queue item becomes a prerequisite.
-  2. The extension's real memory ceiling, with a 48 MP HEIC, a ProRAW and a
-     panorama shared from Photos.
-  3. Cold-start time to a usable sheet. `Shared/` is large, so measure before
-     trimming.
+### Notifications tied to what they announce — follow-ups (S each) ★
+Shipped (CHANGELOG, Unreleased): `BannerSubject`, `BannerUpkeep`, the
+expanded banner. Left:
+- 🔬 **On a device**: that re-adding a delivered *push*'s identifier from the
+  app or an extension replaces it in place (fallback: remove, then add
+  quietly); that the widget extension may list and rewrite notifications; that
+  the expanded banner survives its own banner being rewritten while open.
+- **Hearts stay one banner each** (decided October 2026): folding them would
+  replace each with the latest, and someone asleep would wake to one time
+  instead of every time they were thought of. If they crowd the other
+  banners, give them their own `threadIdentifier` so iOS stacks them apart.
+- **CloudKit's own words**: a push whose service pass never ran (before first
+  unlock, an expiry) carries no subject, and only the app's sweep replaces it.
 
 ### Pause notifications for a while (S) ★★
 Per-kind levels shipped in 1.6.1 (`NotificationPreferences`: sound, silent,
@@ -242,17 +174,127 @@ app.
   which already wakes the app and awaits the send. No schema.
 - Limit: iOS shows only a few actions on a long-press; pick three.
 
-### Delete your own moment (S) ★★
-The gallery menu exists only for the partner's moments. Own deletion is one
-record delete (`moment-<role>-<uuid>`) plus the local `MomentIndex.remove` +
-`MomentStore.delete` the deletion mirror already runs on the other phone; the
-snapshot's derived fields recompute via `refreshDerived`. Confirm first — it
-deletes on both phones. Unblocks "storage steward" and makes "undo" mostly
-unnecessary.
+### Delete your own moment (S–M) ★★★
+Designed October 2026, parked until picked. "Delete for both of you…" in the
+gallery's menu (today only the partner's moments have one) and on a library
+tile's long-press, confirmed: "It's removed from both iPhones and iCloud.
+Copies already saved to Photos or exported aren't affected." A send that never
+reached iCloud is just dropped locally. Own moments only — the partner's keep
+Report, which hides locally. No schema change. Unblocks "storage steward" and
+makes "undo" mostly unnecessary.
+- **The receiver already mirrors it**: a deleted `moment-<role>-<uuid>` arrives
+  as `ParsedDelta.removedMomentIDs`, `apply` runs `MomentIndex.remove` +
+  `MomentStore.delete`, derived fields and the widget follow. Its push is
+  quiet; reword `PushBannerPolicy`'s "Moments were removed from your shared
+  space." to "\<name\> removed a moment." when one is the partner's.
+- **Tombstone first** (`Snapshot.deletedMomentIDs`, like `hiddenMomentIDs`,
+  inside one `mutate`): hidden at once, filtered from every delta by `apply`,
+  and skipped by `MomentIndex.requeueMissingUploads` — which otherwise
+  re-uploads an own moment the zone no longer returns while its media is on
+  disk, so a kill between the cloud delete and the local cleanup would bring
+  it back.
+- **The cloud delete is a send** (invariants 11, 22): an `Outbox` loop like the
+  republishes — offline it waits and goes on reconnect, confirmed per record
+  (`confirmDeleted`), `unknownItem` counts as done; then `MomentIndex.remove`
+  + `MomentStore.delete`.
+- **Never race an upload**: while the moment is in `uploadsInFlight`, the
+  delete stands aside (as the fresh start's clear does), or the record lands
+  after it and comes back.
+- **The banner it announced** is already withdrawn: `BannerUpkeep` removes a
+  moment's banner once the moment has left the index.
+- Open, defaults first: no time limit (vs. an "unsend" within 24 h); the
+  partner gets the quiet named notice (vs. silence).
 
 ---
 
 ## Tier 2 — soon: strong, needs one design decision or a small probe
+
+### Share from anywhere (M–L) ★★ 🔬 — shelved
+**Shelved, October 2026:** a good build, but unproven demand — nobody yet knows
+how often moments would start in another app. If it's picked up, pilot it on
+its own branch through TestFlight first, with a local-only count of share-sheet
+sends in Diagnostics (nothing leaves the phone) to show whether it's used.
+
+A Share Extension, so you can send a photo, screenshot or saved meme from any
+app's share sheet without opening Red String. It's the lowest-effort way to
+send that the app could have: whatever you were looking at goes to them in two
+taps. No schema change: a shared image is an ordinary `.photo` moment.
+- **The sheet:** a preview, a caption field (`captionMaxLength`), "To
+  \<partner\>" and Send. SwiftUI hosted in the extension's principal view
+  controller, using `Theme`. Accept one image at first
+  (`NSExtensionActivationSupportsImageWithMaxCount = 1`). Several images
+  would become several moments later; text and URLs wait for links as moments.
+- **Same send path, stage for stage** (invariant 11):
+  - Media goes on disk first, then the index entry (`SharedStore.record`,
+    under the index's flock), then `Outbox.upload`.
+  - Two app-only pieces need extension stand-ins.
+    `AppModel.withUploadProtection` uses `UIApplication`, so the extension uses
+    `ProcessInfo.performExpiringActivity`. `senderName` comes from
+    `snapshot.mine`.
+  - `newMoment`/`send` move from `AppModel` into `Outbox` or a shared helper,
+    so both callers file moments identically.
+- **Memory:** share extensions get a much smaller memory ceiling than the app
+  (about 120 MB; measure it). A 48 MP HEIC decoded whole would overflow it.
+  - Load the shared item as a file (`loadFileRepresentation`) and downsample it
+    with ImageIO to `MomentStore.fullMaxDimension`, as `MomentStore.decoded`
+    already does.
+  - Then hand `MomentStore.write` a 2048-px image, never the original.
+- **When it lands:**
+  - The sheet stays up with a progress ring until the record is confirmed. A
+    1 MB photo usually takes a second or two. Then it shows ✓ and dismisses.
+  - If the person dismisses early, or it's offline, the moment stays queued
+    (`uploaded == false`) and the sheet says so honestly: "Saved — it'll send
+    next time Red String opens." The queue's footer count already covers it.
+  - "Send the queue while the app is suspended" (Tier 2) is what would make
+    this send without opening the app. Build them together if the probe below
+    fails.
+- **A send from the extension overlapping an app retry of the same moment is
+  safe:**
+  - The record name is fixed, so the second save only overwrites.
+  - The partner's NSE claims the second push as already announced
+    (`claimMomentBanner`).
+  - To spare the duplicate upload, stamp the index entry with a short "sending
+    from the share sheet" lease the app's retry pass waits out. That's cheaper
+    than a cross-process `uploadsInFlight`.
+- **Gates:**
+  - Terms accepted (`acceptedTermsVersion`), paired, and the pairing's account
+    signed in (`requirePairing` already checks that). Otherwise the sheet
+    says "Open Red String to finish setting up" and sends nothing.
+  - The share sheet only runs unlocked, so encrypted fields are always
+    writable here, unlike in the NSE.
+- **Afterwards:** `SharedStore.reloadWidgets()` from the extension is allowed
+  (invariant 6 forbids it only in the widget process). The app re-reads the
+  index on foregrounding, so the new moment appears there with no new
+  signalling.
+- **Phase 2: the partner in the share sheet's top row.**
+  - Donate an `INSendMessageIntent` (the partner as an `INPerson`, using
+    `moderatedPartnerName`) on every send. Declare `INSendMessageIntent` in the
+    extension's `IntentsSupported`.
+  - Their name and avatar then sit in the share sheet's suggestion row. Picking
+    it opens the sheet with `extensionContext.intent` set.
+  - Delete the donations on unlink, block and local reset
+    (`INInteraction.deleteAll`), next to `finishUnlink`.
+- **Build:**
+  - A fourth shipping target in `project.yml`, compiling `Sources/Shared/`,
+    with its own `Localizable.xcstrings` and privacy manifest. Then
+    `make project` and commit.
+  - A fifth entitlements file (App Group + iCloud container): invariant 12's
+    lockstep list grows by one.
+  - CI builds it with the app.
+- 🔬 **Probe first, on a device:**
+  1. Does a long-lived `CKModifyRecordsOperation` started in a share extension
+     finish after `completeRequest` and the extension's termination? And does
+     the app's `container.allLongLivedOperationIDs()` list it
+     (`Outbox.adoptBackgroundUploads`)? Long-lived operations may be tracked
+     per bundle, not per container.
+     - If it finishes but the app can't see it, the lease above covers the
+       overlap.
+     - If it doesn't finish, the queued fallback is the design, and the
+       suspended-queue item becomes a prerequisite.
+  2. The extension's real memory ceiling, with a 48 MP HEIC, a ProRAW and a
+     panorama shared from Photos.
+  3. Cold-start time to a usable sheet. `Shared/` is large, so measure before
+     trimming.
 
 ### Presence, part 2: the candle, goodnight together, their local time (S–M each) ★★
 Same `Presence` record as part 1; each is a field and a bit of UI.
@@ -777,6 +819,12 @@ Ranked by harm: data loss and trust first. Numbers like #5 are the September
     `CloudSync` itself has no `CKDatabase` seam, so the per-zone fetch error
     path (#16 of the October review) and the CloudKit calls behind the pure
     policies are untested.
+19. **A fresh start doesn't wait on unrecovered photos (S) — left as is,
+    October 2026.** `FreshStartView.saveThen` goes on when
+    `MemoryArchive.Outcome.isComplete`, even with `unrecovered > 0`: a photo the
+    archive couldn't fetch back is then cleared from iCloud once both agree.
+    Settings → Storage makes fetching back more common. If revisited: treat
+    `unrecovered > 0` as incomplete and ask for a retry on a better connection.
 
 ## Privacy, safety and App Review — ranked
 

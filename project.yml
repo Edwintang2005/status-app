@@ -2,8 +2,8 @@
 # Regenerate the Xcode project with:  make project     (or: xcodegen generate)
 #
 # To rebrand: change `bundleIdPrefix` and the PRODUCT_BUNDLE_IDENTIFIERs below,
-# then the matching IDs in Sources/Shared/AppConfig.swift, the four
-# .entitlements files (app Debug + Release, widget, NSE) and the NSUbiquitousContainers key in
+# then the matching IDs in Sources/Shared/AppConfig.swift, the five
+# .entitlements files (app Debug + Release, widget, NSE, notification content) and the NSUbiquitousContainers key in
 # Sources/App/Resources/Info.plist, and re-run `make project`.
 
 name: RedString
@@ -102,6 +102,9 @@ targets:
       - target: RedStringNotificationService
         embed: true
         codeSign: true
+      - target: RedStringNotificationContent
+        embed: true
+        codeSign: true
 
   RedStringWidgetExtension:
     type: app-extension
@@ -148,6 +151,35 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         INFOPLIST_FILE: Sources/NotificationService/Resources/Info.plist
         CODE_SIGN_ENTITLEMENTS: Sources/NotificationService/Resources/RedStringNotificationService.entitlements
+
+  # The expanded (long-pressed) moment and status banner: refreshes on demand,
+  # so a banner a locked phone couldn't word shows the real content when looked at.
+  # See Sources/NotificationContent/NotificationViewController.swift.
+  RedStringNotificationContent:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Sources/Shared
+      - path: Sources/NotificationContent
+        excludes:
+          - "Resources/Info.plist"
+          - "Resources/RedStringNotificationContent.entitlements"
+      - path: Sources/NotificationContent/Resources/Info.plist
+        buildPhase: none
+      - path: Sources/NotificationContent/Resources/RedStringNotificationContent.entitlements
+        buildPhase: none
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.edwintang.redstring.notificationcontent
+        PRODUCT_NAME: RedStringNotificationContent
+        # Overrides XcodeGen's "1,2" target preset — see settings.base above.
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_FILE: Sources/NotificationContent/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Sources/NotificationContent/Resources/RedStringNotificationContent.entitlements
+    # Linked, not just imported: the extension point's context class lives here,
+    # and without it the extension launches and draws nothing.
+    dependencies:
+      - sdk: UserNotificationsUI.framework
 
   # Unit tests over Sources/Shared, compiled straight into the bundle — no host
   # app, so no signing and no App Group: the stores under test take injected

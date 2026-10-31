@@ -61,6 +61,7 @@ final class PushBannerPolicyTests: XCTestCase {
         XCTAssertEqual(plan.title, "Sam")
         XCTAssertEqual(plan.body, "morning")
         XCTAssertEqual(plan.attachment?.id, "m1")
+        XCTAssertEqual(plan.subject, .moment("m1"), "found again by a later pass")
         XCTAssertEqual(plan.volume, .asSent)
         XCTAssertTrue(snapshot.hasAnnounced("m1"))
 
@@ -137,11 +138,13 @@ final class PushBannerPolicyTests: XCTestCase {
         var snapshot = paired()
         var result = RefreshResult.empty
         result.unreadableRecordNames = ["moment-participant-x"]
-        result.heldPartnerMomentKinds = [.voice]
+        result.heldPartnerMomentKinds = [.photo, .voice]
+        result.heldPartnerMomentIDs = ["older", "x"]
         let plan = decide(.moment, result, in: &snapshot)
         XCTAssertEqual(plan.title, "Sam")
-        XCTAssertEqual(plan.body, Moment.Kind.voice.arrivalSummary)
+        XCTAssertEqual(plan.body, AnnouncementPolicy.heldMomentBody(kinds: [.photo, .voice]))
         XCTAssertEqual(plan.heldCategory, NotificationCategory.moment)
+        XCTAssertEqual(plan.subject, .moment("x"), "the newest, reworded once readable")
         XCTAssertEqual(plan.volume, .asSent, "real and unannounced: full volume")
     }
 
@@ -399,6 +402,7 @@ final class PushBannerPolicyTests: XCTestCase {
         let plan = decide(.status, RefreshResult(partnerStatus: renamed, newPartnerMoments: []), in: &snapshot)
         XCTAssertEqual(plan.title, "Sam")
         XCTAssertEqual(plan.body, String(localized: "is now going by Sammy"))
+        XCTAssertNil(plan.subject, "a new name mustn't supersede the banner holding the words")
     }
 
     func testAReportedStatusShowsNoWords() {
@@ -416,6 +420,7 @@ final class PushBannerPolicyTests: XCTestCase {
         result.unreadableRecordNames = ["status-participant"]
         let plan = decide(.status, result, in: &snapshot)
         XCTAssertEqual(plan.heldCategory, NotificationCategory.status)
+        XCTAssertEqual(plan.subject, .status)
         XCTAssertEqual(plan.volume, .asSent)
         XCTAssertNil(snapshot.lastAnnouncedPartnerStatusAt, "the previous status must not be announced as news")
     }

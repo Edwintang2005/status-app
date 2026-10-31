@@ -7,7 +7,7 @@ extension AppModel {
 
     /// Paired, the zone may hold more than this phone's capped index, statuses included.
     var hasMemoriesToArchive: Bool { isPaired || !history.isEmpty }
-    var canArchiveMemories: Bool { hasMemoriesToArchive && archiveProgress == nil }
+    var canArchiveMemories: Bool { hasMemoriesToArchive && archiveProgress == nil && !isClearingMedia }
 
     /// Writes the whole zone's history, merged with this phone's, out as plain
     /// files in iCloud Drive. Most media is fetched back from CloudKit (hence

@@ -592,13 +592,17 @@ final class SharedStore: @unchecked Sendable {
     }
     private static let protectedData = OSAllocatedUnfairLock(initialState: true)
 
-    /// Which of the three processes this is, for the tally above.
+    /// Which of the four processes this is, for the tally above.
     static let processLabel: String = {
         guard let extensionInfo = Bundle.main.infoDictionary?["NSExtension"] as? [String: Any],
               let point = extensionInfo["NSExtensionPointIdentifier"] as? String else {
             return "app"
         }
-        return point == "com.apple.widgetkit-extension" ? "widget" : "notification service"
+        switch point {
+        case "com.apple.widgetkit-extension": return "widget"
+        case "com.apple.usernotifications.content-extension": return "expanded banner"
+        default: return "notification service"
+        }
     }()
 
     // MARK: - CloudKit change tokens

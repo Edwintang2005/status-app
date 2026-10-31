@@ -268,17 +268,17 @@ struct ParsedDelta {
         }
         let newFromPartner = arrived.filter { !$0.fromMe && isNews($0) }
         // Same "new" test: a resync re-delivering history unreadable is not news.
-        let heldKinds = heldMoments
+        let held = heldMoments
             .filter { isNews($0) && !hidden.contains($0.id) }
             .sorted { $0.sentAt < $1.sentAt }
-            .map(\.kind)
 
         var result = RefreshResult(partnerStatus: partnerErased ? nil : (theirs ?? previousTheirs),
                                    newPartnerMoments: newFromPartner,
                                    unreadableRecordNames: unreadable,
                                    ownRecordsChanged: ownRecordsChanged,
-                                   heldPartnerMomentKinds: heldKinds,
+                                   heldPartnerMomentKinds: held.map(\.kind),
                                    heldPartnerStatus: unreadable.contains(mineRole.other.statusRecordName))
+        result.heldPartnerMomentIDs = held.map(\.id)
         result.removedMoments = removedMomentIDs.count
         result.fullResync = fullResync
         result.partnerLeft = partnerErased

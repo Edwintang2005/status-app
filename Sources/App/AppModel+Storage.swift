@@ -5,7 +5,7 @@ import os
 extension AppModel {
     /// Not while an archive runs: it fetches missing media, then copies it,
     /// and a clear in between would leave its photos unrecovered.
-    var canClearDownloadedMedia: Bool { archiveProgress == nil }
+    var canClearDownloadedMedia: Bool { archiveProgress == nil && !isClearingMedia }
 
     /// Bytes "Clear downloaded media" would free: moment files outside
     /// `Outbox.mediaToKeep`, plus this app's temporary leftovers. `nil` when
@@ -23,6 +23,8 @@ extension AppModel {
     /// the bytes freed, or `nil` with the reason presented.
     func clearDownloadedMedia() async -> Int? {
         guard canClearDownloadedMedia else { return nil }
+        isClearingMedia = true
+        defer { isClearingMedia = false }
         guard let keep = outbox.mediaToKeep() else {
             errorTitle = String(localized: "Couldn't clear downloaded media")
             errorMessage = String(localized: "Your history couldn't be read just now, so nothing was removed. Try again in a moment.")

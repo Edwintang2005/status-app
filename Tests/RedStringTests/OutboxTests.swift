@@ -425,7 +425,15 @@ final class OutboxTests: XCTestCase {
         index.insert((0..<12).map { Fixtures.moment("m\($0)", at: Fixtures.date(Double($0))) })
         queue(["unsent"], at: -100)
         store.mutate { $0.latestPartnerVisualMoment = Fixtures.moment("drawn", at: Fixtures.date(-50)) }
-        XCTAssertEqual(outbox.mediaToKeep(newest: 3), ["m11", "m10", "m9", "unsent", "drawn"])
+        XCTAssertEqual(outbox.mediaToKeep(newest: 3, ownWindow: 0), ["m11", "m10", "m9", "unsent", "drawn"])
+    }
+
+    /// Own sends the zone may never have received stay re-sendable, as the usual cache keeps them.
+    func testClearingKeepsOwnSendsInsideTheCacheWindow() throws {
+        index.insert([Fixtures.moment("theirs", at: Fixtures.date(2)),
+                      Fixtures.moment("mine", at: Fixtures.date(1), fromMe: true),
+                      Fixtures.moment("old-mine", at: Fixtures.date(0), fromMe: true)])
+        XCTAssertEqual(outbox.mediaToKeep(newest: 0, ownWindow: 2), ["mine"])
     }
 
     func testClearingKeepsAnUploadInFlight() async throws {
@@ -435,7 +443,7 @@ final class OutboxTests: XCTestCase {
         backend.duringSend = { _ in await gate.wait() }
         let upload = Task { try await outbox.upload(moment) }
         await waitUntil { self.outbox.uploadsInFlight.contains("a") }
-        XCTAssertEqual(outbox.mediaToKeep(newest: 0), ["a"])
+        XCTAssertEqual(outbox.mediaToKeep(newest: 0, ownWindow: 0), ["a"])
         gate.open()
         try await upload.value
     }
@@ -452,7 +460,7 @@ final class OutboxTests: XCTestCase {
         media = ["lost"]
         let outbox = Outbox.testing(store: store, index: index, statusLog: statusLog, backend: backend,
                                     hasMedia: { [unowned self] in self.media.contains($0.id) })
-        XCTAssertEqual(outbox.mediaToKeep(newest: 0), ["lost"])
+        XCTAssertEqual(outbox.mediaToKeep(newest: 0, ownWindow: 0), ["lost"])
         XCTAssertEqual(index.load().map(\.id), ["lost"])
     }
 

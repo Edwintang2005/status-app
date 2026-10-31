@@ -71,7 +71,8 @@ struct CameraView: View {
                                tint: model.isDual ? Theme.warm : .white) {
                         model.toggleBothCameras()
                     }
-                    .disabled(model.countdown != nil || model.isCapturing || model.state != .running)
+                    .disabled(model.countdown != nil || model.isCapturing || model.state != .running
+                              || model.isInterrupted)
                 }
                 if model.flashModes.count > 1 {
                     iconButton(flashSymbol, label: "Flash", value: flashValue,
