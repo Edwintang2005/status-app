@@ -120,6 +120,20 @@ final class IngestTests: XCTestCase {
         XCTAssertTrue(fetched.isDisjoint(with: assets), "assets are fetched on demand, never with the delta")
     }
 
+    /// CloudKit's default QoS is discretionary: on mobile data iOS held the
+    /// notification service's fetch past its deadline.
+    func testTheChangeFetchIsNeverDiscretionary() {
+        let batch = CloudSync.changesOperation(zone: Fixtures.zone, since: nil, oneBatch: true,
+                                               desiredKeys: CloudSync.changeFetchKeys)
+        XCTAssertEqual(batch.configuration.qualityOfService, .userInitiated)
+        XCTAssertFalse(batch.fetchAllChanges)
+        XCTAssertEqual(batch.configurationsByRecordZoneID?[Fixtures.zone]?.resultsLimit, CloudSync.extensionBatchLimit)
+        let whole = CloudSync.changesOperation(zone: Fixtures.zone, since: nil, oneBatch: false,
+                                               desiredKeys: CloudSync.changeFetchKeys)
+        XCTAssertEqual(whole.configuration.qualityOfService, .userInitiated)
+        XCTAssertTrue(whole.fetchAllChanges)
+    }
+
     /// Our own records aren't capped: a long name must survive its own echo.
     func testOwnRecordTextIsNotCapped() {
         let longName = String(repeating: "n", count: 60)

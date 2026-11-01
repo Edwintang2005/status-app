@@ -88,6 +88,19 @@ final class SharedStoreTests: XCTestCase {
         XCTAssertNil(tally.heldSince)
     }
 
+    /// Diagnostics' "Last notification": written by the notification service, read by the app.
+    func testTheLastBannerPassRoundTrips() {
+        let (store, _) = makeStore()
+        XCTAssertNil(store.lastBannerPass)
+        let pass = SharedStore.BannerPass(at: Fixtures.date(0), outcome: .timedOut, seconds: 29.6, detail: nil)
+        store.lastBannerPass = pass
+        XCTAssertEqual(store.lastBannerPass, pass)
+        XCTAssertTrue(pass.summary.contains("29.6"))
+        store.lastBannerPass = SharedStore.BannerPass(at: Fixtures.date(0), outcome: .failed, seconds: 3,
+                                                      detail: "The Internet connection appears to be offline.")
+        XCTAssertTrue(store.lastBannerPass?.summary.contains("offline") == true)
+    }
+
     func testReadReceiptsToggleRoundTrips() {
         let (store, _) = makeStore()
         store.readReceiptsEnabled = false

@@ -26,6 +26,7 @@ struct DiagnosticsView: View {
                     LabeledContent("Environment", value: diagnostics.environment.label)
                     LabeledContent("Account", value: diagnostics.accountStatus)
                     LabeledContent("Pairing", value: diagnostics.pairing)
+                    LabeledContent("Last notification", value: diagnostics.lastNotification)
                 } header: {
                     Text("This device")
                 } footer: {

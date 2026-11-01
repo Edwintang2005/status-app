@@ -698,7 +698,11 @@ feasibility, then ranked correctness, privacy and polish backlogs. Read its
   CloudKit fetch is slow it falls back to CloudKit's generic wording rather
   than showing nothing — you'd see *"Sent you something 📷"* instead of the
   caption. The app sweeps that generic banner away when it next announces the
-  same event properly.
+  same event properly; a generic *status* banner is tagged, so the next
+  refresh anywhere (widget, app, long-press) rewords it. The fetch runs
+  `.userInitiated`: at CloudKit's default (discretionary) priority iOS held it
+  past the deadline on mobile data. Diagnostics → "Last notification" says
+  how the last push went.
 - **Switching iCloud accounts pauses sync rather than breaking it.** The
   pairing remembers which account made it (`PairingInfo.userRecordName`);
   under a different account the home screen's sync footer says so, and

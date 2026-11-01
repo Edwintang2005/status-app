@@ -178,18 +178,7 @@ extension CloudSync {
                           since previous: CKServerChangeToken?,
                           oneBatch: Bool = false,
                           desiredKeys: [String] = CloudSync.changeFetchKeys) async throws -> ZoneChanges {
-        let configuration = CKFetchRecordZoneChangesOperation.ZoneConfiguration(
-            previousServerChangeToken: previous,
-            resultsLimit: oneBatch ? Self.extensionBatchLimit : nil,
-            desiredKeys: desiredKeys
-        )
-
-        let operation = CKFetchRecordZoneChangesOperation(
-            recordZoneIDs: [zone],
-            configurationsByRecordZoneID: [zone: configuration]
-        )
-        operation.fetchAllChanges = !oneBatch
-
+        let operation = Self.changesOperation(zone: zone, since: previous, oneBatch: oneBatch, desiredKeys: desiredKeys)
         let changes = ZoneChanges()
         operation.recordWasChangedBlock = { recordID, result in
             switch result {
@@ -230,6 +219,27 @@ extension CloudSync {
         } onCancel: {
             operation.cancel()
         }
+    }
+
+    /// Someone is always waiting on a fetch — a banner, a widget, the open app —
+    /// so never CloudKit's default QoS, which is discretionary: on mobile data
+    /// iOS held it past the notification service's deadline.
+    static func changesOperation(zone: CKRecordZone.ID,
+                                 since previous: CKServerChangeToken?,
+                                 oneBatch: Bool,
+                                 desiredKeys: [String]) -> CKFetchRecordZoneChangesOperation {
+        let configuration = CKFetchRecordZoneChangesOperation.ZoneConfiguration(
+            previousServerChangeToken: previous,
+            resultsLimit: oneBatch ? Self.extensionBatchLimit : nil,
+            desiredKeys: desiredKeys
+        )
+        let operation = CKFetchRecordZoneChangesOperation(
+            recordZoneIDs: [zone],
+            configurationsByRecordZoneID: [zone: configuration]
+        )
+        operation.fetchAllChanges = !oneBatch
+        operation.configuration.qualityOfService = .userInitiated
+        return operation
     }
 
     /// Files a batch of changed records into local state. The decisions are

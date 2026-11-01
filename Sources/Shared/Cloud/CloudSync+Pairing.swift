@@ -355,6 +355,8 @@ extension CloudSync {
         }
 
         let operation = CKFetchShareParticipantsOperation(userIdentityLookupInfos: lookupInfos)
+        // The owner is waiting on it; the default QoS is discretionary.
+        operation.configuration.qualityOfService = .userInitiated
         final class Box: @unchecked Sendable { var participants: [CKShare.Participant] = [] }
         let box = Box()
         operation.perShareParticipantResultBlock = { _, result in

@@ -37,6 +37,15 @@ final class PushBannerPolicyTests: XCTestCase {
         XCTAssertEqual(PushBannerPolicy.Push.moment.category, NotificationCategory.moment)
     }
 
+    /// A status banner left in CloudKit's words (failed, timed out, unreadable)
+    /// is tagged so a later refresh rewords it; a moment push names no moment.
+    func testOnlyAStatusBannerLeftGenericIsTagged() {
+        XCTAssertEqual(PushBannerPolicy.Push.status.unwordedSubject, .status)
+        XCTAssertNil(PushBannerPolicy.Push.moment.unwordedSubject)
+        XCTAssertNil(PushBannerPolicy.Push.nudge.unwordedSubject)
+        XCTAssertNil(PushBannerPolicy.Push.other.unwordedSubject)
+    }
+
     func testUnpairedIsQuietWithNoHeartToSendBack() {
         let plan = PushBannerPolicy.unpaired
         XCTAssertEqual(plan.volume, .quiet)

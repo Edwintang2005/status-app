@@ -228,6 +228,8 @@ extension CloudSync {
             try Task.checkCancellation()
             let configuration = CKOperation.Configuration()
             configuration.allowsCellularAccess = !wifiOnly
+            // A fresh configuration defaults to discretionary QoS (see `changesOperation`).
+            configuration.qualityOfService = .userInitiated
             let results = try await database.configuredWith(configuration: configuration) { configured in
                 try await configured.records(for: chunk, desiredKeys: [Field.thumb])
             }

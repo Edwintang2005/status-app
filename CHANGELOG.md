@@ -4,6 +4,19 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 ## Unreleased
 
+- **Status notifications on mobile data.** The change fetch ran at CloudKit's
+  default priority, which iOS treats as discretionary and may hold back —
+  on mobile data, past the notification service's deadline, so the banner
+  kept CloudKit's generic words. The fetch, the thumbnail download and the
+  invite-close participant lookup now run `.userInitiated`
+  (`CloudSync.changesOperation`). A status banner still left generic
+  (failed, timed out, unreadable) is now tagged as a held status banner
+  (`PushBannerPolicy.Push.unwordedSubject`), so the next refresh — widget,
+  app, long-press — rewords it, or withdraws it if it was already announced;
+  before, no tidy-up pass could find it. Diagnostics shows how the last push
+  went ("Last notification": worded, left generic, failed or timed out, and
+  how long it took).
+
 - **Edit your moments' captions.** "Edit caption…" in the gallery's menu on
   your own moments (empty removes it); the moment shows "Edited". **No schema
   change**: only the encrypted `caption` changes, fetched without its assets

@@ -50,6 +50,7 @@ final class SharedStore: @unchecked Sendable {
         static let notificationPreferences = "notificationPreferences"
         static let notificationsNoticeDismissed = "notificationsNoticeDismissed"
         static let cameraSettings = "cameraSettings"
+        static let lastBannerPass = "lastBannerPass"
     }
 
     init(store: GroupKeyValueStore = GroupFileStore()) {
@@ -249,6 +250,41 @@ final class SharedStore: @unchecked Sendable {
     var verifiedAccount: VerifiedAccount? {
         get { decode(VerifiedAccount.self, forKey: Key.verifiedAccount) }
         set { encodeOptional(newValue, forKey: Key.verifiedAccount) }
+    }
+
+    /// How the notification service's last push went, for Diagnostics: a banner
+    /// left in CloudKit's words is otherwise invisible. Per device.
+    struct BannerPass: Codable, Equatable, Sendable {
+        enum Outcome: String, Codable, Sendable {
+            case worded
+            /// Fetched, but the plan kept CloudKit's words (held unreadable, one batch of many).
+            case unworded
+            case failed
+            /// iOS's deadline came before the words.
+            case timedOut
+        }
+
+        var at: Date
+        var outcome: Outcome
+        var seconds: Double
+        var detail: String?
+
+        var summary: String {
+            let took = seconds.formatted(.number.precision(.fractionLength(1)))
+            let what = switch outcome {
+            case .worded: String(localized: "worded in \(took) s")
+            case .unworded: String(localized: "left generic after \(took) s")
+            case .failed: String(localized: "fetch failed after \(took) s")
+            case .timedOut: String(localized: "timed out after \(took) s")
+            }
+            let line = [what, detail].compactMap { $0 }.joined(separator: " — ")
+            return "\(line) (\(at.formatted(date: .abbreviated, time: .shortened)))"
+        }
+    }
+
+    var lastBannerPass: BannerPass? {
+        get { decode(BannerPass.self, forKey: Key.lastBannerPass) }
+        set { encodeOptional(newValue, forKey: Key.lastBannerPass) }
     }
 
     /// Our nudge record's system fields and count as last saved or fetched, so

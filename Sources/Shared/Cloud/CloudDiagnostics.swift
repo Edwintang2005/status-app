@@ -24,6 +24,8 @@ struct CloudDiagnostics: Sendable {
     var unreadableRecords: String
     /// Both `FreshStart` records as last folded here, and this device's marks.
     var freshStart: String
+    /// How the notification service's last push went (`SharedStore.BannerPass`).
+    var lastNotification: String
     /// Anything that failed while gathering the above, rather than a silent gap.
     var problems: [String]
 
@@ -42,6 +44,7 @@ struct CloudDiagnostics: Sendable {
             "Participants: \(shareParticipants.isEmpty ? "none" : shareParticipants.joined(separator: " | "))",
             "Unreadable encrypted records: \(unreadableRecords)",
             "Fresh start: \(freshStart)",
+            "Last notification: \(lastNotification)",
         ]
         if !problems.isEmpty {
             lines.append("Problems: " + problems.joined(separator: " | "))
@@ -111,9 +114,10 @@ extension CloudSync {
         }
 
         var subscriptions: [String] = []
-        let (pairing, unreadable, freshStart) = await MainActor.run {
+        let (pairing, unreadable, freshStart, lastNotification) = await MainActor.run {
             (SharedStore.shared.pairing, SharedStore.shared.unreadableTally.summary,
-             SharedStore.shared.snapshot.freshStart.summary)
+             SharedStore.shared.snapshot.freshStart.summary,
+             SharedStore.shared.lastBannerPass?.summary ?? "none yet")
         }
         let database = pairing.map { self.database(for: $0) } ?? container.privateCloudDatabase
         do {
@@ -151,6 +155,7 @@ extension CloudSync {
             sharePublicPermission: sharePublicPermission,
             unreadableRecords: unreadable,
             freshStart: freshStart,
+            lastNotification: lastNotification,
             problems: problems
         )
     }

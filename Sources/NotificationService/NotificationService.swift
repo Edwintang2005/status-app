@@ -18,6 +18,9 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
     private var work: Task<Void, Never>?
     private let deliveryLock = NSLock()
     private var delivered = false
+    /// How this pass went, for Diagnostics; recorded by whichever delivery wins.
+    private var outcome = SharedStore.BannerPass.Outcome.timedOut
+    private var outcomeDetail: String?
     private var receivedAt = Date()
     /// One widget reload per push, however many the refresh asks for.
     private var reloadHold: SharedStore.WidgetReloadHold?
@@ -35,6 +38,7 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         // This phone's preference before anything is read: an expiry delivers no louder.
         let preferences = SharedStore.shared.notificationPreferences
         fallback?.limit(to: preferences.level(for: push))
+        Self.markUnworded(fallback, push: push)
         self.fallback = fallback
         reloadHold = SharedStore.shared.holdWidgetReloads()
         // Handed to the task; only the category is set on it here first.
@@ -76,9 +80,26 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         deliveryLock.lock()
         let first = !delivered
         delivered = true
+        let pass = SharedStore.BannerPass(at: receivedAt, outcome: outcome,
+                                          seconds: Date().timeIntervalSince(receivedAt), detail: outcomeDetail)
         deliveryLock.unlock()
         guard first else { return }
         contentHandler?(content)
+        SharedStore.shared.lastBannerPass = pass
+    }
+
+    private func note(_ outcome: SharedStore.BannerPass.Outcome, _ detail: String? = nil) {
+        deliveryLock.lock()
+        self.outcome = outcome
+        outcomeDetail = detail
+        deliveryLock.unlock()
+    }
+
+    /// Still CloudKit's words: tagged as a held banner, so a later refresh rewords it.
+    private static func markUnworded(_ content: UNMutableNotificationContent?, push: PushBannerPolicy.Push) {
+        guard let content, let subject = push.unwordedSubject else { return }
+        content.userInfo[BannerSubject.key] = subject.stamp
+        content.userInfo[NotificationCategory.heldBannerKey] = push.category
     }
 
     private func setFallback(_ content: UNMutableNotificationContent) {
@@ -99,12 +120,16 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         var widgetNeedsFetch = true
         defer { reloadHold?.release(widgetNeedsFetch: widgetNeedsFetch) }
         guard let content else { return nil }
-        guard CKNotification(fromRemoteNotificationDictionary: userInfo) != nil else { return content }
+        guard CKNotification(fromRemoteNotificationDictionary: userInfo) != nil else {
+            note(.unworded, "not a CloudKit push")
+            return content
+        }
 
         // Unpaired with the old subscriptions still registered (an offline block,
         // a local-only reset): never at full volume, never a heart to send back.
         guard await MainActor.run(body: { SharedStore.shared.pairing != nil }) else {
             widgetNeedsFetch = false
+            note(.worded, "unpaired")
             apply(PushBannerPolicy.unpaired, to: content)
             return content
         }
@@ -115,10 +140,13 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         } catch SyncError.notPaired {
             // Unpaired, like the guard above: there's nothing for the widget to fetch.
             widgetNeedsFetch = false
+            note(.worded, "unpaired")
             apply(PushBannerPolicy.unpaired, to: content)
             return content
         } catch {
             log.error("Refresh failed in service extension: \(error.localizedDescription)")
+            note(.failed, error.localizedDescription)
+            Self.markUnworded(content, push: push)
             return content
         }
         widgetNeedsFetch = result.incomplete
@@ -143,6 +171,14 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         let level = SharedStore.shared.notificationPreferences
             .level(for: push, momentKinds: result.newPartnerMoments.map(\.kind) + result.heldPartnerMomentKinds)
         apply(plan.limited(to: level), to: content)
+        if plan.title == nil, plan.body == nil {
+            Self.markUnworded(content, push: push)
+            note(.unworded, result.incomplete ? "one batch of many"
+                 : result.unreadableRecordNames.isEmpty ? nil
+                 : "\(result.unreadableRecordNames.count) record(s) unreadable")
+        } else {
+            note(.worded)
+        }
         // Stamped before the fallback: an expiry mid-fetch still leaves a later pass the picture to add.
         if plan.attachment != nil { content.userInfo[BannerSubject.wantsAttachmentKey] = true }
         // Worded and claimed: from here on expiry delivers these words, not

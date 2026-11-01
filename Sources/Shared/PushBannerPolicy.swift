@@ -28,6 +28,12 @@ enum PushBannerPolicy {
             case .other: ""
             }
         }
+
+        /// What a banner still in CloudKit's words is about (the fetch failed, ran
+        /// out of time or couldn't read): stamped held, so the next refresh
+        /// rewords or withdraws it (`BannerUpkeep`). Statuses only — a moment
+        /// push doesn't name its moment, and the app's sweep replaces those.
+        var unwordedSubject: BannerSubject? { self == .status ? .status : nil }
     }
 
     enum Volume: Equatable, Sendable {
