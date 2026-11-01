@@ -291,6 +291,12 @@
     "You sent something from another device." : {
 
     },
+    "Your moment was sent to %@." : {
+
+    },
+    "Your nudge was sent to %@." : {
+
+    },
     "Your partner" : {
 
     },
@@ -298,6 +304,9 @@
 
     },
     "Your shared space changed." : {
+
+    },
+    "Your status was sent to %@." : {
 
     }
   },

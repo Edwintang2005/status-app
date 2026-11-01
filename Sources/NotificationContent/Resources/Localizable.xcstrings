@@ -1,7 +1,231 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%lld months" : {
 
+    },
+    "%lld people besides you are on your shared space, so closing the invite link would keep all of them in. To be sure only your partner has access, unlink in Settings — which deletes the shared space for both of you — and send them a new link." : {
+
+    },
+    "%lld years" : {
+
+    },
+    "🎁 has a surprise for you — open %@ to see it" : {
+
+    },
+    "1 month" : {
+
+    },
+    "1 year" : {
+
+    },
+    "a new name" : {
+
+    },
+    "A surprise — open %@ to see it" : {
+
+    },
+    "CloudKit didn't return an invite link. Try again." : {
+
+    },
+    "Couldn't close the invite link safely, so it's open again. Your partner may have been taken off your shared space: ask them to tap the invite link now to get back in, before their app unlinks. (%@)" : {
+
+    },
+    "Couldn't encode that image." : {
+
+    },
+    "Couldn't finish closing the invite link, and couldn't confirm it reopened. If your partner can't get back in, reopen it — Settings → Invite link → Reopen the invite link — and ask them to tap the link. (%@)" : {
+
+    },
+    "Couldn't open the shared space. Ask them to send a fresh invite link, and check you're both on the same build of %@." : {
+
+    },
+    "Couldn't reach your shared space just now. Try again in a moment." : {
+
+    },
+    "drawing" : {
+
+    },
+    "Drawing" : {
+
+    },
+    "From a shared space you've left." : {
+
+    },
+    "Happy anniversary" : {
+
+    },
+    "Happy birthday" : {
+
+    },
+    "Happy New Year" : {
+
+    },
+    "Hidden" : {
+
+    },
+    "Hidden by your content filter" : {
+
+    },
+    "iCloud didn't confirm the save. It will be retried." : {
+
+    },
+    "iCloud doesn't show the fresh start agreed by both of you, so nothing was cleared. It will be checked again next time you open the app." : {
+
+    },
+    "iCloud is restricted on this device." : {
+
+    },
+    "iCloud is temporarily unavailable. Try again shortly." : {
+
+    },
+    "iCloud isn't available right now." : {
+
+    },
+    "iCloud took too long to answer." : {
+
+    },
+    "is now going by %@" : {
+
+    },
+    "is thinking of you 💭" : {
+
+    },
+    "left your shared space" : {
+
+    },
+    "Love you" : {
+
+    },
+    "Merry Christmas" : {
+
+    },
+    "moment" : {
+
+    },
+    "Moments were cleared for your fresh start." : {
+
+    },
+    "Moments were removed from your shared space." : {
+
+    },
+    "Only the person who created the link can set this." : {
+
+    },
+    "Only the person who joined the link can ask for this." : {
+
+    },
+    "Open %@ to see it." : {
+
+    },
+    "Partner" : {
+
+    },
+    "Pause" : {
+
+    },
+    "photo" : {
+
+    },
+    "Photo" : {
+
+    },
+    "Play · %@" : {
+
+    },
+    "Reported" : {
+
+    },
+    "sent you a drawing ✏️" : {
+
+    },
+    "sent you a photo 📷" : {
+
+    },
+    "sent you a voice memo 🎙️" : {
+
+    },
+    "sent you something 📷" : {
+
+    },
+    "sent you something new: update %@ to see it" : {
+
+    },
+    "Sign in to iCloud in Settings to use %@." : {
+
+    },
+    "Surprise!" : {
+
+    },
+    "That recording is no longer on this device." : {
+
+    },
+    "The shared App Group container isn't available." : {
+
+    },
+    "The shared space is no longer available. Everything shared has been removed from this device — pair again to start over." : {
+
+    },
+    "This device is signed into a different iCloud account than the one you paired with. Sign back into that account to see your shared space, or unlink from Settings." : {
+
+    },
+    "This device isn't paired yet." : {
+
+    },
+    "This iCloud account still has an earlier shared space. Rejoin it to carry on, or start a new one — which deletes the old one." : {
+
+    },
+    "This invite is from someone you've blocked." : {
+
+    },
+    "This iPhone's history couldn't be read just now." : {
+
+    },
+    "Update %@ to see this." : {
+
+    },
+    "updated their status" : {
+
+    },
+    "voice memo" : {
+
+    },
+    "was thinking of you earlier 💭" : {
+
+    },
+    "You changed your status from another device." : {
+
+    },
+    "You did it!" : {
+
+    },
+    "You reported this moment." : {
+
+    },
+    "You sent a nudge from another device." : {
+
+    },
+    "You sent something from another device." : {
+
+    },
+    "Your moment was sent to %@." : {
+
+    },
+    "Your nudge was sent to %@." : {
+
+    },
+    "Your partner" : {
+
+    },
+    "Your partner joined through this link, so closing it re-seats them: they're briefly taken off and need to tap the link once more to get back in." : {
+
+    },
+    "Your shared space changed." : {
+
+    },
+    "Your status was sent to %@." : {
+
+    }
   },
   "version" : "1.0"
 }

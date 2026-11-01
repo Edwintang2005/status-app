@@ -721,6 +721,29 @@ exactly this). Investigated September 2026; the shape that fits the app:
 
 ---
 
+### Apple Watch: complications and the Smart Stack (L) ★★ 🔬
+The partner's status on the watch face, a heart from the wrist, and a widget
+that surfaces in the Smart Stack only when something new arrived. Already free
+today: notifications mirror to the watch, and "Send a heart back" runs on the
+iPhone, so it works from the wrist.
+- **A watch app is required**: a watchOS widget extension ships inside a
+  watchOS app (WidgetKit, accessory families). iPhone Lock Screen widgets don't
+  carry over.
+- **Its own data**: App Groups don't span devices, so the watch needs its own
+  CloudKit sync — a slim one, status and nudge records only, no moments.
+  CloudKit and `encryptedValues` work on watchOS, and the watch is the same
+  iCloud user, so the zone is reachable. Extensions can't use
+  WatchConnectivity, and the iPhone app is rarely running to relay. `Shared/`
+  needs a watchOS pass (the camera, audio and UIKit-only code fenced off), and
+  invariant 12 grows by two entitlements files.
+- **watchOS 26 relevance** (`RelevanceConfiguration`, RelevanceKit): the
+  widget can show in the Smart Stack only when a status or heart is new.
+- 🔬 **Probe first, on a device**: whether a complication's AppIntent button
+  sends a heart without opening the watch app (a forum report says it only
+  opens it — without that, the heart is a tap into the app); the watch's
+  background refresh and push budget for a CloudKit fetch; whether a watch-side
+  subscription is worth it beside the mirrored iPhone notifications.
+
 ## Correctness and robustness — ranked
 
 Ranked by harm: data loss and trust first. Numbers like #5 are the September
@@ -921,8 +944,12 @@ Ranked by harm: data loss and trust first. Numbers like #5 are the September
   is in the git history. The warm acknowledgement (Tier 2) is the receipt-based
   replacement.
 - **Also considered:** heart variants (adjacent to super nudge; one plaintext
-  Int on `Nudge`), an Apple Watch target (heartbeat already scopes it), a Lock
-  Screen doodle glyph (legibility unproven).
+  Int on `Nudge`), a Lock Screen doodle glyph (legibility unproven). The Apple
+  Watch is now a Tier 4 item.
+- **CarPlay (iOS 26) — left as is, October 2026.** CarPlay offers every
+  `systemSmall` widget (Statuses, Their photo) with no CarPlay app; whether one
+  goes in a car is the user's choice, so neither is `.disfavoredLocations`-ed.
+  Tapping one in the car does nothing, as intended.
 - **Thumbnail inside the NSE's change fetch** — would save the banner a round
   trip, but puts media before the token (against invariant 2). Not recommended.
 - **Old `StatusLog` entries** logged before the cloud log existed are local-only

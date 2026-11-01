@@ -244,6 +244,9 @@
     "%lld items in iCloud couldn't be read on this iPhone and were left out." : {
 
     },
+    "%lld moment(s) were missing from iCloud and are being sent now." : {
+
+    },
     "%lld moment(s) were missing from iCloud and have now been sent." : {
 
     },
@@ -402,7 +405,7 @@
     "a new name" : {
 
     },
-    "A private status app for two people who choose to pair with each other. Everything you send — statuses, nudges, photos, drawings and voice memos — goes only to your partner, through your own iCloud. You are responsible for what you send." : {
+    "A private status app for two people who choose to pair with each other. Everything you send — statuses, nudges, photos, drawings and voice memos — goes only to your partner, through iCloud, in the shared space of whoever sent the invite. You are responsible for what you send." : {
 
     },
     "A private status app for two people." : {
@@ -453,7 +456,7 @@
     "Any colour" : {
 
     },
-    "Any status, photo, drawing or voice memo your partner sends can be reported from inside the app. Reporting removes it from your iPhone immediately and sends the details to us. A word filter, on by default, hides strong language from your partner's messages; you can turn it off in Settings." : {
+    "Any status, photo, drawing or voice memo your partner sends can be reported from inside the app. Reporting removes it from your iPhone immediately and opens an email to us with the details, ready for you to send. A word filter, on by default, hides strong language from your partner's messages; you can turn it off in Settings." : {
 
     },
     "Anyone holding the link can join. If %@ hasn't joined yet, closing it simply shuts it; once they're in, closing asks them to tap the link once more." : {
@@ -502,6 +505,9 @@
     "Auto" : {
 
     },
+    "Back to one camera: the iPhone is warm" : {
+
+    },
     "BACKGROUND" : {
 
     },
@@ -527,6 +533,12 @@
 
     },
     "Blow out the candles" : {
+
+    },
+    "Both cameras" : {
+
+    },
+    "Both cameras couldn't start" : {
 
     },
     "Brush size %lld" : {
@@ -574,6 +586,15 @@
     "Clear" : {
 
     },
+    "Clear %@" : {
+
+    },
+    "Clear downloaded media?" : {
+
+    },
+    "Clear downloaded media…" : {
+
+    },
     "Clear search" : {
 
     },
@@ -584,6 +605,9 @@
 
     },
     "Clear your shared history and carry on together." : {
+
+    },
+    "Cleared %@" : {
 
     },
     "Clearing" : {
@@ -650,6 +674,9 @@
 
     },
     "Couldn't change the invite link" : {
+
+    },
+    "Couldn't clear downloaded media" : {
 
     },
     "Couldn't close the invite link safely, so it's open again. Your partner may have been taken off your shared space: ask them to tap the invite link now to get back in, before their app unlinks. (%@)" : {
@@ -775,7 +802,7 @@
     "Does everything unlinking does, and also forgets your name and clears every photo, drawing and voice memo held on this iPhone. %@ starts as it did the day you installed it. There is no undo." : {
 
     },
-    "Don't send anything that is threatening, harassing, hateful, sexually explicit without consent, violent, illegal, or that involves a minor in any sexual way. Don't use Red String to abuse, stalk or pressure anyone. There is no tolerance for objectionable content or abusive behaviour: content is removed and the person who sent it is ejected." : {
+    "Don't send anything that is threatening, harassing, hateful, sexually explicit without consent, violent, illegal, or that involves a minor in any sexual way. Don't use Red String to abuse, stalk or pressure anyone. There is no tolerance for objectionable content or abusive behaviour: reported content is removed from your iPhone at once, and Block ends the link with the person who sent it." : {
 
     },
     "Don't show again" : {
@@ -790,7 +817,13 @@
     "Double-tap to tie the red string" : {
 
     },
+    "Downloaded photos and memos" : {
+
+    },
     "Drag the red string from the fox to the fish" : {
+
+    },
+    "Drag to move it." : {
 
     },
     "drawing" : {
@@ -814,7 +847,7 @@
     "Eraser" : {
 
     },
-    "Everything %@ sent is removed from this iPhone immediately, the link ends, their invites are refused from now on, and we're notified. There is no undo." : {
+    "Everything %@ sent is removed from this iPhone immediately, the link ends, their invites are refused from now on, and an email to us opens so you can tell us why. There is no undo." : {
 
     },
     "Everything this phone sent is in iCloud." : {
@@ -875,6 +908,9 @@
 
     },
     "Happy New Year" : {
+
+    },
+    "Hearts" : {
 
     },
     "Hearts wait out your Focus" : {
@@ -964,10 +1000,10 @@
     "It may not be downloaded from iCloud yet. Check your connection and try again." : {
 
     },
-    "It's removed from this iPhone straight away, and the details go to us by email. We act on reports within 24 hours." : {
+    "It's removed from this iPhone straight away, and an email to us opens with the details — send it and we'll respond within 24 hours." : {
 
     },
-    "Its text is hidden on this iPhone straight away, and the details go to us by email. We act on reports within 24 hours." : {
+    "Its text is hidden on this iPhone straight away, and an email to us opens with the details — send it and we'll respond within 24 hours." : {
 
     },
     "Join %@" : {
@@ -1021,6 +1057,9 @@
     "Link ended" : {
 
     },
+    "List only" : {
+
+    },
     "Listen back, or send it" : {
 
     },
@@ -1030,7 +1069,7 @@
     "Lock Screen widget" : {
 
     },
-    "Long-press a status or open a photo's menu to report it. Reports and blocks go to %@ and are acted on within 24 hours." : {
+    "Long-press a status, or open the menu on anything sent to you, to report it. Reporting and blocking open an email to %@ for you to send; we respond within 24 hours." : {
 
     },
     "Love you" : {
@@ -1104,6 +1143,12 @@
     "More" : {
 
     },
+    "Move the small picture" : {
+
+    },
+    "Move to the next corner" : {
+
+    },
     "new" : {
 
     },
@@ -1168,6 +1213,9 @@
 
     },
     "Nothing was unlinked, because the archive isn't complete." : {
+
+    },
+    "Notifications" : {
 
     },
     "Notifications are off" : {
@@ -1254,7 +1302,16 @@
     "photo" : {
 
     },
+    "Photo or doodle" : {
+
+    },
     "Photos" : {
+
+    },
+    "Photos and doodles" : {
+
+    },
+    "Photos, drawings and voice memos stay in iCloud and download again when you open them, which needs a connection. The newest few, and anything not sent yet, stay on this iPhone." : {
 
     },
     "Pick a photo, or start drawing" : {
@@ -1375,6 +1432,9 @@
 
     },
     "Reopen the invite link?" : {
+
+    },
+    "Reply with a photo" : {
 
     },
     "Reply with a status" : {
@@ -1554,7 +1614,7 @@
     "Settings" : {
 
     },
-    "Settings → Block ends the link, removes everything your partner sent from your iPhone instantly, refuses any future invite from them, and notifies us." : {
+    "Settings → Block ends the link, removes everything your partner sent from your iPhone instantly, refuses any future invite from them, and opens an email so you can tell us." : {
 
     },
     "Share invite link" : {
@@ -1584,10 +1644,16 @@
     "Sign in to iCloud in Settings to use %@." : {
 
     },
+    "Silent" : {
+
+    },
     "Since" : {
 
     },
     "Sky blue background" : {
+
+    },
+    "Small picture" : {
 
     },
     "Some of your history couldn't be read from iCloud, so nothing was asked or agreed. Try again with a better connection." : {
@@ -1603,6 +1669,9 @@
 
     },
     "Something went wrong" : {
+
+    },
+    "Sound" : {
 
     },
     "Start a new shared space instead…" : {
@@ -1626,6 +1695,9 @@
     "status update" : {
 
     },
+    "Statuses" : {
+
+    },
     "Statuses show up here as they're set, including ones from before this phone." : {
 
     },
@@ -1635,7 +1707,13 @@
     "Stop" : {
 
     },
+    "Storage" : {
+
+    },
     "Surprise!" : {
+
+    },
+    "Swap cameras" : {
 
     },
     "Switch camera" : {
@@ -1865,6 +1943,12 @@
     "Unlink from %@?" : {
 
     },
+    "update %@ to see it" : {
+
+    },
+    "Update %@ to see this" : {
+
+    },
     "updated their status" : {
 
     },
@@ -1901,10 +1985,10 @@
     "was thinking of you earlier 💭" : {
 
     },
-    "We act on every report within 24 hours: the reported content is removed and, where the report is upheld, the person who sent it is ejected from the shared space and barred from pairing with the reporter again. Because messages are end-to-end encrypted in your iCloud, we can only see what you include in a report." : {
+    "We respond to every report within 24 hours. Red String has no server, so we can't see or delete anything in iCloud ourselves: reporting removes the content from your iPhone straight away, and Block ends the link and refuses that person's invites for good. Your words are end-to-end encrypted, so we only see what you include in your email." : {
 
     },
-    "We act on reports within 24 hours." : {
+    "We respond to reports within 24 hours." : {
 
     },
     "Welcome to %@" : {
@@ -1916,7 +2000,7 @@
     "What we do" : {
 
     },
-    "What you send goes to your partner, through your own iCloud." : {
+    "What you send goes only to your partner, through iCloud." : {
 
     },
     "What you've sent is saved here, waiting for iCloud space." : {
@@ -2035,6 +2119,9 @@
     "Your fresh start hasn't finished" : {
 
     },
+    "Your history couldn't be read just now, so nothing was removed. Try again in a moment." : {
+
+    },
     "Your iCloud is full · %lld waiting · tap to retry" : {
 
     },
@@ -2047,10 +2134,16 @@
     "Your last fresh start change is still being sent. Try again in a moment." : {
 
     },
+    "Your moment was sent to %@." : {
+
+    },
     "Your name" : {
 
     },
     "Your news, kept secret" : {
+
+    },
+    "Your nudge was sent to %@." : {
 
     },
     "Your partner" : {
@@ -2080,6 +2173,9 @@
     "Your status is waiting to send · tap to retry" : {
 
     },
+    "Your status was sent to %@." : {
+
+    },
     "Your status: %@ %@" : {
       "localizations" : {
         "en" : {
@@ -2090,10 +2186,10 @@
         }
       }
     },
-    "Your statuses, photos and drawings are end-to-end encrypted in your own iCloud. No servers, no accounts, no ads." : {
+    "Your voice memo" : {
 
     },
-    "Your voice memo" : {
+    "Your words are end-to-end encrypted in iCloud; photos, drawings and voice memos are encrypted by iCloud. No servers, no accounts, no ads." : {
 
     },
     "Zoom %@" : {
