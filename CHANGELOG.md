@@ -4,6 +4,18 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 ## Unreleased
 
+- **Edit your moments' captions.** "Edit caption…" in the gallery's menu on
+  your own moments (empty removes it); the moment shows "Edited". **No schema
+  change**: only the encrypted `caption` changes, fetched without its assets
+  and saved change-tag checked (`CloudSync.updateCaption`). Saved on the phone
+  first and owed until it lands (`Moment.captionPublished`,
+  `Outbox.republishCaptions`): offline it waits, a moment still uploading
+  sends its edit once it lands, and an edit pending here beats the old copy a
+  refresh brings back. Your partner's phone files the new words, marks the
+  moment edited, and replaces the old notification with a quiet "Sam edited a
+  caption: …" (`RefreshResult.editedPartnerMoments`). A cleared caption
+  arrives too; a copy with every encrypted field empty still can't wipe one.
+
 - **Both cameras at once.** The camera's "Both" button runs the front and back
   cameras together (`DualCameraEngine`, an `AVCaptureMultiCamSession`): one
   fills the frame, the other sits inset — tap it to swap, drag it to a corner.

@@ -51,6 +51,32 @@ extension CloudSync {
         }
     }
 
+    /// The caption alone: fetched without its assets (no photo comes back down)
+    /// and saved change-tag checked, so the conflict retry refetches the server
+    /// copy. Only our own devices write our moments.
+    func updateCaption(of moment: Moment) async throws {
+        let pairing = try await requirePairing()
+        let database = self.database(for: pairing)
+        let recordID = CKRecord.ID(recordName: pairing.role.momentRecordName(id: moment.id),
+                                   zoneID: zoneID(for: pairing))
+        try await withZoneRecovery(pairing) {
+            try await retryingConflicts("Caption") {
+                let record: CKRecord
+                do {
+                    guard let fetched = try await database.records(for: [recordID],
+                                                                   desiredKeys: [Field.caption])[recordID] else { return }
+                    record = try fetched.get()
+                } catch let error as CKError where error.code == .unknownItem {
+                    return
+                }
+                record.encryptedValues[Field.caption] = moment.caption
+                let result = try await database.modifyRecords(saving: [record], deleting: [],
+                                                              savePolicy: .ifServerRecordUnchanged)
+                _ = try Self.confirmSaved(result, recordID)
+            }
+        }
+    }
+
     /// Long-lived, so iCloud finishes it after the app closes (`resumeUploads`
     /// picks it up). `.userInitiated`: at `.utility` CloudKit retries network
     /// errors itself for days and goes discretionary in the background, so an

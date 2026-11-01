@@ -166,9 +166,18 @@ final class MomentIndex: @unchecked Sendable {
                     moment.seenAt = moment.seenAt ?? existing.seenAt
                     moment.seenByPartnerAt = moment.seenByPartnerAt ?? existing.seenByPartnerAt
                     moment.uploaded = moment.uploaded || existing.uploaded
-                    // Moments never change after sending, so words already held
-                    // beat a copy that arrived with its encrypted fields empty.
-                    if moment.caption.isEmpty { moment.caption = existing.caption }
+                    moment.captionEditedAt = existing.captionEditedAt
+                    if !existing.captionPublished {
+                        // An edit still on its way out beats the copy it's replacing.
+                        moment.caption = existing.caption
+                        moment.captionPublished = false
+                    } else if moment.caption.isEmpty && moment.senderName.isEmpty {
+                        // Every encrypted field empty: a copy that couldn't be read,
+                        // not a cleared caption — the words already held stay.
+                        moment.caption = existing.caption
+                    } else if moment.caption != existing.caption {
+                        moment.captionEditedAt = Date().wholeSeconds
+                    }
                     if moment.senderName.isEmpty { moment.senderName = existing.senderName }
                     if moment.waveform.isEmpty { moment.waveform = existing.waveform }
                 }
@@ -184,6 +193,36 @@ final class MomentIndex: @unchecked Sendable {
             all.sort(by: Self.newestFirst)
             saveUnlocked(all)
             return readFailed ? nil : all
+        }
+    }
+
+    /// An own moment's new caption, owed to CloudKit until
+    /// `markCaptionPublished`. `nil` when it isn't here (or isn't ours).
+    @discardableResult
+    func editCaption(id: String, to caption: String, at date: Date = Date()) -> Moment? {
+        lock.lock()
+        defer { lock.unlock() }
+        return crossLock.withLock {
+            var all = loadUnlocked(writing: true)
+            guard !readFailed, let index = all.firstIndex(where: { $0.id == id && $0.fromMe }) else { return nil }
+            all[index].caption = caption
+            all[index].captionPublished = false
+            all[index].captionEditedAt = date.wholeSeconds
+            saveUnlocked(all)
+            return all[index]
+        }
+    }
+
+    /// Only for the words that were sent: an edit made meanwhile stays owed.
+    func markCaptionPublished(id: String, caption: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        crossLock.withLock {
+            var all = loadUnlocked(writing: true)
+            guard let index = all.firstIndex(where: { $0.id == id }),
+                  all[index].caption == caption, !all[index].captionPublished else { return }
+            all[index].captionPublished = true
+            saveUnlocked(all)
         }
     }
 

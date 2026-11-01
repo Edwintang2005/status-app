@@ -157,6 +157,8 @@ extension AppModel {
         if await outbox.advanceFreshStart() { changed = true }
         if changed { reload() }
         if await outbox.retryPendingUploads(automatic: automatic) { reload() }
+        // After the uploads: an edit to a moment that just landed can go now.
+        if await outbox.republishCaptions(automatic: automatic) { reload() }
     }
 
     /// One fetch and reload; `false` when it failed or there was nothing to fetch for.

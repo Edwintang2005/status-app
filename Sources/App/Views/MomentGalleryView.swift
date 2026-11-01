@@ -24,6 +24,9 @@ struct MomentGalleryView: View {
     @State private var reporting: Moment?
     /// A reply's composer, over the gallery: sending returns here.
     @State private var replying: ReplyKind?
+    /// An own moment whose caption is being edited, and the words so far.
+    @State private var editingCaption: Moment?
+    @State private var captionDraft = ""
 
     private enum ReplyKind: String, Identifiable {
         case moment, voiceMemo
@@ -42,7 +45,13 @@ struct MomentGalleryView: View {
     }
 
     private var current: Moment? {
-        moments.first { $0.id == selection }
+        moments.first { $0.id == selection }.map(live)
+    }
+
+    /// The model's copy: `moments` was taken when the gallery opened, and an
+    /// edited caption (here, or the partner's arriving) is newer.
+    private func live(_ moment: Moment) -> Moment {
+        model.history.first { $0.id == moment.id } ?? moment
     }
 
     /// `scrollPosition(id:)` wants an optional; the pager never reports `nil`
@@ -89,6 +98,21 @@ struct MomentGalleryView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     exportButton
                 }
+                if let current, current.fromMe, current.kind.isSupported {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu {
+                            Button {
+                                captionDraft = current.caption
+                                editingCaption = current
+                            } label: {
+                                Label("Edit caption…", systemImage: "pencil")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                        .accessibilityLabel("More")
+                    }
+                }
                 if let current, !current.fromMe {
                     ToolbarItem(placement: .topBarTrailing) {
                         Menu {
@@ -111,6 +135,19 @@ struct MomentGalleryView: View {
                         .accessibilityLabel("More")
                     }
                 }
+            }
+            .alert("Edit caption", isPresented: $editingCaption.isPresent()) {
+                TextField("Caption", text: $captionDraft)
+                Button("Save") {
+                    if let editing = editingCaption {
+                        let words = captionDraft
+                        Task { await model.editCaption(of: editing, to: words) }
+                    }
+                    editingCaption = nil
+                }
+                Button("Cancel", role: .cancel) { editingCaption = nil }
+            } message: {
+                Text("\(partnerName) sees the new caption, quietly. Leave it empty to remove it.")
             }
             .confirmationDialog("Report this \(reporting?.noun ?? "moment")?",
                                 isPresented: $reporting.isPresent(),
@@ -217,6 +254,7 @@ struct MomentGalleryView: View {
     // MARK: - Page
 
     private func page(_ moment: Moment, partnerName: String, filterOn: Bool) -> some View {
+        let moment = live(moment)
         let attribution = attribution(moment, partnerName: partnerName, filterOn: filterOn)
         return pageContent(moment, attribution: attribution, filterOn: filterOn)
     }
@@ -426,7 +464,8 @@ struct MomentGalleryView: View {
             ? String(localized: "You")
             : moment.displaySenderName(fallback: partnerName, filterEnabled: filterOn)
         let when = moment.sentAt.relativeWording()
-        return "\(who) · \(when)"
+        guard moment.captionEditedAt != nil else { return "\(who) · \(when)" }
+        return String(localized: "\(who) · \(when) · Edited")
     }
 
     /// "Seen 2 hours ago" on own moments — read receipts on, partner confirmed.

@@ -207,6 +207,7 @@ struct ParsedDelta {
                  previousTheirs: StatusPayload?,
                  minePublished: Bool,
                  alreadyKnown: Set<String>,
+                 knownCaptions: [String: String] = [:],
                  hidden: Set<String>,
                  oldestRetained: Date? = nil,
                  fullResync: Bool = false,
@@ -279,12 +280,22 @@ struct ParsedDelta {
                                    heldPartnerMomentKinds: held.map(\.kind),
                                    heldPartnerStatus: unreadable.contains(mineRole.other.statusRecordName))
         result.heldPartnerMomentIDs = held.map(\.id)
+        // A changed caption on a moment already held, read in full (an
+        // unreadable copy has every encrypted field empty).
+        let edited = moments.filter { moment in
+            knownCaptions[moment.id].map { $0 != moment.caption && !(moment.caption.isEmpty && moment.senderName.isEmpty) }
+                ?? false
+        }
+        result.editedPartnerMoments = edited.filter { !$0.fromMe }
+        result.ownMomentEdited = edited.contains(where: \.fromMe)
+        let editedIDs = Set(edited.map(\.id))
         result.removedMoments = removedMomentIDs.count
         result.fullResync = fullResync
         result.partnerLeft = partnerErased
         result.ownNudgeSentAt = myNudge?[CloudSync.Field.sentAt] as? Date
         result.partnerNudgeArrived = theirNudge != nil
-        result.ownMomentSent = !fullResync && moments.contains { $0.fromMe && alreadyKnown.contains($0.id) }
+        result.ownMomentSent = !fullResync
+            && moments.contains { $0.fromMe && alreadyKnown.contains($0.id) && !editedIDs.contains($0.id) }
         result.momentsArrived = !moments.isEmpty
         return Outcome(fold: fold,
                        partnerStatusToLog: partnerToLog,

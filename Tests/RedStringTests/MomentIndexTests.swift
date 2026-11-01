@@ -213,4 +213,53 @@ final class MomentIndexTests: XCTestCase {
         XCTAssertTrue(isDirectory.boolValue, "nothing was written over it")
         XCTAssertEqual(corruptHits, 0, "unreadable isn't corrupt: no sidecar, no resync")
     }
+
+    // MARK: Caption edits
+
+    func testAnEditIsOwedUntilItsOwnWordsArePublished() throws {
+        let (index, _) = makeIndex()
+        index.insert([Fixtures.moment("mine", fromMe: true), Fixtures.moment("theirs")])
+        XCTAssertNil(index.editCaption(id: "theirs", to: "nope"), "only our own moments")
+        let edited = try XCTUnwrap(index.editCaption(id: "mine", to: "first", at: Fixtures.date(5)))
+        XCTAssertFalse(edited.captionPublished)
+        XCTAssertEqual(edited.captionEditedAt, Fixtures.date(5))
+        index.editCaption(id: "mine", to: "second")
+        index.markCaptionPublished(id: "mine", caption: "first")
+        XCTAssertEqual(index.load().first { $0.id == "mine" }?.captionPublished, false, "edited again meanwhile")
+        index.markCaptionPublished(id: "mine", caption: "second")
+        XCTAssertEqual(index.load().first { $0.id == "mine" }?.captionPublished, true)
+    }
+
+    /// The old copy fetched before the edit lands mustn't undo it.
+    func testAPendingEditBeatsTheServerCopy() {
+        let (index, _) = makeIndex()
+        index.insert([Fixtures.moment("mine", fromMe: true)])
+        index.editCaption(id: "mine", to: "edited")
+        var stale = Fixtures.moment("mine", fromMe: true)
+        stale.caption = "original"
+        index.insert([stale])
+        let kept = index.load().first { $0.id == "mine" }
+        XCTAssertEqual(kept?.caption, "edited")
+        XCTAssertEqual(kept?.captionPublished, false)
+    }
+
+    /// A readable copy with no caption is a removed caption; one with no
+    /// encrypted fields at all couldn't be read, and keeps the words.
+    func testAClearedCaptionArrivesButAnUnreadableCopyKeepsTheWords() {
+        let (index, _) = makeIndex()
+        var original = Fixtures.moment("m1")
+        original.caption = "hello"
+        index.insert([original])
+        var unreadable = Fixtures.moment("m1")
+        unreadable.caption = ""
+        unreadable.senderName = ""
+        index.insert([unreadable])
+        XCTAssertEqual(index.load().first?.caption, "hello")
+        XCTAssertNil(index.load().first?.captionEditedAt)
+        var cleared = Fixtures.moment("m1")
+        cleared.caption = ""
+        index.insert([cleared])
+        XCTAssertEqual(index.load().first?.caption, "")
+        XCTAssertNotNil(index.load().first?.captionEditedAt, "marked edited")
+    }
 }

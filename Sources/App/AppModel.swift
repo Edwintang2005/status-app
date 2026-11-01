@@ -338,7 +338,9 @@ final class AppModel {
     /// Everything of ours still only on this iPhone — the sync footer's count.
     var pendingSendCount: Int {
         guard isPaired, let role else { return 0 }
+        let sendingCaptions = outbox.captionsInFlight
         var count = pendingUploadCount + snapshot.unpublishedCount(role: role)
+            + history.count { $0.fromMe && $0.uploaded && !$0.captionPublished && !sendingCaptions.contains($0.id) }
         if !snapshot.myStatusPublished, snapshot.mine != nil, statusSendsInFlight > 0 { count -= 1 }
         return count
     }
@@ -630,6 +632,17 @@ final class AppModel {
     }
 
     // MARK: - Moments
+
+    /// Own moments only. Filed at once; sent now, or by the recovery pass once
+    /// there's a connection. An emptied caption removes it.
+    func editCaption(of moment: Moment, to caption: String) async {
+        let words = String(caption.trimmingCharacters(in: .whitespacesAndNewlines).prefix(AppConfig.captionMaxLength))
+        guard moment.fromMe, words != moment.caption, outbox.editCaption(of: moment.id, to: words) else { return }
+        reload()
+        guard isPaired else { return }
+        await Self.withUploadProtection("caption") { _ = await outbox.republishCaptions() }
+        reload()
+    }
 
     /// Filed locally first so the UI and widget update at once, then uploaded.
     /// A failed upload leaves the local copy in place.

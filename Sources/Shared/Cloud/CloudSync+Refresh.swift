@@ -270,6 +270,9 @@ extension CloudSync {
         // "not already stored".
         let indexed = MomentIndex.shared.load()
         let alreadyKnown = Set(indexed.map(\.id))
+        // Published words only: an edit still on its way out isn't contradicted by the old copy.
+        let knownCaptions = Dictionary(indexed.filter(\.captionPublished).map { ($0.id, $0.caption) },
+                                       uniquingKeysWith: { first, _ in first })
         let oldestRetained = indexed.count >= AppConfig.momentHistoryLimit
             ? indexed[AppConfig.momentHistoryLimit - 1].sentAt : nil
 
@@ -284,6 +287,7 @@ extension CloudSync {
                                      previousTheirs: held.theirs,
                                      minePublished: held.myStatusPublished,
                                      alreadyKnown: alreadyKnown,
+                                     knownCaptions: knownCaptions,
                                      hidden: hidden,
                                      oldestRetained: oldestRetained,
                                      fullResync: fullResync,

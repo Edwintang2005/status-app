@@ -106,6 +106,17 @@ enum PushBannerPolicy {
                 plan.subject = result.heldPartnerMomentIDs.last.map(BannerSubject.moment)
                 return plan
             }
+            // Quiet: the moment was announced when it came. Its subject replaces
+            // the banner still showing the old words (`BannerUpkeep`).
+            if let edited = result.editedPartnerMoments.last {
+                return Plan(title: edited.displaySenderName(fallback: name),
+                            body: editedCaptionBody(edited),
+                            volume: .quiet,
+                            subject: .moment(edited.id))
+            }
+            if result.ownMomentEdited {
+                return own(String(localized: "You edited a caption from another device."))
+            }
             if result.ownRecordsChanged {
                 return own(String(localized: "You sent something from another device."))
             }
@@ -305,6 +316,12 @@ enum PushBannerPolicy {
         guard let latest = snapshot.lastNudgeSentAt ?? snapshot.lastNudgeIssuedAt else { return false }
         let gap = latest.wholeSeconds.timeIntervalSince(sentAt.wholeSeconds)
         return gap >= 0 && gap <= AppConfig.nudgeEchoWindow
+    }
+
+    /// Through the moderation helpers like every caption: a filtered one shows no words.
+    static func editedCaptionBody(_ moment: Moment) -> String {
+        guard let shown = moment.moderatedCaption(revealed: false) else { return String(localized: "removed a caption") }
+        return shown.isPlaceholder ? String(localized: "edited a caption") : String(localized: "edited a caption: \(shown.text)")
     }
 
     private static func own(_ body: String) -> Plan {

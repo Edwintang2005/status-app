@@ -269,4 +269,37 @@ final class ParsedDeltaTests: XCTestCase {
         let nudgeOnly = parse([nudge(them, count: 9)])
         XCTAssertNil(outcome(nudgeOnly, previousTheirs: before).partnerStatusToLog, "a nudge isn't a status change")
     }
+
+    // MARK: Caption edits
+
+    private func captioned(_ record: CKRecord, _ caption: String) -> CKRecord {
+        record.encryptedValues[CloudSync.Field.caption] = caption
+        return record
+    }
+
+    /// A known moment whose words changed is an edit, never news — and a cleared caption counts.
+    func testAChangedCaptionOnAKnownMomentIsAnEdit() {
+        let delta = parse([captioned(moment(them, "m1"), "new words"), captioned(moment(them, "m2"), "")])
+        let result = delta.outcome(mineRole: me, previousMine: nil, previousTheirs: nil, minePublished: true,
+                                   alreadyKnown: ["m1", "m2"], knownCaptions: ["m1": "old words", "m2": "was here"],
+                                   hidden: []).result
+        XCTAssertEqual(result.editedPartnerMoments.map(\.id), ["m1", "m2"])
+        XCTAssertTrue(result.newPartnerMoments.isEmpty)
+    }
+
+    func testUnchangedOrUnknownCaptionsAreNoEdit() {
+        let delta = parse([captioned(moment(them, "same"), "words"), captioned(moment(them, "fresh"), "hi")])
+        let result = delta.outcome(mineRole: me, previousMine: nil, previousTheirs: nil, minePublished: true,
+                                   alreadyKnown: ["same"], knownCaptions: ["same": "words"], hidden: []).result
+        XCTAssertTrue(result.editedPartnerMoments.isEmpty)
+    }
+
+    /// Our own edit from another device isn't "your moment was sent".
+    func testAnOwnEditIsNotASend() {
+        let delta = parse([captioned(moment(me, "mine"), "fixed typo")])
+        let result = delta.outcome(mineRole: me, previousMine: nil, previousTheirs: nil, minePublished: true,
+                                   alreadyKnown: ["mine"], knownCaptions: ["mine": "fixd typo"], hidden: []).result
+        XCTAssertTrue(result.ownMomentEdited)
+        XCTAssertFalse(result.ownMomentSent)
+    }
 }

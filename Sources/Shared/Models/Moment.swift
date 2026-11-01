@@ -56,6 +56,12 @@ struct Moment: Codable, Hashable, Identifiable {
     /// Whether this copy reached CloudKit. Local only, meaningful on `fromMe`
     /// moments; a failed send stays `false` and is retried on next foreground.
     var uploaded: Bool
+    /// Own moments: `false` while an edited caption hasn't reached CloudKit
+    /// (`Outbox.republishCaptions`), and the local words win over any copy fetched meanwhile.
+    var captionPublished: Bool
+    /// When the caption last changed after sending — edited here, or a changed
+    /// copy arriving. Local only: drives the "Edited" mark.
+    var captionEditedAt: Date?
 
     /// Recording length in seconds; voice memos only. In the metadata so length
     /// shows without the audio file being on this device.
@@ -85,6 +91,8 @@ struct Moment: Codable, Hashable, Identifiable {
         self.seenAt = nil
         self.seenByPartnerAt = nil
         self.uploaded = uploaded
+        self.captionPublished = true
+        self.captionEditedAt = nil
         self.duration = duration
         self.waveform = waveform
     }
@@ -92,6 +100,7 @@ struct Moment: Codable, Hashable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case id, kind, caption, senderName, sentAt, fromMe, seen, uploaded, duration, waveform
         case seenAt, seenByPartnerAt
+        case captionPublished, captionEditedAt
         /// The waveform as one byte per sample, base64 — the index's compact form.
         case waveformBytes
     }
@@ -115,6 +124,8 @@ struct Moment: Codable, Hashable, Identifiable {
         // Pre-flag entries predate the retry queue; assume uploaded to avoid
         // re-uploading the whole history.
         uploaded = try container.decodeIfPresent(Bool.self, forKey: .uploaded) ?? true
+        captionPublished = try container.decodeIfPresent(Bool.self, forKey: .captionPublished) ?? true
+        captionEditedAt = try container.decodeIfPresent(Date.self, forKey: .captionEditedAt)
         duration = try container.decodeIfPresent(TimeInterval.self, forKey: .duration) ?? 0
         if let bytes = try container.decodeIfPresent(String.self, forKey: .waveformBytes)
             .flatMap({ Data(base64Encoded: $0) }) {
@@ -136,6 +147,8 @@ struct Moment: Codable, Hashable, Identifiable {
         try container.encodeIfPresent(seenAt, forKey: .seenAt)
         try container.encodeIfPresent(seenByPartnerAt, forKey: .seenByPartnerAt)
         try container.encode(uploaded, forKey: .uploaded)
+        if !captionPublished { try container.encode(captionPublished, forKey: .captionPublished) }
+        try container.encodeIfPresent(captionEditedAt, forKey: .captionEditedAt)
         try container.encode(duration, forKey: .duration)
         if encoder.userInfo[Self.compactWaveformsKey] as? Bool == true {
             if !waveform.isEmpty {

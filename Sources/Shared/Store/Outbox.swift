@@ -50,6 +50,9 @@ final class Outbox {
     @ObservationIgnored private var isRepublishingStatus = false
     @ObservationIgnored private var isRepublishingAnniversary = false
     @ObservationIgnored private var isRepublishingRequest = false
+    @ObservationIgnored private var isRepublishingCaptions = false
+    /// Edited captions being sent right now: not "waiting to send".
+    private(set) var captionsInFlight: Set<String> = []
     @ObservationIgnored private var isFlushingReceipts = false
     @ObservationIgnored private var receiptFlushTask: Task<Void, Never>?
     /// A receipt write this process gave up on may still land, over any later
@@ -235,6 +238,51 @@ final class Outbox {
         }
         log.info("Republished the offline anniversary request")
         return true
+    }
+
+    // MARK: - Captions
+
+    /// Filed before any network call, like every send (invariant 11);
+    /// `republishCaptions` takes it out. `false` when it isn't an own moment here.
+    @discardableResult
+    func editCaption(of id: String, to caption: String, now: Date = Date()) -> Bool {
+        guard index.editCaption(id: id, to: caption, at: now) != nil else { return false }
+        indexChanged()
+        return true
+    }
+
+    /// Own moments whose edited caption hasn't reached CloudKit. One still
+    /// uploading waits: it lands with whatever it was sent with, then goes
+    /// here. Safe to re-run — the newest words overwrite. Stops at no route, a
+    /// full iCloud or a throttle, as the upload retry does.
+    @discardableResult
+    func republishCaptions(automatic: Bool = false, now: Date = Date()) async -> Bool {
+        guard store.pairing != nil, !isRepublishingCaptions else { return false }
+        if automatic, !automaticRetryAllowed(now: now) { return false }
+        let owed = index.load().filter { $0.fromMe && $0.uploaded && !$0.captionPublished }
+        guard !owed.isEmpty else { return false }
+        isRepublishingCaptions = true
+        defer { isRepublishingCaptions = false }
+        let backend = backend()
+        var changed = false
+        for moment in owed {
+            captionsInFlight.insert(moment.id)
+            defer { captionsInFlight.remove(moment.id) }
+            do {
+                try await withDeadline(AppConfig.publishDeadline) { try await backend.updateCaption(of: moment) }
+            } catch {
+                log.error("Caption publish failed: \(error.localizedDescription, privacy: .public)")
+                switch noteSendFailed(error, now: now) {
+                case .storageFull, .offline, .throttled: return changed
+                case .transient: continue
+                }
+            }
+            // Only the words that went: an edit made meanwhile stays owed.
+            index.markCaptionPublished(id: moment.id, caption: moment.caption)
+            noteSendSucceeded()
+            changed = true
+        }
+        return changed
     }
 
     // MARK: - Uploads

@@ -6,6 +6,7 @@ final class FakeBackend: SyncBackend, @unchecked Sendable {
     private let lock = NSLock()
     private var _published: [(payload: StatusPayload, logged: Bool)] = []
     private var _sent: [String] = []
+    private var _captions: [(id: String, caption: String)] = []
     private var _receipts: [[String: Date]] = []
     private var _statusSeen: [StatusSeen?] = []
     private var _anniversaries: [Anniversary?] = []
@@ -29,6 +30,9 @@ final class FakeBackend: SyncBackend, @unchecked Sendable {
 
     var published: [(payload: StatusPayload, logged: Bool)] { lock.withLock { _published } }
     var sent: [String] { lock.withLock { _sent } }
+    var captions: [(id: String, caption: String)] { lock.withLock { _captions } }
+    /// Runs inside `updateCaption`, before it lands — an edit made mid-flight.
+    var duringCaption: (@Sendable () -> Void)?
     var receipts: [[String: Date]] { lock.withLock { _receipts } }
     var statusSeen: [StatusSeen?] { lock.withLock { _statusSeen } }
     var anniversaries: [Anniversary?] { lock.withLock { _anniversaries } }
@@ -91,6 +95,11 @@ final class FakeBackend: SyncBackend, @unchecked Sendable {
             _receipts.append(seen)
             _statusSeen.append(statusSeen)
         }
+    }
+    func updateCaption(of moment: Moment) async throws {
+        try check("caption")
+        duringCaption?()
+        lock.withLock { _captions.append((moment.id, moment.caption)) }
     }
     func publishAnniversary(_ anniversary: Anniversary?) async throws {
         try check("anniversary")

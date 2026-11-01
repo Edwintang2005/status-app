@@ -14,6 +14,19 @@ final class ModelCodableTests: XCTestCase {
         XCTAssertTrue(moment.uploaded, "pre-flag history must not be re-uploaded")
         XCTAssertEqual(moment.duration, 0)
         XCTAssertEqual(moment.waveform, [])
+        XCTAssertTrue(moment.captionPublished, "no edit owed for history from before edits")
+        XCTAssertNil(moment.captionEditedAt)
+    }
+
+    func testAnOwedCaptionEditSurvivesTheIndex() throws {
+        var moment = Fixtures.moment("m1", fromMe: true)
+        moment.captionPublished = false
+        moment.captionEditedAt = Fixtures.date(5)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let back = try JSONDecoder.shared.decode(Moment.self, from: encoder.encode(moment))
+        XCTAssertFalse(back.captionPublished)
+        XCTAssertEqual(back.captionEditedAt, Fixtures.date(5))
     }
 
     func testLegacyOwnMomentIsSeenByDefinition() throws {

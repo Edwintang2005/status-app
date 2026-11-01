@@ -657,6 +657,50 @@ final class OutboxTests: XCTestCase {
         await outbox.retryPendingUploads(automatic: true)
         XCTAssertEqual(backend.sent, ["a"], "the next pass sends it itself")
     }
+
+    // MARK: Caption edits (invariant 11)
+
+    func testAnEditedCaptionIsSentAndMarked() async {
+        index.insert([Fixtures.moment("mine", fromMe: true)])
+        outbox.editCaption(of: "mine", to: "new words")
+        let changed = await outbox.republishCaptions()
+        XCTAssertTrue(changed)
+        XCTAssertEqual(backend.captions.map(\.caption), ["new words"])
+        XCTAssertEqual(index.load().first?.captionPublished, true)
+        let again = await outbox.republishCaptions()
+        XCTAssertFalse(again, "nothing left owed")
+    }
+
+    func testOfflineTheEditStaysOwed() async {
+        index.insert([Fixtures.moment("mine", fromMe: true)])
+        outbox.editCaption(of: "mine", to: "new words")
+        backend.fail("caption", with: CKError(.networkUnavailable))
+        let changed = await outbox.republishCaptions()
+        XCTAssertFalse(changed)
+        XCTAssertEqual(index.load().first?.captionPublished, false)
+    }
+
+    /// Still uploading: it lands with what it was sent with, and the edit follows.
+    func testAnEditToAnUnsentMomentWaitsForTheUpload() async {
+        queue(["unsent"])
+        outbox.editCaption(of: "unsent", to: "new words")
+        let changed = await outbox.republishCaptions()
+        XCTAssertFalse(changed)
+        XCTAssertTrue(backend.captions.isEmpty)
+    }
+
+    func testAnEditMadeMidSendStaysOwed() async {
+        index.insert([Fixtures.moment("mine", fromMe: true)])
+        outbox.editCaption(of: "mine", to: "first")
+        let index = index!
+        backend.duringCaption = { index.editCaption(id: "mine", to: "second") }
+        await outbox.republishCaptions()
+        XCTAssertEqual(index.load().first?.captionPublished, false, "the newer words haven't gone yet")
+        backend.duringCaption = nil
+        await outbox.republishCaptions()
+        XCTAssertEqual(backend.captions.map(\.caption), ["first", "second"])
+    }
+
 }
 
 /// A flag a `@Sendable` test hook can set.

@@ -23,6 +23,10 @@ struct RefreshResult: Sendable {
     var heldPartnerMomentKinds: [Moment.Kind] = []
     /// Their IDs, in the same order: the banner's subject, so a later pass can reword it.
     var heldPartnerMomentIDs: [String] = []
+    /// Partner moments already held whose caption arrived changed: an edit, never news.
+    var editedPartnerMoments: [Moment] = []
+    /// One of ours came back with a caption another of our devices edited.
+    var ownMomentEdited = false
     /// The partner's status record arrived unreadable.
     var heldPartnerStatus = false
     /// Moment records deleted in this delta (either side's) — a fresh start
@@ -69,6 +73,9 @@ protocol SyncBackend: Sendable {
     /// Media files are already on disk in the App Group under `moment.id`.
     /// `progress` reports the upload's fraction; cancelling the task cancels it.
     func send(_ moment: Moment, progress: @escaping @Sendable (Double) -> Void) async throws
+    /// Rewrites a sent moment's caption with `moment.caption`. A record that's
+    /// gone (deleted, cleared) has nothing left to edit: no error.
+    func updateCaption(of moment: Moment) async throws
     /// Uploads iCloud kept running after the app last closed, re-attached so
     /// they confirm here instead of being sent a second time; `nil` when the
     /// look itself failed.
@@ -329,6 +336,7 @@ struct DemoBackend: SyncBackend {
         return claimed
     }
     func send(_ moment: Moment, progress: @escaping @Sendable (Double) -> Void) async throws {}
+    func updateCaption(of moment: Moment) async throws {}
     func resumeUploads() async -> [ResumedUpload]? { [] }
     func fetchMedia(for moment: Moment) async throws {}
     func fetchThumbnails(for moments: [Moment]) async throws {}

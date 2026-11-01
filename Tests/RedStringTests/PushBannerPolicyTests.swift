@@ -459,4 +459,21 @@ final class PushBannerPolicyTests: XCTestCase {
         XCTAssertFalse(AnnouncementPolicy.claim(result, previousStatus: nil, in: &pushedFirst).partnerLeft,
                        "the push already said so")
     }
+
+    // MARK: Caption edits
+
+    func testAnEditedCaptionIsQuietAndReplacesTheOldBanner() {
+        var snapshot = paired()
+        var result = RefreshResult.empty
+        var edited = Fixtures.moment("m1")
+        edited.caption = "better words"
+        result.editedPartnerMoments = [edited]
+        let plan = decide(.moment, result, in: &snapshot)
+        XCTAssertEqual(plan.body, String(localized: "edited a caption: better words"))
+        XCTAssertEqual(plan.volume, .quiet, "announced when it came")
+        XCTAssertEqual(plan.subject, .moment("m1"))
+        edited.caption = ""
+        result.editedPartnerMoments = [edited]
+        XCTAssertEqual(decide(.moment, result, in: &snapshot).body, String(localized: "removed a caption"))
+    }
 }

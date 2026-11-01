@@ -228,6 +228,10 @@ runs under `make test`. A few rows worth knowing:
   the delta, or — nothing read, another process took it — an upload sent in the
   last 10 minutes and newer than theirs. Over the open app a quiet push only
   goes to Notification Centre, no banner; the app's own passive posts still show.
+- **A caption edited after sending.** The sender's own edit goes out like any
+  send (owed until it lands); the partner's phone files the new words and its
+  push reads, quietly, *"Sam edited a caption: …"*, replacing the banner that
+  showed the old words.
 - **Hidden previews.** With "Show Previews: When Unlocked", a locked banner
   reads *"Something new 💛"* rather than a bare "Notification".
 
