@@ -219,6 +219,50 @@ final class SharedStoreTests: XCTestCase {
         XCTAssertEqual(store.snapshot.unheardVoiceMemoCount, 0)
     }
 
+    /// The user's example: hide moment 2, the widget shows 1; moment 3 arrives,
+    /// shows, and the hide is gone. Nothing leaves this phone.
+    func testAHiddenPictureLeavesTheWidgetUntilANewerOneArrives() {
+        let (store, _) = makeStore()
+        let index = MomentIndex(fileURL: temporaryFile("moments-index.json"), onCorrupt: {})
+        index.insert([Fixtures.moment("m1", at: Fixtures.date(-20)), Fixtures.moment("m2", at: Fixtures.date(-10))])
+        store.refreshDerived(reloadWidgets: false, index: index)
+        XCTAssertEqual(store.snapshot.latestPartnerVisualMoment?.id, "m2")
+
+        let hidden = store.refreshDerived(reloadWidgets: false, index: index) { $0.widgetHiddenMomentIDs.append("m2") }
+        XCTAssertTrue(hidden.changed, "the widget redraws")
+        XCTAssertEqual(store.snapshot.latestPartnerVisualMoment?.id, "m1")
+        XCTAssertEqual(store.snapshot.widgetHiddenMomentIDs, ["m2"])
+
+        index.insert([Fixtures.moment("v3", kind: .voice, at: Fixtures.date(-5)),
+                      Fixtures.moment("o3", at: Fixtures.date(-4), fromMe: true)])
+        store.refreshDerived(reloadWidgets: false, index: index)
+        XCTAssertEqual(store.snapshot.latestPartnerVisualMoment?.id, "m1", "a memo or an own send isn't a new picture")
+
+        index.insert([Fixtures.moment("m3")])
+        store.refreshDerived(reloadWidgets: false, index: index)
+        XCTAssertEqual(store.snapshot.latestPartnerVisualMoment?.id, "m3")
+        XCTAssertEqual(store.snapshot.widgetHiddenMomentIDs, [], "the hide ends with the new picture")
+
+        index.clear()
+        index.insert([Fixtures.moment("m1", at: Fixtures.date(-20)), Fixtures.moment("m2", at: Fixtures.date(-10))])
+        store.refreshDerived(reloadWidgets: false, index: index)
+        XCTAssertEqual(store.snapshot.latestPartnerVisualMoment?.id, "m2", "so m3 going doesn't bring the hide back")
+    }
+
+    func testTheWidgetPictureSkipsOnlyTheHiddenRunAboveIt() {
+        let pictures = ["a", "b", "c", "d"].map { Fixtures.moment($0) }
+        let both = WidgetPicture.choose(pictures, hidden: ["b", "a"])
+        XCTAssertEqual(both.shown?.id, "c")
+        XCTAssertEqual(Set(both.stillHidden), ["a", "b"])
+        let below = WidgetPicture.choose(pictures, hidden: ["c"])
+        XCTAssertEqual(below.shown?.id, "a", "a mark under the shown picture is stale")
+        XCTAssertEqual(below.stillHidden, [])
+        let all = WidgetPicture.choose(pictures, hidden: ["a", "b", "c", "d"])
+        XCTAssertNil(all.shown, "every picture hidden: the widget's empty state")
+        XCTAssertEqual(all.stillHidden.count, 4)
+        XCTAssertEqual(WidgetPicture.choose(pictures, hidden: ["gone"]).stillHidden, [], "a deleted moment's mark goes")
+    }
+
     /// `markSeen`'s path: the receipt flag lands in the same write as the
     /// derived fields, and the returned snapshot is what was stored.
     func testRefreshDerivedAppliesTheCallersChangeInTheSameWrite() {

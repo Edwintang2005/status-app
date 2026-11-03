@@ -30,10 +30,17 @@ enum PushBannerPolicy {
         }
 
         /// What a banner still in CloudKit's words is about (the fetch failed, ran
-        /// out of time or couldn't read): stamped held, so the next refresh
-        /// rewords or withdraws it (`BannerUpkeep`). Statuses only — a moment
-        /// push doesn't name its moment, and the app's sweep replaces those.
-        var unwordedSubject: BannerSubject? { self == .status ? .status : nil }
+        /// out of time or couldn't read): stamped held, so a later refresh rewords
+        /// or withdraws it (`BannerUpkeep`). A moment push doesn't name its
+        /// moment: withdrawn once nothing is left unannounced (an edit, a
+        /// deletion), else the app's sweep replaces it when it posts the moment.
+        var unwordedSubject: BannerSubject? {
+            switch self {
+            case .status: .status
+            case .moment: .newMoments
+            case .nudge, .other: nil
+            }
+        }
     }
 
     enum Volume: Equatable, Sendable {
@@ -268,6 +275,7 @@ enum PushBannerPolicy {
                                            name: String, now: Date) -> Plan {
         let sent = own(String(localized: "Your moment was sent to \(name)."))
         if result.ownMomentSent { return sent }
+        if result.ownCaptionEditSent { return own(String(localized: "Your caption edit was sent to \(name).")) }
         let theirs = snapshot.latestPartnerMoment
         if !result.momentsArrived, let ours = snapshot.latestOwnMoment, ours.uploaded,
            ours.sentAt > (theirs?.sentAt ?? .distantPast),

@@ -6,6 +6,33 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 Version 1.6.3.
 
+- **Review fixes for the notification ties and caption edits.**
+  - A generic status banner (now tagged since 1.6.3's mobile-data fix) could
+    be this phone's own status coming back; it no longer clears the banner
+    holding your partner's status unless its reword proves it news.
+  - Your own caption edit coming back reads "Your caption edit was sent to …",
+    not "Your moment was sent".
+  - A caption edit re-saves the moment, which fires the loud moment push; if
+    the receiving phone can't word it in time, iOS shows CloudKit's generic
+    words. That generic moment banner is now tagged and withdrawn by the next
+    refresh once nothing new is left to announce.
+  - A banner still showing a moment's old caption (the widget or app filed
+    the edit first) is quietly updated to the new words.
+  - Press-and-hold on a generic status banner shows its own words until
+    it's reworded, not your partner's status.
+  - Diagnostics' "Last notification" is saved before the banner is handed
+    to iOS, so a timed-out pass isn't lost; the footer's owed-caption count
+    no longer rescans the history on every Home render.
+
+- **Hide a picture from the photo widget.** In the gallery, the partner's
+  picture the widget is showing has "Hide from widget" in its menu: the
+  widget falls back to the one before (fetched in full for it), and "Show in
+  widget" puts it back. On this phone only — nothing goes to iCloud or to a
+  new device — and only until their next photo or drawing arrives, which
+  shows as usual and ends the hide. A memo or your own send doesn't.
+  (`Snapshot.widgetHiddenMomentIDs`, `WidgetPicture`, chosen in
+  `SharedStore.refreshDerived` like every derived field.)
+
 - **The expanded notification wears the app's look.** Press-and-hold on a
   moment or status banner now shows the app's backdrop — cream and crimson in
   light mode, black with the same glow in dark — with the rounded type and the

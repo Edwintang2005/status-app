@@ -84,8 +84,9 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
                                           seconds: Date().timeIntervalSince(receivedAt), detail: outcomeDetail)
         deliveryLock.unlock()
         guard first else { return }
-        contentHandler?(content)
+        // Before the hand-over: iOS may reclaim the process the moment it has the banner.
         SharedStore.shared.lastBannerPass = pass
+        contentHandler?(content)
     }
 
     private func note(_ outcome: SharedStore.BannerPass.Outcome, _ detail: String? = nil) {

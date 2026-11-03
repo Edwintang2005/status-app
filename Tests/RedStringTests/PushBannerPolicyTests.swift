@@ -41,7 +41,7 @@ final class PushBannerPolicyTests: XCTestCase {
     /// is tagged so a later refresh rewords it; a moment push names no moment.
     func testOnlyAStatusBannerLeftGenericIsTagged() {
         XCTAssertEqual(PushBannerPolicy.Push.status.unwordedSubject, .status)
-        XCTAssertNil(PushBannerPolicy.Push.moment.unwordedSubject)
+        XCTAssertEqual(PushBannerPolicy.Push.moment.unwordedSubject, .newMoments)
         XCTAssertNil(PushBannerPolicy.Push.nudge.unwordedSubject)
         XCTAssertNil(PushBannerPolicy.Push.other.unwordedSubject)
     }
@@ -484,5 +484,15 @@ final class PushBannerPolicyTests: XCTestCase {
         edited.caption = ""
         result.editedPartnerMoments = [edited]
         XCTAssertEqual(decide(.moment, result, in: &snapshot).body, String(localized: "removed a caption"))
+    }
+
+    func testOurOwnCaptionEditComingBackSaysSo() {
+        var snapshot = paired()
+        var result = RefreshResult.empty
+        result.ownCaptionEditSent = true
+        result.momentsArrived = true
+        let plan = decide(.moment, result, in: &snapshot)
+        XCTAssertEqual(plan.body, String(localized: "Your caption edit was sent to Sam."))
+        XCTAssertEqual(plan.volume, .quiet)
     }
 }

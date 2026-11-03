@@ -12,6 +12,8 @@ enum BannerUpkeepPolicy {
         var held: Bool
         var wantsAttachment: Bool
         var date: Date
+        /// The words it shows, to tell when its moment's caption has moved on.
+        var body = ""
     }
 
     struct State {
@@ -26,6 +28,12 @@ enum BannerUpkeepPolicy {
         /// The partner's status record is still held unreadable.
         var statusHeld: Bool
         var partnerStatus: StatusPayload?
+        /// Every partner moment past the announced floor has been announced:
+        /// a generic moment banner (`BannerSubject.newMoments`) had nothing new to say.
+        var nothingUnannounced = false
+        /// The bodies a banner about this moment may show now — its words, or
+        /// the edited-caption notice; the first is what a stale banner becomes.
+        var wordings: (Moment) -> [String] = { _ in [] }
     }
 
     enum Action: Equatable, Sendable {
@@ -33,11 +41,15 @@ enum BannerUpkeepPolicy {
         /// A locked-phone banner, readable now: the moment's words, and its attachment
         /// if here — if it's still unannounced once claimed (`claimReword`).
         case reword(id: String, moment: Moment)
-        /// Same words; the attachment that missed the deadline is here now.
-        case attach(id: String, moment: Moment)
-        /// A locked-phone status banner: the current words, if they claim as news
-        /// (`AnnouncementPolicy.claimStatusBanner`) — otherwise it's withdrawn.
-        case rewordStatus(id: String, status: StatusPayload)
+        /// Already announced; its caption changed (an edit another pass filed),
+        /// or the attachment that missed the deadline is here now. No claim.
+        case refresh(id: String, moment: Moment)
+        /// A locked-phone or generic status banner: the current words, if they
+        /// claim as news (`AnnouncementPolicy.claimStatusBanner`), and only then
+        /// are the older ones (`superseded`, oldest first) replaced by it.
+        /// Otherwise it's withdrawn — it may have been our own status — and of
+        /// the older ones only the newest stays.
+        case rewordStatus(id: String, status: StatusPayload, superseded: [String])
     }
 
     /// `incoming` is the banner about to be delivered (the service's own push),
@@ -46,6 +58,11 @@ enum BannerUpkeepPolicy {
         var actions: [Action] = []
         if let index = state.index {
             for banner in banners {
+                if banner.subject == .newMoments, state.nothingUnannounced {
+                    // CloudKit's words for a push that was an edit, a deletion or our own.
+                    actions.append(.remove(banner.id))
+                    continue
+                }
                 guard case .moment(let id) = banner.subject else { continue }
                 // Reported, or the service's own push is about to say it again.
                 if state.hidden.contains(id) || incoming == banner.subject {
@@ -59,21 +76,28 @@ enum BannerUpkeepPolicy {
                     if !banner.held || !state.heldMomentIDs.contains(id) { actions.append(.remove(banner.id)) }
                     continue
                 }
+                let wordings = state.wordings(moment)
                 if banner.held {
                     actions.append(.reword(id: banner.id, moment: moment))
-                } else if banner.wantsAttachment, state.hasAttachment(moment) {
-                    actions.append(.attach(id: banner.id, moment: moment))
+                } else if (banner.wantsAttachment && state.hasAttachment(moment))
+                            || (!wordings.isEmpty && !wordings.contains(banner.body)) {
+                    actions.append(.refresh(id: banner.id, moment: moment))
                 }
             }
         }
 
         // Status banners say "is now …": only the latest is still true.
         let statuses = banners.filter { $0.subject == .status }.sorted { $0.date < $1.date }
-        let superseded = incoming == .status ? statuses : Array(statuses.dropLast())
-        actions += superseded.map { .remove($0.id) }
-        if incoming != .status, let newest = statuses.last, newest.held,
-           !state.statusHeld, let status = state.partnerStatus {
-            actions.append(.rewordStatus(id: newest.id, status: status))
+        if incoming == .status {
+            actions += statuses.map { .remove($0.id) }
+        } else if let newest = statuses.last {
+            let older = statuses.dropLast().map(\.id)
+            if !newest.held {
+                actions += older.map { .remove($0) }
+            } else if !state.statusHeld, let status = state.partnerStatus {
+                actions.append(.rewordStatus(id: newest.id, status: status, superseded: older))
+            }
+            // Still unreadable: nothing is judged until it can be read.
         }
         return actions
     }

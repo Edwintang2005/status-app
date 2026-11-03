@@ -29,7 +29,9 @@ Widgets:
 - **Nudge** — a circular lock screen widget that is just a heart button.
 - **Their photo** — `systemSmall` / `systemMedium` / `systemLarge` on the home
   screen, showing the last photo or doodle they sent, with a badge when a
-  voice memo is waiting.
+  voice memo is waiting. "Hide from widget" in the gallery takes that one off
+  (the one before shows instead) on this phone only, until their next
+  picture arrives.
 
 The photo widget is home screen only, and drawing happens in the app rather
 than on the widget. Both are platform limits, not omissions: lock screen

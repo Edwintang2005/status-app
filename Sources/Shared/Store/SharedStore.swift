@@ -494,7 +494,10 @@ final class SharedStore: @unchecked Sendable {
         // last moment in its direction is deleted.
         snapshot.latestPartnerMoment = all.first { !$0.fromMe }
         snapshot.latestOwnMoment = all.first { $0.fromMe }
-        snapshot.latestPartnerVisualMoment = all.first { !$0.fromMe && $0.isPicture }
+        let picture = WidgetPicture.choose(all.filter { !$0.fromMe && $0.isPicture },
+                                           hidden: snapshot.widgetHiddenMomentIDs)
+        snapshot.latestPartnerVisualMoment = picture.shown
+        snapshot.widgetHiddenMomentIDs = picture.stillHidden
         snapshot.unheardVoiceMemoCount = all
             .filter { !$0.fromMe && $0.isVoice && !$0.seen }
             .count

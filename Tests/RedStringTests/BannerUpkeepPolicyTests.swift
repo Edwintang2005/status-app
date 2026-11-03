@@ -5,21 +5,25 @@ import XCTest
 /// deadline, withdraw what's gone, keep only the latest status.
 final class BannerUpkeepPolicyTests: XCTestCase {
     private func banner(_ id: String, _ subject: BannerSubject, held: Bool = false,
-                        wantsAttachment: Bool = false, at seconds: TimeInterval = 0) -> BannerUpkeepPolicy.Banner {
+                        wantsAttachment: Bool = false, at seconds: TimeInterval = 0,
+                        body: String = "") -> BannerUpkeepPolicy.Banner {
         BannerUpkeepPolicy.Banner(id: id, subject: subject, held: held,
-                                  wantsAttachment: wantsAttachment, date: Fixtures.date(seconds))
+                                  wantsAttachment: wantsAttachment, date: Fixtures.date(seconds), body: body)
     }
 
     private func state(index: [Moment]? = [], held: Set<String> = [], hidden: Set<String> = [],
                        attached: Set<String> = [], statusHeld: Bool = false,
-                       partnerStatus: StatusPayload? = Fixtures.status()) -> BannerUpkeepPolicy.State {
+                       partnerStatus: StatusPayload? = Fixtures.status(),
+                       nothingUnannounced: Bool = false,
+                       wordings: @escaping (Moment) -> [String] = { _ in [] }) -> BannerUpkeepPolicy.State {
         BannerUpkeepPolicy.State(index: index, heldMomentIDs: held, hidden: hidden,
                                  hasAttachment: { attached.contains($0.id) },
-                                 statusHeld: statusHeld, partnerStatus: partnerStatus)
+                                 statusHeld: statusHeld, partnerStatus: partnerStatus,
+                                 nothingUnannounced: nothingUnannounced, wordings: wordings)
     }
 
     func testSubjectsSurviveTheirStamp() {
-        for subject in [BannerSubject.moment("abc-123"), .status, .hearts] {
+        for subject in [BannerSubject.moment("abc-123"), .status, .hearts, .newMoments] {
             XCTAssertEqual(BannerSubject(stamp: subject.stamp), subject)
         }
         XCTAssertNil(BannerSubject(stamp: "moment:"))
@@ -72,7 +76,7 @@ final class BannerUpkeepPolicyTests: XCTestCase {
         let waiting = [banner("b1", .moment("m1"), wantsAttachment: true)]
         XCTAssertTrue(BannerUpkeepPolicy.plan(waiting, state: state(index: [moment])).isEmpty)
         XCTAssertEqual(BannerUpkeepPolicy.plan(waiting, state: state(index: [moment], attached: ["m1"])),
-                       [.attach(id: "b1", moment: moment)])
+                       [.refresh(id: "b1", moment: moment)])
     }
 
     /// Deleted, cleared by a fresh start, or reported: nothing of it stays in Notification Centre.
@@ -109,8 +113,43 @@ final class BannerUpkeepPolicyTests: XCTestCase {
         let status = Fixtures.status("😴", "asleep")
         let held = [banner("s", .status, held: true)]
         XCTAssertEqual(BannerUpkeepPolicy.plan(held, state: state(partnerStatus: status)),
-                       [.rewordStatus(id: "s", status: status)])
+                       [.rewordStatus(id: "s", status: status, superseded: [])])
         XCTAssertTrue(BannerUpkeepPolicy.plan(held, state: state(statusHeld: true, partnerStatus: status)).isEmpty,
                       "still unreadable: the stored status is the previous one")
+    }
+
+    /// A generic banner may be our own status coming back: the one holding
+    /// theirs goes only once the reword proves it news (`BannerUpkeep` removes
+    /// `superseded` on a claim, else the generic one and all but the newest older).
+    func testAHeldStatusBannerSupersedesOnlyThroughItsReword() {
+        let status = Fixtures.status("🏋️", "at the gym")
+        let banners = [banner("theirs", .status, at: 10), banner("generic", .status, held: true, at: 20)]
+        XCTAssertEqual(BannerUpkeepPolicy.plan(banners, state: state(partnerStatus: status)),
+                       [.rewordStatus(id: "generic", status: status, superseded: ["theirs"])])
+        XCTAssertTrue(BannerUpkeepPolicy.plan(banners, state: state(statusHeld: true, partnerStatus: status)).isEmpty,
+                      "unreadable yet: the older banner isn't judged superseded")
+    }
+
+    /// CloudKit's words for a moment push: gone once a refresh shows nothing
+    /// was left to announce (an edit, a deletion, our own send).
+    func testAGenericMomentBannerGoesOnceNothingIsUnannounced() {
+        let generic = [banner("g", .newMoments)]
+        XCTAssertTrue(BannerUpkeepPolicy.plan(generic, state: state(nothingUnannounced: false)).isEmpty,
+                      "something new is still to come: the app's post replaces it")
+        XCTAssertEqual(BannerUpkeepPolicy.plan(generic, state: state(nothingUnannounced: true)), [.remove("g")])
+        XCTAssertTrue(BannerUpkeepPolicy.plan(generic, state: state(index: nil, nothingUnannounced: true)).isEmpty)
+    }
+
+    /// An edit another pass filed: the banner still showing the old caption gets the new one.
+    func testABannerWithAnOutdatedCaptionIsRefreshed() {
+        let moment = Fixtures.moment("m1")
+        let wordings: (Moment) -> [String] = { _ in ["new words", "edited a caption: new words"] }
+        XCTAssertEqual(BannerUpkeepPolicy.plan([banner("b1", .moment("m1"), body: "old words")],
+                                               state: state(index: [moment], wordings: wordings)),
+                       [.refresh(id: "b1", moment: moment)])
+        for current in ["new words", "edited a caption: new words"] {
+            XCTAssertTrue(BannerUpkeepPolicy.plan([banner("b1", .moment("m1"), body: current)],
+                                                  state: state(index: [moment], wordings: wordings)).isEmpty)
+        }
     }
 }

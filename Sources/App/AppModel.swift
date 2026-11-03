@@ -70,7 +70,16 @@ final class AppModel {
     /// Non-nil when the backend can't work — no iCloud account, and so on.
     var readinessMessage: String?
     /// Full moment history, newest first, from `MomentIndex` (the snapshot only carries the newest each way).
-    private(set) var history: [Moment] = []
+    private(set) var history: [Moment] = [] {
+        didSet { owedCaptionIDs = Self.owedCaptions(in: history) }
+    }
+    /// Sent moments whose edited caption is still owed: kept with `history`, not
+    /// re-scanned on every Home render (`pendingSendCount`).
+    @ObservationIgnored private var owedCaptionIDs: Set<String> = []
+
+    private static func owedCaptions(in history: [Moment]) -> Set<String> {
+        Set(history.lazy.filter { $0.fromMe && $0.uploaded && !$0.captionPublished }.map(\.id))
+    }
     /// Your own last few distinct statuses, newest first — the picker's "Recent".
     /// Cached: the picker's sheet content reads it on every Home render.
     private(set) var recentStatuses: [StatusHistoryEntry] = []
@@ -245,7 +254,9 @@ final class AppModel {
         self.snapshot = store.snapshot
         // Now, not after the first fetch: offline that can take minutes, and an
         // empty history greys out the library and hides the moment card.
-        self.history = MomentIndex.shared.load()
+        let history = MomentIndex.shared.load()
+        self.history = history
+        self.owedCaptionIDs = Self.owedCaptions(in: history)
         self.isPaired = store.pairing != nil
         self.role = store.pairing?.role
         self.inviteClosed = store.inviteClosed
@@ -338,9 +349,8 @@ final class AppModel {
     /// Everything of ours still only on this iPhone — the sync footer's count.
     var pendingSendCount: Int {
         guard isPaired, let role else { return 0 }
-        let sendingCaptions = outbox.captionsInFlight
         var count = pendingUploadCount + snapshot.unpublishedCount(role: role)
-            + history.count { $0.fromMe && $0.uploaded && !$0.captionPublished && !sendingCaptions.contains($0.id) }
+            + owedCaptionIDs.subtracting(outbox.captionsInFlight).count
         if !snapshot.myStatusPublished, snapshot.mine != nil, statusSendsInFlight > 0 { count -= 1 }
         return count
     }
@@ -503,6 +513,25 @@ final class AppModel {
             SharedStore.reloadWidgets()
             reload()
         }
+    }
+
+    /// The photo widget's picture, or one this phone took off it: the moments
+    /// whose "Hide from widget" / "Show in widget" means something.
+    func widgetPictureState(of moment: Moment) -> (shown: Bool, hidden: Bool) {
+        (snapshot.latestPartnerVisualMoment?.id == moment.id, snapshot.widgetHiddenMomentIDs.contains(moment.id))
+    }
+
+    /// This phone only, until a newer picture arrives (`WidgetPicture`); the
+    /// widget falls back to the one before, fetched in full for it.
+    func setShownInWidget(_ moment: Moment, _ shown: Bool) async {
+        let refreshed = store.refreshDerived { snapshot in
+            snapshot.widgetHiddenMomentIDs.removeAll { $0 == moment.id }
+            if !shown { snapshot.widgetHiddenMomentIDs.append(moment.id) }
+        }
+        snapshot = refreshed.snapshot
+        guard let next = refreshed.snapshot.latestPartnerVisualMoment,
+              !MomentStore.shared.hasMedia(for: next) else { return }
+        if await ensureMedia(for: next) { SharedStore.reloadWidgets() }
     }
 
     /// The library grid's version of `ensureMedia`: just the thumbnail, fetched

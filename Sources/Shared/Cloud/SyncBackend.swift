@@ -27,6 +27,8 @@ struct RefreshResult: Sendable {
     var editedPartnerMoments: [Moment] = []
     /// One of ours came back with a caption another of our devices edited.
     var ownMomentEdited = false
+    /// One of ours came back carrying this phone's own caption edit.
+    var ownCaptionEditSent = false
     /// The partner's status record arrived unreadable.
     var heldPartnerStatus = false
     /// Moment records deleted in this delta (either side's) — a fresh start

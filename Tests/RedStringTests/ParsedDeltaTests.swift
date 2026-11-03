@@ -302,4 +302,31 @@ final class ParsedDeltaTests: XCTestCase {
         XCTAssertTrue(result.ownMomentEdited)
         XCTAssertFalse(result.ownMomentSent)
     }
+
+    /// This phone's own edit coming back: an edit's echo, never a send.
+    func testOurOwnEditsEchoIsNotASend() {
+        let delta = parse([captioned(moment(me, "mine"), "fixed typo")])
+        let result = delta.outcome(mineRole: me, previousMine: nil, previousTheirs: nil, minePublished: true,
+                                   alreadyKnown: ["mine"], knownCaptions: ["mine": "fixed typo"],
+                                   ownEdits: ["mine"], hidden: []).result
+        XCTAssertTrue(result.ownCaptionEditSent)
+        XCTAssertFalse(result.ownMomentSent)
+        XCTAssertFalse(result.ownMomentEdited, "not another device's edit")
+    }
+
+    func testOwnEditEchoesAreRecentEditsOfOlderSends() {
+        let now = Fixtures.date(10_000)
+        var owed = Fixtures.moment("owed", at: Fixtures.date(0), fromMe: true)
+        owed.captionPublished = false
+        var recent = Fixtures.moment("recent", at: Fixtures.date(0), fromMe: true)
+        recent.captionEditedAt = now.addingTimeInterval(-60)
+        var stale = Fixtures.moment("stale", at: Fixtures.date(0), fromMe: true)
+        stale.captionEditedAt = Fixtures.date(100)
+        var uploading = Fixtures.moment("uploading", at: now.addingTimeInterval(-30), fromMe: true)
+        uploading.captionPublished = false
+        var theirs = Fixtures.moment("theirs", at: Fixtures.date(0))
+        theirs.captionEditedAt = now
+        XCTAssertEqual(ParsedDelta.ownEditEchoes(in: [owed, recent, stale, uploading, theirs], now: now),
+                       ["owed", "recent"], "a just-sent moment's copy is its send coming back")
+    }
 }

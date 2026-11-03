@@ -56,6 +56,18 @@ struct WidgetContent: Hashable {
     static let previewWaiting = WidgetContent(sample: .previewWaiting)
 }
 
+/// Which picture the photo widget shows: the partner's newest one this phone
+/// hasn't hidden from it. A hide lasts until a newer picture arrives — only the
+/// run of hidden ones above the shown picture keeps its marks. Local only.
+enum WidgetPicture {
+    /// `pictures`: the partner's photos and drawings, newest first.
+    static func choose(_ pictures: [Moment], hidden: [String]) -> (shown: Moment?, stillHidden: [String]) {
+        let marks = Set(hidden)
+        let run = pictures.prefix { marks.contains($0.id) }
+        return (pictures.dropFirst(run.count).first, run.map(\.id))
+    }
+}
+
 /// How large to decode the photo widget's picture: enough to fill the tile at
 /// its pixel size (`scaledToFill`), never more than the file holds or twice the
 /// tile's long side — an extreme aspect would otherwise decode past the

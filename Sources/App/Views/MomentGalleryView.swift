@@ -124,6 +124,18 @@ struct MomentGalleryView: View {
                                     Label("Show hidden caption", systemImage: "eye")
                                 }
                             }
+                            let widget = model.widgetPictureState(of: current)
+                            if widget.shown || widget.hidden {
+                                Button {
+                                    Task { await model.setShownInWidget(current, widget.hidden) }
+                                } label: {
+                                    if widget.hidden {
+                                        Label("Show in widget", systemImage: "rectangle.on.rectangle")
+                                    } else {
+                                        Label("Hide from widget", systemImage: "rectangle.on.rectangle.slash")
+                                    }
+                                }
+                            }
                             Button(role: .destructive) {
                                 reporting = current
                             } label: {

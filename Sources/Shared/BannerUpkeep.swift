@@ -18,15 +18,17 @@ enum BannerUpkeep {
                                              subject: subject,
                                              held: info[NotificationCategory.heldBannerKey] != nil,
                                              wantsAttachment: info[BannerSubject.wantsAttachmentKey] != nil,
-                                             date: notification.date)
+                                             date: notification.date,
+                                             body: notification.request.content.body)
         }
         let store = SharedStore.shared
         guard !banners.isEmpty, let pairing = store.pairing else { return }
         let snapshot = store.snapshot
         let theirs = pairing.role.other
         let heldNames = store.unreadableTally.heldNames
+        let index = MomentIndex.shared.loadReadable()
         let state = BannerUpkeepPolicy.State(
-            index: MomentIndex.shared.loadReadable(),
+            index: index,
             heldMomentIDs: Set(heldNames.compactMap(theirs.momentID(fromRecordName:))),
             hidden: store.hiddenMomentIDs,
             hasAttachment: { moment in
@@ -34,7 +36,12 @@ enum BannerUpkeep {
                                : MomentStore.shared.hasThumbnail(for: moment.id)
             },
             statusHeld: heldNames.contains(theirs.statusRecordName),
-            partnerStatus: snapshot.theirs)
+            partnerStatus: snapshot.theirs,
+            nothingUnannounced: index.map {
+                AnnouncementPolicy.bannerCandidates($0, floor: snapshot.lastAnnouncedMomentSentAt)
+                    .allSatisfy { snapshot.hasAnnounced($0.id) }
+            } ?? false,
+            wordings: { [Self.words(for: $0), PushBannerPolicy.editedCaptionBody($0)] })
         let actions = BannerUpkeepPolicy.plan(banners, state: state, incoming: incoming)
         guard !actions.isEmpty else { return }
 
@@ -53,20 +60,33 @@ enum BannerUpkeep {
                 }
                 await replace(id, from: originals[id], moment: moment,
                               title: moment.displaySenderName(fallback: name),
-                              body: moment.displayCaption ?? moment.arrivalSummary, in: center)
-            case let .attach(id, moment):
-                await replace(id, from: originals[id], moment: moment, title: nil, body: nil, in: center)
-            case let .rewordStatus(id, status):
+                              body: Self.words(for: moment), in: center)
+            case let .refresh(id, moment):
+                let body = Self.words(for: moment)
+                // An edited-caption notice keeps its wording; its picture may still land.
+                let keeps = originals[id]?.body == PushBannerPolicy.editedCaptionBody(moment)
+                await replace(id, from: originals[id], moment: moment,
+                              title: keeps ? nil : moment.displaySenderName(fallback: name),
+                              body: keeps ? nil : body, in: center)
+            case let .rewordStatus(id, status, superseded):
                 guard claim({ AnnouncementPolicy.claimStatusBanner(for: status, in: &$0) != nil }) else {
+                    // Maybe our own status coming back: the banner that held theirs stays.
                     removals.append(id)
+                    removals += superseded.dropLast()
                     continue
                 }
+                removals += superseded
                 let body = PushBannerPolicy.statusBody(status, reportedAt: store.hiddenPartnerStatusAt,
                                                        sealed: snapshot.partnerStatusSealed)
                 await replace(id, from: originals[id], moment: nil, title: name, body: body, in: center)
             }
         }
         if !removals.isEmpty { center.removeDeliveredNotifications(withIdentifiers: removals) }
+    }
+
+    /// What a banner about this moment says, as every path words it.
+    private static func words(for moment: Moment) -> String {
+        moment.displayCaption ?? moment.arrivalSummary
     }
 
     /// Check-and-claim in one locked write (invariant 1), as every banner's claim is.

@@ -39,10 +39,12 @@ final class NotificationViewController: UIViewController, UNNotificationContentE
     }
 
     func didReceive(_ notification: UNNotification) {
-        // Subject only: a status-category banner without one is about our own
-        // status ("Your status was sent…"), never theirs.
+        // A status banner with no subject is about our own status; a held one
+        // may be (CloudKit's words), so it shows its words until reworded.
         let content = notification.request.content
-        model.show(subject: BannerSubject(userInfo: content.userInfo), title: content.title, body: content.body)
+        model.show(subject: BannerSubject(userInfo: content.userInfo),
+                   held: content.userInfo[NotificationCategory.heldBannerKey] != nil,
+                   title: content.title, body: content.body)
         guard refreshedRequest != notification.request.identifier else { return }
         refreshedRequest = notification.request.identifier
         Task { await model.refresh() }
@@ -70,12 +72,14 @@ final class ExpandedBanner {
     @ObservationIgnored var open: () -> Void = {}
     @ObservationIgnored var changed: () -> Void = {}
     @ObservationIgnored private var subject: BannerSubject?
+    @ObservationIgnored private var held = false
     @ObservationIgnored private var title = ""
     @ObservationIgnored private var body = ""
     @ObservationIgnored private var player: AVAudioPlayer?
 
-    func show(subject: BannerSubject?, title: String, body: String) {
+    func show(subject: BannerSubject?, held: Bool, title: String, body: String) {
         self.subject = subject
+        self.held = held
         self.title = title
         self.body = body
         reload(final: false)
@@ -111,9 +115,9 @@ final class ExpandedBanner {
             } else {
                 shown = .words(title: title, body: body, note: waiting)
             }
-        case .status?:
-            let held = store.pairing.map { store.unreadableTally.heldNames.contains($0.role.other.statusRecordName) } ?? true
-            if let status = snapshot.theirs, !held {
+        case .status? where !held:
+            let unreadable = store.pairing.map { store.unreadableTally.heldNames.contains($0.role.other.statusRecordName) } ?? true
+            if let status = snapshot.theirs, !unreadable {
                 let shownStatus = status.moderated(reportedAt: store.hiddenPartnerStatusAt)
                 shown = .status(name: snapshot.moderatedPartnerName,
                                 emoji: snapshot.partnerStatusSealed ? "🎁" : shownStatus.emoji,
@@ -122,7 +126,10 @@ final class ExpandedBanner {
             } else {
                 shown = .words(title: title, body: body, note: waiting)
             }
-        case .hearts?, nil:
+        case .status?:
+            // Reworded by the tidy-up (its rewrite calls `didReceive` again), or withdrawn.
+            shown = .words(title: title, body: body, note: waiting)
+        case .hearts?, .newMoments?, nil:
             shown = .words(title: title, body: body, note: nil)
         }
         changed()

@@ -284,6 +284,9 @@ struct Snapshot: Codable, Hashable {
     /// Newest partner photo/doodle, ignoring voice memos. The widget draws this
     /// rather than `latestPartnerMoment` so a memo doesn't blank out the picture.
     var latestPartnerVisualMoment: Moment?
+    /// Local only: pictures this phone took off the photo widget, newest first —
+    /// cleared by the next picture to arrive (`WidgetPicture`).
+    var widgetHiddenMomentIDs: [String] = []
     /// Partner voice memos not yet listened to. Derived from the index so it can
     /// be recomputed — see `SharedStore.refreshDerived`.
     var unheardVoiceMemoCount: Int = 0
@@ -374,6 +377,7 @@ struct Snapshot: Codable, Hashable {
         case freshStart
         case partnerNudgeCreatedAt
         case partnerLeftAt, partnerLeftName, partnerLeftAnnounced
+        case widgetHiddenMomentIDs
     }
 
     /// Hand-written: synthesised `Codable` errors on missing keys, so a snapshot
@@ -436,6 +440,7 @@ struct Snapshot: Codable, Hashable {
         partnerLeftAt = value(Date.self, .partnerLeftAt)
         partnerLeftName = value(String.self, .partnerLeftName)
         partnerLeftAnnounced = value(Bool.self, .partnerLeftAnnounced) ?? false
+        widgetHiddenMomentIDs = value([String].self, .widgetHiddenMomentIDs) ?? []
     }
 
     /// Hand-written: `latestPartnerVisualMoment`'s nil must be written as an
@@ -487,6 +492,7 @@ struct Snapshot: Codable, Hashable {
         try container.encodeIfPresent(partnerLeftAt, forKey: .partnerLeftAt)
         try container.encodeIfPresent(partnerLeftName, forKey: .partnerLeftName)
         try container.encode(partnerLeftAnnounced, forKey: .partnerLeftAnnounced)
+        try container.encode(widgetHiddenMomentIDs, forKey: .widgetHiddenMomentIDs)
     }
 
     /// Whether a notification for this moment has already been shown on this

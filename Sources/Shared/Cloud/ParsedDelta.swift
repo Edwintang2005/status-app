@@ -195,6 +195,17 @@ struct ParsedDelta {
         var result: RefreshResult
     }
 
+    /// Own moments whose caption this phone edited — still owed, or within
+    /// `nudgeEchoWindow` — and sent longer ago than that: a copy coming back is
+    /// the edit's echo. A moment edited while still uploading echoes as a send.
+    static func ownEditEchoes(in indexed: [Moment], now: Date = Date()) -> Set<String> {
+        let recent = { (date: Date) in now.timeIntervalSince(date) <= AppConfig.nudgeEchoWindow }
+        return Set(indexed.filter { moment in
+            moment.fromMe && !recent(moment.sentAt)
+                && (!moment.captionPublished || moment.captionEditedAt.map(recent) == true)
+        }.map(\.id))
+    }
+
     /// - `alreadyKnown`: the index's IDs before this delta is filed. "New" means
     ///   not already stored, since a full resync re-delivers everything.
     /// - `oldestRetained`: the index's oldest kept `sentAt`, once it's full. An
@@ -202,12 +213,15 @@ struct ParsedDelta {
     ///   the cap would trim it straight back out.
     /// - `fullResync`, `announcedFloor`: on a fetch without a token, only
     ///   moments past the floor count as news.
+    /// - `ownEdits`: own moments whose coming back is this phone's caption edit,
+    ///   not a send (`ownEditEchoes`).
     func outcome(mineRole: PairRole,
                  previousMine: StatusPayload?,
                  previousTheirs: StatusPayload?,
                  minePublished: Bool,
                  alreadyKnown: Set<String>,
                  knownCaptions: [String: String] = [:],
+                 ownEdits: Set<String> = [],
                  hidden: Set<String>,
                  oldestRetained: Date? = nil,
                  fullResync: Bool = false,
@@ -289,13 +303,17 @@ struct ParsedDelta {
         result.editedPartnerMoments = edited.filter { !$0.fromMe }
         result.ownMomentEdited = edited.contains(where: \.fromMe)
         let editedIDs = Set(edited.map(\.id))
+        let editEchoes = Set(moments.filter { $0.fromMe && alreadyKnown.contains($0.id) && ownEdits.contains($0.id) }
+            .map(\.id))
+        result.ownCaptionEditSent = !fullResync && !editEchoes.isEmpty
         result.removedMoments = removedMomentIDs.count
         result.fullResync = fullResync
         result.partnerLeft = partnerErased
         result.ownNudgeSentAt = myNudge?[CloudSync.Field.sentAt] as? Date
         result.partnerNudgeArrived = theirNudge != nil
         result.ownMomentSent = !fullResync
-            && moments.contains { $0.fromMe && alreadyKnown.contains($0.id) && !editedIDs.contains($0.id) }
+            && moments.contains { $0.fromMe && alreadyKnown.contains($0.id)
+                && !editedIDs.contains($0.id) && !editEchoes.contains($0.id) }
         result.momentsArrived = !moments.isEmpty
         return Outcome(fold: fold,
                        partnerStatusToLog: partnerToLog,

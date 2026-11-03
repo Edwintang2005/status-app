@@ -38,6 +38,8 @@ enum BannerSubject: Equatable, Sendable {
     /// The partner's status; only the newest banner of these stays.
     case status
     case hearts
+    /// A moment push left in CloudKit's words: which moment, if any, isn't known.
+    case newMoments
 
     static let key = "subject"
     /// The banner wanted its moment's thumbnail or recording and went out without it.
@@ -48,6 +50,7 @@ enum BannerSubject: Equatable, Sendable {
         case .moment(let id): "moment:\(id)"
         case .status: "status"
         case .hearts: "hearts"
+        case .newMoments: "new-moments"
         }
     }
 
@@ -55,6 +58,7 @@ enum BannerSubject: Equatable, Sendable {
         switch stamp {
         case "status": self = .status
         case "hearts": self = .hearts
+        case "new-moments": self = .newMoments
         default:
             guard stamp.hasPrefix("moment:") else { return nil }
             let id = String(stamp.dropFirst("moment:".count))

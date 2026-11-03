@@ -298,6 +298,7 @@ extension CloudSync {
                                      minePublished: held.myStatusPublished,
                                      alreadyKnown: alreadyKnown,
                                      knownCaptions: knownCaptions,
+                                     ownEdits: ParsedDelta.ownEditEchoes(in: indexed),
                                      hidden: hidden,
                                      oldestRetained: oldestRetained,
                                      fullResync: fullResync,
