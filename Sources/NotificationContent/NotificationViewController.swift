@@ -170,17 +170,22 @@ struct ExpandedBannerView: View {
             case let .status(name, emoji, body):
                 VStack(spacing: 8) {
                     Text(emoji).font(.system(size: 56)).accessibilityHidden(true)
-                    Text(name).font(.headline)
-                    Text(body).font(.body).multilineTextAlignment(.center)
+                    Text(name).eyebrow(size: 12)
+                    Text(body)
+                        .font(Theme.rounded(22, .semibold))
+                        .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(20)
             case let .words(title, body, note):
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.headline)
-                    Text(body).font(.body)
+                    Text(title).font(Theme.rounded(17, .semibold))
+                    Text(body).font(Theme.rounded(16))
                     if let note {
-                        Text(note).font(.footnote).foregroundStyle(.secondary).padding(.top, 4)
+                        Text(note)
+                            .font(Theme.rounded(13))
+                            .foregroundStyle(Theme.mutedText)
+                            .padding(.top, 4)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -188,6 +193,9 @@ struct ExpandedBannerView: View {
             }
         }
         .fixedSize(horizontal: false, vertical: true)
+        // The app's own backdrop, cream or black with the system's appearance.
+        .background { Theme.Background() }
+        .tint(Theme.accent)
     }
 
     @ViewBuilder
@@ -199,19 +207,20 @@ struct ExpandedBannerView: View {
                 } label: {
                     Label(model.isPlaying ? "Pause" : "Play · \(moment.durationLabel)",
                           systemImage: model.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.title3.weight(.semibold))
+                        .font(Theme.rounded(20, .semibold))
+                        .foregroundStyle(Theme.accentText)
                         .frame(maxWidth: .infinity, minHeight: 56)
                 }
                 .buttonStyle(.bordered)
                 .disabled(!MomentStore.shared.hasAudio(for: moment.id))
             } else if !moment.kind.isSupported {
-                Text("Update \(AppConfig.appName) to see this.").font(.body)
+                Text("Update \(AppConfig.appName) to see this.").font(Theme.rounded(16))
             } else if let image {
                 // The centred square, as every tile shows; tapping opens it in the app.
                 Color.clear
                     .aspectRatio(1, contentMode: .fit)
                     .overlay { Image(uiImage: image).resizable().scaledToFill() }
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .contentShape(Rectangle())
                     .onTapGesture { model.open() }
                     .accessibilityLabel(moment.kind == .drawing ? "Drawing" : "Photo")
@@ -219,11 +228,13 @@ struct ExpandedBannerView: View {
             } else {
                 ProgressView().frame(maxWidth: .infinity, minHeight: 120)
             }
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(moment.displaySenderName(fallback: SharedStore.shared.snapshot.moderatedPartnerName))
-                    .font(.headline)
-                Text(moment.displayCaption ?? moment.arrivalSummary).font(.body)
+                    .eyebrow(size: 12)
+                Text(moment.displayCaption ?? moment.arrivalSummary)
+                    .font(Theme.rounded(18, .medium))
             }
+            .padding(.horizontal, 4)
         }
         .padding(12)
     }

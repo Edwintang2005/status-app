@@ -4,6 +4,13 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 ## Unreleased
 
+Version 1.6.3.
+
+- **The expanded notification wears the app's look.** Press-and-hold on a
+  moment or status banner now shows the app's backdrop — cream and crimson in
+  light mode, black with the same glow in dark — with the rounded type and the
+  partner's name as an eyebrow, instead of plain system white or grey.
+  (`ExpandedBannerView`, `Theme.Background`.)
 - **Status notifications on mobile data.** The change fetch ran at CloudKit's
   default priority, which iOS treats as discretionary and may hold back —
   on mobile data, past the notification service's deadline, so the banner
