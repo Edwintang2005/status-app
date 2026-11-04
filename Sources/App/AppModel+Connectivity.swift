@@ -159,6 +159,8 @@ extension AppModel {
         if await outbox.retryPendingUploads(automatic: automatic) { reload() }
         // After the uploads: an edit to a moment that just landed can go now.
         if await outbox.republishCaptions(automatic: automatic) { reload() }
+        // After the uploads too: one deleted while still sending goes once it lands.
+        if await outbox.sendDeletions(automatic: automatic) { reload() }
     }
 
     /// One fetch and reload; `false` when it failed or there was nothing to fetch for.

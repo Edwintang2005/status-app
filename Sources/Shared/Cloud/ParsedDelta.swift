@@ -215,6 +215,10 @@ struct ParsedDelta {
     ///   moments past the floor count as news.
     /// - `ownEdits`: own moments whose coming back is this phone's caption edit,
     ///   not a send (`ownEditEchoes`).
+    /// - `knownPartnerSentAt`: the index's partner moments; one deleted within
+    ///   `removalNoticeWindow` of its sending, and after any fresh start's epoch
+    ///   (`heldFreshStart` or this delta's — that clear deletes everything
+    ///   before it), is owed a notice. One never filed was never seen.
     func outcome(mineRole: PairRole,
                  previousMine: StatusPayload?,
                  previousTheirs: StatusPayload?,
@@ -222,6 +226,8 @@ struct ParsedDelta {
                  alreadyKnown: Set<String>,
                  knownCaptions: [String: String] = [:],
                  ownEdits: Set<String> = [],
+                 knownPartnerSentAt: [String: Date] = [:],
+                 heldFreshStart: FreshStart = FreshStart(),
                  hidden: Set<String>,
                  oldestRetained: Date? = nil,
                  fullResync: Bool = false,
@@ -245,7 +251,14 @@ struct ParsedDelta {
             || (myNudge != nil && mine?.nudgeCount != previousMine?.nudgeCount)
             || (!fullResync && unknown.contains { $0.fromMe })
 
-        let fold = RefreshDelta(
+        let epochs = [heldFreshStart.clearedBefore, heldFreshStart.mine?.epoch, heldFreshStart.theirs?.epoch,
+                      freshStart.mine?.epoch, freshStart.theirs?.epoch].compactMap { $0 }
+        let noticeFloor = max(now.addingTimeInterval(-AppConfig.removalNoticeWindow), epochs.max() ?? .distantPast)
+        let removedPartner = partnerErased ? [] : removedMomentIDs.filter { id in
+            knownPartnerSentAt[id].map { $0 >= noticeFloor } ?? false
+        }
+
+        var fold = RefreshDelta(
             mine: mine,
             theirs: theirs,
             partnerErased: partnerErased,
@@ -259,6 +272,7 @@ struct ParsedDelta {
             partnerNudgeCreatedAt: partnerErased ? nil : theirNudgeCreatedAt,
             partnerNudgeErased: theirNudgeErased && !partnerErased
         )
+        fold.removedPartnerMomentIDs = removedPartner
 
         // Gated on the status *record* changing (not a nudge-only delta). A
         // rename restamps the record without changing the status; the sender

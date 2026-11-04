@@ -78,6 +78,9 @@ protocol SyncBackend: Sendable {
     /// Rewrites a sent moment's caption with `moment.caption`. A record that's
     /// gone (deleted, cleared) has nothing left to edit: no error.
     func updateCaption(of moment: Moment) async throws
+    /// Deletes own moments' records; returns the IDs confirmed gone ("already
+    /// gone" included). Throws only when none went; the rest stay owed.
+    func deleteMoments(ids: [String]) async throws -> Set<String>
     /// Uploads iCloud kept running after the app last closed, re-attached so
     /// they confirm here instead of being sent a second time; `nil` when the
     /// look itself failed.
@@ -339,6 +342,7 @@ struct DemoBackend: SyncBackend {
     }
     func send(_ moment: Moment, progress: @escaping @Sendable (Double) -> Void) async throws {}
     func updateCaption(of moment: Moment) async throws {}
+    func deleteMoments(ids: [String]) async throws -> Set<String> { Set(ids) }
     func resumeUploads() async -> [ResumedUpload]? { [] }
     func fetchMedia(for moment: Moment) async throws {}
     func fetchThumbnails(for moments: [Moment]) async throws {}

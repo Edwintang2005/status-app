@@ -119,6 +119,11 @@ enum PushBannerPolicy {
                 plan.subject = result.heldPartnerMomentIDs.last.map(BannerSubject.moment)
                 return plan
             }
+            // Announced like the moment was: they took back something you may have seen.
+            let removed = AnnouncementPolicy.claimRemovals(in: &snapshot)
+            if removed > 0 {
+                return Plan(title: name, body: removalBody(count: removed), thread: "moment-removals")
+            }
             // Quiet: the moment was announced when it came. Its subject replaces
             // the banner still showing the old words (`BannerUpkeep`).
             if let edited = result.editedPartnerMoments.last {
@@ -251,6 +256,7 @@ enum PushBannerPolicy {
         case nudge(sentAt: Date?)
         case moment(Moment)
         case partnerLeft
+        case removed(count: Int)
     }
 
     static func appAnnouncements(_ claims: AnnouncementPolicy.Claims,
@@ -261,6 +267,7 @@ enum PushBannerPolicy {
         if claims.partnerLeft { posts.append(.partnerLeft) }
         if claims.nudge { posts.append(.nudge(sentAt: result.partnerStatus?.lastNudgeAt)) }
         if let moment = claims.moment { posts.append(.moment(moment)) }
+        if claims.removals > 0 { posts.append(.removed(count: claims.removals)) }
         return posts
     }
 
@@ -330,6 +337,10 @@ enum PushBannerPolicy {
         guard let latest = snapshot.lastNudgeSentAt ?? snapshot.lastNudgeIssuedAt else { return false }
         let gap = latest.wholeSeconds.timeIntervalSince(sentAt.wholeSeconds)
         return gap >= 0 && gap <= AppConfig.nudgeEchoWindow
+    }
+
+    static func removalBody(count: Int) -> String {
+        count == 1 ? String(localized: "removed a moment") : String(localized: "removed \(count) moments")
     }
 
     /// Through the moderation helpers like every caption: a filtered one shows no words.

@@ -147,6 +147,22 @@ enum NotificationManager {
 
     /// The partner unlinked and no push said so: quiet, since nothing can be
     /// done about it from a banner — Home's notice carries what to do next.
+    /// The partner deleted moments soon after sending them; worded as the push would be.
+    static func postRemoval(from name: String, count: Int) async {
+        let content = UNMutableNotificationContent()
+        content.title = name
+        content.body = PushBannerPolicy.removalBody(count: count)
+        content.threadIdentifier = "moment-removals"
+        content.sound = .default
+        content.limit(to: SharedStore.shared.notificationPreferences.level(for: .moment) ?? .sound)
+        let request = UNNotificationRequest(identifier: "removal-\(UUID().uuidString)", content: content, trigger: nil)
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+        } catch {
+            log.error("Failed to post removal notification: \(error.localizedDescription)")
+        }
+    }
+
     static func postPartnerLeft(name: String) async {
         let content = UNMutableNotificationContent()
         content.title = name

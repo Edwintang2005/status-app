@@ -14,6 +14,7 @@ struct MomentLibraryView: View {
     @State private var filter: HistoryFilter = .all
     @State private var kind: MomentKindFilter = .all
     @State private var reporting: Moment?
+    @State private var deleting: Moment?
 
     fileprivate static let tileMinimum: CGFloat = 104
     /// What thumbnails decode for, tied to `tileMinimum`: three columns at the
@@ -109,6 +110,7 @@ struct MomentLibraryView: View {
             } message: {
                 Text("It's removed from this iPhone straight away, and an email to us opens with the details — send it and we'll respond within 24 hours.")
             }
+            .deleteMomentDialog($deleting, model: model)
         }
     }
 
@@ -166,19 +168,30 @@ struct MomentLibraryView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel(for: moment, partnerName: partnerName, filterOn: filterOn))
         .accessibilityHint("Opens it")
-        .contextMenu { reportAction(moment) }
+        .contextMenu { tileActions(moment) }
         // Guideline 1.2: reachable under VoiceOver and Voice Control, not only by long-press.
         .accessibilityActions {
             if failedTiles.contains(moment.id) {
                 Button("Retry") { retry(moment) }
             }
-            reportAction(moment)
+            tileActions(moment)
         }
     }
 
+    /// Own moments: delete, within the window. The partner's: only the widget
+    /// toggle (this phone's display) and Report — no control of their moments.
     @ViewBuilder
-    private func reportAction(_ moment: Moment) -> some View {
-        if !moment.fromMe {
+    private func tileActions(_ moment: Moment) -> some View {
+        if moment.fromMe {
+            if moment.canDelete() {
+                Button(role: .destructive) {
+                    deleting = moment
+                } label: {
+                    Label("Delete for both of you…", systemImage: "trash")
+                }
+            }
+        } else {
+            WidgetPictureToggle(moment: moment)
             Button(role: .destructive) {
                 reporting = moment
             } label: {

@@ -250,7 +250,10 @@ extension CloudSync {
                fullResync: Bool = false) async -> (result: RefreshResult, arrived: [Moment]) {
         let store = SharedStore.shared
         // One decode for every judgement below; the fold itself re-reads under the lock.
-        let (hidden, held) = await MainActor.run { (store.hiddenMomentIDs, store.snapshot) }
+        // Reported, or deleted here and not yet gone from iCloud: neither comes back.
+        let (hidden, held) = await MainActor.run {
+            (store.hiddenMomentIDs.union(store.pendingMomentDeletions), store.snapshot)
+        }
         let names = myRecordNames(pairing)
         var metadata = RecordMetadata.server
         metadata.isForeign = { Self.isForeign($0, names: names) }
@@ -299,6 +302,9 @@ extension CloudSync {
                                      alreadyKnown: alreadyKnown,
                                      knownCaptions: knownCaptions,
                                      ownEdits: ParsedDelta.ownEditEchoes(in: indexed),
+                                     knownPartnerSentAt: Dictionary(indexed.filter { !$0.fromMe }.map { ($0.id, $0.sentAt) },
+                                                                    uniquingKeysWith: { first, _ in first }),
+                                     heldFreshStart: held.freshStart,
                                      hidden: hidden,
                                      oldestRetained: oldestRetained,
                                      fullResync: fullResync,

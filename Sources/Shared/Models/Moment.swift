@@ -204,6 +204,12 @@ extension Moment {
     /// The notification body when there's no caption to show instead.
     var arrivalSummary: String { kind.arrivalSummary }
 
+    /// "Delete for both of you": own moments only, within `momentDeleteWindow`
+    /// of sending — or any time while it hasn't reached iCloud.
+    func canDelete(now: Date = Date()) -> Bool {
+        fromMe && (!uploaded || now.timeIntervalSince(sentAt) <= AppConfig.momentDeleteWindow)
+    }
+
     /// `0:07`, `1:24`. Voice memos only.
     var durationLabel: String {
         let total = duration.isFinite ? Int(min(duration.rounded(), 359_999)) : 0

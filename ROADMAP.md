@@ -174,36 +174,12 @@ app.
   which already wakes the app and awaits the send. No schema.
 - Limit: iOS shows only a few actions on a long-press; pick three.
 
-### Delete your own moment (S–M) ★★★
-Designed October 2026, parked until picked. "Delete for both of you…" in the
-gallery's menu (today only the partner's moments have one) and on a library
-tile's long-press, confirmed: "It's removed from both iPhones and iCloud.
-Copies already saved to Photos or exported aren't affected." A send that never
-reached iCloud is just dropped locally. Own moments only — the partner's keep
-Report, which hides locally. No schema change. Unblocks "storage steward" and
-makes "undo" mostly unnecessary.
-- **The receiver already mirrors it**: a deleted `moment-<role>-<uuid>` arrives
-  as `ParsedDelta.removedMomentIDs`, `apply` runs `MomentIndex.remove` +
-  `MomentStore.delete`, derived fields and the widget follow. Its push is
-  quiet; reword `PushBannerPolicy`'s "Moments were removed from your shared
-  space." to "\<name\> removed a moment." when one is the partner's.
-- **Tombstone first** (`Snapshot.deletedMomentIDs`, like `hiddenMomentIDs`,
-  inside one `mutate`): hidden at once, filtered from every delta by `apply`,
-  and skipped by `MomentIndex.requeueMissingUploads` — which otherwise
-  re-uploads an own moment the zone no longer returns while its media is on
-  disk, so a kill between the cloud delete and the local cleanup would bring
-  it back.
-- **The cloud delete is a send** (invariants 11, 22): an `Outbox` loop like the
-  republishes — offline it waits and goes on reconnect, confirmed per record
-  (`confirmDeleted`), `unknownItem` counts as done; then `MomentIndex.remove`
-  + `MomentStore.delete`.
-- **Never race an upload**: while the moment is in `uploadsInFlight`, the
-  delete stands aside (as the fresh start's clear does), or the record lands
-  after it and comes back.
-- **The banner it announced** is already withdrawn: `BannerUpkeep` removes a
-  moment's banner once the moment has left the index.
-- Open, defaults first: no time limit (vs. an "unsend" within 24 h); the
-  partner gets the quiet named notice (vs. silence).
+### Delete your own moment — shipped in 1.6.3
+Built November 2026 with a five-minute window and a notice at the moment's own
+volume (see CHANGELOG). Left open: a second device on your own account that
+misses the deletion long enough for its change token to expire would re-queue
+the moment on its next full fetch (`requeueMissingUploads`), as before any
+deletion existed; a guard like the fresh start's `clearedBefore` would close it.
 
 ---
 

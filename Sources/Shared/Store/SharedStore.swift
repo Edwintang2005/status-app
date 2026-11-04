@@ -29,6 +29,7 @@ final class SharedStore: @unchecked Sendable {
         static let termsVersion = "acceptedTermsVersion"
         static let contentFilter = "contentFilterEnabled"
         static let hiddenMoments = "hiddenMomentIDs"
+        static let pendingMomentDeletions = "pendingMomentDeletions"
         static let hiddenStatusAt = "hiddenPartnerStatusAt"
         static let blockedOwners = "blockedOwnerRecordNames"
         static let anniversaryPrompt = "anniversaryPromptPending"
@@ -130,6 +131,14 @@ final class SharedStore: @unchecked Sendable {
     var hiddenMomentIDs: Set<String> {
         get { decode(Set<String>.self, forKey: Key.hiddenMoments) ?? [] }
         set { encode(newValue, forKey: Key.hiddenMoments) }
+    }
+
+    /// Own moments deleted here whose record iCloud hasn't confirmed gone
+    /// (`Outbox.sendDeletions`): already off this phone, and kept out of every
+    /// delta like reported ones until then. Written only by the app.
+    var pendingMomentDeletions: Set<String> {
+        get { decode(Set<String>.self, forKey: Key.pendingMomentDeletions) ?? [] }
+        set { encode(newValue, forKey: Key.pendingMomentDeletions) }
     }
 
     /// `wordsAt` of a reported partner status (an older report's `updatedAt`);
@@ -381,7 +390,8 @@ final class SharedStore: @unchecked Sendable {
             if let name, !name.isEmpty { fresh.mine = .initial(displayName: name) }
             snapshot = fresh
             // Preserved corrupt bytes are the ex's data too.
-            for key in [Key.snapshot, Key.pairing, Key.lastPairing, Key.hiddenStatusAt, Key.unreadable] {
+            for key in [Key.snapshot, Key.pairing, Key.lastPairing, Key.hiddenStatusAt, Key.unreadable,
+                        Key.pendingMomentDeletions] {
                 store.setData(nil, forKey: "\(key).corrupt")
             }
             decodedLock.withLock { decoded.removeAll() }

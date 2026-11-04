@@ -77,6 +77,36 @@ extension CloudSync {
         }
     }
 
+    /// Non-atomic and confirmed per record (invariant 22); "already gone" — an
+    /// earlier pass, another of our devices, a fresh start — counts as done.
+    func deleteMoments(ids: [String]) async throws -> Set<String> {
+        let pairing = try await requirePairing()
+        let database = self.database(for: pairing)
+        let zone = zoneID(for: pairing)
+        let byRecord = Dictionary(ids.map { (CKRecord.ID(recordName: pairing.role.momentRecordName(id: $0), zoneID: zone), $0) },
+                                  uniquingKeysWith: { first, _ in first })
+        var done: Set<String> = []
+        var failure: Error?
+        for batch in Array(byRecord.keys).chunked(into: 200) {
+            let result = try await withZoneRecovery(pairing) {
+                try await database.modifyRecords(saving: [], deleting: batch, atomically: false)
+            }
+            for recordID in batch {
+                guard let id = byRecord[recordID] else { continue }
+                do {
+                    try Self.confirmDeleted(result, recordID)
+                    done.insert(id)
+                } catch let error as CKError where Self.isUnknownItem(error) {
+                    done.insert(id)
+                } catch {
+                    failure = failure ?? error
+                }
+            }
+        }
+        if let failure, done.isEmpty { throw failure }
+        return done
+    }
+
     /// Long-lived, so iCloud finishes it after the app closes (`resumeUploads`
     /// picks it up). `.userInitiated`: at `.utility` CloudKit retries network
     /// errors itself for days and goes discretionary in the background, so an

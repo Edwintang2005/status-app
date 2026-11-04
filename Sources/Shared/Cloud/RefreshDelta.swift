@@ -31,6 +31,10 @@ struct RefreshDelta: Sendable, Equatable {
     var partnerNudgeCreatedAt: Date?
     var partnerNudgeErased = false
 
+    /// Partner moments deleted soon after sending (`ParsedDelta.outcome`): owed a notice.
+    var removedPartnerMomentIDs: [String] = []
+    static let removalNoticeLimit = 20
+
     func fold(into snapshot: inout Snapshot, now: Date = Date()) {
         if let mine {
             // A status set offline is newer than the server copy; adopting the
@@ -103,6 +107,11 @@ struct RefreshDelta: Sendable, Equatable {
 
         if !freshStart.isEmpty {
             snapshot.freshStart.fold(freshStart)
+        }
+
+        let removals = removedPartnerMomentIDs.filter { !snapshot.removalNotices.contains($0) }
+        if !removals.isEmpty {
+            snapshot.removalNotices = Array((snapshot.removalNotices + removals).suffix(Self.removalNoticeLimit))
         }
     }
 

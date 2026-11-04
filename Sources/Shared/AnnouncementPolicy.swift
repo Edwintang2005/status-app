@@ -12,6 +12,8 @@ enum AnnouncementPolicy {
         var moment: Moment?
         /// The partner unlinked in this delta and no banner has said so yet.
         var partnerLeft = false
+        /// Their moments removed since the last notice (`claimRemovals`).
+        var removals = 0
     }
 
     /// What a refresh should announce. A first sight of the partner's status
@@ -35,7 +37,16 @@ enum AnnouncementPolicy {
         }
         for moment in news { snapshot.recordAnnounced(moment) }
         claims.partnerLeft = result.partnerLeft && claimPartnerLeft(in: &snapshot)
+        claims.removals = claimRemovals(in: &snapshot)
         return claims
+    }
+
+    /// The partner's deletions owed a notice (`Snapshot.removalNotices`), taken
+    /// by whoever announces them, so one notice covers them, once.
+    static func claimRemovals(in snapshot: inout Snapshot) -> Int {
+        let count = snapshot.removalNotices.count
+        snapshot.removalNotices = []
+        return count
     }
 
     /// The one banner saying the partner left: `false` once claimed, or when

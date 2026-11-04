@@ -7,6 +7,7 @@ final class FakeBackend: SyncBackend, @unchecked Sendable {
     private var _published: [(payload: StatusPayload, logged: Bool)] = []
     private var _sent: [String] = []
     private var _captions: [(id: String, caption: String)] = []
+    private var _deleted: [[String]] = []
     private var _receipts: [[String: Date]] = []
     private var _statusSeen: [StatusSeen?] = []
     private var _anniversaries: [Anniversary?] = []
@@ -31,6 +32,8 @@ final class FakeBackend: SyncBackend, @unchecked Sendable {
     var published: [(payload: StatusPayload, logged: Bool)] { lock.withLock { _published } }
     var sent: [String] { lock.withLock { _sent } }
     var captions: [(id: String, caption: String)] { lock.withLock { _captions } }
+    /// Each `deleteMoments` call's IDs, in order.
+    var deleted: [[String]] { lock.withLock { _deleted } }
     /// Runs inside `updateCaption`, before it lands — an edit made mid-flight.
     var duringCaption: (@Sendable () -> Void)?
     var receipts: [[String: Date]] { lock.withLock { _receipts } }
@@ -95,6 +98,11 @@ final class FakeBackend: SyncBackend, @unchecked Sendable {
             _receipts.append(seen)
             _statusSeen.append(statusSeen)
         }
+    }
+    func deleteMoments(ids: [String]) async throws -> Set<String> {
+        try check("delete")
+        lock.withLock { _deleted.append(ids) }
+        return Set(ids)
     }
     func updateCaption(of moment: Moment) async throws {
         try check("caption")

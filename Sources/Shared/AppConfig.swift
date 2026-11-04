@@ -34,6 +34,12 @@ enum AppConfig {
     /// A tap of ours this far before this phone's latest counts as this phone's,
     /// for wording its push (a burst of slow taps lands together).
     static let nudgeEchoWindow: TimeInterval = 10 * 60
+    /// How long after sending an own moment it can still be deleted for both of
+    /// you; one that never reached iCloud can always be.
+    static let momentDeleteWindow: TimeInterval = 5 * 60
+    /// A partner moment removed within this of its sending gets a notice; an
+    /// older one leaving (history, a fresh start) goes quietly.
+    static let removalNoticeWindow: TimeInterval = 24 * 60 * 60
     /// How far a date may run ahead of the server's save time before it's
     /// capped, and how far ahead of this phone's clock a stored mark may sit
     /// before it counts as stale (`TrustedTime`). A day, not minutes: people set

@@ -350,7 +350,7 @@ final class AppModel {
     var pendingSendCount: Int {
         guard isPaired, let role else { return 0 }
         var count = pendingUploadCount + snapshot.unpublishedCount(role: role)
-            + owedCaptionIDs.subtracting(outbox.captionsInFlight).count
+            + owedCaptionIDs.subtracting(outbox.captionsInFlight).count + outbox.owedDeletionCount
         if !snapshot.myStatusPublished, snapshot.mine != nil, statusSendsInFlight > 0 { count -= 1 }
         return count
     }
@@ -661,6 +661,21 @@ final class AppModel {
     }
 
     // MARK: - Moments
+
+    /// Own moments, within `momentDeleteWindow` of sending or still unsent: gone
+    /// from this phone at once, and from iCloud now or once there's a connection.
+    func deleteMoment(_ moment: Moment) async {
+        guard outbox.deleteMoment(moment) else {
+            // The confirmation sat open past the window.
+            errorTitle = String(localized: "Too late to delete")
+            errorMessage = String(localized: "A moment can be deleted for both of you only within five minutes of sending it.")
+            return
+        }
+        reload()
+        guard isPaired else { return }
+        await Self.withUploadProtection("delete") { _ = await outbox.sendDeletions() }
+        reload()
+    }
 
     /// Own moments only. Filed at once; sent now, or by the recovery pass once
     /// there's a connection. An emptied caption removes it.

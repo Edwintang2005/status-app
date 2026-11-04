@@ -22,3 +22,44 @@ extension View {
         }
     }
 }
+
+/// "Hide from widget" / "Show in widget" on the partner's picture the photo
+/// widget shows, or one this phone took off it; nothing on any other moment.
+struct WidgetPictureToggle: View {
+    @Environment(AppModel.self) private var model
+    let moment: Moment
+
+    var body: some View {
+        let state = model.widgetPictureState(of: moment)
+        if state.shown || state.hidden {
+            Button {
+                Task { await model.setShownInWidget(moment, state.hidden) }
+            } label: {
+                if state.hidden {
+                    Label("Show in widget", systemImage: "rectangle.on.rectangle")
+                } else {
+                    Label("Hide from widget", systemImage: "rectangle.on.rectangle.slash")
+                }
+            }
+        }
+    }
+}
+
+extension View {
+    /// The confirmation before "Delete for both of you": the same words from the gallery and the library.
+    func deleteMomentDialog(_ moment: Binding<Moment?>, model: AppModel) -> some View {
+        confirmationDialog("Delete this \(moment.wrappedValue?.noun ?? "moment") for both of you?",
+                           isPresented: moment.isPresent(),
+                           titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                if let deleting = moment.wrappedValue {
+                    Task { await model.deleteMoment(deleting) }
+                }
+                moment.wrappedValue = nil
+            }
+            Button("Cancel", role: .cancel) { moment.wrappedValue = nil }
+        } message: {
+            Text("It's removed from both iPhones and iCloud. Copies already saved to Photos or exported aren't affected.")
+        }
+    }
+}

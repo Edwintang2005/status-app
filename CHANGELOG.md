@@ -6,6 +6,26 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 Version 1.6.3.
 
+- **Delete your own moment, within five minutes.** "Delete for both of you…"
+  in the gallery's menu and on a library tile's long-press, confirmed, for
+  your own moments up to `AppConfig.momentDeleteWindow` after sending (or any
+  time while it hasn't reached iCloud). Never your partner's: theirs keep only
+  Report, and the long-press now also offers "Hide from widget" on the
+  picture the widget shows. **No schema change.**
+  - Gone from this phone at once — index, files, widget, Home — and owed to
+    iCloud like any send (`SharedStore.pendingMomentDeletions`,
+    `Outbox.sendDeletions`): offline it waits and counts as "waiting to send",
+    confirmed per record, "already gone" is done. Until then every delta skips
+    it, so it can't come back. One still uploading — last launch's too — waits
+    for its landing (no "Sent" for it), then goes.
+  - Your partner's phone files the deletion as before; a moment it had seen,
+    removed within a day of its sending and after any fresh start's epoch, is
+    owed a notice (`Snapshot.removalNotices`, filed by whichever process folds
+    the delta): "Sam removed a moment", at the moment push's own volume, by
+    the NSE or the app, whichever claims it first (`claimRemovals`). Its
+    original banner is withdrawn by the tidy-up, and an open gallery page
+    for it closes.
+
 - **Review fixes for the notification ties and caption edits.**
   - A generic status banner (now tagged since 1.6.3's mobile-data fix) could
     be this phone's own status coming back; it no longer clears the banner

@@ -5,7 +5,8 @@ import SwiftUI
 /// Full media is kept only for the newest `AppConfig.momentImageCacheLimit`;
 /// past that a page shows the kept thumbnail and fetches the rest on arrival.
 struct MomentGalleryView: View {
-    let moments: [Moment]
+    /// The pages as opened; `moments` drops any that has since left the history.
+    private let opened: [Moment]
     let startAt: Moment
 
     @Environment(AppModel.self) private var model
@@ -27,6 +28,7 @@ struct MomentGalleryView: View {
     /// An own moment whose caption is being edited, and the words so far.
     @State private var editingCaption: Moment?
     @State private var captionDraft = ""
+    @State private var deleting: Moment?
 
     private enum ReplyKind: String, Identifiable {
         case moment, voiceMemo
@@ -39,9 +41,25 @@ struct MomentGalleryView: View {
     }
 
     init(moments: [Moment], startAt: Moment) {
-        self.moments = moments
+        self.opened = moments
         self.startAt = startAt
         _selection = State(initialValue: startAt.id)
+    }
+
+    /// Deleted here or by its sender: its page goes. An index that couldn't be
+    /// read is empty, which isn't everything deleted.
+    private var moments: [Moment] {
+        let here = Set(model.history.map(\.id))
+        return here.isEmpty ? opened : opened.filter { here.contains($0.id) }
+    }
+
+    /// The page after a removed one, else the one before; none left closes the gallery.
+    private func settle(on pages: [String]) {
+        guard !pages.contains(selection) else { return }
+        let order = opened.map(\.id)
+        let gone = order.firstIndex(of: selection) ?? 0
+        let next = order[gone...].first(where: pages.contains) ?? order[..<gone].last(where: pages.contains)
+        if let next { selection = next } else { dismiss() }
     }
 
     private var current: Moment? {
@@ -98,14 +116,23 @@ struct MomentGalleryView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     exportButton
                 }
-                if let current, current.fromMe, current.kind.isSupported {
+                if let current, current.fromMe, current.kind.isSupported || current.canDelete() {
                     ToolbarItem(placement: .topBarTrailing) {
                         Menu {
-                            Button {
-                                captionDraft = current.caption
-                                editingCaption = current
-                            } label: {
-                                Label("Edit caption…", systemImage: "pencil")
+                            if current.kind.isSupported {
+                                Button {
+                                    captionDraft = current.caption
+                                    editingCaption = current
+                                } label: {
+                                    Label("Edit caption…", systemImage: "pencil")
+                                }
+                            }
+                            if current.canDelete() {
+                                Button(role: .destructive) {
+                                    deleting = current
+                                } label: {
+                                    Label("Delete for both of you…", systemImage: "trash")
+                                }
                             }
                         } label: {
                             Image(systemName: "ellipsis.circle")
@@ -124,18 +151,7 @@ struct MomentGalleryView: View {
                                     Label("Show hidden caption", systemImage: "eye")
                                 }
                             }
-                            let widget = model.widgetPictureState(of: current)
-                            if widget.shown || widget.hidden {
-                                Button {
-                                    Task { await model.setShownInWidget(current, widget.hidden) }
-                                } label: {
-                                    if widget.hidden {
-                                        Label("Show in widget", systemImage: "rectangle.on.rectangle")
-                                    } else {
-                                        Label("Hide from widget", systemImage: "rectangle.on.rectangle.slash")
-                                    }
-                                }
-                            }
+                            WidgetPictureToggle(moment: current)
                             Button(role: .destructive) {
                                 reporting = current
                             } label: {
@@ -173,6 +189,8 @@ struct MomentGalleryView: View {
             } message: {
                 Text("It's removed from this iPhone straight away, and an email to us opens with the details — send it and we'll respond within 24 hours.")
             }
+            .deleteMomentDialog($deleting, model: model)
+            .onChange(of: moments.map(\.id)) { _, pages in settle(on: pages) }
             .onChange(of: model.isOffline) { _, offline in
                 guard !offline else { return }
                 unavailable.removeAll()

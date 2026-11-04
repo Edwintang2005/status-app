@@ -329,4 +329,32 @@ final class ParsedDeltaTests: XCTestCase {
         XCTAssertEqual(ParsedDelta.ownEditEchoes(in: [owed, recent, stale, uploading, theirs], now: now),
                        ["owed", "recent"], "a just-sent moment's copy is its send coming back")
     }
+
+    // MARK: Removals
+
+    /// Their delete of a moment this phone had filed, soon after its sending: owed a notice.
+    func testTheirRecentDeleteIsOwedANotice() {
+        let now = Fixtures.date(600)
+        let delta = parse([], deleted: [them.momentRecordName(id: "recent"), them.momentRecordName(id: "old"),
+                                        them.momentRecordName(id: "unseen"), me.momentRecordName(id: "ours")])
+        let fold = delta.outcome(mineRole: me, previousMine: nil, previousTheirs: nil, minePublished: true,
+                                 alreadyKnown: ["recent", "old", "ours"],
+                                 knownPartnerSentAt: ["recent": Fixtures.date(300),
+                                                      "old": now.addingTimeInterval(-AppConfig.removalNoticeWindow - 1)],
+                                 hidden: [], now: now).fold
+        XCTAssertEqual(fold.removedPartnerMomentIDs, ["recent"],
+                       "never an old one, one never seen, or our own")
+    }
+
+    /// A fresh start's clear deletes everything before its epoch: quietly.
+    func testAFreshStartsDeletionsAreNoNotice() {
+        var held = FreshStart()
+        held.clearedBefore = Fixtures.date(400)
+        let delta = parse([], deleted: [them.momentRecordName(id: "before"), them.momentRecordName(id: "after")])
+        let fold = delta.outcome(mineRole: me, previousMine: nil, previousTheirs: nil, minePublished: true,
+                                 alreadyKnown: ["before", "after"],
+                                 knownPartnerSentAt: ["before": Fixtures.date(300), "after": Fixtures.date(500)],
+                                 heldFreshStart: held, hidden: [], now: Fixtures.date(600)).fold
+        XCTAssertEqual(fold.removedPartnerMomentIDs, ["after"])
+    }
 }

@@ -287,6 +287,10 @@ struct Snapshot: Codable, Hashable {
     /// Local only: pictures this phone took off the photo widget, newest first —
     /// cleared by the next picture to arrive (`WidgetPicture`).
     var widgetHiddenMomentIDs: [String] = []
+    /// Partner moments they deleted soon after sending, not yet announced: filed
+    /// by whichever process folds the delta, claimed by the NSE or the app
+    /// (`AnnouncementPolicy.claimRemovals`). The widget never announces.
+    var removalNotices: [String] = []
     /// Partner voice memos not yet listened to. Derived from the index so it can
     /// be recomputed — see `SharedStore.refreshDerived`.
     var unheardVoiceMemoCount: Int = 0
@@ -377,7 +381,7 @@ struct Snapshot: Codable, Hashable {
         case freshStart
         case partnerNudgeCreatedAt
         case partnerLeftAt, partnerLeftName, partnerLeftAnnounced
-        case widgetHiddenMomentIDs
+        case widgetHiddenMomentIDs, removalNotices
     }
 
     /// Hand-written: synthesised `Codable` errors on missing keys, so a snapshot
@@ -441,6 +445,7 @@ struct Snapshot: Codable, Hashable {
         partnerLeftName = value(String.self, .partnerLeftName)
         partnerLeftAnnounced = value(Bool.self, .partnerLeftAnnounced) ?? false
         widgetHiddenMomentIDs = value([String].self, .widgetHiddenMomentIDs) ?? []
+        removalNotices = value([String].self, .removalNotices) ?? []
     }
 
     /// Hand-written: `latestPartnerVisualMoment`'s nil must be written as an
@@ -493,6 +498,7 @@ struct Snapshot: Codable, Hashable {
         try container.encodeIfPresent(partnerLeftName, forKey: .partnerLeftName)
         try container.encode(partnerLeftAnnounced, forKey: .partnerLeftAnnounced)
         try container.encode(widgetHiddenMomentIDs, forKey: .widgetHiddenMomentIDs)
+        try container.encode(removalNotices, forKey: .removalNotices)
     }
 
     /// Whether a notification for this moment has already been shown on this

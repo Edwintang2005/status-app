@@ -51,6 +51,9 @@ final class Outbox {
     @ObservationIgnored private var isRepublishingAnniversary = false
     @ObservationIgnored private var isRepublishingRequest = false
     @ObservationIgnored private var isRepublishingCaptions = false
+    @ObservationIgnored private var isSendingDeletions = false
+    /// Deletes still owed to iCloud: the footer's "waiting to send" counts them.
+    private(set) var owedDeletionCount = 0
     /// Edited captions being sent right now: not "waiting to send".
     private(set) var captionsInFlight: Set<String> = []
     @ObservationIgnored private var isFlushingReceipts = false
@@ -89,6 +92,7 @@ final class Outbox {
         self.protect = protect
         self.indexChanged = indexChanged
         self.uploaded = uploaded
+        self.owedDeletionCount = store.pendingMomentDeletions.count
     }
 
     // MARK: - Send outcomes
@@ -285,6 +289,50 @@ final class Outbox {
         return changed
     }
 
+    // MARK: - Deletions
+
+    /// Off this phone at once — index, files, every surface — and owed to
+    /// iCloud until `sendDeletions` confirms it (invariant 11). Own moments,
+    /// inside `momentDeleteWindow` or still unsent.
+    @discardableResult
+    func deleteMoment(_ moment: Moment, now: Date = Date()) -> Bool {
+        guard moment.canDelete(now: now) else { return false }
+        store.pendingMomentDeletions.insert(moment.id)
+        owedDeletionCount = store.pendingMomentDeletions.count
+        index.remove(id: moment.id)
+        deleteMedia(moment.id)
+        indexChanged()
+        return true
+    }
+
+    /// The owed deletes. One still uploading — last launch's included — waits
+    /// for its landing (`linkFreed` runs this again), or the record would come
+    /// back after the delete. Never sent is fine: "already gone" counts as done.
+    @discardableResult
+    func sendDeletions(automatic: Bool = false, now: Date = Date()) async -> Bool {
+        guard store.pairing != nil, !isSendingDeletions, !store.pendingMomentDeletions.isEmpty else { return false }
+        if automatic, !automaticRetryAllowed(now: now) { return false }
+        isSendingDeletions = true
+        defer { isSendingDeletions = false }
+        await adoptBackgroundUploads()
+        let owed = store.pendingMomentDeletions.subtracting(uploadsInFlight)
+        guard !owed.isEmpty else { return false }
+        let backend = backend()
+        do {
+            let done = try await withDeadline(AppConfig.publishDeadline) {
+                try await backend.deleteMoments(ids: owed.sorted())
+            }
+            store.pendingMomentDeletions.subtract(done)
+            owedDeletionCount = store.pendingMomentDeletions.count
+            noteSendSucceeded()
+            return !done.isEmpty
+        } catch {
+            log.error("Moment delete failed: \(error.localizedDescription, privacy: .public)")
+            _ = noteSendFailed(error, now: now)
+            return false
+        }
+    }
+
     // MARK: - Uploads
 
     /// Sends one moment already filed in the index with its media on disk, and
@@ -344,7 +392,8 @@ final class Outbox {
 
     private func confirm(_ moment: Moment) {
         noteSendSucceeded()
-        uploaded(moment)
+        // Deleted while it flew: no "Sent", and the freed link sends the delete.
+        if !store.pendingMomentDeletions.contains(moment.id) { uploaded(moment) }
         freeLinkIfIdle()
     }
 

@@ -28,6 +28,7 @@ enum SyncRunner {
             case .partnerLeft: await NotificationManager.postPartnerLeft(name: name)
             case .nudge(let sentAt): await NotificationManager.postNudge(from: name, sentAt: sentAt)
             case .moment(let moment): await NotificationManager.postMoment(moment, from: name)
+            case .removed(let count): await NotificationManager.postRemoval(from: name, count: count)
             }
         }
         await BannerUpkeep.run()

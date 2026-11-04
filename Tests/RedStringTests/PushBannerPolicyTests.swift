@@ -495,4 +495,32 @@ final class PushBannerPolicyTests: XCTestCase {
         XCTAssertEqual(plan.body, String(localized: "Your caption edit was sent to Sam."))
         XCTAssertEqual(plan.volume, .quiet)
     }
+
+    /// Their delete gets a notice at the moment's own volume, once, by whichever
+    /// process announces first — however many removals it covers.
+    func testTheirRemovalIsAnnouncedOnce() {
+        var snapshot = paired()
+        snapshot.removalNotices = ["a", "b"]
+        var result = RefreshResult.empty
+        result.removedMoments = 2
+        let plan = decide(.moment, result, in: &snapshot)
+        XCTAssertEqual(plan.title, "Sam")
+        XCTAssertEqual(plan.body, String(localized: "removed 2 moments"))
+        XCTAssertEqual(plan.volume, .asSent, "not quiet: the moment push's own sound")
+        XCTAssertTrue(snapshot.removalNotices.isEmpty)
+        XCTAssertNotEqual(decide(.moment, result, in: &snapshot).body, plan.body, "claimed")
+    }
+
+    func testTheFoldFilesRemovalsOnceAndTheAppClaimsThem() {
+        var snapshot = paired()
+        var delta = RefreshDelta()
+        delta.removedPartnerMomentIDs = ["a"]
+        delta.fold(into: &snapshot)
+        delta.fold(into: &snapshot)
+        XCTAssertEqual(snapshot.removalNotices, ["a"])
+        let claims = AnnouncementPolicy.claim(.empty, previousStatus: nil, in: &snapshot)
+        XCTAssertEqual(claims.removals, 1)
+        XCTAssertEqual(PushBannerPolicy.appAnnouncements(claims, result: .empty, announce: true), [.removed(count: 1)])
+        XCTAssertTrue(snapshot.removalNotices.isEmpty)
+    }
 }

@@ -701,6 +701,67 @@ final class OutboxTests: XCTestCase {
         XCTAssertEqual(backend.captions.map(\.caption), ["first", "second"])
     }
 
+    // MARK: Deleting own moments (invariant 11)
+
+    func testADeleteLeavesThisPhoneAtOnceAndIsSent() async {
+        let moment = Fixtures.moment("mine", fromMe: true)
+        index.insert([moment])
+        XCTAssertTrue(outbox.deleteMoment(moment, now: moment.sentAt.addingTimeInterval(60)))
+        XCTAssertTrue(index.load().isEmpty)
+        XCTAssertEqual(deletedMedia, ["mine"])
+        XCTAssertEqual(store.pendingMomentDeletions, ["mine"])
+        XCTAssertEqual(outbox.owedDeletionCount, 1, "waiting to send until iCloud confirms")
+        let sent = await outbox.sendDeletions()
+        XCTAssertTrue(sent)
+        XCTAssertEqual(backend.deleted, [["mine"]])
+        XCTAssertTrue(store.pendingMomentDeletions.isEmpty)
+        XCTAssertEqual(outbox.owedDeletionCount, 0)
+    }
+
+    /// Five minutes for both of you; one that never left this phone, any time; never theirs.
+    func testOnlyOwnMomentsInsideTheWindowCanBeDeleted() {
+        let sent = Fixtures.moment("sent", fromMe: true)
+        let unsent = Fixtures.moment("unsent", fromMe: true, uploaded: false)
+        let theirs = Fixtures.moment("theirs")
+        index.insert([sent, unsent, theirs])
+        let later = Fixtures.t0.addingTimeInterval(AppConfig.momentDeleteWindow + 1)
+        XCTAssertFalse(outbox.deleteMoment(sent, now: later))
+        XCTAssertFalse(outbox.deleteMoment(theirs, now: Fixtures.t0))
+        XCTAssertTrue(outbox.deleteMoment(unsent, now: later))
+        XCTAssertEqual(Set(index.load().map(\.id)), ["sent", "theirs"])
+    }
+
+    func testOfflineTheDeleteStaysOwed() async {
+        let moment = Fixtures.moment("mine", fromMe: true)
+        index.insert([moment])
+        outbox.deleteMoment(moment, now: moment.sentAt)
+        backend.fail("delete", with: CKError(.networkUnavailable))
+        let sent = await outbox.sendDeletions()
+        XCTAssertFalse(sent)
+        XCTAssertEqual(store.pendingMomentDeletions, ["mine"])
+        let retried = await outbox.sendDeletions()
+        XCTAssertTrue(retried)
+        XCTAssertTrue(store.pendingMomentDeletions.isEmpty)
+    }
+
+    /// Deleted while still uploading: the delete waits, or the record would land after it.
+    func testADeleteWaitsForTheUploadThenFollows() async throws {
+        queue(["a"])
+        let moment = try XCTUnwrap(index.load().first)
+        let gate = Gate()
+        backend.duringSend = { _ in await gate.wait() }
+        let upload = Task { try await outbox.upload(moment) }
+        await waitUntil { self.outbox.uploadsInFlight.contains("a") }
+        XCTAssertTrue(outbox.deleteMoment(moment, now: moment.sentAt))
+        await outbox.sendDeletions()
+        XCTAssertTrue(backend.deleted.isEmpty, "still in flight")
+        gate.open()
+        try await upload.value
+        XCTAssertTrue(confirmed.isEmpty, "no \"Sent\" for a moment that's been deleted")
+        await outbox.sendDeletions()
+        XCTAssertEqual(backend.deleted, [["a"]])
+    }
+
 }
 
 /// A flag a `@Sendable` test hook can set.

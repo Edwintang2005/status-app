@@ -206,6 +206,7 @@ final class SnapshotCodableTests: XCTestCase {
         snapshot.partnerLeftName = "Sam"
         snapshot.partnerLeftAnnounced = true
         snapshot.widgetHiddenMomentIDs = ["m2"]
+        snapshot.removalNotices = ["gone"]
         snapshot.freshStart.mine = FreshStartRecord(stage: .committed, epoch: Fixtures.date(18),
                                                     clearedBefore: Fixtures.date(-18))
         snapshot.freshStart.pendingIntent = .complete(Fixtures.date(18))
