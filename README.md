@@ -662,7 +662,13 @@ Drawing is PencilKit (`PKCanvasView`) with a small custom palette rather than
 `PKToolPicker`, which docks itself to the window and fights with sheets on
 iPhone. Doodles with no photo behind them get a **backdrop colour**; choosing
 the dark one flips black ink to white so you can't end up drawing
-black-on-black. The canvas is square because the widget is square — composing
+black-on-black. PencilKit has no bucket fill, so the **fill tool** makes one
+from strokes: it flood-fills the tapped area at one cell per point, bounded
+only by lines (not earlier fills, so a refill recolours), reaches one cell
+under the lines so no paper shows at the edge, and lays back-and-forth
+`.monoline` passes (`FillPlan`) underneath every line. Being ink, fills need
+nothing new from undo, the eraser, the export or sync; the ink type is how
+the next fill tells them from lines. The canvas is square because the widget is square — composing
 in the destination's shape means nothing gets unexpectedly cropped later.
 Strokes are rasterised at export resolution, not upscaled from the on-screen
 canvas. A photo with no strokes is stored in its **own frame**, though: every

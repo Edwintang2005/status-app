@@ -6,6 +6,13 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 Version 1.6.3.
 
+- **Fill tool for drawings.** A paint bucket beside the eraser (a drop before
+  iOS 26) fills the area the lines enclose — the whole canvas if none do — in
+  the current colour. Fills are PencilKit strokes under the lines
+  (`FillPlan`), so undo, the eraser, the 2048 px render and everything
+  downstream treat them like ink; filling a filled area again recolours it.
+  **No schema change.**
+
 - **Delete your own moment, within five minutes.** "Delete for both of you…"
   in the gallery's menu and on a library tile's long-press, confirmed, for
   your own moments up to `AppConfig.momentDeleteWindow` after sending (or any

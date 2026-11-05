@@ -386,7 +386,7 @@ struct DrawingPalette: View {
 
                 Divider().frame(height: 24)
 
-                toolButton("drop.fill", label: "Fill", active: controller.tool == .fill) {
+                toolButton(Self.fillSymbol, label: "Fill", active: controller.tool == .fill) {
                     controller.tool = controller.tool == .fill ? .pen : .fill
                 }
                 .accessibilityHint("Tap an area of the drawing to fill it with the colour")
@@ -444,6 +444,12 @@ struct DrawingPalette: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+
+    /// SF Symbols' paint bucket arrived in iOS 26.
+    private static var fillSymbol: String {
+        if #available(iOS 26, *) { return "paint.bucket.classic" }
+        return "drop.fill"
     }
 
     private func isSelected(_ colour: Color) -> Bool {
