@@ -185,6 +185,10 @@ struct MomentComposerView: View {
             withAnimation(.smooth(duration: 0.25)) { isDrawing = true }
             captionFocused = false
         }
+        // A blank square starts drawing with a stroke, which the fill tool doesn't take.
+        .onChange(of: isDrawing) { _, drawing in
+            if !drawing, controller.tool == .fill { controller.tool = .pen }
+        }
     }
 
     private var sourceRow: some View {

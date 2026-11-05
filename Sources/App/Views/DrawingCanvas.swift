@@ -9,6 +9,7 @@ import SwiftUI
 final class DrawingController {
     @ObservationIgnored let canvas = PKCanvasView()
     @ObservationIgnored private let sheetDragBlocker = SheetDragBlocker()
+    @ObservationIgnored private let fillTap = FillTap()
 
     static let palette: [Color] = [
         .black,
@@ -61,10 +62,12 @@ final class DrawingController {
         }
     }
 
+    enum Tool { case pen, eraser, fill }
+
     var color: Color = .black {
         didSet {
             // Picking a colour exits eraser mode — otherwise it silently does nothing.
-            if isErasing { isErasing = false }
+            if tool == .eraser { tool = .pen }
             applyTool()
         }
     }
@@ -75,7 +78,7 @@ final class DrawingController {
         set { backdrop = Backdrop(color: newValue) }
     }
     var width: CGFloat = 10 { didSet { applyTool() } }
-    var isErasing = false { didSet { applyTool() } }
+    var tool: Tool = .pen { didSet { applyTool() } }
 
     /// Observable mirror of `canvas.drawing.strokes.count` — views must read
     /// this, not the `@ObservationIgnored` canvas.
@@ -92,16 +95,74 @@ final class DrawingController {
         // shift the strokes off the photo underneath, and off the export.
         canvas.contentInsetAdjustmentBehavior = .never
         canvas.addGestureRecognizer(sheetDragBlocker.recognizer)
+        canvas.addGestureRecognizer(fillTap.recognizer)
         // PencilKit inks invert near-black/white in dark mode; the backdrop is an
         // explicit swatch and `Backdrop.isDark` flips ink by hand, so take colours literally.
         canvas.overrideUserInterfaceStyle = .light
+        fillTap.onTap = { [weak self] point in self?.fill(at: point) }
         applyTool()
     }
 
     private func applyTool() {
-        canvas.tool = isErasing
+        canvas.tool = tool == .eraser
             ? PKEraserTool(.bitmap)
             : PKInkingTool(.pen, color: UIColor(color), width: width)
+        canvas.drawingGestureRecognizer.isEnabled = tool != .fill
+        fillTap.recognizer.isEnabled = tool == .fill
+    }
+
+    /// The pen never uses this ink, so a fill is told from a line by it: only
+    /// lines bound a fill, and a filled area can be filled again in another colour.
+    private static let fillInk = PKInk.InkType.monoline
+
+    /// Fills the area around `point` that the lines enclose (the whole canvas
+    /// if none do), under every line. One undo step.
+    func fill(at point: CGPoint) {
+        let width = Int(canvas.bounds.width), height = Int(canvas.bounds.height)
+        guard width > 0, height > 0 else { return }
+        let strokes = canvas.drawing.strokes
+        let fills = strokes.filter { $0.ink.inkType == Self.fillInk }
+        let lines = strokes.filter { $0.ink.inkType != Self.fillInk }
+        guard let coverage = Self.coverage(of: PKDrawing(strokes: lines), width: width, height: height),
+              let passes = FillPlan.passes(coverage: coverage, width: width, height: height, tap: point)
+        else { return }
+
+        let ink = PKInk(Self.fillInk, color: UIColor(color))
+        let size = CGSize(width: FillPlan.strokeSize, height: FillPlan.strokeSize)
+        let added = passes.map { path in
+            let points = path.enumerated().map { index, location in
+                PKStrokePoint(location: location, timeOffset: TimeInterval(index) * 0.001, size: size,
+                              opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+            }
+            return PKStroke(ink: ink, path: PKStrokePath(controlPoints: points, creationDate: Date()))
+        }
+        // After earlier fills, so a refill shows; before every line, so lines stay on top.
+        replaceDrawing(with: PKDrawing(strokes: fills + added + lines))
+    }
+
+    /// Setting `drawing` isn't an undo step of its own; registered on the
+    /// canvas's manager so it takes turns with strokes.
+    private func replaceDrawing(with drawing: PKDrawing) {
+        let previous = canvas.drawing
+        canvas.drawing = drawing
+        strokeCount = drawing.strokes.count
+        canvas.undoManager?.registerUndo(withTarget: self) { $0.replaceDrawing(with: previous) }
+    }
+
+    /// The lines' alpha at one cell per point, top row first.
+    private static func coverage(of drawing: PKDrawing, width: Int, height: Int) -> [UInt8]? {
+        var image: UIImage?
+        UITraitCollection(userInterfaceStyle: .light).performAsCurrent {
+            image = drawing.image(from: CGRect(x: 0, y: 0, width: width, height: height), scale: 1)
+        }
+        guard let cgImage = image?.cgImage,
+              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                      bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(),
+                                      bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue),
+              let data = context.data
+        else { return nil }
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return Array(UnsafeBufferPointer(start: data.assumingMemoryBound(to: UInt8.self), count: width * height))
     }
 
     func undo() {
@@ -153,6 +214,24 @@ final class DrawingController {
     nonisolated static func centredSquare(in bounds: CGRect) -> CGRect {
         let side = min(bounds.width, bounds.height)
         return CGRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
+    }
+}
+
+/// The fill tool's tap, in the canvas's own coordinates — the drawing's.
+@MainActor
+private final class FillTap: NSObject {
+    let recognizer = UITapGestureRecognizer()
+    var onTap: ((CGPoint) -> Void)?
+
+    override init() {
+        super.init()
+        recognizer.addTarget(self, action: #selector(tapped))
+        recognizer.isEnabled = false
+    }
+
+    @objc private func tapped(_ recognizer: UITapGestureRecognizer) {
+        guard let view = recognizer.view else { return }
+        onTap?(recognizer.location(in: view))
     }
 }
 
@@ -213,7 +292,7 @@ struct DrawingCanvas: UIViewRepresentable {
     }
 }
 
-/// The palette: colours, three widths, eraser, undo, clear.
+/// The palette: colours, three widths, fill, eraser, undo, clear.
 struct DrawingPalette: View {
     @Bindable var controller: DrawingController
     /// Hidden when a photo is behind the canvas — a backdrop would never show.
@@ -287,7 +366,7 @@ struct DrawingPalette: View {
                 ForEach(DrawingController.widths, id: \.self) { width in
                     Button {
                         controller.width = width
-                        controller.isErasing = false
+                        controller.tool = .pen
                     } label: {
                         Circle()
                             .fill(Color.primary.opacity(0.75))
@@ -295,20 +374,24 @@ struct DrawingPalette: View {
                             .frame(width: 34, height: 34)
                             .background(
                                 Circle().fill(
-                                    controller.width == width && !controller.isErasing
+                                    controller.width == width && controller.tool == .pen
                                     ? Theme.accent.opacity(0.18) : .clear
                                 )
                             )
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(String(localized: "Brush size \(Int(width))"))
-                    .accessibilityAddTraits(controller.width == width && !controller.isErasing ? .isSelected : [])
+                    .accessibilityAddTraits(controller.width == width && controller.tool == .pen ? .isSelected : [])
                 }
 
                 Divider().frame(height: 24)
 
-                toolButton("eraser", label: "Eraser", active: controller.isErasing) {
-                    controller.isErasing.toggle()
+                toolButton("drop.fill", label: "Fill", active: controller.tool == .fill) {
+                    controller.tool = controller.tool == .fill ? .pen : .fill
+                }
+                .accessibilityHint("Tap an area of the drawing to fill it with the colour")
+                toolButton("eraser", label: "Eraser", active: controller.tool == .eraser) {
+                    controller.tool = controller.tool == .eraser ? .pen : .eraser
                 }
                 toolButton("arrow.uturn.backward", label: "Undo", active: false) { controller.undo() }
             }
@@ -364,13 +447,13 @@ struct DrawingPalette: View {
     }
 
     private func isSelected(_ colour: Color) -> Bool {
-        !controller.isErasing && controller.color == colour
+        controller.tool != .eraser && controller.color == colour
     }
 
     /// True when the ink isn't a preset — the ring moves to the picker so
     /// something looks selected.
     private var isCustomInk: Bool {
-        !controller.isErasing && !DrawingController.palette.contains(controller.color)
+        controller.tool != .eraser && !DrawingController.palette.contains(controller.color)
     }
 
     private var isCustomBackdrop: Bool {
