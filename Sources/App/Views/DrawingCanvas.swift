@@ -312,8 +312,10 @@ struct DrawingPalette: View {
     }
 
     var body: some View {
+        // Rows share the width they're given — fixed gaps pushed the card off a
+        // narrow screen; each slot keeps room for its selection ring.
         VStack(spacing: 14) {
-            HStack(spacing: 10) {
+            HStack(spacing: 0) {
                 ForEach(Array(DrawingController.palette.enumerated()), id: \.offset) { index, colour in
                     Button {
                         controller.color = colour
@@ -332,6 +334,7 @@ struct DrawingPalette: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel(String(localized: "Colour \(index + 1)"))
                     .accessibilityAddTraits(isSelected(colour) ? .isSelected : [])
+                    .frame(minWidth: 38, maxWidth: .infinity)
                 }
 
                 // Any colour at all, including the eyedropper.
@@ -345,9 +348,10 @@ struct DrawingPalette: View {
                             .opacity(isCustomInk ? 1 : 0)
                             .allowsHitTesting(false)
                     )
+                    .frame(minWidth: 38, maxWidth: .infinity)
             }
 
-            HStack(spacing: 18) {
+            HStack(spacing: 0) {
                 // Clear is irreversible, so it sits far from undo — and asks first.
                 toolButton("trash", label: "Clear the drawing", active: false) {
                     if controller.strokeCount > 0 { confirmingClear = true }
@@ -360,6 +364,7 @@ struct DrawingPalette: View {
                 } message: {
                     Text("This drawing will be lost.")
                 }
+                .frame(minWidth: 34, maxWidth: .infinity)
 
                 Divider().frame(height: 24)
 
@@ -382,6 +387,7 @@ struct DrawingPalette: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel(String(localized: "Brush size \(Int(width))"))
                     .accessibilityAddTraits(controller.width == width && controller.tool == .pen ? .isSelected : [])
+                    .frame(minWidth: 34, maxWidth: .infinity)
                 }
 
                 Divider().frame(height: 24)
@@ -390,10 +396,13 @@ struct DrawingPalette: View {
                     controller.tool = controller.tool == .fill ? .pen : .fill
                 }
                 .accessibilityHint("Tap an area of the drawing to fill it with the colour")
+                .frame(minWidth: 34, maxWidth: .infinity)
                 toolButton("eraser", label: "Eraser", active: controller.tool == .eraser) {
                     controller.tool = controller.tool == .eraser ? .pen : .eraser
                 }
+                .frame(minWidth: 34, maxWidth: .infinity)
                 toolButton("arrow.uturn.backward", label: "Undo", active: false) { controller.undo() }
+                    .frame(minWidth: 34, maxWidth: .infinity)
             }
 
             if showsBackdrop {
@@ -403,7 +412,7 @@ struct DrawingPalette: View {
                     Text("BACKGROUND")
                         .eyebrow(size: 10)
 
-                    HStack(spacing: 12) {
+                    HStack(spacing: 0) {
                         ForEach(Array(DrawingController.backdrops.enumerated()), id: \.element.id) { index, backdrop in
                             Button {
                                 controller.backdrop = backdrop
@@ -424,6 +433,7 @@ struct DrawingPalette: View {
                             .accessibilityLabel(Self.backdropNames[safe: index]
                                                 ?? String(localized: "Background colour \(index + 1)"))
                             .accessibilityAddTraits(controller.backdrop == backdrop ? .isSelected : [])
+                            .frame(minWidth: 34, maxWidth: .infinity)
                         }
                         ColorPicker("Any background",
                                     selection: $controller.backdropColor,
@@ -437,8 +447,7 @@ struct DrawingPalette: View {
                                     .opacity(isCustomBackdrop ? 1 : 0)
                                     .allowsHitTesting(false)
                             )
-
-                        Spacer(minLength: 0)
+                            .frame(minWidth: 34, maxWidth: .infinity)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
