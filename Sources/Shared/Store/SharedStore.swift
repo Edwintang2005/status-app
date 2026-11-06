@@ -53,6 +53,7 @@ final class SharedStore: @unchecked Sendable {
         static let cameraSettings = "cameraSettings"
         static let lastBannerPass = "lastBannerPass"
         static let crashReports = "crashReports"
+        static let layoutGlitches = "layoutGlitches"
     }
 
     init(store: GroupKeyValueStore = GroupFileStore()) {
@@ -317,6 +318,13 @@ final class SharedStore: @unchecked Sendable {
 
     static let processName = Bundle.main.infoDictionary?["CFBundleExecutable"] as? String ?? "?"
     #endif
+
+    /// Sheets that opened blank, measured at the time, newest first, for
+    /// Diagnostics (`LayoutGlitch`). Per device, written only by the app.
+    var layoutGlitches: [LayoutGlitch] {
+        get { decode(LossyArray<LayoutGlitch>.self, forKey: Key.layoutGlitches)?.elements ?? [] }
+        set { encodeOptional(newValue.isEmpty ? nil : newValue, forKey: Key.layoutGlitches) }
+    }
 
     /// MetricKit's crash and hang reports, newest first, for Diagnostics. Per
     /// device, written only by the app; a bad entry costs only itself.

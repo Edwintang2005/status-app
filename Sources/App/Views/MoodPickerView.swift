@@ -32,6 +32,11 @@ struct MoodPickerView: View {
     /// scrolls back up to show (and allow editing) what was just picked.
     @State private var wordsScrollRequest = 0
     @FocusState private var messageFocused: Bool
+    /// The picker has opened as toolbar and backdrop only, on a phone, until
+    /// reopened; measured so Diagnostics can say why, and rebuilt once (`LayoutGlitch`).
+    @State private var contentFrame: CGRect?
+    @State private var space: SheetSpace?
+    @State private var layoutGeneration = 0
 
     /// Groups with their matching presets, empty groups dropped.
     private var filteredGroups: [(group: MoodGroup, moods: [Mood])] {
@@ -69,14 +74,21 @@ struct MoodPickerView: View {
                         .padding(.bottom, 24)
                         .containerRelativeFrame(.horizontal)
                         .id(Self.topID)
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .scrollView) } action: {
+                            contentFrame = $0
+                        }
                     }
                     .scrollDismissesKeyboard(.interactively)
+                    .onGeometryChange(for: SheetSpace.self) {
+                        SheetSpace(size: $0.size, insets: $0.safeAreaInsets)
+                    } action: { space = $0 }
                     .onChange(of: wordsScrollRequest) {
                         withAnimation(reduceMotion ? nil : .smooth(duration: 0.35)) {
                             proxy.scrollTo(Self.topID, anchor: .top)
                         }
                     }
                 }
+                .id(layoutGeneration)
             }
             .navigationTitle("Your status")
             .navigationBarTitleDisplayMode(.inline)
@@ -99,6 +111,36 @@ struct MoodPickerView: View {
         .onAppear {
             emoji = initialEmoji
         }
+        .task { await checkLayout() }
+    }
+
+    struct SheetSpace: Equatable {
+        var size: CGSize
+        var insets: EdgeInsets
+    }
+
+    /// Once the sheet has settled: blank → recorded, rebuilt once, and whether
+    /// that brought it back recorded too.
+    private func checkLayout() async {
+        try? await Task.sleep(for: .milliseconds(800))
+        guard !Task.isCancelled, LayoutGlitch.isBlank(contentFrame, visible: space?.size) else { return }
+        var glitch = LayoutGlitch(at: Date().wholeSeconds, sheet: "Status picker",
+                                  container: LayoutGlitch.describe(space?.size),
+                                  insets: space.map { "\(Int($0.insets.top)),\(Int($0.insets.leading)),"
+                                                      + "\(Int($0.insets.bottom)),\(Int($0.insets.trailing))" } ?? "unknown",
+                                  content: LayoutGlitch.describe(contentFrame))
+        Self.record(glitch)
+        contentFrame = nil
+        layoutGeneration += 1
+        try? await Task.sleep(for: .milliseconds(800))
+        guard !Task.isCancelled else { return }
+        glitch.healed = !LayoutGlitch.isBlank(contentFrame, visible: space?.size)
+        Self.record(glitch)
+    }
+
+    private static func record(_ glitch: LayoutGlitch) {
+        let store = SharedStore.shared
+        store.layoutGlitches = LayoutGlitch.recording(glitch, in: store.layoutGlitches, limit: AppConfig.layoutGlitchLimit)
     }
 
     private static let topID = "top"

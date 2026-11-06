@@ -6,6 +6,14 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 Version 1.6.3.
 
+- **A blank status picker is measured and rebuilt.** The picker has opened,
+  intermittently on a phone, as toolbar and backdrop only until reopened; it
+  never does in the simulator. Now, 0.8 s after opening, if its content has no
+  size or sits wholly out of view, the picker records what it measured (the
+  sheet's space, safe area and content frame) and rebuilds its body once,
+  noting whether that fixed it — Diagnostics → "Blank sheets", and "Copy
+  report" (`LayoutGlitch`, `SharedStore.layoutGlitches`, newest 10).
+
 - **Fill tool follow-ups.** An outline that stops a few points short still
   holds the fill (`FillPlan.gapRadius`, 3 pt; a narrower space falls back to
   a smaller radius, so it fills too), and tapping a line with the bucket

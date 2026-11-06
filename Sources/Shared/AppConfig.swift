@@ -90,6 +90,9 @@ enum AppConfig {
     /// MetricKit reports kept for Diagnostics (`SharedStore.crashReports`).
     static let crashReportLimit = 20
 
+    /// Blank-sheet measurements kept for Diagnostics (`SharedStore.layoutGlitches`).
+    static let layoutGlitchLimit = 10
+
     /// Entries kept in the local status history log, both sides together. Sized
     /// to hold both partners' full cloud logs (`statusLogLimit` each).
     static let statusHistoryLimit = 300

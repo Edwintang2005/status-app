@@ -185,6 +185,10 @@ struct DiagnosticsView: View {
                 }
                 #endif
 
+                if !diagnostics.layoutGlitches.isEmpty {
+                    list("Blank sheets", diagnostics.layoutGlitches, empty: "")
+                }
+
                 list("Crashes and hangs", diagnostics.crashReports,
                      empty: "None yet. iOS hands these over about once a day, and a crash usually on the next launch; they stay on this phone.")
 

@@ -28,6 +28,8 @@ struct CloudDiagnostics: Sendable {
     var lastNotification: String
     /// MetricKit's crash and hang reports, newest first (`CrashReport.summary`).
     var crashReports: [String] = []
+    /// Sheets that opened blank (`LayoutGlitch.summary`).
+    var layoutGlitches: [String] = []
     /// Anything that failed while gathering the above, rather than a silent gap.
     var problems: [String]
 
@@ -48,6 +50,7 @@ struct CloudDiagnostics: Sendable {
             "Fresh start: \(freshStart)",
             "Last notification: \(lastNotification)",
             "Crashes and hangs: \(crashReports.isEmpty ? "none yet" : crashReports.joined(separator: " | "))",
+            "Blank sheets: \(layoutGlitches.isEmpty ? "none" : layoutGlitches.joined(separator: " | "))",
         ]
         if !problems.isEmpty {
             lines.append("Problems: " + problems.joined(separator: " | "))
@@ -117,11 +120,12 @@ extension CloudSync {
         }
 
         var subscriptions: [String] = []
-        let (pairing, unreadable, freshStart, lastNotification, crashReports) = await MainActor.run {
+        let (pairing, unreadable, freshStart, lastNotification, crashReports, layoutGlitches) = await MainActor.run {
             (SharedStore.shared.pairing, SharedStore.shared.unreadableTally.summary,
              SharedStore.shared.snapshot.freshStart.summary,
              SharedStore.shared.lastBannerPass?.summary ?? "none yet",
-             SharedStore.shared.crashReports.map(\.summary))
+             SharedStore.shared.crashReports.map(\.summary),
+             SharedStore.shared.layoutGlitches.map(\.summary))
         }
         let database = pairing.map { self.database(for: $0) } ?? container.privateCloudDatabase
         do {
@@ -161,6 +165,7 @@ extension CloudSync {
             freshStart: freshStart,
             lastNotification: lastNotification,
             crashReports: crashReports,
+            layoutGlitches: layoutGlitches,
             problems: problems
         )
     }
