@@ -113,4 +113,66 @@ final class FillPlanTests: XCTestCase {
         let empty = coverage.indices.filter { coverage[$0] == 0 }
         XCTAssertTrue(Set(empty).isSubset(of: covered))
     }
+
+    // MARK: Gaps and lines
+
+    /// A ring of `size` cells with `gap` cells missing from its top edge, on a margin of 6.
+    private func ring(size: Int, gap: Int) -> (coverage: [UInt8], width: Int, height: Int) {
+        let width = size + 12
+        var rows = [[Character]](repeating: Array(repeating: ".", count: width), count: width)
+        for i in 6..<(6 + size) {
+            rows[6][i] = "#"; rows[6 + size - 1][i] = "#"
+            rows[i][6] = "#"; rows[i][6 + size - 1] = "#"
+        }
+        let mid = 6 + size / 2
+        for i in (mid - gap / 2)..<(mid - gap / 2 + gap) { rows[6][i] = "." }
+        return grid(rows.map { String($0) })
+    }
+
+    func testASmallGapStillHoldsTheFill() throws {
+        let (coverage, width, height) = ring(size: 20, gap: 4)
+        let passes = try XCTUnwrap(FillPlan.passes(coverage: coverage, width: width, height: height,
+                                                   tap: CGPoint(x: 16.5, y: 16.5)))
+        let covered = cells(passes, width: width)
+        XCTAssertFalse(covered.contains(0), "the far corner stays empty")
+        XCTAssertFalse(covered.contains(2 * width + 16), "nothing well above the gap")
+        XCTAssertTrue(covered.contains(7 * width + 7), "the inside reaches its corner")
+    }
+
+    func testAWideGapStillFloods() throws {
+        let (coverage, width, height) = ring(size: 20, gap: 10)
+        let passes = try XCTUnwrap(FillPlan.passes(coverage: coverage, width: width, height: height,
+                                                   tap: CGPoint(x: 16.5, y: 16.5)))
+        XCTAssertTrue(cells(passes, width: width).contains(0), "out through the gap to the corner")
+    }
+
+    /// A space narrower than the thickened lines would close still fills, at a smaller radius.
+    func testANarrowChannelStillFills() throws {
+        let (coverage, width, height) = grid([
+            "############",
+            "............",
+            "............",
+            "............",
+            "############",
+        ])
+        let passes = try XCTUnwrap(FillPlan.passes(coverage: coverage, width: width, height: height,
+                                                   tap: CGPoint(x: 5.5, y: 2.5)))
+        let covered = cells(passes, width: width)
+        XCTAssertTrue(Set((1...3).flatMap { y in (0..<width).map { y * width + $0 } }).isSubset(of: covered))
+    }
+
+    func testATapOnALineIsALine() {
+        let (coverage, width, height) = grid(ring)
+        XCTAssertTrue(FillPlan.isLine(coverage: coverage, width: width, height: height, at: CGPoint(x: 1.5, y: 1.5)))
+        XCTAssertFalse(FillPlan.isLine(coverage: coverage, width: width, height: height, at: CGPoint(x: 3.5, y: 2.5)))
+        XCTAssertFalse(FillPlan.isLine(coverage: coverage, width: width, height: height, at: CGPoint(x: 99, y: 2)))
+    }
+
+    func testTheNewestLineUnderTheTapIsHit() {
+        let across = (0...10).map { (point: CGPoint(x: CGFloat($0), y: 5), radius: CGFloat(2)) }
+        let down = (0...10).map { (point: CGPoint(x: 5, y: CGFloat($0)), radius: CGFloat(2)) }
+        XCTAssertEqual(FillPlan.lineHit([across, down], at: CGPoint(x: 5, y: 5), slop: 1), 1, "where they cross, the newer")
+        XCTAssertEqual(FillPlan.lineHit([across, down], at: CGPoint(x: 9, y: 6), slop: 1), 0)
+        XCTAssertNil(FillPlan.lineHit([across, down], at: CGPoint(x: 9, y: 9), slop: 1), "beside both, outside their reach")
+    }
 }

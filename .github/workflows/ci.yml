@@ -1,4 +1,4 @@
-# Build and test gate for the app. The Pages deploy (static.yml) is separate.
+# Build and test gate for the app. The Pages site (docs/) is served from main by GitHub Pages directly.
 name: CI
 
 on:

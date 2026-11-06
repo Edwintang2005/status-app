@@ -152,4 +152,25 @@ final class BannerUpkeepPolicyTests: XCTestCase {
                                                   state: state(index: [moment], wordings: wordings)).isEmpty)
         }
     }
+
+    // MARK: Banners left in CloudKit's own words
+
+    /// A push the service never worded is worked out from its subscription,
+    /// only while it still shows CloudKit's own words.
+    func testACloudKitWordedPushIsInferredFromItsSubscription() {
+        XCTAssertEqual(BannerUpkeepPolicy.inferredSubject(subscriptionID: CloudSync.SubscriptionID.status,
+                                                          body: CloudSync.GenericAlert.status), .status)
+        XCTAssertEqual(BannerUpkeepPolicy.inferredSubject(subscriptionID: CloudSync.SubscriptionID.moment,
+                                                          body: CloudSync.GenericAlert.moment), .newMoments)
+        XCTAssertNil(BannerUpkeepPolicy.inferredSubject(subscriptionID: CloudSync.SubscriptionID.status,
+                                                        body: "Your status was sent to Sam."),
+                     "worded — our own echo — is left alone")
+        XCTAssertNil(BannerUpkeepPolicy.inferredSubject(subscriptionID: CloudSync.SubscriptionID.nudge,
+                                                        body: CloudSync.GenericAlert.nudge),
+                     "a heart is swept when the app posts it")
+        XCTAssertNil(BannerUpkeepPolicy.inferredSubject(subscriptionID: CloudSync.SubscriptionID.moment,
+                                                        body: CloudSync.GenericAlert.status),
+                     "another kind's words don't count")
+        XCTAssertNil(BannerUpkeepPolicy.inferredSubject(subscriptionID: nil, body: CloudSync.GenericAlert.status))
+    }
 }

@@ -242,6 +242,8 @@ final class PushBannerPolicyTests: XCTestCase {
         let again = decide(.nudge, result, in: &snapshot)
         XCTAssertEqual(again.body, String(localized: "is thinking of you 💭"), "already announced: the words stay")
         XCTAssertEqual(again.volume, .quiet, "but it mustn't read as a second tap")
+        XCTAssertEqual(plan.thread, NotificationThread.hearts, "hearts stack apart")
+        XCTAssertEqual(again.thread, NotificationThread.hearts)
     }
 
     func testAStaleHeartSaysEarlier() {
@@ -282,6 +284,7 @@ final class PushBannerPolicyTests: XCTestCase {
         XCTAssertEqual(plan.body, String(localized: "Your nudge was sent to Sam."))
         XCTAssertEqual(plan.title, AppConfig.appName)
         XCTAssertEqual(plan.volume, .quiet)
+        XCTAssertNil(plan.thread, "this phone's own tap isn't one of their hearts")
 
         // The push beat the widget's write of the new count: still this phone's tap.
         result.ownRecordsChanged = true

@@ -45,9 +45,10 @@ struct MomentComposerView: View {
                     VStack(spacing: 18) {
                         square
                         if isDrawing {
+                            // 12, not 16: a 375 pt phone then gives each tool 44 pt.
                             DrawingPalette(controller: controller,
                                            showsBackdrop: photo == nil)
-                                .card(padding: 16)
+                                .card(padding: 12)
                         }
                         sourceRow
                         captionField

@@ -66,19 +66,12 @@ Older builds ignore fields they don't read; a new moment kind shows as
 
 ## Tier 1 — next: high impact, ready to build
 
-### Notifications tied to what they announce — follow-ups (S each) ★
-Shipped (CHANGELOG, Unreleased): `BannerSubject`, `BannerUpkeep`, the
-expanded banner. Left:
-- 🔬 **On a device**: that re-adding a delivered *push*'s identifier from the
-  app or an extension replaces it in place (fallback: remove, then add
-  quietly); that the widget extension may list and rewrite notifications; that
-  the expanded banner survives its own banner being rewritten while open.
-- **Hearts stay one banner each** (decided October 2026): folding them would
-  replace each with the latest, and someone asleep would wake to one time
-  instead of every time they were thought of. If they crowd the other
-  banners, give them their own `threadIdentifier` so iOS stacks them apart.
-- **CloudKit's own words**: a push whose service pass never ran (before first
-  unlock, an expiry) carries no subject, and only the app's sweep replaces it.
+### Notifications tied to what they announce — run the probes (S) ★
+🔬 **On a device**, with a Debug build: Diagnostics → "Notification probes"
+records, per process, whether re-adding a delivered *push*'s identifier
+replaced it in place (fallback if not: remove, then add quietly) and whether
+the widget extension may list and rewrite notifications. By hand: the
+expanded banner survives its own banner being rewritten while open.
 
 ### Pause notifications for a while (S) ★★
 Per-kind levels shipped in 1.6.1 (`NotificationPreferences`: sound, silent,
@@ -173,13 +166,6 @@ app.
   (`NotificationManager`), handled in `AppDelegate`'s banner-action path,
   which already wakes the app and awaits the send. No schema.
 - Limit: iOS shows only a few actions on a long-press; pick three.
-
-### Delete your own moment — shipped in 1.6.3
-Built November 2026 with a five-minute window and a notice at the moment's own
-volume (see CHANGELOG). Left open: a second device on your own account that
-misses the deletion long enough for its change token to expire would re-queue
-the moment on its next full fetch (`requeueMissingUploads`), as before any
-deletion existed; a guard like the fresh start's `clearedBefore` would close it.
 
 ---
 
@@ -415,8 +401,7 @@ moment uploads already under way are long-lived, so one in progress
 finishes in the background.
 
 ### Moments on weak signal — next steps (M each) ★★
-Uploads give up only when stuck, run long-lived, and retry smallest first
-(October 2026). Not picked yet:
+Not picked yet:
 - **Thumbnail first.** Save the moment with only its ~50 KB thumbnail so the
   partner sees it at once, then add the full photo as an update of the same
   record. Needs a receiving-side "full photo still on its way" state (gallery,
@@ -533,8 +518,7 @@ both participants write. Manual and confirmed only (invariant 9). No schema.
 ### Storage steward (M–L) ★
 An estimate of the shared space's size from locally recorded asset sizes and an
 explicit, opt-in "make room" that drops old full-size media but keeps thumbnail,
-caption and record. Depends on "Delete your own moment" and changes the
-complete-history promise (copy). Optional plaintext `bytes` on `Moment`. (This
+caption and record. Changes the complete-history promise (copy). Optional plaintext `bytes` on `Moment`. (This
 phone's own copies already clear from Settings → Storage; this is about iCloud.)
 
 ### Alternate app icons (S) ★
@@ -662,10 +646,6 @@ Make a voice memo as quick as the heart.
   straight into the recorder — still one tap fewer than today.
 
 ### Heartbeat moment (M) ★★ 🔬
-(The receiving side's prerequisite is done: an older build files an unknown
-kind as `Moment.Kind.unsupported` — "update Red String to see it" — instead of
-losing it past the change token.)
-
 Send your heart rate as a moment; the partner opens it and the phone plays a
 synthesised lub-dub at that tempo under an animating heart (Digital Touch did
 exactly this). Investigated September 2026; the shape that fits the app:
@@ -824,6 +804,11 @@ Ranked by harm: data loss and trust first. Numbers like #5 are the September
     archive couldn't fetch back is then cleared from iCloud once both agree.
     Settings → Storage makes fetching back more common. If revisited: treat
     `unrecovered > 0` as incomplete and ask for a retry on a better connection.
+20. **A deleted moment can come back from your own second device (S–M).** A
+    second device on your account that misses the deletion long enough for its
+    change token to expire re-queues the moment on its next full fetch
+    (`requeueMissingUploads` checks only `clearedBefore`); a guard like the
+    fresh start's would close it.
 
 ## Privacy, safety and App Review — ranked
 
@@ -854,21 +839,17 @@ Ranked by harm: data loss and trust first. Numbers like #5 are the September
    relative time on systemSmall, a coarse age on the Lock Screen, dimmed past
    12 h); **WID-1** the small status widget's heart shows sent/failed, bigger
    target.
-2. **Contrast** (S): `.secondary` 11 pt captions ("Seen …", timestamps) are
-   ~3.3:1; `mint` on cream is 2.2:1 for the "Saved" check.
+2. **Contrast** (S): `mint` on cream is 2.2:1 for the gallery's "Saved" check.
 3. **Dynamic Type** (S–M): `Theme.rounded` reads `UIFontMetrics` when a view
    renders and nothing re-renders on a size change (read
    `@Environment(\.dynamicTypeSize)` in a modifier or `@ScaledMetric`, then
    re-enable `.dynamicType` in `DemoSmokeTests`); the 1.35× cap also limits
-   prose (Terms, Welcome, the partner's message); mood tiles are fixed-height.
-4. **#38 Audio** (S): a playing memo bleeds into a new recording; closing the
-   composer stops other audio; after granting the microphone the sheet must be
-   reopened.
+   prose (Terms, Welcome, the partner's message).
+4. **#38 Audio** (S): after granting the microphone the memo sheet must be
+   reopened (nothing re-checks permission on return from Settings).
 5. **Small UX fixes** (S each):
-   - Mood picker "Set" is disabled with no hint when the emoji is empty.
-   - Settings: "Report a problem" and "Save memories…" look like the
-     destructive rows; "Report a problem" is a bare `mailto:` `Link` — a silent
-     no-op without Mail; fall back to the clipboard like the report path.
+   - Settings: "Report a problem" is a bare `mailto:` `Link` — a silent no-op
+     without Mail; fall back to the clipboard like the report path.
    - The general `noticeMessage` alert is titled "Report copied" in `RootView`
      even though the channel is generic.
    - Voice Control: "Thinking of you" is labelled "Send a nudge".
@@ -888,7 +869,8 @@ Ranked by harm: data loss and trust first. Numbers like #5 are the September
 9. **Localisation readiness** (M): ~100 mood labels bypass the catalog and key
     `Mood.id` on English; ". Seen %@" fragment; "a \(noun)"; ternary plurals;
     locale-insensitive `uppercased()`; English `alertBody` (needs new
-    subscription IDs); stale catalogs (last committed 2026-09-13).
+    subscription IDs); stale catalogs (only an Xcode IDE build fills them;
+    newer strings such as "Delete for both of you" are missing).
 10. **App tint** is `Theme.accentText` (AA crimson for text) app-wide, which
     also darkens toggle tracks and date-picker selection; revert the one line
     in `RedStringApp` if the brighter crimson is preferred there.
@@ -902,7 +884,7 @@ Ranked by harm: data loss and trust first. Numbers like #5 are the September
 ## Docs and tooling (S each)
 
 - Each invariant: one-line rule + "guarded by: `TestName`" or "unguarded".
-- A CI step checking the `AppConfig` IDs against the four entitlements files,
+- A CI step checking the `AppConfig` IDs against the five entitlements files,
   `project.yml` and `Info.plist` (invariant 12), and a grep for
   `.safeAreaInset(edge: .top)` in `Views/` (invariant 21).
 - `make test`/`make build` regenerate the committed project as a side effect.

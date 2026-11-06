@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                            object: nil, queue: .main) { _ in SharedStore.protectedDataAvailable = false }
         // Required for CloudKit database subscriptions to reach us at all.
         application.registerForRemoteNotifications()
+        CrashReporter.shared.start()
         return true
     }
 

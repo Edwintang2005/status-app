@@ -6,6 +6,33 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 Version 1.6.3.
 
+- **Fill tool follow-ups.** An outline that stops a few points short still
+  holds the fill (`FillPlan.gapRadius`, 3 pt; a narrower space falls back to
+  a smaller radius, so it fills too), and tapping a line with the bucket
+  recolours that line. One undo step each.
+
+- **Crash and hang reports in Diagnostics.** MetricKit's reports for the app
+  and its extensions (crashes with their exception, signal, termination reason
+  and blamed frame; hangs; CPU, disk-write and launch reports) are kept on the
+  phone, newest 20 (`CrashReport`, `SharedStore.crashReports`), shown under
+  "Crashes and hangs" and included in "Copy report". No server.
+
+- **Notification follow-ups.** Hearts stack in their own thread
+  (`NotificationThread.hearts`), each still its own banner. A push banner the
+  service never touched — no subject, still in CloudKit's words — is worked
+  out from its subscription (`BannerUpkeepPolicy.inferredSubject`) and tidied
+  like a locked-phone banner by whichever process runs first. Debug builds
+  record a per-process banner probe (listing, and whether a rewrite replaced
+  the banner in place) under Diagnostics → "Notification probes".
+
+- **UI smoke on the narrowest screen.** Every screen in `DemoSmokeTests` must
+  fit the window's width, the drawing palette included (`testDrawingPalette`);
+  `make uitest-narrow` runs it on an iPhone SE (3rd generation). Its first
+  audit gave the palette's tools 44 pt tap areas (each fills its share of the
+  row; the card's padding is 12 so a 375 pt phone has room), and named two
+  narrow-screen misreads: text inside a navigation-bar glass button, and the
+  status picker's emoji field.
+
 - **Fill tool for drawings.** A paint bucket beside the eraser (a drop before
   iOS 26) fills the area the lines enclose — the whole canvas if none do — in
   the current colour. Fills are PencilKit strokes under the lines

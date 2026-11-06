@@ -102,6 +102,21 @@ enum BannerUpkeepPolicy {
         return actions
     }
 
+    /// A push banner with no subject — its service pass never ran (killed, or
+    /// before first unlock) — still in CloudKit's own words: what it's about,
+    /// from its subscription, so it's handled as held. A worded one (our own
+    /// echo), a heart (`postNudge` sweeps those) or anything else is left alone.
+    static func inferredSubject(subscriptionID: String?, body: String) -> BannerSubject? {
+        let push = PushBannerPolicy.Push(subscriptionID: subscriptionID)
+        let generic: String? = switch push {
+        case .status: CloudSync.GenericAlert.status
+        case .moment: CloudSync.GenericAlert.moment
+        case .nudge, .other: nil
+        }
+        guard let generic, body == generic else { return nil }
+        return push.unwordedSubject
+    }
+
     /// A reworded banner is its moment's announcement (invariant 10): claimed
     /// inside the caller's `mutate`, or withdrawn when another banner — or the
     /// open app — announced it first, so nothing alerts for it twice.

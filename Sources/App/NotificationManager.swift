@@ -220,6 +220,7 @@ enum NotificationManager {
         content.sound = .default
         content.categoryIdentifier = NotificationCategory.nudge
         content.userInfo[BannerSubject.key] = BannerSubject.hearts.stamp
+        content.threadIdentifier = NotificationThread.hearts
         // Old news, or a repeat within the interval, doesn't get to break through Focus.
         content.interruptionLevel = interruption.breaksThroughFocus ? .timeSensitive : .active
         content.limit(to: SharedStore.shared.notificationPreferences.hearts)

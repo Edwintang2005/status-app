@@ -170,6 +170,24 @@ struct DiagnosticsView: View {
                 list("Push subscriptions", diagnostics.subscriptions,
                      empty: "None registered yet.")
 
+                #if DEBUG
+                Section {
+                    ForEach(Self.probeProcesses, id: \.name) { process in
+                        LabeledContent(process.label, value: Self.probeLine(process.name))
+                    }
+                } header: {
+                    Text("Notification probes")
+                } footer: {
+                    Group {
+                        Text("Each process that tidies banners records how many it could list and whether its last rewrite replaced the banner in place. To run them: lock this phone, have your partner set a status, then unlock and let the widget refresh or long-press the banner. Expanded banner: long-press a banner while locked, unlock with it open, and check it stays open as its words change.")
+                    }
+                    .foregroundStyle(Theme.mutedText)
+                }
+                #endif
+
+                list("Crashes and hangs", diagnostics.crashReports,
+                     empty: "None yet. iOS hands these over about once a day, and a crash usually on the next launch; they stay on this phone.")
+
                 if !diagnostics.problems.isEmpty {
                     Section("Problems") {
                         ForEach(diagnostics.problems, id: \.self) { problem in
@@ -182,7 +200,7 @@ struct DiagnosticsView: View {
 
                 Section {
                     Button {
-                        copy(diagnostics.report)
+                        copy(diagnostics.report + Self.probeReport)
                     } label: {
                         Label(copied ? "Copied" : "Copy report",
                               systemImage: copied ? "checkmark" : "doc.on.doc")
@@ -283,6 +301,27 @@ struct DiagnosticsView: View {
             return String(localized: "Couldn't tell which iCloud database this build uses.")
         }
     }
+
+    #if DEBUG
+    private static let probeProcesses: [(name: String, label: String)] = [
+        ("RedStringNotificationService", "Notification service"),
+        ("RedStringWidgetExtension", "Widget"),
+        ("RedStringNotificationContent", "Expanded banner"),
+        ("RedString", "App"),
+    ]
+
+    private static func probeLine(_ process: String) -> String {
+        guard let probe = SharedStore.shared.bannerProbe(for: process) else { return "not run yet" }
+        return "listed \(probe.listed) · \(probe.rewrite ?? "no rewrite yet") "
+            + "(\(probe.at.formatted(date: .omitted, time: .shortened)))"
+    }
+
+    private static var probeReport: String {
+        "\nNotification probes: " + probeProcesses.map { "\($0.label): \(probeLine($0.name))" }.joined(separator: " | ")
+    }
+    #else
+    private static let probeReport = ""
+    #endif
 
     private func copy(_ text: String) {
         Clipboard.copy(text: text, localOnly: true)

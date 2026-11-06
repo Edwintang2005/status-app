@@ -1,5 +1,12 @@
 import Foundation
 
+/// Thread identifiers iOS stacks banners by.
+enum NotificationThread {
+    /// Hearts stack apart from statuses and pictures; each stays its own banner,
+    /// so someone asleep wakes to every time they were thought of.
+    static let hearts = "hearts"
+}
+
 /// Notification categories and actions. Shared because the app registers and
 /// handles them while the notification service stamps them on rewritten banners.
 enum NotificationCategory {

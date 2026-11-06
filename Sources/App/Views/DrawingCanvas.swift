@@ -116,15 +116,20 @@ final class DrawingController {
     private static let fillInk = PKInk.InkType.monoline
 
     /// Fills the area around `point` that the lines enclose (the whole canvas
-    /// if none do), under every line. One undo step.
+    /// if none do, small gaps closed), under every line; on a line, recolours
+    /// that line. One undo step.
     func fill(at point: CGPoint) {
         let width = Int(canvas.bounds.width), height = Int(canvas.bounds.height)
         guard width > 0, height > 0 else { return }
         let strokes = canvas.drawing.strokes
         let fills = strokes.filter { $0.ink.inkType == Self.fillInk }
         let lines = strokes.filter { $0.ink.inkType != Self.fillInk }
-        guard let coverage = Self.coverage(of: PKDrawing(strokes: lines), width: width, height: height),
-              let passes = FillPlan.passes(coverage: coverage, width: width, height: height, tap: point)
+        guard let coverage = Self.coverage(of: PKDrawing(strokes: lines), width: width, height: height) else { return }
+        if FillPlan.isLine(coverage: coverage, width: width, height: height, at: point) {
+            recolourLine(at: point, fills: fills, lines: lines)
+            return
+        }
+        guard let passes = FillPlan.passes(coverage: coverage, width: width, height: height, tap: point)
         else { return }
 
         let ink = PKInk(Self.fillInk, color: UIColor(color))
@@ -138,6 +143,25 @@ final class DrawingController {
         }
         // After earlier fills, so a refill shows; before every line, so lines stay on top.
         replaceDrawing(with: PKDrawing(strokes: fills + added + lines))
+    }
+
+    /// A point of grace around a line, for a fingertip just off its edge.
+    private static let lineSlop: CGFloat = 2
+
+    private func recolourLine(at point: CGPoint, fills: [PKStroke], lines: [PKStroke]) {
+        // Points along each line's centre, in canvas space, leaving out what the eraser cut.
+        let centres = lines.map { stroke in
+            stroke.path.interpolatedPoints(by: .distance(1)).compactMap { sample -> (point: CGPoint, radius: CGFloat)? in
+                if let mask = stroke.mask, !mask.contains(sample.location) { return nil }
+                return (sample.location.applying(stroke.transform), max(sample.size.width, sample.size.height) / 2)
+            }
+        }
+        guard let index = FillPlan.lineHit(centres, at: point, slop: Self.lineSlop) else { return }
+        let colour = UIColor(color)
+        guard !lines[index].ink.color.isEqual(colour) else { return }
+        var recoloured = lines
+        recoloured[index].ink = PKInk(lines[index].ink.inkType, color: colour)
+        replaceDrawing(with: PKDrawing(strokes: fills + recoloured))
     }
 
     /// Setting `drawing` isn't an undo step of its own; registered on the
@@ -383,6 +407,7 @@ struct DrawingPalette: View {
                                     ? Theme.accent.opacity(0.18) : .clear
                                 )
                             )
+                            .toolHitArea()
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(String(localized: "Brush size \(Int(width))"))
@@ -395,7 +420,7 @@ struct DrawingPalette: View {
                 toolButton(Self.fillSymbol, label: "Fill", active: controller.tool == .fill) {
                     controller.tool = controller.tool == .fill ? .pen : .fill
                 }
-                .accessibilityHint("Tap an area of the drawing to fill it with the colour")
+                .accessibilityHint("Tap an area to fill it with the colour, or a line to recolour it")
                 .frame(minWidth: 34, maxWidth: .infinity)
                 toolButton("eraser", label: "Eraser", active: controller.tool == .eraser) {
                     controller.tool = controller.tool == .eraser ? .pen : .eraser
@@ -484,10 +509,20 @@ struct DrawingPalette: View {
                 .font(Theme.rounded(16, .medium))
                 .frame(width: 34, height: 34)
                 .background(Circle().fill(active ? Theme.accent.opacity(0.18) : .clear))
+                .toolHitArea()
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
         .accessibilityAddTraits(active ? .isSelected : [])
+    }
+}
+
+private extension View {
+    /// The tool row's 34 pt circles answer taps across their whole slot, 44 pt
+    /// tall: a 375 pt phone gives each about 44 pt, the tap-target minimum.
+    func toolHitArea() -> some View {
+        frame(maxWidth: .infinity, minHeight: 44)
+            .contentShape(Rectangle())
     }
 }
 

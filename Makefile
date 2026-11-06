@@ -1,11 +1,13 @@
 SIM ?= iPhone 17
+# The narrowest phone iOS 17 runs on (375 pt): every screen must fit it.
+NARROW_SIM ?= iPhone SE (3rd generation)
 SCHEME := RedString
 PROJECT := RedString.xcodeproj
 BUNDLE_ID := com.edwintang.redstring
 # CI installs exactly this; another version can write a different project.
 XCODEGEN_VERSION := $(shell cat .xcodegen-version)
 
-.PHONY: project build test uitest run device archive clean
+.PHONY: project build test uitest uitest-narrow run device archive clean
 
 ## Regenerate RedString.xcodeproj from project.yml (run after adding files)
 project:
@@ -43,6 +45,13 @@ uitest: project
 		-destination 'platform=iOS Simulator,name=$(SIM)' \
 		-derivedDataPath build/DerivedData-uitest \
 		-configuration Debug test
+
+## The same smoke on $(NARROW_SIM), created on first use. Display Zoom (320 pt)
+## can't be set by script: check that by hand in Settings → Display & Brightness.
+uitest-narrow:
+	@xcrun simctl list devices available | grep -qF "$(NARROW_SIM) (" || \
+		xcrun simctl create "$(NARROW_SIM)" "$(NARROW_SIM)"
+	$(MAKE) uitest SIM="$(NARROW_SIM)"
 
 ## Build signed, install and launch on the simulator. Needs DEVELOPMENT_TEAM
 ## set (project.yml or Xcode's Signing tab) — the App Group and CloudKit

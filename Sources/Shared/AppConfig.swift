@@ -87,6 +87,9 @@ enum AppConfig {
     /// full width, few enough that the metadata stays a few hundred bytes.
     static let voiceWaveformSampleCount = 48
 
+    /// MetricKit reports kept for Diagnostics (`SharedStore.crashReports`).
+    static let crashReportLimit = 20
+
     /// Entries kept in the local status history log, both sides together. Sized
     /// to hold both partners' full cloud logs (`statusLogLimit` each).
     static let statusHistoryLimit = 300

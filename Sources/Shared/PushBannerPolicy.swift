@@ -359,6 +359,7 @@ enum PushBannerPolicy {
              body: interruption.stale
                 ? String(localized: "was thinking of you earlier 💭")
                 : String(localized: "is thinking of you 💭"),
+             thread: NotificationThread.hearts,
              volume: interruption.breaksThroughFocus ? .timeSensitive : .active,
              subject: .hearts)
     }

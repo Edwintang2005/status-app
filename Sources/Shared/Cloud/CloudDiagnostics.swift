@@ -26,6 +26,8 @@ struct CloudDiagnostics: Sendable {
     var freshStart: String
     /// How the notification service's last push went (`SharedStore.BannerPass`).
     var lastNotification: String
+    /// MetricKit's crash and hang reports, newest first (`CrashReport.summary`).
+    var crashReports: [String] = []
     /// Anything that failed while gathering the above, rather than a silent gap.
     var problems: [String]
 
@@ -45,6 +47,7 @@ struct CloudDiagnostics: Sendable {
             "Unreadable encrypted records: \(unreadableRecords)",
             "Fresh start: \(freshStart)",
             "Last notification: \(lastNotification)",
+            "Crashes and hangs: \(crashReports.isEmpty ? "none yet" : crashReports.joined(separator: " | "))",
         ]
         if !problems.isEmpty {
             lines.append("Problems: " + problems.joined(separator: " | "))
@@ -114,10 +117,11 @@ extension CloudSync {
         }
 
         var subscriptions: [String] = []
-        let (pairing, unreadable, freshStart, lastNotification) = await MainActor.run {
+        let (pairing, unreadable, freshStart, lastNotification, crashReports) = await MainActor.run {
             (SharedStore.shared.pairing, SharedStore.shared.unreadableTally.summary,
              SharedStore.shared.snapshot.freshStart.summary,
-             SharedStore.shared.lastBannerPass?.summary ?? "none yet")
+             SharedStore.shared.lastBannerPass?.summary ?? "none yet",
+             SharedStore.shared.crashReports.map(\.summary))
         }
         let database = pairing.map { self.database(for: $0) } ?? container.privateCloudDatabase
         do {
@@ -156,6 +160,7 @@ extension CloudSync {
             unreadableRecords: unreadable,
             freshStart: freshStart,
             lastNotification: lastNotification,
+            crashReports: crashReports,
             problems: problems
         )
     }

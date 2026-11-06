@@ -248,8 +248,11 @@ once readable, adds a thumbnail that missed the service's deadline, withdraws
 banners for moments that are gone (deleted, cleared, reported), and keeps only
 the newest status banner — each rewrite re-added under its own identifier,
 `.passive`, so it never alerts twice — a rewrite counts as the announcement, so
-the app never posts the same moment again. Tapping a photo or drawing banner
-opens that moment.
+the app never posts the same moment again. A push the service never touched
+(killed, or before first unlock) has no subject; while it still shows
+CloudKit's own words, its subscription says what it was about and it's handled
+like a locked-phone banner. Hearts stack in their own thread, each still its
+own banner. Tapping a photo or drawing banner opens that moment.
 
 **The expanded banner** (long-press a moment or status) is
 [RedStringNotificationContent](Sources/NotificationContent/NotificationViewController.swift),
@@ -666,7 +669,10 @@ black-on-black. PencilKit has no bucket fill, so the **fill tool** makes one
 from strokes: it flood-fills the tapped area at one cell per point, bounded
 only by lines (not earlier fills, so a refill recolours), reaches one cell
 under the lines so no paper shows at the edge, and lays back-and-forth
-`.monoline` passes (`FillPlan`) underneath every line. Being ink, fills need
+`.monoline` passes (`FillPlan`) underneath every line. Lines are thickened by
+`FillPlan.gapRadius` (3 pt) for the flood, so an outline that stops a few
+points short still holds — a narrower space falls back to a smaller radius,
+so it fills too. Tapping a line with the bucket recolours that line instead. Being ink, fills need
 nothing new from undo, the eraser, the export or sync; the ink type is how
 the next fill tells them from lines. The canvas is square because the widget is square — composing
 in the destination's shape means nothing gets unexpectedly cropped later.
@@ -710,7 +716,9 @@ feasibility, then ranked correctness, privacy and polish backlogs. Read its
   refresh anywhere (widget, app, long-press) rewords it. The fetch runs
   `.userInitiated`: at CloudKit's default (discretionary) priority iOS held it
   past the deadline on mobile data. Diagnostics → "Last notification" says
-  how the last push went.
+  how the last push went; Debug builds also show each process's banner probe
+  (how many it could list, whether its last rewrite replaced the banner in
+  place) and every build keeps MetricKit's crash and hang reports there.
 - **Switching iCloud accounts pauses sync rather than breaking it.** The
   pairing remembers which account made it (`PairingInfo.userRecordName`);
   under a different account the home screen's sync footer says so, and
@@ -829,7 +837,8 @@ reads inside the app's own container (C617.1).
 | `make project` | regenerate the Xcode project from `project.yml` |
 | `make build` | compile check for the Simulator (unsigned — don't launch it) |
 | `make test` | unit tests over `Sources/Shared` (unsigned; no host app or App Group needed) |
-| `make uitest` | demo-mode UI smoke with `performAccessibilityAudit()` on Home and every main sheet (signed, like `make run`; CI compiles it but can't run it — about three minutes) |
+| `make uitest` | demo-mode UI smoke with `performAccessibilityAudit()` on Home and every main sheet, plus a check that nothing hangs past the screen's sides (signed, like `make run`; CI compiles it but can't run it — about three minutes) |
+| `make uitest-narrow` | the same on an iPhone SE (3rd generation), the narrowest phone iOS 17 runs on (375 pt), created on first use; Display Zoom (320 pt) can't be scripted, so check it by hand |
 | `make run` | build signed, install and launch on the Simulator |
 | `make device` | build signed and install the Debug config on a connected iPhone — the only route to the CloudKit Development schema |
 | `make archive` | archive the Release config for TestFlight / the App Store |

@@ -127,6 +127,7 @@ struct MoodPickerView: View {
 
                 TextField(fieldPrompt, text: $message)
                     .font(Theme.rounded(17))
+                    .accessibilityIdentifier("status.words.field")
                     .focused($messageFocused)
                     .submitLabel(.done)
                     .onSubmit(commit)
@@ -232,6 +233,7 @@ struct MoodPickerView: View {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(Theme.mutedText)
             TextField("Search statuses", text: $query)
+                .accessibilityIdentifier("status.search.field")
                 .font(Theme.rounded(16))
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
@@ -447,6 +449,7 @@ private struct EmojiField: UIViewRepresentable {
             attributes: [.foregroundColor: UIColor.label.withAlphaComponent(0.35),
                          .font: UIFont.systemFont(ofSize: 34)])
         field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        field.accessibilityIdentifier = "status.emoji.field"
         return field
     }
 

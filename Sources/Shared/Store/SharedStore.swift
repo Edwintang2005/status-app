@@ -52,6 +52,7 @@ final class SharedStore: @unchecked Sendable {
         static let notificationsNoticeDismissed = "notificationsNoticeDismissed"
         static let cameraSettings = "cameraSettings"
         static let lastBannerPass = "lastBannerPass"
+        static let crashReports = "crashReports"
     }
 
     init(store: GroupKeyValueStore = GroupFileStore()) {
@@ -294,6 +295,34 @@ final class SharedStore: @unchecked Sendable {
     var lastBannerPass: BannerPass? {
         get { decode(BannerPass.self, forKey: Key.lastBannerPass) }
         set { encodeOptional(newValue, forKey: Key.lastBannerPass) }
+    }
+
+    #if DEBUG
+    /// What one process last saw of delivered banners, and how its last rewrite
+    /// went — the device probes behind `BannerUpkeep` (Diagnostics). DEBUG only.
+    struct BannerProbe: Codable, Equatable, Sendable {
+        var at: Date
+        var listed: Int
+        var rewrite: String?
+    }
+
+    /// One key per process, so no process writes over another's.
+    func bannerProbe(for process: String) -> BannerProbe? {
+        decode(BannerProbe.self, forKey: "bannerProbe.\(process)")
+    }
+
+    func setBannerProbe(_ probe: BannerProbe, for process: String) {
+        encodeOptional(probe, forKey: "bannerProbe.\(process)")
+    }
+
+    static let processName = Bundle.main.infoDictionary?["CFBundleExecutable"] as? String ?? "?"
+    #endif
+
+    /// MetricKit's crash and hang reports, newest first, for Diagnostics. Per
+    /// device, written only by the app; a bad entry costs only itself.
+    var crashReports: [CrashReport] {
+        get { decode(LossyArray<CrashReport>.self, forKey: Key.crashReports)?.elements ?? [] }
+        set { encodeOptional(newValue.isEmpty ? nil : newValue, forKey: Key.crashReports) }
     }
 
     /// Our nudge record's system fields and count as last saved or fetched, so

@@ -3,7 +3,8 @@ import XCTest
 /// Demo mode (`REDSTRING_DEMO=1`, Debug) through Home and each main sheet, with
 /// the accessibility audit on every screen. Each step must settle in time: a
 /// layout loop (invariants 18 and 21) pegs the main thread, and then nothing
-/// on screen ever answers a query — the launch-hang guard.
+/// on screen ever answers a query — the launch-hang guard. Every screen must
+/// also fit the width: run it on the narrowest phone with `make uitest-narrow`.
 @MainActor
 final class DemoSmokeTests: XCTestCase {
     private let app = XCUIApplication()
@@ -26,6 +27,7 @@ final class DemoSmokeTests: XCTestCase {
     func testHome() throws {
         launchToHome()
         try audit("Home")
+        try assertFitsScreen("Home")
     }
 
     func testSettings() throws {
@@ -53,6 +55,15 @@ final class DemoSmokeTests: XCTestCase {
         try openSheet(app.buttons["Moment"], closingWith: "Cancel", name: "Moment composer")
     }
 
+    /// The palette's rows once ran off both edges of a narrow screen.
+    func testDrawingPalette() throws {
+        launchToHome()
+        try openSheet(app.buttons["Moment"], closingWith: "Cancel", name: "Drawing palette") {
+            self.app.buttons["Draw"].tap()
+            XCTAssertTrue(self.app.buttons["Colour 1"].waitForExistence(timeout: 10), "the palette never opened")
+        }
+    }
+
     func testVoiceMemoComposer() throws {
         launchToHome()
         try openSheet(app.buttons["Voice memo"], closingWith: "Cancel", name: "Voice memo composer")
@@ -71,7 +82,9 @@ final class DemoSmokeTests: XCTestCase {
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
     }
 
-    private func openSheet(_ opener: XCUIElement, closingWith close: String, name: String) throws {
+    /// `then` runs once the sheet is up, before it's judged.
+    private func openSheet(_ opener: XCUIElement, closingWith close: String, name: String,
+                           then: () throws -> Void = {}) throws {
         XCTAssertTrue(opener.waitForExistence(timeout: 30), "\(name): no way in from Home")
         let closeButton = app.buttons[close].firstMatch
         // Tapped again if nothing came up: a tap landing while Home settles
@@ -81,9 +94,32 @@ final class DemoSmokeTests: XCTestCase {
             _ = closeButton.waitForExistence(timeout: 10)
         }
         XCTAssertTrue(closeButton.exists, "\(name) never appeared")
+        try then()
         try audit(name)
+        try assertFitsScreen(name)
         closeButton.tap()
         XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 30), "\(name) didn't close back to Home")
+    }
+
+    /// Nothing on screen may hang past the window's sides: a row that's wider
+    /// than the screen widens its whole card. Elements wholly off screen (a
+    /// pager's other pages) aren't judged, nor images: a filled, clipped photo
+    /// reports its unclipped frame. One snapshot, not a query per element.
+    private func assertFitsScreen(_ screen: String) throws {
+        let window = app.windows.firstMatch.frame
+        var overflowing: [String] = []
+        func visit(_ element: XCUIElementSnapshot) {
+            let frame = element.frame
+            if [.button, .staticText].contains(element.elementType),
+               !frame.isEmpty, frame.intersects(window),
+               frame.minX < window.minX - 1 || frame.maxX > window.maxX + 1 {
+                overflowing.append("\"\(element.label)\" at \(Int(frame.minX))…\(Int(frame.maxX))")
+            }
+            element.children.forEach(visit)
+        }
+        visit(try app.snapshot())
+        XCTAssertTrue(overflowing.isEmpty,
+                      "\(screen) is wider than the \(Int(window.width)) pt screen: \(overflowing.joined(separator: " | "))")
     }
 
     /// Not judged: Dynamic Type. `Theme.rounded` scales by `UIFontMetrics` when
@@ -102,7 +138,8 @@ final class DemoSmokeTests: XCTestCase {
                 if self.accepts(issue) { return true }
                 let element = issue.element
                 let type = element.map { "\($0.elementType.rawValue)" } ?? "?"
-                rejected.append("\(issue.compactDescription) on \(type) \"\(element?.label ?? "")\"")
+                let id = element.map { $0.identifier.isEmpty ? "" : " [\($0.identifier)]" } ?? ""
+                rejected.append("\(issue.compactDescription) on \(type) \"\(element?.label ?? "")\"\(id)")
                 return true
             }
             XCTAssertTrue(rejected.isEmpty, "\(screen): \(rejected.joined(separator: " | "))")
@@ -131,8 +168,9 @@ final class DemoSmokeTests: XCTestCase {
             if !element.isEnabled { return true }
             // Within the audit's own tolerance: small grey text over the backdrop's tinted corners.
             if issue.compactDescription.localizedCaseInsensitiveContains("nearly") { return true }
-            // The navigation bar's system glass buttons: dark crimson on pale glass, misread.
-            if element.elementType == .button, !label.isEmpty, app.navigationBars.buttons[label].exists { return true }
+            // The navigation bar's system glass buttons, or the text inside one (the
+            // library's "All types" on a 375 pt phone): dark crimson on pale glass, misread.
+            if inNavigationBar(element) { return true }
             // Black (`Color.primary`) on near-white, misread from anti-aliased edges
             // (checked against the element screenshots): named one by one, so any
             // other text stays under the check.
@@ -143,11 +181,27 @@ final class DemoSmokeTests: XCTestCase {
             // An emoji's colours aren't text contrast.
             return Self.isEmojiOnly(label)
         case .textClipped:
+            // The composer's inline title on a 375 pt phone, between its two
+            // glass buttons: whole in the screenshots, flagged only with the palette open.
+            if let element, element.elementType == .staticText, inNavigationBar(element) { return true }
+            // The status picker's 34 pt emoji overhangs its field (a UIKit field,
+            // so it carries no label for the check below); its words field's
+            // placeholder is the current status, longer than the field on a 375 pt
+            // phone — a hint, and typed words scroll.
+            if ["status.emoji.field", "status.words.field"].contains(element?.identifier ?? "") { return true }
             // Emoji glyphs overhang the line box ("for you 💌").
             return Self.containsEmoji(label)
         default:
             return false
         }
+    }
+
+    /// By predicate: a subscript query refuses labels over 128 characters.
+    private func inNavigationBar(_ element: XCUIElement) -> Bool {
+        let label = element.label
+        guard !label.isEmpty else { return false }
+        let query = element.elementType == .button ? app.navigationBars.buttons : app.navigationBars.staticTexts
+        return query.matching(NSPredicate(format: "label == %@", label)).firstMatch.exists
     }
 
     private static func isEmoji(_ scalar: Unicode.Scalar) -> Bool {

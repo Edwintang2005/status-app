@@ -9,6 +9,9 @@ enum FillPlan {
     /// Stroke size that leaves no gap between 1-pt rows: PencilKit draws it
     /// about 2 pt wide, so a pass reaches half a point past its cells.
     static let strokeSize: CGFloat = 3
+    /// Lines are thickened by this many cells before the flood, so a gap up to
+    /// about twice it — a line stopping just short of another — still holds.
+    static let gapRadius = 3
 
     /// Stroke paths in points, or `nil` when the tap is on a line or off the grid.
     /// - Parameter coverage: the lines' alpha, row by row, `width` × `height`.
@@ -18,8 +21,74 @@ enum FillPlan {
         guard (0..<width).contains(x), (0..<height).contains(y) else { return nil }
         let ink = coverage.map { $0 >= inkThreshold }
         guard !ink[y * width + x] else { return nil }
-        let region = grown(flood(ink, width: width, height: height, from: (x, y)), width: width, height: height)
-        return chains(runs(region, width: width, height: height)).map(path)
+        // A narrow space the thickened lines would close is filled with a
+        // smaller radius, down to none: what the tap is on always fills.
+        var region: [Bool] = []
+        for radius in stride(from: gapRadius, through: 0, by: -1) {
+            let closed = radius == 0 ? ink : thickened(ink, width: width, height: height, by: radius)
+            guard !closed[y * width + x] else { continue }
+            region = reaching(flood(closed, width: width, height: height, from: (x, y)),
+                              within: ink, width: width, height: height, by: radius)
+            break
+        }
+        return chains(runs(grown(region, width: width, height: height), width: width, height: height)).map(path)
+    }
+
+    /// Whether the tap is on a line: the bucket recolours that line instead.
+    static func isLine(coverage: [UInt8], width: Int, height: Int, at tap: CGPoint) -> Bool {
+        let x = Int(tap.x.rounded(.down)), y = Int(tap.y.rounded(.down))
+        guard coverage.count == width * height, (0..<width).contains(x), (0..<height).contains(y) else { return false }
+        return coverage[y * width + x] >= inkThreshold
+    }
+
+    /// The newest line within `slop` of `point`, each line given as points along
+    /// its centre (about a point apart) with the stroke's half-width there.
+    static func lineHit(_ lines: [[(point: CGPoint, radius: CGFloat)]], at point: CGPoint, slop: CGFloat) -> Int? {
+        lines.indices.reversed().first { index in
+            lines[index].contains { hypot($0.point.x - point.x, $0.point.y - point.y) <= $0.radius + slop }
+        }
+    }
+
+    /// Every cell within `radius` of a line (a square, one row then one column at a time).
+    static func thickened(_ ink: [Bool], width: Int, height: Int, by radius: Int) -> [Bool] {
+        var across = [Bool](repeating: false, count: ink.count)
+        for y in 0..<height {
+            let row = y * width
+            for x in 0..<width where ink[row + x] {
+                for nx in max(0, x - radius)...min(width - 1, x + radius) { across[row + nx] = true }
+            }
+        }
+        var out = across
+        for x in 0..<width {
+            for y in 0..<height where across[y * width + x] {
+                for ny in max(0, y - radius)...min(height - 1, y + radius) { out[ny * width + x] = true }
+            }
+        }
+        return out
+    }
+
+    /// Grows `region` back by `radius` cells through empty ones, undoing the
+    /// thickening up to the real lines; a diagonal step never squeezes between two line cells.
+    static func reaching(_ region: [Bool], within ink: [Bool], width: Int, height: Int, by radius: Int) -> [Bool] {
+        var out = region
+        var edge = region.indices.filter { region[$0] }
+        for _ in 0..<radius {
+            var next: [Int] = []
+            for cell in edge {
+                let x = cell % width, y = cell / width
+                for ny in max(0, y - 1)...min(height - 1, y + 1) {
+                    for nx in max(0, x - 1)...min(width - 1, x + 1) {
+                        let target = ny * width + nx
+                        guard !out[target], !ink[target] else { continue }
+                        if nx != x, ny != y, ink[y * width + nx], ink[ny * width + x] { continue }
+                        out[target] = true
+                        next.append(target)
+                    }
+                }
+            }
+            edge = next
+        }
+        return out
     }
 
     /// The empty cells reachable from `seed` through edges, never corners: a

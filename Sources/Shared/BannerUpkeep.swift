@@ -1,3 +1,4 @@
+import CloudKit
 import Foundation
 import UserNotifications
 import os
@@ -11,12 +12,27 @@ enum BannerUpkeep {
     static func run(incoming: BannerSubject? = nil) async {
         let center = UNUserNotificationCenter.current()
         let delivered = await center.deliveredNotifications()
+        #if DEBUG
+        noteProbe(listed: delivered.count)
+        #endif
         let banners = delivered.compactMap { notification -> BannerUpkeepPolicy.Banner? in
             let info = notification.request.content.userInfo
-            guard let subject = BannerSubject(userInfo: info) else { return nil }
+            var held = info[NotificationCategory.heldBannerKey] != nil
+            let subject: BannerSubject
+            if let stamped = BannerSubject(userInfo: info) {
+                subject = stamped
+            } else if notification.request.trigger is UNPushNotificationTrigger,
+                      let inferred = BannerUpkeepPolicy.inferredSubject(
+                        subscriptionID: CKNotification(fromRemoteNotificationDictionary: info)?.subscriptionID,
+                        body: notification.request.content.body) {
+                subject = inferred
+                held = true
+            } else {
+                return nil
+            }
             return BannerUpkeepPolicy.Banner(id: notification.request.identifier,
                                              subject: subject,
-                                             held: info[NotificationCategory.heldBannerKey] != nil,
+                                             held: held,
                                              wantsAttachment: info[BannerSubject.wantsAttachmentKey] != nil,
                                              date: notification.date,
                                              body: notification.request.content.body)
@@ -78,7 +94,8 @@ enum BannerUpkeep {
                 removals += superseded
                 let body = PushBannerPolicy.statusBody(status, reportedAt: store.hiddenPartnerStatusAt,
                                                        sealed: snapshot.partnerStatusSealed)
-                await replace(id, from: originals[id], moment: nil, title: name, body: body, in: center)
+                await replace(id, from: originals[id], moment: nil, title: name, body: body,
+                              stamping: .status, in: center)
             }
         }
         if !removals.isEmpty { center.removeDeliveredNotifications(withIdentifiers: removals) }
@@ -96,18 +113,24 @@ enum BannerUpkeep {
         return claimed
     }
 
-    /// `nil` title and body keep the banner's own words.
+    /// `nil` title and body keep the banner's own words. `stamping` names what a
+    /// banner inferred from CloudKit's words is about, so later passes still see it.
     private static func replace(_ id: String, from original: UNNotificationContent?, moment: Moment?,
-                                title: String?, body: String?, in center: UNUserNotificationCenter) async {
+                                title: String?, body: String?, stamping subject: BannerSubject? = nil,
+                                in center: UNUserNotificationCenter) async {
         // Cleared meanwhile — by the user, or the app coming to the front — stays cleared.
-        guard let original,
-              await center.deliveredNotifications().contains(where: { $0.request.identifier == id }) else { return }
+        let current = await center.deliveredNotifications()
+        guard let original, let existing = current.first(where: { $0.request.identifier == id }) else { return }
         let content = UNMutableNotificationContent()
         content.title = title ?? original.title
         content.body = body ?? original.body
         content.categoryIdentifier = original.categoryIdentifier
+        if content.categoryIdentifier.isEmpty, subject == .status {
+            content.categoryIdentifier = NotificationCategory.status
+        }
         content.threadIdentifier = original.threadIdentifier
         var info = original.userInfo
+        if let subject { info[BannerSubject.key] = subject.stamp }
         info[NotificationCategory.heldBannerKey] = nil
         info[NotificationCategory.revisedKey] = true
         if let moment {
@@ -128,6 +151,32 @@ enum BannerUpkeep {
             try await center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
         } catch {
             log.error("Couldn't rewrite a banner: \(error.localizedDescription, privacy: .public)")
+            #if DEBUG
+            noteProbe(rewrite: "failed: \(error.localizedDescription)")
+            #endif
+            return
         }
+        #if DEBUG
+        // Probe: does re-adding a delivered banner's identifier replace it in place?
+        let after = await center.deliveredNotifications()
+        let same = after.filter { $0.request.identifier == id }
+        let inPlace = same.count == 1 && same[0].request.content.body == content.body
+        let kind = existing.request.trigger is UNPushNotificationTrigger ? "push" : "local"
+        noteProbe(rewrite: "\(inPlace ? "replaced in place" : "NOT in place, \(same.count) with its id") "
+                  + "(\(kind)), banners \(current.count) → \(after.count)")
+        #else
+        _ = existing
+        #endif
     }
+
+    #if DEBUG
+    private static func noteProbe(listed: Int? = nil, rewrite: String? = nil) {
+        let store = SharedStore.shared
+        var probe = store.bannerProbe(for: SharedStore.processName) ?? .init(at: Date(), listed: 0)
+        probe.at = Date()
+        if let listed { probe.listed = listed }
+        if let rewrite { probe.rewrite = rewrite }
+        store.setBannerProbe(probe, for: SharedStore.processName)
+    }
+    #endif
 }
