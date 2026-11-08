@@ -194,9 +194,10 @@ final class DrawingController {
         strokeCount = canvas.drawing.strokes.count
     }
 
+    /// An undo step like a fill: otherwise Undo replays a fill's step from
+    /// before the clear and brings back part of the drawing.
     func clear() {
-        canvas.drawing = PKDrawing()
-        strokeCount = 0
+        replaceDrawing(with: PKDrawing())
     }
 
     /// Flattens photo (if any) and strokes into one square image at the stored
@@ -376,7 +377,7 @@ struct DrawingPalette: View {
             }
 
             HStack(spacing: 0) {
-                // Clear is irreversible, so it sits far from undo — and asks first.
+                // Far from undo, and asks first; Undo brings the drawing back.
                 toolButton("trash", label: "Clear the drawing", active: false) {
                     if controller.strokeCount > 0 { confirmingClear = true }
                 }
@@ -386,7 +387,7 @@ struct DrawingPalette: View {
                     Button("Clear", role: .destructive) { controller.clear() }
                     Button("Keep drawing", role: .cancel) {}
                 } message: {
-                    Text("This drawing will be lost.")
+                    Text("Undo brings it back.")
                 }
                 .frame(minWidth: 34, maxWidth: .infinity)
 

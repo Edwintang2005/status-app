@@ -237,10 +237,10 @@ taps. No schema change: a shared image is an ordinary `.photo` moment.
   - Delete the donations on unlink, block and local reset
     (`INInteraction.deleteAll`), next to `finishUnlink`.
 - **Build:**
-  - A fourth shipping target in `project.yml`, compiling `Sources/Shared/`,
+  - A fifth shipping target in `project.yml`, compiling `Sources/Shared/`,
     with its own `Localizable.xcstrings` and privacy manifest. Then
     `make project` and commit.
-  - A fifth entitlements file (App Group + iCloud container): invariant 12's
+  - A sixth entitlements file (App Group + iCloud container): invariant 12's
     lockstep list grows by one.
   - CI builds it with the app.
 - 🔬 **Probe first, on a device:**
@@ -595,7 +595,7 @@ before you send. Published into `Presence`.
   focused or not" — an Apple engineer). It needs the Communication
   Notifications capability, notification permission,
   `NSFocusStatusUsageDescription`, the user's "Share Focus Status" setting, and
-  a **SiriKit Intents extension** (a fourth target) handling
+  a **SiriKit Intents extension** (a fifth shipping target) handling
   `INShareFocusStatusIntent` to hear changes in the background.
 - **Cheaper route (recommended):** reuse the Focus filter from "Set status from
   Shortcuts, Focus and Siri" — a "share that I'm silenced" parameter writes

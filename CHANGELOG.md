@@ -6,6 +6,30 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 Version 1.6.3.
 
+- **Audit fixes.** From a full audit before the feature pause:
+  - **A photo always gets its banner.** A heart or status push that brings a
+    photo with it (APNs keeps one notification per app for an offline phone)
+    now posts the photo's own banner beside its own, and a photo the widget
+    filed with no push is announced by the app's next refresh unless it's
+    been seen. Neither later resurfaces as "new" on an unrelated push.
+  - **Notifications:** a memo set to "list only" no longer rings when the
+    widget filed it first; banners about your own doing ("Your status was
+    sent…") offer no reply or heart; a quiet repeat keeps its picture.
+  - **App:** a memo tapped on Home plays only if Home is still in front once
+    it's fetched (it could play under a sheet and stop a recording); a pinch
+    or drag on the small picture that iOS cancels no longer leaves it stuck;
+    a delayed Both shot whose small picture can't be taken keeps the big one.
+  - **Sending:** status and name changes finish when the phone locks
+    mid-save; receipts and the fresh start wait out an iCloud throttle like
+    every other automatic send; a photo iCloud refuses outright
+    (`SendFailure.rejected`) isn't re-uploaded every refresh.
+  - **Polish:** celebrations wait for an open sheet to close; the shutter
+    looks live while it can take the small picture; Clear is an undo step;
+    status history no longer flashes empty and follows new statuses; the
+    voice tile's badge meets 4.5:1; Diagnostics footers are localizable;
+    `PairingInfo` decodes field by field; the privacy manifest declares the
+    active-keyboards API; tests no longer touch the real App Group; doc drift.
+
 - **Resize the small picture before sending.** In the composer, a Both-cameras
   shot's inset now pinches bigger or smaller (15–60% of the photo's width,
   from 30%), anywhere on the photo, as well as dragging anywhere; it keeps its

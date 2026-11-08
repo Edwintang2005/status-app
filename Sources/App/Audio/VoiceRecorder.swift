@@ -105,8 +105,9 @@ final class VoiceRecorder {
 
         do {
             let session = AVAudioSession.sharedInstance()
-            // `.playAndRecord` so previewing needs no second session change;
-            // `.defaultToSpeaker` so the preview isn't in the earpiece.
+            // `.defaultToSpeaker`: `.playAndRecord` otherwise routes any output
+            // to the earpiece. The preview plays through `VoicePlayer`, which
+            // sets its own `.playback` session once this one is deactivated.
             try session.setCategory(.playAndRecord,
                                     mode: .spokenAudio,
                                     options: [.defaultToSpeaker, .allowBluetoothHFP])

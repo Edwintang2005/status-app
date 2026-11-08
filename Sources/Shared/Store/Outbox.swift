@@ -37,6 +37,9 @@ final class Outbox {
     /// not when its caller stops waiting. Observed: they aren't "waiting to
     /// send", and a retry pass must not send them a second time.
     private(set) var uploadsInFlight: Set<String> = []
+    /// Sends iCloud refused outright, when: automatic passes skip them a while.
+    /// This process only, so each launch tries once more.
+    @ObservationIgnored private var uploadRejectedAt: [String: Date] = [:]
     /// Background uploads from before a relaunch: adopted once, ahead of the
     /// first retry pass or clear, every caller awaiting the same look.
     @ObservationIgnored private var adoptedBackgroundUploads = false
@@ -107,7 +110,7 @@ final class Outbox {
             storageFullAt = now
         case .throttled(let until):
             throttledUntil = max(throttledUntil ?? .distantPast, until)
-        case .offline, .transient:
+        case .offline, .rejected, .transient:
             break
         }
         return failure
@@ -278,7 +281,7 @@ final class Outbox {
                 log.error("Caption publish failed: \(error.localizedDescription, privacy: .public)")
                 switch noteSendFailed(error, now: now) {
                 case .storageFull, .offline, .throttled: return changed
-                case .transient: continue
+                case .rejected, .transient: continue
                 }
             }
             // Only the words that went: an edit made meanwhile stays owed.
@@ -467,7 +470,11 @@ final class Outbox {
         guard !isRetryingUploads, !isClearingHistory else { return false }
         var changed = !index.salvagePendingUploads(hasMedia: hasMedia).isEmpty
         let pending = UploadOrder.smallestFirst(
-            index.load().filter { $0.fromMe && !$0.uploaded && !uploadsInFlight.contains($0.id) },
+            index.load().filter { moment in
+                guard moment.fromMe, !moment.uploaded, !uploadsInFlight.contains(moment.id) else { return false }
+                guard automatic, let refused = uploadRejectedAt[moment.id] else { return true }
+                return now.timeIntervalSince(refused) >= AppConfig.rejectedUploadRetryInterval
+            },
             size: uploadSize)
         guard !pending.isEmpty else { return changed }
         isRetryingUploads = true
@@ -487,6 +494,7 @@ final class Outbox {
             }
             do {
                 try await upload(moment, taskName: "moment-retry")
+                uploadRejectedAt[moment.id] = nil
                 changed = true
                 log.info("Retried upload of \(moment.id, privacy: .public) successfully")
             } catch {
@@ -494,6 +502,9 @@ final class Outbox {
                 // The rest would hit the same full iCloud, throttle or missing route.
                 switch noteSendFailed(error, now: now) {
                 case .storageFull, .offline, .throttled: return changed
+                case .rejected:
+                    uploadRejectedAt[moment.id] = now
+                    continue
                 case .transient: continue
                 }
             }
@@ -559,8 +570,10 @@ final class Outbox {
     /// Moves the fresh start on a step at a time (`FreshStartPolicy.nextStep`):
     /// a queued write, the asker's commit, a both-asked conversion, this
     /// device's clear and its completion. App only. `true` when anything moved.
+    /// `automatic` (the recovery pass) waits out a throttle or a full iCloud.
     @discardableResult
-    func advanceFreshStart() async -> Bool {
+    func advanceFreshStart(automatic: Bool = false, now: Date = Date()) async -> Bool {
+        if automatic, !automaticRetryAllowed(now: now) { return false }
         guard let role = store.pairing?.role, !isAdvancingFreshStart else { return false }
         isAdvancingFreshStart = true
         defer { isAdvancingFreshStart = false }
@@ -673,8 +686,10 @@ final class Outbox {
     /// landing mid-flight re-dirties it and the loop publishes that too; a
     /// failure re-sets it for the next refresh. Disabled publishes an empty map.
     /// The claim marks the receipts unsettled; only a confirmed write, with none
-    /// abandoned in this process, settles them.
-    func flushReceipts() async {
+    /// abandoned in this process, settles them. `automatic` (the recovery pass)
+    /// waits out a throttle or a full iCloud, leaving them dirty.
+    func flushReceipts(automatic: Bool = false, now: Date = Date()) async {
+        if automatic, !automaticRetryAllowed(now: now) { return }
         guard store.pairing != nil, !isFlushingReceipts else { return }
         isFlushingReceipts = true
         defer { isFlushingReceipts = false }

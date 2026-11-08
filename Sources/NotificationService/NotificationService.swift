@@ -159,18 +159,23 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         if Task.isCancelled { return content }
         // The banner's fallback only looks past the announced floor.
         let index = push == .moment ? momentCandidates() : []
-        let plan = await MainActor.run { () -> PushBannerPolicy.Plan in
+        let (plan, carried) = await MainActor.run { () -> (PushBannerPolicy.Plan, Moment?) in
             let reportedAt = SharedStore.shared.hiddenPartnerStatusAt
             var plan = PushBannerPolicy.Plan.unchanged
+            var carried: Moment?
             // Check-and-claim in one `mutate` under the cross-process lock, so
             // concurrent instances and the app never both announce one event.
             _ = SharedStore.shared.mutate(reloadWidgets: false) {
                 plan = PushBannerPolicy.decide(push, result: result, index: index, reportedAt: reportedAt, in: &$0)
+                carried = PushBannerPolicy.carriedMoment(push, result: result, in: &$0)
             }
-            return plan
+            return (plan, carried)
         }
+        // Claimed, so posted now: an expiry later must not bury it.
+        if let carried { await announce(carried: carried) }
         let level = SharedStore.shared.notificationPreferences
-            .level(for: push, momentKinds: result.newPartnerMoments.map(\.kind) + result.heldPartnerMomentKinds)
+            .level(for: push, momentKinds: result.newPartnerMoments.map(\.kind) + result.heldPartnerMomentKinds
+                   + [plan.attachment?.kind].compactMap { $0 })
         apply(plan.limited(to: level), to: content)
         if plan.title == nil, plan.body == nil {
             Self.markUnworded(content, push: push)
@@ -213,6 +218,22 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
     private func tidyUp(incoming: BannerSubject?) async {
         guard !Task.isCancelled else { return }
         try? await withDeadline(3) { await BannerUpkeep.run(incoming: incoming) }
+    }
+
+    /// Its own banner beside this push's, as the app would post it; a picture
+    /// not yet on disk is left for `BannerUpkeep` to attach.
+    private func announce(carried moment: Moment) async {
+        let name = await MainActor.run { SharedStore.shared.snapshot.moderatedPartnerName }
+        let content = MomentBanner.content(for: moment, from: name)
+        content.limit(to: SharedStore.shared.notificationPreferences.level(forMoment: moment.kind))
+        if let attachment = MomentAttachment.make(for: moment, suffix: "carried") {
+            content.attachments = [attachment]
+        } else {
+            content.userInfo[BannerSubject.wantsAttachmentKey] = true
+        }
+        let request = UNNotificationRequest(identifier: MomentBanner.identifier(for: moment.id),
+                                            content: content, trigger: nil)
+        try? await UNUserNotificationCenter.current().add(request)
     }
 
     private func momentCandidates() -> [Moment] {

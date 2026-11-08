@@ -16,6 +16,8 @@ struct HomeView: View {
     @State private var showingFreshStart = false
     /// Owned here so leaving the screen or starting a second memo stops playback.
     @State private var voicePlayer = VoicePlayer()
+    /// The memo last tapped while its recording was still being fetched.
+    @State private var fetchingMemoID: String?
     /// Local, not `model.confirmingInviteReseat`: Settings hosts that one, and
     /// two views presenting from one flag collide.
     @State private var confirmingCloseLink = false
@@ -376,10 +378,18 @@ struct HomeView: View {
                 voicePlayer.pause()
                 return
             }
+            fetchingMemoID = memo.id
             Task {
                 // Fetches from CloudKit first when the memo isn't cached.
-                guard await model.ensureMedia(for: memo),
-                      let url = MomentStore.shared.mediaURL(for: memo) else {
+                let fetched = await model.ensureMedia(for: memo)
+                // Played only if it's still the one wanted and Home is still in
+                // front: under a sheet it would play with no control in sight,
+                // and take the audio session from a recording in progress.
+                guard fetchingMemoID == memo.id else { return }
+                fetchingMemoID = nil
+                guard UIApplication.shared.applicationState == .active,
+                      !model.homeSheetShowing, !model.rootSheetShowing else { return }
+                guard fetched, let url = MomentStore.shared.mediaURL(for: memo) else {
                     model.errorTitle = String(localized: "Can't play that yet")
                     model.errorMessage = model.isOffline
                         ? String(localized: "That voice memo isn't saved on this iPhone, so it can't play while you're offline. It will once you're back online.")

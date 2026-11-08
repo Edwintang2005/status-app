@@ -24,9 +24,9 @@ struct RootView: View {
                 PairingView()
             }
 
-            // Layered over the whole app so a celebration doesn't wait behind
-            // whichever screen is open.
-            if let celebration = model.pendingCelebration {
+            // Layered over the app, but held while a sheet is up: sheets sit
+            // above this layer, so it would play out unseen beneath one.
+            if let celebration = model.pendingCelebration, !model.homeSheetShowing, !model.rootSheetShowing {
                 CelebrationOverlay(payload: celebration,
                                    partnerName: model.partnerName) {
                     model.celebrationPlayed()

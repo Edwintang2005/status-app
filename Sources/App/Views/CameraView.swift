@@ -251,9 +251,12 @@ struct CameraView: View {
                     RoundedRectangle(cornerRadius: 6).fill(Theme.accent)
                         .frame(width: 28, height: 28)
                 } else {
+                    // Between a delayed pair's shots it's live — a press takes
+                    // the small picture now — so it doesn't look busy.
+                    let busy = model.isCapturing && model.insetCountdown == nil
                     Circle().fill(.white).padding(8)
-                        .opacity(model.isCapturing ? 0.5 : 1)
-                    if model.isCapturing {
+                        .opacity(busy ? 0.5 : 1)
+                    if busy {
                         ProgressView().tint(.black)
                     }
                 }

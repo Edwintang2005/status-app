@@ -227,6 +227,23 @@ enum PushBannerPolicy {
         }
     }
 
+    /// A heart or status push whose pass also filed partner moments: their own
+    /// push may never come (APNs keeps one notification per app for an offline
+    /// phone), so the newest is claimed here — in the same `mutate` as `decide`
+    /// — for the service to announce beside this push's own banner. The app's
+    /// rule for a delta's news, so a burst is one banner.
+    static func carriedMoment(_ push: Push, result: RefreshResult,
+                              in snapshot: inout Snapshot, now: Date = Date()) -> Moment? {
+        guard push == .nudge || push == .status else { return nil }
+        let floor = snapshot.lastAnnouncedMomentSentAt
+        let news = result.newPartnerMoments.filter {
+            AnnouncementPolicy.isNews($0, fullResync: result.fullResync, floor: floor, now: now)
+        }
+        let chosen = news.last { !snapshot.hasAnnounced($0.id) }
+        for moment in news { snapshot.recordAnnounced(moment) }
+        return chosen
+    }
+
     /// Same rule as every screen: a reported or filtered status shows no words,
     /// and an unopened surprise keeps them for the app.
     static func statusBody(_ status: StatusPayload, reportedAt: Date?, sealed: Bool = false) -> String {
@@ -290,9 +307,11 @@ enum PushBannerPolicy {
             return sent
         }
         guard let theirs, snapshot.hasAnnounced(theirs.id) else { return spaceChanged }
+        // With its picture: by subject it replaces the banner that showed it.
         return Plan(title: theirs.displaySenderName(fallback: name),
                     body: theirs.displayCaption ?? theirs.arrivalSummary,
                     volume: .quiet,
+                    attachment: theirs,
                     subject: .moment(theirs.id))
     }
 
@@ -318,7 +337,8 @@ enum PushBannerPolicy {
     }
 
     private static var spaceChanged: Plan {
-        Plan(title: AppConfig.appName, body: String(localized: "Your shared space changed."), volume: .quiet)
+        Plan(title: AppConfig.appName, body: String(localized: "Your shared space changed."), volume: .quiet,
+             dropsCategory: true)
     }
 
     private static func held(_ body: String, category: String, name: String) -> Plan {
@@ -349,8 +369,9 @@ enum PushBannerPolicy {
         return shown.isPlaceholder ? String(localized: "edited a caption") : String(localized: "edited a caption: \(shown.text)")
     }
 
+    /// Our own doing: nothing of the partner's to reply to or heart back.
     private static func own(_ body: String) -> Plan {
-        Plan(title: AppConfig.appName, body: body, volume: .quiet)
+        Plan(title: AppConfig.appName, body: body, volume: .quiet, dropsCategory: true)
     }
 
     /// Same wording rules as `NotificationManager.postNudge`.

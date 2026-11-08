@@ -18,9 +18,14 @@ enum AnnouncementPolicy {
 
     /// What a refresh should announce. A first sight of the partner's status
     /// adopts any standing nudge count silently: it's history, not a fresh tap.
+    /// `index` (`bannerCandidates`) catches up moments another pass filed but
+    /// never announced — a heart or status push carried them, or the widget
+    /// fetched them and their own push never came (APNs keeps one per app).
     static func claim(_ result: RefreshResult,
                       previousStatus: StatusPayload?,
-                      in snapshot: inout Snapshot) -> Claims {
+                      index: [Moment] = [],
+                      in snapshot: inout Snapshot,
+                      now: Date = Date()) -> Claims {
         var claims = Claims()
         if let theirs = result.partnerStatus,
            theirs.nudgeCount > snapshot.lastSeenPartnerNudgeCount {
@@ -36,9 +41,26 @@ enum AnnouncementPolicy {
             claims.moment = moment
         }
         for moment in news { snapshot.recordAnnounced(moment) }
+        if claims.moment == nil, let filed = claimFiled(index, in: &snapshot, now: now) {
+            claims.moment = filed
+        }
         claims.partnerLeft = result.partnerLeft && claimPartnerLeft(in: &snapshot)
         claims.removals = claimRemovals(in: &snapshot)
         return claims
+    }
+
+    /// The newest partner moment past the announced floor that nobody has
+    /// announced, every one of them marked so (a burst is one banner) — so the
+    /// push fallback never describes one later as new. One already seen in the
+    /// app is marked but not returned: there's nothing left to tell.
+    static func claimFiled(_ moments: [Moment], in snapshot: inout Snapshot, now: Date = Date()) -> Moment? {
+        let floor = snapshot.lastAnnouncedMomentSentAt
+            .map { TrustedTime.isFuture($0, now: now) ? now : $0 } ?? .distantPast
+        let unannounced = moments
+            .filter { !$0.fromMe && $0.sentAt > floor && !snapshot.hasAnnounced($0.id) }
+            .sorted { $0.sentAt < $1.sentAt }
+        for moment in unannounced { snapshot.recordAnnounced(moment) }
+        return unannounced.last { !$0.seen }
     }
 
     /// The partner's deletions owed a notice (`Snapshot.removalNotices`), taken

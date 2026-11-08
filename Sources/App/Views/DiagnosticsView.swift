@@ -68,12 +68,7 @@ struct DiagnosticsView: View {
                     Text("Share participants")
                 } footer: {
                     Group {
-                        Text("Once paired, both people should be listed as accepted "
-                             + "with the link closed. A partner shown as \u{201C}public\u{201D} "
-                             + "while the link is open hasn't been locked in yet — closing "
-                             + "the link removes public participants, so the button below "
-                             + "closes it and re-adds them as private — they then tap the "
-                             + "link once to confirm.")
+                        Text("Once paired, both people should be listed as accepted with the link closed. A partner shown as \u{201C}public\u{201D} while the link is open hasn't been locked in yet — closing the link removes public participants, so the button below closes it and re-adds them as private — they then tap the link once to confirm.")
                     }
                     .foregroundStyle(Theme.mutedText)
                 }
@@ -94,9 +89,7 @@ struct DiagnosticsView: View {
                         }
                     } footer: {
                         Group {
-                            Text("Ejects anyone who came in through the open link, "
-                                 + "then reopens it. Named participants and records "
-                                 + "are untouched.")
+                            Text("Ejects anyone who came in through the open link, then reopens it. Named participants and records are untouched.")
                         }
                         .foregroundStyle(Theme.mutedText)
                     }
@@ -124,13 +117,7 @@ struct DiagnosticsView: View {
                         }
                     } footer: {
                         Group {
-                            Text("Tries to make your partner a private participant "
-                                 + "and close the link to anyone new. Caution: if "
-                                 + "the promotion fails, CloudKit can drop them from "
-                                 + "the share entirely — their app then unlinks and "
-                                 + "they must rejoin with the invite link (history "
-                                 + "comes back, but not their local read/seen state). "
-                                 + "Only use it with your partner on standby.")
+                            Text("Tries to make your partner a private participant and close the link to anyone new. Caution: if the promotion fails, CloudKit can drop them from the share entirely — their app then unlinks and they must rejoin with the invite link (history comes back, but not their local read/seen state). Only use it with your partner on standby.")
                         }
                         .foregroundStyle(Theme.mutedText)
                     }
@@ -158,10 +145,7 @@ struct DiagnosticsView: View {
                         }
                     } footer: {
                         Group {
-                            Text("Fetches the whole shared history again and compares it with what this "
-                                 + "phone believes it sent. Anything marked sent that iCloud never "
-                                 + "received is sent again — a photo saved during patchy signal can "
-                                 + "look delivered here without ever having left the phone.")
+                            Text("Fetches the whole shared history again and compares it with what this phone believes it sent. Anything marked sent that iCloud never received is sent again — a photo saved during patchy signal can look delivered here without ever having left the phone.")
                         }
                         .foregroundStyle(Theme.mutedText)
                     }

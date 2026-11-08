@@ -584,7 +584,10 @@ final class AppModel {
         defer { statusSendsInFlight -= 1 }
         do {
             // The backend marks it published, against the then-current status (invariant 16).
-            try await bounded { try await $0.publish(payload) }
+            // Protected like every send: picked, then the phone locked mid-save.
+            try await Self.withUploadProtection("status") {
+                try await bounded { try await $0.publish(payload) }
+            }
             outbox.noteSendSucceeded()
             reload()
             AccessibilityNotification.Announcement(String(localized: "Status sent to \(partnerName)")).post()
@@ -626,7 +629,9 @@ final class AppModel {
         Task { [payload] in
             defer { statusSendsInFlight -= 1 }
             do {
-                try await bounded { try await $0.publish(payload, logged: logged) }
+                try await Self.withUploadProtection("rename") {
+                    try await bounded { try await $0.publish(payload, logged: logged) }
+                }
                 outbox.noteSendSucceeded()
                 reload()
             } catch {

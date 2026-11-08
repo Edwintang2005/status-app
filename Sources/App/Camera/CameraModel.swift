@@ -269,7 +269,11 @@ final class CameraModel {
             self.flashModes = flashModes
         case let .interrupted(on):
             isInterrupted = on
-            if on { cancelCountdown(announce: false) }
+            if on {
+                cancelCountdown(announce: false)
+                // Stops waiting for the inset: its camera can't fire now.
+                insetWait?.cancel()
+            }
         case .willCapture:
             shutterCount += 1
         case .tooWarm:
@@ -443,7 +447,7 @@ final class CameraModel {
             }
             do {
                 if isDual, let dualEngine {
-                    onCapture(.both(try await captureBoth(dualEngine)))
+                    onCapture(try await captureBoth(dualEngine))
                 } else {
                     let data = try await engine.capture(flash: flash, rotationAngle: tilt.captureAngle(frontCamera: position == .front))
                     guard let image = UIImage(data: data) else { throw CameraEngine.CaptureError.noData }
@@ -455,8 +459,10 @@ final class CameraModel {
         }
     }
 
-    /// Left apart for the composer, where the inset can still be moved.
-    private func captureBoth(_ dual: DualCameraEngine) async throws -> DualShot {
+    /// Left apart for the composer, where the inset can still be moved. A
+    /// delayed pair whose inset can't be taken (an interruption, the camera
+    /// failing in the wait) hands over the big picture alone rather than nothing.
+    private func captureBoth(_ dual: DualCameraEngine) async throws -> CameraShot {
         let mainIsBack = dualMainIsBack
         // The press's tilt for both shots: the placement is judged by it.
         let pressTilt = tilt
@@ -469,16 +475,24 @@ final class CameraModel {
             inset = mainIsBack ? shots.front : shots.back
         } else {
             main = try await dual.capture(back: mainIsBack, flash: flash, tilt: pressTilt)
-            await waitForInset(dualDelay)
-            // Closed mid-wait: no shot goes to the composer.
+            // Closed before or during the wait: no shot goes to the composer.
             guard !isStopped else { throw CancellationError() }
-            inset = try await dual.capture(back: !mainIsBack, flash: flash, tilt: pressTilt)
+            await waitForInset(dualDelay)
+            guard !isStopped else { throw CancellationError() }
+            do {
+                // Not while interrupted: an inactive connection makes the capture throw.
+                guard !isInterrupted else { throw CameraEngine.CaptureError.notRunning }
+                inset = try await dual.capture(back: !mainIsBack, flash: flash, tilt: pressTilt)
+            } catch {
+                guard let image = UIImage(data: main) else { throw CameraEngine.CaptureError.noData }
+                return .photo(image)
+            }
         }
         let shot = await Task.detached(priority: .userInitiated) {
             DualShotComposer.prepare(main: main, inset: inset, placement: placement)
         }.value
         guard let shot else { throw CameraEngine.CaptureError.noData }
-        return shot
+        return .both(shot)
     }
 
     private func waitForInset(_ delay: CameraDelay) async {

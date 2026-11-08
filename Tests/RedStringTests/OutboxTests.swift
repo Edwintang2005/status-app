@@ -201,6 +201,30 @@ final class OutboxTests: XCTestCase {
         XCTAssertNil(outbox.storageFullAt, "a landed send proves there's room")
     }
 
+    /// A send iCloud refuses outright isn't re-uploaded on every refresh, but
+    /// is never dropped: automatic passes skip it a while, a tap retries at once.
+    func testARefusedSendIsSkippedForAWhileNotDropped() async {
+        queue(["a"])
+        backend.fail("send", with: CKError(.serverRejectedRequest))
+        await outbox.retryPendingUploads(automatic: true)
+        await outbox.retryPendingUploads(automatic: true)
+        XCTAssertTrue(backend.sent.isEmpty, "the second pass didn't upload it again")
+        XCTAssertEqual(index.load().filter { !$0.uploaded }.count, 1, "still queued")
+        XCTAssertNil(outbox.storageFullAt)
+
+        let later = Date().addingTimeInterval(AppConfig.rejectedUploadRetryInterval + 1)
+        await outbox.retryPendingUploads(automatic: true, now: later)
+        XCTAssertEqual(backend.sent, ["a"], "tried again after the interval")
+    }
+
+    func testARefusedSendGoesOnATap() async {
+        queue(["a"])
+        backend.fail("send", with: CKError(.invalidArguments))
+        await outbox.retryPendingUploads(automatic: true)
+        await outbox.retryPendingUploads(automatic: false)
+        XCTAssertEqual(backend.sent, ["a"])
+    }
+
     func testTheFootersTapRetriesAtOnce() async {
         queue(["a"])
         backend.fail("send", with: quota)

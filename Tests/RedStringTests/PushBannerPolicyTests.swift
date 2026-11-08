@@ -121,7 +121,37 @@ final class PushBannerPolicyTests: XCTestCase {
         XCTAssertEqual(decide(.moment, result, in: &snapshot).body, String(localized: "Your shared space changed."))
     }
 
-    /// Announced already (the app's refresh got there first): its words, quietly.
+    /// A heart's push whose pass also filed a photo: the heart keeps its banner,
+    /// and the photo is claimed for its own — its push may never come.
+    func testAHeartsPushClaimsThePhotoItCarried() {
+        var snapshot = paired(theirs: Fixtures.status(nudges: 1))
+        var result = RefreshResult(partnerStatus: Fixtures.status(nudges: 2),
+                                   newPartnerMoments: [Fixtures.moment("p1", at: Fixtures.date(10)),
+                                                       Fixtures.moment("p2", at: Fixtures.date(20))])
+        result.partnerNudgeArrived = true
+        let plan = decide(.nudge, result, in: &snapshot)
+        XCTAssertEqual(plan.thread, NotificationThread.hearts, "the heart's own banner is unchanged")
+        let carried = PushBannerPolicy.carriedMoment(.nudge, result: result, in: &snapshot, now: now)
+        XCTAssertEqual(carried?.id, "p2", "one banner for the burst, the newest")
+        XCTAssertTrue(snapshot.hasAnnounced("p1"))
+        XCTAssertNil(PushBannerPolicy.carriedMoment(.status, result: result, in: &snapshot, now: now),
+                     "claimed once, across pushes and processes")
+        var fresh = paired()
+        XCTAssertNil(PushBannerPolicy.carriedMoment(.moment, result: result, in: &fresh, now: now),
+                     "a moment push announces it through its own banner")
+    }
+
+    /// Our own doing offers nothing of the partner's to reply to.
+    func testOwnBannersDropThePartnerActions() {
+        var snapshot = paired()
+        var result = RefreshResult.empty
+        result.ownRecordsChanged = true
+        XCTAssertTrue(decide(.status, result, in: &snapshot).dropsCategory)
+        XCTAssertTrue(decide(.nudge, result, in: &snapshot).dropsCategory)
+    }
+
+    /// Announced already (the app's refresh got there first): its words, quietly,
+    /// with its picture — by subject it replaces the banner that showed it.
     func testAnAnnouncedMomentIsWordedQuietly() {
         var snapshot = paired()
         let theirs = Fixtures.moment("theirs", kind: .voice, at: Fixtures.date(20))
@@ -132,7 +162,8 @@ final class PushBannerPolicyTests: XCTestCase {
         XCTAssertEqual(plan.title, "Sam")
         XCTAssertEqual(plan.body, Moment.Kind.voice.arrivalSummary)
         XCTAssertEqual(plan.volume, .quiet)
-        XCTAssertNil(plan.attachment)
+        XCTAssertEqual(plan.attachment?.id, "theirs")
+        XCTAssertEqual(plan.subject, .moment("theirs"))
     }
 
     func testAnUnknownMomentChangeIsNeverCreditedToThePartner() {

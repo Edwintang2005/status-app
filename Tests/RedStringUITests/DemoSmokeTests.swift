@@ -59,8 +59,14 @@ final class DemoSmokeTests: XCTestCase {
     func testDrawingPalette() throws {
         launchToHome()
         try openSheet(app.buttons["Moment"], closingWith: "Cancel", name: "Drawing palette") {
-            self.app.buttons["Draw"].tap()
-            XCTAssertTrue(self.app.buttons["Colour 1"].waitForExistence(timeout: 10), "the palette never opened")
+            let palette = self.app.buttons["Colour 1"]
+            // Tapped again if nothing came up: a tap while the sheet is still
+            // rising can go nowhere (it flaked once in a few runs on each phone).
+            for _ in 0..<3 where !palette.exists {
+                self.app.buttons["Draw"].tap()
+                _ = palette.waitForExistence(timeout: 10)
+            }
+            XCTAssertTrue(palette.exists, "the palette never opened")
         }
     }
 

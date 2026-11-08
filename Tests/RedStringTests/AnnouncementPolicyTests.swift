@@ -42,6 +42,38 @@ final class AnnouncementPolicyTests: XCTestCase {
         XCTAssertNil(again.moment)
     }
 
+    /// A photo another pass filed (a heart's push carried it; the widget fetched
+    /// it and its own push never came) is caught up by the app's next refresh,
+    /// once — never one behind the floor, ours, or one already seen in the app.
+    func testTheAppCatchesUpMomentsAnotherPassFiled() {
+        var snapshot = Snapshot.empty
+        snapshot.lastAnnouncedMomentSentAt = Fixtures.date(100)
+        let old = Fixtures.moment("old", at: Fixtures.date(50))
+        let ours = Fixtures.moment("ours", at: Fixtures.date(160), fromMe: true)
+        let filed = Fixtures.moment("filed", at: Fixtures.date(150))
+        let index = [ours, filed, old]
+        let claims = AnnouncementPolicy.claim(result(), previousStatus: nil, index: index, in: &snapshot)
+        XCTAssertEqual(claims.moment?.id, "filed")
+        XCTAssertEqual(snapshot.lastAnnouncedMomentSentAt, Fixtures.date(150))
+        XCTAssertNil(AnnouncementPolicy.claim(result(), previousStatus: nil, index: index, in: &snapshot).moment,
+                     "announced once")
+
+        let seen = Fixtures.moment("seen", at: Fixtures.date(200), seen: true)
+        XCTAssertNil(AnnouncementPolicy.claim(result(), previousStatus: nil, index: [seen], in: &snapshot).moment,
+                     "already looked at in the app: nothing to tell")
+        XCTAssertTrue(snapshot.hasAnnounced("seen"), "but marked, so no push fallback calls it new later")
+    }
+
+    /// The delta's own news wins over the catch-up, as before.
+    func testTheDeltaComesBeforeTheCatchUp() {
+        var snapshot = Snapshot.empty
+        let filed = Fixtures.moment("filed", at: Fixtures.date(150))
+        let arrived = Fixtures.moment("arrived", at: Fixtures.date(120))
+        let claims = AnnouncementPolicy.claim(result(moments: [arrived]), previousStatus: nil,
+                                              index: [filed], in: &snapshot)
+        XCTAssertEqual(claims.moment?.id, "arrived")
+    }
+
     /// A re-fetched history (reinstall, token expiry) fills the index with
     /// hundreds of never-announced moments; the banner fallback must not pick one.
     func testMomentBannerIndexFallbackNeverReachesBehindTheFloor() {

@@ -5,12 +5,12 @@ import Foundation
 enum AppConfig {
     static let appName = "Red String"
 
-    /// Must match `com.apple.security.application-groups` in all four entitlements
-    /// files (app Debug and Release, widget, notification service).
+    /// Must match `com.apple.security.application-groups` in all five entitlements
+    /// files (app Debug and Release, widget, notification service, notification content).
     static let appGroupID = "group.com.edwintang.redstring"
 
-    /// Must match `com.apple.developer.icloud-container-identifiers` in all four
-    /// entitlements files (app Debug and Release, widget, notification service).
+    /// Must match `com.apple.developer.icloud-container-identifiers` in all five
+    /// entitlements files (app Debug and Release, widget, notification service, notification content).
     static let cloudContainerID = "iCloud.com.edwintang.redstring"
 
     /// Custom zone holding both partners' status records. Custom (not default)
@@ -168,6 +168,8 @@ enum AppConfig {
     /// After a send fails on a full iCloud, automatic retries wait this long;
     /// the home footer's tap still retries at once.
     static let storageFullRetryInterval: TimeInterval = 60 * 60
+    /// How long an automatic retry pass skips a send iCloud refused outright (`SendFailure.rejected`).
+    static let rejectedUploadRetryInterval: TimeInterval = 6 * 60 * 60
     /// A throttled request (`requestRateLimited`, `zoneBusy`, `serviceUnavailable`)
     /// without a retry-after of its own waits this long before automatic retries.
     static let throttleDefaultDelay: TimeInterval = 30

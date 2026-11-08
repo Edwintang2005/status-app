@@ -107,18 +107,13 @@ enum NotificationManager {
         let superseded = await removeGenericBanners(body: CloudSync.GenericAlert.moment,
                                                     category: NotificationCategory.moment,
                                                     subject: .moment(moment.id))
-        let content = UNMutableNotificationContent()
-        content.title = moment.displaySenderName(fallback: name)
-        content.body = moment.displayCaption ?? moment.arrivalSummary
+        let content = MomentBanner.content(for: moment, from: name)
         // Replacing a banner that already alerted (generic or locked-phone
         // wording): the words get better, the phone doesn't buzz twice.
         if superseded {
+            content.sound = nil
             content.interruptionLevel = .passive
-        } else {
-            content.sound = .default
         }
-        content.categoryIdentifier = NotificationCategory.moment
-        content.userInfo[BannerSubject.key] = BannerSubject.moment(moment.id).stamp
         content.limit(to: SharedStore.shared.notificationPreferences.level(forMoment: moment.kind))
 
         // If the refresh's best-effort media download failed, fetch here rather
@@ -135,7 +130,7 @@ enum NotificationManager {
             content.userInfo[BannerSubject.wantsAttachmentKey] = true
         }
 
-        let request = UNNotificationRequest(identifier: "moment-\(moment.id)",
+        let request = UNNotificationRequest(identifier: MomentBanner.identifier(for: moment.id),
                                             content: content,
                                             trigger: nil)
         do {

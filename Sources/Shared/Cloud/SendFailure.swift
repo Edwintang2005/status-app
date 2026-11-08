@@ -13,6 +13,11 @@ enum SendFailure: Equatable, Sendable {
     /// `serviceUnavailable`): nothing automatic until `until` — retrying sooner
     /// can extend the throttle.
     case throttled(until: Date)
+    /// iCloud will never take it as sent — a malformed or refused request, a
+    /// schema without the field, a missing asset file. Retrying each refresh
+    /// would re-upload the whole photo for nothing; an automatic pass skips it
+    /// for `AppConfig.rejectedUploadRetryInterval`, a tap still retries at once.
+    case rejected
     /// Anything else: retried on the next refresh.
     case transient
 
@@ -32,12 +37,18 @@ enum SendFailure: Equatable, Sendable {
         } else if let throttle = items.first(where: { Self.isThrottle($0.code) }) {
             let delay = Self.delay(throttle.retryAfterSeconds ?? error.retryAfterSeconds)
             self = .throttled(until: now.addingTimeInterval(delay))
+        } else if Self.isRejection(error.code) {
+            self = .rejected
         } else if Self.isNetwork(error.code) {
             self = .offline
         } else if !itemCodes.isEmpty,
                   itemCodes.allSatisfy({ Self.isNetwork($0) || $0 == .batchRequestFailed }),
                   itemCodes.contains(where: Self.isNetwork) {
             self = .offline
+        } else if !itemCodes.isEmpty,
+                  itemCodes.allSatisfy({ Self.isRejection($0) || $0 == .batchRequestFailed }),
+                  itemCodes.contains(where: Self.isRejection) {
+            self = .rejected
         } else {
             self = .transient
         }
@@ -45,6 +56,11 @@ enum SendFailure: Equatable, Sendable {
 
     private static func isNetwork(_ code: CKError.Code) -> Bool {
         code == .networkUnavailable
+    }
+
+    private static func isRejection(_ code: CKError.Code) -> Bool {
+        [.invalidArguments, .serverRejectedRequest, .assetFileNotFound, .constraintViolation,
+         .incompatibleVersion, .permissionFailure, .badContainer, .badDatabase, .missingEntitlement].contains(code)
     }
 
     private static func isThrottle(_ code: CKError.Code) -> Bool {

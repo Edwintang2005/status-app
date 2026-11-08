@@ -29,7 +29,8 @@ struct VoiceMomentTile: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
-            .background(.black.opacity(0.35), in: Capsule())
+            // Dark enough for 4.5:1 over the tile's light gradient.
+            .background(.black.opacity(0.6), in: Capsule())
             .padding(6)
         }
         .accessibilityLabel(String(localized: "Voice memo, \(moment.durationLabel)"))

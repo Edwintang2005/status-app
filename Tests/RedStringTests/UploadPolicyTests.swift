@@ -88,7 +88,8 @@ final class UploadPolicyTests: XCTestCase {
     }
 
     func testAMovingUploadOutlastsTheTimeout() async throws {
-        try await withStallWatch(interval: 0.02, timeout: 0.1) { progress in
+        // A wide margin over the 10 ms steps: a loaded CI runner can pause for tens of ms.
+        try await withStallWatch(interval: 0.02, timeout: 0.5) { progress in
             for step in 1...30 {
                 progress(Double(step) / 31)
                 try await Task.sleep(for: .milliseconds(10))

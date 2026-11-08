@@ -132,13 +132,34 @@ final class SnapshotCodableTests: XCTestCase {
         XCTAssertFalse(snapshot.anniversaryRequestPending, "a set date answers every ask")
     }
 
+    /// A pairing field this build can't read costs that field, never the
+    /// pairing — a `nil` pairing would show the app as unlinked.
+    func testPairingDecodesFieldByField() throws {
+        let odd = try decode(PairingInfo.self,
+                             #"{"role":"owner","zoneName":"CoupleZone","zoneOwnerName":"__defaultOwner__","pairedAt":"soon","userRecordName":7}"#)
+        XCTAssertEqual(odd.role, .owner)
+        XCTAssertEqual(odd.zoneName, "CoupleZone")
+        XCTAssertNil(odd.userRecordName)
+        XCTAssertEqual(odd.pairedAt, .distantPast)
+        XCTAssertThrowsError(try decode(PairingInfo.self, #"{"role":"owner","zoneName":"CoupleZone"}"#),
+                             "without the zone's owner there's no pairing to talk to")
+        let original = PairingInfo(role: .participant, zoneName: "CoupleZone", zoneOwnerName: "_abc",
+                                   pairedAt: Fixtures.t0, userRecordName: "_me")
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        XCTAssertEqual(try decoder.decode(PairingInfo.self, from: encoder.encode(original)), original)
+    }
+
     func testPartnerNameFallsBackWhenUnset() {
+        // Not `moderatedPartnerName`: it reads `SharedStore.shared`, the real App Group.
         var snapshot = Snapshot.empty
-        XCTAssertEqual(snapshot.moderatedPartnerName, "Partner")
+        XCTAssertEqual(snapshot.partnerName(filterEnabled: true), "Partner")
         snapshot.theirs = Fixtures.status()
-        XCTAssertEqual(snapshot.moderatedPartnerName, "Sam")
+        XCTAssertEqual(snapshot.partnerName(filterEnabled: true), "Sam")
         snapshot.theirs?.displayName = "  "
-        XCTAssertEqual(snapshot.moderatedPartnerName, "Partner")
+        XCTAssertEqual(snapshot.partnerName(filterEnabled: true), "Partner")
     }
 
     /// Upgrading: a published status was already logged (or was a rename the

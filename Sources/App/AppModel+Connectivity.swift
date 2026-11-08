@@ -139,7 +139,7 @@ extension AppModel {
         guard isPaired, recoveryGate.begin() else { return }
         repeat {
             await sendQueued(automatic: true)
-            await outbox.flushReceipts()
+            await outbox.flushReceipts(automatic: true)
             await restoreLatestThumbnailIfMissing()
             await checkShareMembers(throttled: true)
             await checkInstalledWidgets()
@@ -154,7 +154,7 @@ extension AppModel {
         if await outbox.republishAnniversary(automatic: automatic) { changed = true }
         if await outbox.republishAnniversaryRequest(automatic: automatic) { changed = true }
         // Before the upload retry: the clear and a retry never overlap.
-        if await outbox.advanceFreshStart() { changed = true }
+        if await outbox.advanceFreshStart(automatic: automatic) { changed = true }
         if changed { reload() }
         if await outbox.retryPendingUploads(automatic: automatic) { reload() }
         // After the uploads: an edit to a moment that just landed can go now.

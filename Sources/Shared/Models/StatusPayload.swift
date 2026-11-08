@@ -209,6 +209,18 @@ struct PairingInfo: Codable, Hashable {
     func sameZone(as other: PairingInfo) -> Bool {
         role == other.role && zoneName == other.zoneName && zoneOwnerName == other.zoneOwnerName
     }
+
+    /// By hand (invariant 5): a field this build can't read must not make the
+    /// pairing `nil` — the app would look unlinked. Only what names the zone is
+    /// required; the encoder is synthesized (same keys, optionals omitted).
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        role = try container.decode(PairRole.self, forKey: .role)
+        zoneName = try container.decode(String.self, forKey: .zoneName)
+        zoneOwnerName = try container.decode(String.self, forKey: .zoneOwnerName)
+        pairedAt = (try? container.decodeIfPresent(Date.self, forKey: .pairedAt)) ?? .distantPast
+        userRecordName = try? container.decodeIfPresent(String.self, forKey: .userRecordName)
+    }
 }
 
 /// A read receipt for a status: which version (`statusUpdatedAt`, the

@@ -23,3 +23,22 @@ enum MomentAttachment {
         }
     }
 }
+
+/// The banner announcing a partner moment: the app's, and the notification
+/// service's for a moment a heart or status push carried. One identifier per
+/// moment, so the two never stack copies of it.
+enum MomentBanner {
+    static func identifier(for momentID: String) -> String { "moment-\(momentID)" }
+
+    /// Worded and stamped, with the default sound; the caller caps it
+    /// (`limit(to:)`) last and attaches the picture if it has one.
+    static func content(for moment: Moment, from name: String) -> UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = moment.displaySenderName(fallback: name)
+        content.body = moment.displayCaption ?? moment.arrivalSummary
+        content.sound = .default
+        content.categoryIdentifier = NotificationCategory.moment
+        content.userInfo[BannerSubject.key] = BannerSubject.moment(moment.id).stamp
+        return content
+    }
+}

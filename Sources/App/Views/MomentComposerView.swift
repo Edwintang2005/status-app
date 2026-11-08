@@ -316,6 +316,10 @@ private struct DualInsetOverlay: View {
     @State private var isDragging = false
     @State private var isPinching = false
     @State private var pinched = false
+    /// Reset by SwiftUI when a gesture ends *or is cancelled* (a scroll taking
+    /// over, a call): `onEnded` never runs for a cancelled one.
+    @GestureState private var dragTracking = false
+    @GestureState private var pinchTracking = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -335,6 +339,7 @@ private struct DualInsetOverlay: View {
                     // High priority, or the composer's scroll view takes the drag (invariant 17).
                     .highPriorityGesture(
                         DragGesture(minimumDistance: 2)
+                            .updating($dragTracking) { _, tracking, _ in tracking = true }
                             .onChanged { value in
                                 begin()
                                 isDragging = true
@@ -362,6 +367,7 @@ private struct DualInsetOverlay: View {
             }
             .simultaneousGesture(
                 MagnifyGesture()
+                    .updating($pinchTracking) { _, tracking, _ in tracking = true }
                     .onChanged { value in
                         begin()
                         isPinching = true
@@ -377,6 +383,13 @@ private struct DualInsetOverlay: View {
                 isEnabled: isMovable)
         }
         .allowsHitTesting(isMovable)
+        .onChange(of: dragTracking || pinchTracking) { _, tracking in
+            guard !tracking else { return }
+            // After any `onEnded` has run: a session still open was cancelled,
+            // so it's dropped and the inset shows what Send would draw.
+            DispatchQueue.main.async { if base != nil { resetSession() } }
+        }
+        .onChange(of: isMovable) { resetSession() }
     }
 
     private func live(in square: CGSize) -> DualShotLayout.Placement {
@@ -392,9 +405,15 @@ private struct DualInsetOverlay: View {
     private func commitIfDone(in square: CGSize) {
         guard !isDragging, !isPinching, base != nil else { return }
         onMove(live(in: square))
+        resetSession()
+    }
+
+    private func resetSession() {
         base = nil
         translation = .zero
         factor = 1
+        isDragging = false
+        isPinching = false
         pinched = false
     }
 }

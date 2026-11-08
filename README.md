@@ -65,7 +65,7 @@ Then, once:
    places must agree:
    - `PRODUCT_BUNDLE_IDENTIFIER` in [project.yml](project.yml) (all five targets, both test bundles included)
    - the identifiers in [Sources/Shared/AppConfig.swift](Sources/Shared/AppConfig.swift)
-   - the container and group IDs in all four `.entitlements` files
+   - the container and group IDs in all five `.entitlements` files
    - the `NSUbiquitousContainers` key in
      [Info.plist](Sources/App/Resources/Info.plist)
 3. **Create the CloudKit container** — Xcode does this for you the first time
@@ -199,7 +199,13 @@ raise a duplicate local notification the next time it refreshes.
 
 When that marking *didn't* happen — the push was dropped, or the extension
 failed mid-refresh — the app catches up on its next refresh, whatever triggered
-it. A nudge found that way can be hours old, and announcing it as *"is thinking
+it (statuses aside: the app posts none, the card shows them). A photo can also
+arrive on another push's pass — APNs keeps one notification per app for an
+offline phone, so a heart may be all that comes: that push's service posts the
+photo's own banner beside the heart's (`PushBannerPolicy.carriedMoment`), and a
+photo the widget filed without any push is announced by the app's next refresh
+(`AnnouncementPolicy.claim` over `bannerCandidates`), unless it's already been
+seen. A nudge found that way can be hours old, and announcing it as *"is thinking
 of you"* during, say, a status update reads as a mislabelled notification. So
 the catch-up checks `lastNudgeAt`: a nudge more than fifteen minutes old is worded
 *"was thinking of you earlier 💭"* and loses its time-sensitive priority. The
@@ -817,6 +823,7 @@ Sources/Shared/        compiled into every target, the test bundle included
 Sources/App/           the app: AppModel, views, camera, audio, notifications
 Sources/Widget/        status, photo and heart widgets
 Sources/NotificationService/   push enrichment
+Sources/NotificationContent/   the expanded (long-pressed) banner
 Tests/                 RedStringTests (no host app) and RedStringUITests
 ```
 
@@ -827,8 +834,9 @@ build fills it from SwiftUI text and `String(localized:)` — xcodebuild doesn't
 write it back; English only so far, but every user-facing string goes through
 it) and a `PrivacyInfo.xcprivacy`, required for App Store submission. Red String
 declares no tracking and no collected data; the required-reason APIs are the
-App Group defaults suite (CA92.1) and the file timestamps `MomentStore.prune`
-reads inside the app's own container (C617.1).
+App Group defaults suite (1C8F.1, and CA92.1 in the app), the file timestamps
+`MomentStore.prune` reads inside the app's own container (C617.1), and, in the
+app, the active keyboards the status picker's emoji field checks (54BD.1).
 
 ## Commands
 

@@ -40,6 +40,16 @@ final class SendFailureTests: XCTestCase {
         XCTAssertEqual(SendFailure(SyncError.saveUnconfirmed), .transient)
     }
 
+    /// Requests iCloud will never accept, bare or for every item.
+    func testRefusalsAreRejected() {
+        XCTAssertEqual(SendFailure(CKError(.serverRejectedRequest)), .rejected)
+        XCTAssertEqual(SendFailure(CKError(.invalidArguments)), .rejected)
+        XCTAssertEqual(SendFailure(partial([.batchRequestFailed, .assetFileNotFound])), .rejected)
+        XCTAssertEqual(SendFailure(partial([.assetFileNotFound, .serverRecordChanged])), .transient,
+                       "one item worth retrying keeps the whole send transient")
+        XCTAssertEqual(SendFailure(partial([.invalidArguments, .quotaExceeded])), .storageFull, "quota wins")
+    }
+
     /// CloudKit's retry-after is honoured, bare or per item, and bounded.
     func testThrottlingCarriesTheServersDelay() {
         let now = Fixtures.t0

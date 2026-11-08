@@ -38,6 +38,17 @@
 				<string>C617.1</string>
 			</array>
 		</dict>
+		<dict>
+			<!-- The status picker's emoji field asks for the emoji keyboard
+			     (UITextInputMode.activeInputModes). 54BD.1: active keyboards read
+			     to present the right input UI, not stored or sent. -->
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryActiveKeyboards</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>54BD.1</string>
+			</array>
+		</dict>
 	</array>
 </dict>
 </plist>

@@ -19,8 +19,10 @@ enum SyncRunner {
         // Check and claim inside one `mutate`, under the cross-process lock: the service
         // extension advances the same watermarks, and check-then-act outside it double-announced.
         var claims = AnnouncementPolicy.Claims()
+        let index = AnnouncementPolicy.bannerCandidates(MomentIndex.shared.load(),
+                                                        floor: store.snapshot.lastAnnouncedMomentSentAt)
         store.mutate(reloadWidgets: false) {
-            claims = AnnouncementPolicy.claim(result, previousStatus: previousStatus, in: &$0)
+            claims = AnnouncementPolicy.claim(result, previousStatus: previousStatus, index: index, in: &$0)
         }
         let name = store.snapshot.moderatedPartnerName
         for post in PushBannerPolicy.appAnnouncements(claims, result: result, announce: announce) {

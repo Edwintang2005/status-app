@@ -6,7 +6,8 @@ struct StatusHistoryView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
 
-    @State private var entries: [Row] = []
+    /// `nil` until loaded, so the empty state doesn't flash on opening.
+    @State private var entries: [Row]?
     @State private var filter: HistoryFilter = .all
 
     /// An entry and how it may be shown (invariant 20).
@@ -19,7 +20,7 @@ struct StatusHistoryView: View {
     }
 
     private var filtered: [Row] {
-        entries.filter { filter.allows(fromMe: $0.fromMe) }
+        (entries ?? []).filter { filter.allows(fromMe: $0.fromMe) }
     }
 
     /// Newest day first; entries within a day stay newest first.
@@ -44,7 +45,9 @@ struct StatusHistoryView: View {
                         .padding(.bottom, 8)
                         .zIndex(1)
 
-                    if filtered.isEmpty {
+                    if entries == nil {
+                        Spacer()
+                    } else if filtered.isEmpty {
                         ContentUnavailableView {
                             Label("No statuses yet", systemImage: "clock.arrow.circlepath")
                         } description: {
@@ -80,7 +83,10 @@ struct StatusHistoryView: View {
                 }
             }
         }
-        .task {
+        // Reloaded as statuses arrive, or a report or reveal changes what shows.
+        .task(id: HistoryKey(theirs: model.snapshot.theirs?.wordsAt, mine: model.snapshot.mine?.wordsAt,
+                             reportedAt: model.hiddenPartnerStatusAt, sealedAt: model.snapshot.sealedPartnerWordsAt,
+                             filterOn: model.contentFilterEnabled)) {
             let reportedAt = model.hiddenPartnerStatusAt
             let sealedAt = model.snapshot.sealedPartnerWordsAt
             let filterOn = model.contentFilterEnabled
@@ -137,3 +143,11 @@ struct StatusHistoryView: View {
         .tint(Theme.accent)
 }
 #endif
+
+private struct HistoryKey: Hashable {
+    var theirs: Date?
+    var mine: Date?
+    var reportedAt: Date?
+    var sealedAt: Date?
+    var filterOn: Bool
+}

@@ -36,7 +36,7 @@ final class PartnerLeftTests: XCTestCase {
         XCTAssertEqual(snapshot.partnerLeftAt, Fixtures.t0)
         XCTAssertEqual(snapshot.partnerLeftName, "Sam")
         XCTAssertTrue(snapshot.partnerHasLeft)
-        XCTAssertEqual(snapshot.moderatedPartnerName, "Sam", "not \"Partner\" the moment they leave")
+        XCTAssertEqual(snapshot.partnerName(filterEnabled: true), "Sam", "not \"Partner\" the moment they leave")
     }
 
     func testADeletionWithNothingHeldIsNotALeaving() {
