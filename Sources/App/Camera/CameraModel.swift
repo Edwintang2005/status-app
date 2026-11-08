@@ -54,6 +54,10 @@ final class CameraModel {
     private(set) var dualCorner: DualShotLayout.Corner = .topLeading
     /// Why Both turned itself off; cleared after a few seconds.
     private(set) var dualNotice: DualNotice?
+    /// How long after the big picture the inset's camera fires (remembered).
+    private(set) var dualDelay: CameraDelay = .off
+    /// Seconds until the inset's shot, while a delayed pair is half taken.
+    private(set) var insetCountdown: Int?
     var supportsBothCameras: Bool { DualCameraEngine.isSupported }
 
     enum DualNotice: Equatable {
@@ -76,6 +80,8 @@ final class CameraModel {
     /// The screen has gone: a switch still under way mustn't start a camera.
     @ObservationIgnored private var isStopped = false
     @ObservationIgnored private var countdownTask: Task<Void, Never>?
+    /// Cancelled to take the inset's shot at once.
+    @ObservationIgnored private var insetWait: Task<Void, Never>?
     @ObservationIgnored private var pinchStart: CGFloat?
     @ObservationIgnored private let store: SharedStore
     @ObservationIgnored private let motion = CMMotionManager()
@@ -129,6 +135,7 @@ final class CameraModel {
             position = saved.frontCamera ? .front : .back
             preferredFlash = saved.flash
             timer = saved.timer
+            dualDelay = saved.dualDelay
         }
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized: break
@@ -163,6 +170,7 @@ final class CameraModel {
     func stop() {
         isStopped = true
         cancelCountdown(announce: false)
+        insetWait?.cancel()
         motion.stopAccelerometerUpdates()
         singleEngine?.stop()
         dualEngine?.stop()
@@ -227,7 +235,9 @@ final class CameraModel {
         dualMainIsBack.toggle()
     }
 
+    /// Not mid-shot: a delayed pair keeps the corner it was pressed with.
     func moveDualInset(to corner: DualShotLayout.Corner) {
+        guard !isCapturing else { return }
         dualCorner = corner
     }
 
@@ -327,10 +337,15 @@ final class CameraModel {
         saveSettings()
     }
 
+    func cycleDualDelay() {
+        dualDelay = dualDelay.next
+        saveSettings()
+    }
+
     /// The position is saved from `.configured`, so a switch that failed isn't remembered.
     private func saveSettings() {
-        store.cameraSettings = CameraSettings(frontCamera: position == .front,
-                                              flash: preferredFlash, timer: timer)
+        store.cameraSettings = CameraSettings(frontCamera: position == .front, flash: preferredFlash,
+                                              timer: timer, dualDelay: dualDelay)
     }
 
     func selectLens(_ preset: CGFloat) {
@@ -377,8 +392,10 @@ final class CameraModel {
     // MARK: - Shutter
 
     /// The on-screen button, the volume buttons, AirPods and the Camera Control
-    /// all land here. With a timer set, a second press cancels it.
+    /// all land here. With a timer set, a second press cancels it; between a
+    /// delayed pair's shots, a press takes the inset's at once.
     func shutter() {
+        if insetCountdown != nil { insetWait?.cancel(); return }
         if countdown != nil { return cancelCountdown(announce: true) }
         guard canShoot else { return }
         guard timer != .off else { return capture() }
@@ -441,13 +458,42 @@ final class CameraModel {
     /// Left apart for the composer, where the inset can still be moved.
     private func captureBoth(_ dual: DualCameraEngine) async throws -> DualShot {
         let mainIsBack = dualMainIsBack
-        let placement = DualShotLayout.Placement(dualCorner.inPhoto(tilt: tilt))
-        let shots = try await dual.capture(flash: flash, tilt: tilt, mainIsBack: mainIsBack)
-        let (main, inset) = mainIsBack ? (shots.back, shots.front) : (shots.front, shots.back)
+        // The press's tilt for both shots: the placement is judged by it.
+        let pressTilt = tilt
+        let placement = DualShotLayout.Placement(dualCorner.inPhoto(tilt: pressTilt))
+        let main: Data
+        let inset: Data
+        if dualDelay == .off {
+            let shots = try await dual.capture(flash: flash, tilt: pressTilt, mainIsBack: mainIsBack)
+            main = mainIsBack ? shots.back : shots.front
+            inset = mainIsBack ? shots.front : shots.back
+        } else {
+            main = try await dual.capture(back: mainIsBack, flash: flash, tilt: pressTilt)
+            await waitForInset(dualDelay)
+            // Closed mid-wait: no shot goes to the composer.
+            guard !isStopped else { throw CancellationError() }
+            inset = try await dual.capture(back: !mainIsBack, flash: flash, tilt: pressTilt)
+        }
         let shot = await Task.detached(priority: .userInitiated) {
             DualShotComposer.prepare(main: main, inset: inset, placement: placement)
         }.value
         guard let shot else { throw CameraEngine.CaptureError.noData }
         return shot
+    }
+
+    private func waitForInset(_ delay: CameraDelay) async {
+        AccessibilityNotification.Announcement(
+            String(localized: "Taking the small picture in \(delay.spoken)")).post()
+        let wait = Task {
+            for remaining in stride(from: delay.rawValue, to: 0, by: -1) {
+                insetCountdown = remaining
+                try? await Task.sleep(for: .seconds(1))
+                if Task.isCancelled { return }
+            }
+        }
+        insetWait = wait
+        await wait.value
+        insetWait = nil
+        insetCountdown = nil
     }
 }

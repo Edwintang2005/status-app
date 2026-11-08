@@ -21,9 +21,11 @@ struct DualShot: Sendable {
 enum DualShotComposer {
     static func prepare(main: Data, inset: Data, placement: DualShotLayout.Placement) -> DualShot? {
         guard let base = decoded(main, maxPixel: MomentStore.fullMaxDimension) else { return nil }
-        // The inset's long side is under half the main's short side.
+        // Sharp at the largest a pinch makes it: a 3:4 inset's long side.
         let side = CGFloat(min(base.width, base.height))
-        guard let small = decoded(inset, maxPixel: side * 0.6) else { return nil }
+        guard let small = decoded(inset, maxPixel: side * DualShotLayout.insetShares.upperBound * 4 / 3) else {
+            return nil
+        }
         return DualShot(main: UIImage(cgImage: base), inset: UIImage(cgImage: small), placement: placement)
     }
 

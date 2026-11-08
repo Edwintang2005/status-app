@@ -169,19 +169,23 @@ enum DualShotLayout {
     }
 
     /// Where the inset sits along each axis of the square, 0 at the leading
-    /// (top) margin, 1 at the trailing (bottom) one. The live preview snaps to
-    /// corners; once the shot is in, the composer lets it sit anywhere.
+    /// (top) margin, 1 at the trailing (bottom) one, and how big it is. The
+    /// live preview snaps to corners at the default size; once the shot is in,
+    /// the composer lets it sit anywhere, at any size in `insetShares`.
     struct Placement: Equatable, Sendable {
         var x: CGFloat
         var y: CGFloat
+        /// The inset's short side, as a share of the main picture's.
+        var share: CGFloat
 
-        init(x: CGFloat, y: CGFloat) {
+        init(x: CGFloat, y: CGFloat, share: CGFloat = DualShotLayout.insetShare) {
             self.x = min(max(x, 0), 1)
             self.y = min(max(y, 0), 1)
+            self.share = min(max(share, DualShotLayout.insetShares.lowerBound), DualShotLayout.insetShares.upperBound)
         }
 
-        init(_ corner: Corner) {
-            self.init(x: corner.isLeading ? 0 : 1, y: corner.isTop ? 0 : 1)
+        init(_ corner: Corner, share: CGFloat = DualShotLayout.insetShare) {
+            self.init(x: corner.isLeading ? 0 : 1, y: corner.isTop ? 0 : 1, share: share)
         }
 
         /// The corner it's nearest, for stepping round them by assistive action.
@@ -195,17 +199,20 @@ enum DualShotLayout {
         }
     }
 
-    /// The inset's short side, as a share of the main picture's.
+    /// The inset's short side, as a share of the main picture's: by default,
+    /// and the range a pinch in the composer can take it to. At the largest, a
+    /// 3:4 inset still leaves room to move inside the margins.
     static let insetShare: CGFloat = 0.3
+    static let insetShares: ClosedRange<CGFloat> = 0.15...0.6
 
     static func insetRect(main: CGSize, inset: CGSize, corner: Corner) -> CGRect {
         insetRect(main: main, inset: inset, placement: Placement(corner))
     }
 
-    /// `inset` gives only the shape: its short side becomes `insetShare` of
-    /// the main picture's, kept a margin inside the centred square.
+    /// `inset` gives only the shape: its short side becomes `placement.share`
+    /// of the main picture's, kept a margin inside the centred square.
     static func insetRect(main: CGSize, inset: CGSize, placement: Placement) -> CGRect {
-        let (square, margin, size) = frame(main: main, inset: inset)
+        let (square, margin, size) = frame(main: main, inset: inset, share: placement.share)
         return CGRect(x: square.minX + margin + placement.x * (square.width - 2 * margin - size.width),
                       y: square.minY + margin + placement.y * (square.height - 2 * margin - size.height),
                       width: size.width, height: size.height)
@@ -213,16 +220,24 @@ enum DualShotLayout {
 
     /// A drag of `translation` (in `main`'s units) from `placement`, held inside the square.
     static func moved(_ placement: Placement, by translation: CGSize, main: CGSize, inset: CGSize) -> Placement {
-        let (square, margin, size) = frame(main: main, inset: inset)
+        let (square, margin, size) = frame(main: main, inset: inset, share: placement.share)
         let travel = CGSize(width: square.width - 2 * margin - size.width,
                             height: square.height - 2 * margin - size.height)
         return Placement(x: placement.x + translation.width / max(travel.width, 1),
-                         y: placement.y + translation.height / max(travel.height, 1))
+                         y: placement.y + translation.height / max(travel.height, 1),
+                         share: placement.share)
     }
 
-    private static func frame(main: CGSize, inset: CGSize) -> (square: CGRect, margin: CGFloat, size: CGSize) {
+    /// A pinch of `factor` on `placement`, within `insetShares`. Its x and y
+    /// are shares of the travel, so a corner stays a corner as it grows.
+    static func scaled(_ placement: Placement, by factor: CGFloat) -> Placement {
+        Placement(x: placement.x, y: placement.y, share: placement.share * factor)
+    }
+
+    private static func frame(main: CGSize, inset: CGSize,
+                              share: CGFloat) -> (square: CGRect, margin: CGFloat, size: CGSize) {
         let side = min(main.width, main.height)
-        let short = side * insetShare
+        let short = side * share
         let size = inset.width <= inset.height
             ? CGSize(width: short, height: short * inset.height / max(inset.width, 1))
             : CGSize(width: short * inset.width / max(inset.height, 1), height: short)
@@ -286,24 +301,39 @@ enum CameraTimer: Int, CaseIterable, Codable, Sendable {
     }
 }
 
+/// Under Both, how long after the big picture the inset's camera fires — time
+/// to turn the phone or pose for it.
+enum CameraDelay: Int, CaseIterable, Codable, Sendable {
+    case off = 0, one = 1, two = 2, five = 5
+
+    var next: CameraDelay {
+        let all = Self.allCases
+        return all[((all.firstIndex(of: self) ?? 0) + 1) % all.count]
+    }
+}
+
 /// The camera's last choices, per device (`SharedStore.cameraSettings`).
 struct CameraSettings: Codable, Equatable, Sendable {
     var frontCamera = true
     var flash: CameraFlash = .auto
     var timer: CameraTimer = .off
+    var dualDelay: CameraDelay = .off
 
-    init(frontCamera: Bool = true, flash: CameraFlash = .auto, timer: CameraTimer = .off) {
+    init(frontCamera: Bool = true, flash: CameraFlash = .auto, timer: CameraTimer = .off,
+         dualDelay: CameraDelay = .off) {
         self.frontCamera = frontCamera
         self.flash = flash
         self.timer = timer
+        self.dualDelay = dualDelay
     }
 
     /// Field by field: a value another build wrote that this one can't read
-    /// costs that field, not the other two.
+    /// costs that field, not the others.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         frontCamera = (try? container.decodeIfPresent(Bool.self, forKey: .frontCamera)) ?? true
         flash = (try? container.decodeIfPresent(CameraFlash.self, forKey: .flash)) ?? .auto
         timer = (try? container.decodeIfPresent(CameraTimer.self, forKey: .timer)) ?? .off
+        dualDelay = (try? container.decodeIfPresent(CameraDelay.self, forKey: .dualDelay)) ?? .off
     }
 }

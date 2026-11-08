@@ -39,6 +39,7 @@ struct CameraView: View {
         }
         .onDisappear { model.stop() }
         .sensoryFeedback(.impact(weight: .light), trigger: model.countdown) { _, new in new != nil }
+        .sensoryFeedback(.impact(weight: .light), trigger: model.insetCountdown) { _, new in new != nil }
         // A dark shot is in: the phone can move.
         .sensoryFeedback(.impact(weight: .light), trigger: model.isHoldingStill) { old, new in old && !new }
         .animation(.easeOut(duration: 0.2), value: model.isLowLight)
@@ -86,6 +87,14 @@ struct CameraView: View {
                     model.cycleTimer()
                 }
                 .disabled(model.countdown != nil)
+                if model.isDual {
+                    iconButton("hourglass", label: "Delay before the small picture", value: model.dualDelay.spoken,
+                               tint: model.dualDelay == .off ? .white : Theme.warm,
+                               badge: model.dualDelay == .off ? nil : model.dualDelay.title) {
+                        model.cycleDualDelay()
+                    }
+                    .disabled(model.countdown != nil || model.isCapturing)
+                }
             }
             .opacity(model.controlsFullscreen ? 0 : 1)
         }
@@ -104,6 +113,7 @@ struct CameraView: View {
         .aspectRatio(3 / 4, contentMode: .fit)
         .overlay { focusRing }
         .overlay { countdownOverlay }
+        .overlay { insetCountdownOverlay }
         .overlay(alignment: .bottom) { statusLine }
         .overlay(alignment: .top) { DebugFormatLabel(model: model) }
         .overlay(alignment: .topLeading) { lowLightBadge }
@@ -185,6 +195,26 @@ struct CameraView: View {
         }
     }
 
+    /// Over the inset, whose camera fires when it reaches zero.
+    @ViewBuilder
+    private var insetCountdownOverlay: some View {
+        if let remaining = model.insetCountdown {
+            GeometryReader { proxy in
+                let inset = DualShotLayout.insetRect(main: proxy.size, inset: CGSize(width: 3, height: 4),
+                                                     corner: model.dualCorner)
+                Text(remaining, format: .number)
+                    .font(Theme.rounded(48, .bold))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.5), radius: 8)
+                    .contentTransition(.numericText(countsDown: true))
+                    .animation(.smooth, value: remaining)
+                    .position(x: inset.midX, y: inset.midY)
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+    }
+
     @ViewBuilder
     private var statusLine: some View {
         if let text = statusText {
@@ -232,9 +262,15 @@ struct CameraView: View {
             .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .disabled(model.countdown == nil && !model.canShoot)
-        .accessibilityLabel(model.countdown == nil ? "Take photo" : "Cancel timer")
+        .disabled(model.countdown == nil && model.insetCountdown == nil && !model.canShoot)
+        .accessibilityLabel(shutterLabel)
         .accessibilityIdentifier("camera.shutter")
+    }
+
+    private var shutterLabel: LocalizedStringKey {
+        if model.insetCountdown != nil { "Take the small picture now" }
+        else if model.countdown != nil { "Cancel timer" }
+        else { "Take photo" }
     }
 
     // MARK: - Pieces
@@ -541,9 +577,9 @@ private struct DualCameraPreview: UIViewRepresentable {
             }
         }
 
-        /// Only a drag that starts on the inset moves it.
+        /// Only a drag that starts on the inset moves it, and not mid-shot.
         func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
-            guard let view = gesture.view as? DualPreviewView else { return false }
+            guard let view = gesture.view as? DualPreviewView, !parent.model.isCapturing else { return false }
             return view.insetFrame.contains(gesture.location(in: view))
         }
     }

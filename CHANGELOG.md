@@ -6,6 +6,19 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 Version 1.6.3.
 
+- **Resize the small picture before sending.** In the composer, a Both-cameras
+  shot's inset now pinches bigger or smaller (15–60% of the photo's width,
+  from 30%), anywhere on the photo, as well as dragging anywhere; it keeps its
+  corner as it grows, stays inside the thumbnail's square, and the sent
+  picture matches (`DualShotLayout.Placement.share`). VoiceOver: "Make it
+  bigger" / "Make it smaller".
+
+- **A delay between the two cameras.** With Both on, a new hourglass button
+  sets Off, 1, 2 or 5 seconds: the camera filling the frame fires at the press,
+  and the small picture's camera after the delay, with a countdown over the
+  inset — time to turn the phone or pose. A press during it takes the small
+  picture at once. Remembered on this phone (`CameraSettings.dualDelay`).
+
 - **A blank status picker is measured and rebuilt.** The picker has opened,
   intermittently on a phone, as toolbar and backdrop only until reopened; it
   never does in the simulator. Now, 0.8 s after opening, if its content has no

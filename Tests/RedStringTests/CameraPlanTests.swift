@@ -74,6 +74,13 @@ final class CameraPlanTests: XCTestCase {
         XCTAssertEqual(CameraTimer(index: 7), .off)
     }
 
+    func testDualDelayCyclesOffOneTwoFive() {
+        var delay = CameraDelay.off
+        var seen: [Int] = []
+        for _ in 0..<5 { seen.append(delay.rawValue); delay = delay.next }
+        XCTAssertEqual(seen, [0, 1, 2, 5, 0])
+    }
+
     func testFlashFallsBackWithoutLosingTheChoice() {
         XCTAssertEqual(CameraFlash.on.resolved(in: [.auto, .on, .off]), .on)
         XCTAssertEqual(CameraFlash.on.resolved(in: [.auto, .off]), .auto)
@@ -83,7 +90,7 @@ final class CameraPlanTests: XCTestCase {
     func testSettingsRoundTripThroughTheStore() {
         let store = SharedStore(defaults: temporaryDefaults())
         XCTAssertEqual(store.cameraSettings, CameraSettings(), "front, auto, no timer by default")
-        let chosen = CameraSettings(frontCamera: false, flash: .on, timer: .ten)
+        let chosen = CameraSettings(frontCamera: false, flash: .on, timer: .ten, dualDelay: .two)
         store.cameraSettings = chosen
         XCTAssertEqual(store.cameraSettings, chosen)
         store.clearPairing(keepingName: false)
@@ -96,6 +103,12 @@ final class CameraPlanTests: XCTestCase {
                        "an unknown flash mode costs only the flash")
         XCTAssertEqual(try decode(CameraSettings.self, "{}"), CameraSettings())
         XCTAssertEqual(try decode(CameraSettings.self, #"{"timer":5}"#).timer, .off)
+        let older = try decode(CameraSettings.self, #"{"frontCamera":false,"flash":"on","timer":3}"#)
+        XCTAssertEqual(older, CameraSettings(frontCamera: false, flash: .on, timer: .three),
+                       "settings saved before the delay existed: no delay")
+        let unknown = try decode(CameraSettings.self, #"{"timer":10,"dualDelay":7}"#)
+        XCTAssertEqual(unknown, CameraSettings(timer: .ten), "an unknown delay costs only the delay")
+        XCTAssertEqual(try decode(CameraSettings.self, #"{"dualDelay":5}"#).dualDelay, .five)
     }
 
     /// iPhone 14 Pro-style front camera: one 12 MP sensor, digital zoom only.
@@ -217,6 +230,36 @@ final class CameraPlanTests: XCTestCase {
         XCTAssertEqual(moved.minY - from.minY, 300, accuracy: 0.5)
         XCTAssertTrue(square.contains(moved))
         XCTAssertEqual(DualShotLayout.Placement(x: 0.7, y: 0.2).corner, .topTrailing)
+    }
+
+    /// A pinch resizes the inset within its range, keeps its corner and shape,
+    /// and never takes it outside the square, either way up.
+    func testPinchedInsetStaysInRangeAndInsideTheSquare() {
+        let shares = DualShotLayout.insetShares
+        let start = DualShotLayout.Placement(.bottomTrailing)
+        XCTAssertEqual(DualShotLayout.scaled(start, by: 100).share, shares.upperBound)
+        XCTAssertEqual(DualShotLayout.scaled(start, by: 0.01).share, shares.lowerBound)
+        XCTAssertEqual(DualShotLayout.scaled(start, by: 1.5).share, DualShotLayout.insetShare * 1.5, accuracy: 0.0001)
+        for main in [CGSize(width: 1536, height: 2048), CGSize(width: 2048, height: 1536)] {
+            let side = min(main.width, main.height)
+            let square = CGRect(x: (main.width - side) / 2, y: (main.height - side) / 2, width: side, height: side)
+            for shape in [CGSize(width: 3, height: 4), CGSize(width: 4, height: 3)] {
+                for factor in [0.01, 0.8, 1.6, 100] as [CGFloat] {
+                    let placement = DualShotLayout.scaled(start, by: factor)
+                    let rect = DualShotLayout.insetRect(main: main, inset: shape, placement: placement)
+                    XCTAssertTrue(square.contains(rect), "×\(factor), \(shape) in \(main)")
+                    XCTAssertEqual(min(rect.width, rect.height), side * placement.share, accuracy: 0.5)
+                    XCTAssertEqual(rect.width / rect.height, shape.width / shape.height, accuracy: 0.01)
+                    XCTAssertEqual(rect.maxX, square.maxX - side * 0.04, accuracy: 0.5, "still in its corner")
+                    XCTAssertEqual(rect.maxY, square.maxY - side * 0.04, accuracy: 0.5)
+                }
+            }
+        }
+        let moved = DualShotLayout.moved(DualShotLayout.scaled(start, by: 1.5),
+                                         by: CGSize(width: -200, height: 0),
+                                         main: CGSize(width: 1536, height: 2048), inset: CGSize(width: 3, height: 4))
+        XCTAssertEqual(moved.share, DualShotLayout.insetShare * 1.5, accuracy: 0.0001, "a drag keeps the size")
+        XCTAssertEqual(DualShotLayout.Placement(x: 0, y: 0, share: 2).share, shares.upperBound)
     }
 
     func testBorderIsAHairline() {

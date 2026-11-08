@@ -300,48 +300,102 @@ struct MomentComposerView: View {
 }
 
 /// A two-camera shot's inset, still movable: dragged anywhere inside the
-/// square — all of which the thumbnail shows — and flattened only on Send.
+/// square — all of which the thumbnail shows — pinched bigger or smaller
+/// anywhere on it, and flattened only on Send.
 private struct DualInsetOverlay: View {
     let shot: DualShot
     let isMovable: Bool
     var onMove: (DualShotLayout.Placement) -> Void
 
-    @State private var dragging: DualShotLayout.Placement?
+    /// One gesture session, drag and pinch together: committed once both end,
+    /// so neither applies the other's change twice. A pinch's first finger
+    /// also drives the drag, so once a session pinches, it doesn't move.
+    @State private var base: DualShotLayout.Placement?
+    @State private var translation: CGSize = .zero
+    @State private var factor: CGFloat = 1
+    @State private var isDragging = false
+    @State private var isPinching = false
+    @State private var pinched = false
 
     var body: some View {
         GeometryReader { proxy in
             let square = proxy.size
-            let rect = DualShotLayout.insetRect(main: square, inset: shot.inset.size,
-                                                placement: dragging ?? shot.placement)
+            let rect = DualShotLayout.insetRect(main: square, inset: shot.inset.size, placement: live(in: square))
             let outline = RoundedRectangle(cornerRadius: DualShotLayout.cornerRadius(inset: rect.size))
-            Image(uiImage: shot.inset)
-                .resizable()
-                .scaledToFill()
-                .frame(width: rect.width, height: rect.height)
-                .clipShape(outline)
-                .overlay { outline.stroke(.white, lineWidth: DualShotLayout.borderWidth(main: square)) }
-                .position(x: rect.midX, y: rect.midY)
-                // High priority, or the composer's scroll view takes the drag (invariant 17).
-                .highPriorityGesture(
-                    DragGesture(minimumDistance: 2)
-                        .onChanged { value in
-                            dragging = DualShotLayout.moved(shot.placement, by: value.translation,
-                                                            main: square, inset: shot.inset.size)
-                        }
-                        .onEnded { value in
-                            onMove(DualShotLayout.moved(shot.placement, by: value.translation,
-                                                        main: square, inset: shot.inset.size))
-                            dragging = nil
-                        },
-                    isEnabled: isMovable)
-                .accessibilityElement()
-                .accessibilityLabel("Small picture")
-                .accessibilityHint("Drag to move it.")
-                .accessibilityAction(named: "Move to the next corner") {
-                    onMove(DualShotLayout.Placement(shot.placement.corner.next))
-                }
+            ZStack {
+                // The whole square takes the pinch: a small inset is hard to get two fingers on.
+                Color.clear.contentShape(Rectangle())
+                Image(uiImage: shot.inset)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: rect.width, height: rect.height)
+                    .clipShape(outline)
+                    .overlay { outline.stroke(.white, lineWidth: DualShotLayout.borderWidth(main: square)) }
+                    .position(x: rect.midX, y: rect.midY)
+                    // High priority, or the composer's scroll view takes the drag (invariant 17).
+                    .highPriorityGesture(
+                        DragGesture(minimumDistance: 2)
+                            .onChanged { value in
+                                begin()
+                                isDragging = true
+                                if !pinched { translation = value.translation }
+                            }
+                            .onEnded { value in
+                                if !pinched { translation = value.translation }
+                                isDragging = false
+                                commitIfDone(in: square)
+                            },
+                        isEnabled: isMovable)
+                    .accessibilityElement()
+                    .accessibilityLabel("Small picture")
+                    .accessibilityHint("Drag to move it, pinch to resize it.")
+                    .accessibilityAction(named: "Move to the next corner") {
+                        let placement = shot.placement
+                        onMove(DualShotLayout.Placement(placement.corner.next, share: placement.share))
+                    }
+                    .accessibilityAction(named: "Make it bigger") {
+                        onMove(DualShotLayout.scaled(shot.placement, by: 1.25))
+                    }
+                    .accessibilityAction(named: "Make it smaller") {
+                        onMove(DualShotLayout.scaled(shot.placement, by: 0.8))
+                    }
+            }
+            .simultaneousGesture(
+                MagnifyGesture()
+                    .onChanged { value in
+                        begin()
+                        isPinching = true
+                        pinched = true
+                        translation = .zero
+                        factor = value.magnification
+                    }
+                    .onEnded { value in
+                        factor = value.magnification
+                        isPinching = false
+                        commitIfDone(in: square)
+                    },
+                isEnabled: isMovable)
         }
         .allowsHitTesting(isMovable)
+    }
+
+    private func live(in square: CGSize) -> DualShotLayout.Placement {
+        guard let base else { return shot.placement }
+        return DualShotLayout.moved(DualShotLayout.scaled(base, by: factor), by: translation,
+                                    main: square, inset: shot.inset.size)
+    }
+
+    private func begin() {
+        if base == nil { base = shot.placement }
+    }
+
+    private func commitIfDone(in square: CGSize) {
+        guard !isDragging, !isPinching, base != nil else { return }
+        onMove(live(in: square))
+        base = nil
+        translation = .zero
+        factor = 1
+        pinched = false
     }
 }
 

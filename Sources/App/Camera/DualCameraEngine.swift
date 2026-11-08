@@ -287,6 +287,12 @@ final class DualCameraEngine: NSObject, @unchecked Sendable {
         return try await Shots(back: back, front: front)
     }
 
+    /// One camera alone, for a delayed pair: each shot blinks the shutter.
+    func capture(back: Bool, flash: CameraFlash, tilt: CameraTilt) async throws -> Data {
+        try await shoot(back: back, flash: back ? flash : .off,
+                        angle: tilt.captureAngle(frontCamera: !back), announces: true)
+    }
+
     private func shoot(back: Bool, flash: CameraFlash,
                        angle: CGFloat, announces: Bool) async throws -> Data {
         try await withCheckedThrowingContinuation { done in

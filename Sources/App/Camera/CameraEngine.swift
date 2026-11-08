@@ -391,6 +391,23 @@ extension CameraTimer {
     }
 }
 
+extension CameraDelay {
+    var title: String {
+        switch self {
+        case .off: String(localized: "Off")
+        case .one: String(localized: "1s")
+        case .two: String(localized: "2s")
+        case .five: String(localized: "5s")
+        }
+    }
+
+    /// "Off", "1 second", "5 seconds".
+    var spoken: String {
+        self == .off ? String(localized: "Off")
+            : Duration.seconds(rawValue).formatted(.units(allowed: [.seconds], width: .wide))
+    }
+}
+
 /// One shot's delegate. Resumes its continuation exactly once, whichever
 /// callback gets there first.
 final class PhotoCapture: NSObject, AVCapturePhotoCaptureDelegate, @unchecked Sendable {
