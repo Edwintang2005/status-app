@@ -42,7 +42,7 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Record a voice memo to send to your partner.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Save a photo or doodle they sent you to your own library.</string>
+	<string>Save a photo or doodle they sent you, or your year in review, to your own library.</string>
 	<key>NSUbiquitousContainers</key>
 	<dict>
 		<key>iCloud.com.edwintang.redstring</key>

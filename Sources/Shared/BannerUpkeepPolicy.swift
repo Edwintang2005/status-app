@@ -44,16 +44,15 @@ enum BannerUpkeepPolicy {
         /// Already announced; its caption changed (an edit another pass filed),
         /// or the attachment that missed the deadline is here now. No claim.
         case refresh(id: String, moment: Moment)
-        /// A locked-phone or generic status banner: the current words, if they
-        /// claim as news (`AnnouncementPolicy.claimStatusBanner`), and only then
-        /// are the older ones (`superseded`, oldest first) replaced by it.
-        /// Otherwise it's withdrawn — it may have been our own status — and of
-        /// the older ones only the newest stays.
-        case rewordStatus(id: String, status: StatusPayload, superseded: [String])
+        /// The newest status banner, held: the current words, if they claim as
+        /// news (`AnnouncementPolicy.claimStatusBanner`). Otherwise one in
+        /// CloudKit's words (`generic`) is withdrawn — it may have been our own
+        /// status — and one that named the partner keeps its words, unheld.
+        case rewordStatus(id: String, status: StatusPayload, generic: Bool)
     }
 
     /// `incoming` is the banner about to be delivered (the service's own push),
-    /// which supersedes delivered ones the same way a newer delivered one would.
+    /// which replaces a delivered one about the same moment.
     static func plan(_ banners: [Banner], state: State, incoming: BannerSubject? = nil) -> [Action] {
         var actions: [Action] = []
         if let index = state.index {
@@ -86,18 +85,14 @@ enum BannerUpkeepPolicy {
             }
         }
 
-        // Status banners say "is now …": only the latest is still true.
-        let statuses = banners.filter { $0.subject == .status }.sorted { $0.date < $1.date }
-        if incoming == .status {
-            actions += statuses.map { .remove($0.id) }
-        } else if let newest = statuses.last {
-            let older = statuses.dropLast().map(\.id)
-            if !newest.held {
-                actions += older.map { .remove($0) }
-            } else if !state.statusHeld, let status = state.partnerStatus {
-                actions.append(.rewordStatus(id: newest.id, status: status, superseded: older))
-            }
-            // Still unreadable: nothing is judged until it can be read.
+        // Every status banner stays: together they're the unread history. Only
+        // the newest held one can be worded — the stored status is the latest;
+        // an older held banner keeps "updated their status".
+        let statuses = banners.filter { $0.subject == .status }
+        if let newest = statuses.max(by: { $0.date < $1.date }), newest.held,
+           !state.statusHeld, let status = state.partnerStatus {
+            actions.append(.rewordStatus(id: newest.id, status: status,
+                                         generic: newest.body == CloudSync.GenericAlert.status))
         }
         return actions
     }

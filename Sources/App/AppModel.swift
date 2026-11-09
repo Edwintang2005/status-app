@@ -140,6 +140,10 @@ final class AppModel {
     @ObservationIgnored var shareMembersCheckedAt: Date?
     var closeLinkPromptDismissed: Bool
     var widgetTipDismissed: Bool
+    /// The year whose Home recap card was waved away.
+    var recapNoticeDismissed: Int?
+    /// Diagnostics' "Show the recap card on Home": the twelve-month card, any month.
+    var recapCardPreview = false
     /// Home's "notifications are off" card, re-read on every foregrounding.
     var notificationsNotice: NotificationsNotice?
     /// A heart is on its way. The app's nudge has no deadline (its cooldown
@@ -268,6 +272,7 @@ final class AppModel {
         self.anniversaryPromptPending = store.anniversaryPromptPending
         self.closeLinkPromptDismissed = store.closeLinkPromptDismissed
         self.widgetTipDismissed = store.widgetTipDismissed
+        self.recapNoticeDismissed = store.recapNoticeDismissed
         self.partnerLeftNoticeDismissed = store.partnerLeftNoticeDismissed
         self.milestoneRemindersEnabled = store.milestoneRemindersEnabled
         self.notificationPreferences = store.notificationPreferences

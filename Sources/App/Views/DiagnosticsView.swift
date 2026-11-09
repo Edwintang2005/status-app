@@ -203,6 +203,24 @@ struct DiagnosticsView: View {
                     }
                 }
             }
+
+            Section {
+                NavigationLink("Make a recap of the last 12 months") {
+                    RecapView(period: .lastTwelveMonths)
+                }
+                Button(model.recapCardPreview ? "Recap card is on Home" : "Show the recap card on Home") {
+                    model.recapCardPreview = true
+                }
+                .tint(.primary)
+                .disabled(model.recapCardPreview)
+            } header: {
+                Text("Year in review")
+            } footer: {
+                Group {
+                    Text("Home offers the year's recap from 1 December to 31 January, and Settings all year once the year has pictures. These make one now, from whatever falls in the last 12 months.")
+                }
+                .foregroundStyle(Theme.mutedText)
+            }
         }
         .scrollContentBackground(.hidden)
         .background(Theme.Background())

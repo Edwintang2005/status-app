@@ -144,6 +144,14 @@ struct SettingsView: View {
                                     .tint(.primary)
                             }
                         }
+                        if model.hasRecap(for: .year(RecapPlan.reviewYear())) {
+                            let year = RecapPlan.reviewYear()
+                            NavigationLink {
+                                RecapView(period: .year(year))
+                            } label: {
+                                Label("Your \(String(year)) in review", systemImage: "film.stack")
+                            }
+                        }
                         if model.isPaired {
                             NavigationLink {
                                 FreshStartView()

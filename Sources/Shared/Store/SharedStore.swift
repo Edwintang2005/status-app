@@ -38,6 +38,7 @@ final class SharedStore: @unchecked Sendable {
         static let lastPairing = "lastPairing"
         static let closeLinkPromptDismissed = "closeLinkPromptDismissed"
         static let widgetTipDismissed = "widgetTipDismissed"
+        static let recapNoticeDismissed = "recapNoticeDismissed"
         static let partnerLeftNoticeDismissed = "partnerLeftNoticeDismissed"
         static let subscriptionsVerified = "subscriptionsVerifiedAt"
         static let widgetReloadRequestedAt = "widgetReloadRequestedAt"
@@ -220,6 +221,13 @@ final class SharedStore: @unchecked Sendable {
     var widgetTipDismissed: Bool {
         get { store.bool(forKey: Key.widgetTipDismissed) }
         set { store.setBool(newValue, forKey: Key.widgetTipDismissed) }
+    }
+
+    /// The year whose Home recap card was waved away (or opened). Per device,
+    /// kept across unlinks.
+    var recapNoticeDismissed: Int? {
+        get { decode(Int.self, forKey: Key.recapNoticeDismissed) }
+        set { encodeOptional(newValue, forKey: Key.recapNoticeDismissed) }
     }
 
     /// The `partnerLeftAt` whose Home notice was waved away; a later departure shows again.

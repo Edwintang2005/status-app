@@ -2,7 +2,7 @@ import XCTest
 
 /// What a later pass does with banners already delivered (`BannerUpkeepPolicy`):
 /// reword the ones a locked phone couldn't, add a picture that missed the
-/// deadline, withdraw what's gone, keep only the latest status.
+/// deadline, withdraw what's gone, keep every status banner.
 final class BannerUpkeepPolicyTests: XCTestCase {
     private func banner(_ id: String, _ subject: BannerSubject, held: Bool = false,
                         wantsAttachment: Bool = false, at seconds: TimeInterval = 0,
@@ -95,39 +95,42 @@ final class BannerUpkeepPolicyTests: XCTestCase {
         XCTAssertTrue(actions.isEmpty, "unreadable isn't empty: nothing is judged gone")
     }
 
-    func testOnlyTheNewestStatusBannerStays() {
-        let actions = BannerUpkeepPolicy.plan(
-            [banner("new", .status, at: 20), banner("old", .status, at: 10), banner("h", .hearts)],
-            state: state())
-        XCTAssertEqual(actions, [.remove("old")])
-    }
-
-    /// The service's own push supersedes every status banner already shown.
-    func testAnIncomingStatusSupersedesEveryDeliveredOne() {
-        let actions = BannerUpkeepPolicy.plan([banner("a", .status, held: true, at: 10), banner("b", .status, at: 20)],
-                                              state: state(), incoming: .status)
-        XCTAssertEqual(actions, [.remove("a"), .remove("b")])
+    /// Together they're the unread history: neither a newer banner nor the
+    /// service's own push withdraws an older one.
+    func testEveryStatusBannerStays() {
+        let banners = [banner("new", .status, at: 20), banner("old", .status, at: 10), banner("h", .hearts)]
+        XCTAssertTrue(BannerUpkeepPolicy.plan(banners, state: state()).isEmpty)
+        XCTAssertTrue(BannerUpkeepPolicy.plan(banners, state: state(), incoming: .status).isEmpty)
     }
 
     func testAHeldStatusBannerGetsTheWordsOnceReadable() {
         let status = Fixtures.status("😴", "asleep")
         let held = [banner("s", .status, held: true)]
         XCTAssertEqual(BannerUpkeepPolicy.plan(held, state: state(partnerStatus: status)),
-                       [.rewordStatus(id: "s", status: status, superseded: [])])
+                       [.rewordStatus(id: "s", status: status, generic: false)])
         XCTAssertTrue(BannerUpkeepPolicy.plan(held, state: state(statusHeld: true, partnerStatus: status)).isEmpty,
                       "still unreadable: the stored status is the previous one")
     }
 
-    /// A generic banner may be our own status coming back: the one holding
-    /// theirs goes only once the reword proves it news (`BannerUpkeep` removes
-    /// `superseded` on a claim, else the generic one and all but the newest older).
-    func testAHeldStatusBannerSupersedesOnlyThroughItsReword() {
+    /// The stored status is the latest, so only the newest held banner can take
+    /// its words; an older one keeps "updated their status", and a worded one
+    /// newer than any held banner leaves them all be.
+    func testOnlyTheNewestHeldStatusBannerIsReworded() {
         let status = Fixtures.status("🏋️", "at the gym")
-        let banners = [banner("theirs", .status, at: 10), banner("generic", .status, held: true, at: 20)]
-        XCTAssertEqual(BannerUpkeepPolicy.plan(banners, state: state(partnerStatus: status)),
-                       [.rewordStatus(id: "generic", status: status, superseded: ["theirs"])])
-        XCTAssertTrue(BannerUpkeepPolicy.plan(banners, state: state(statusHeld: true, partnerStatus: status)).isEmpty,
-                      "unreadable yet: the older banner isn't judged superseded")
+        let older = [banner("first", .status, held: true, at: 10), banner("second", .status, held: true, at: 20)]
+        XCTAssertEqual(BannerUpkeepPolicy.plan(older, state: state(partnerStatus: status)),
+                       [.rewordStatus(id: "second", status: status, generic: false)])
+        let worded = older + [banner("worded", .status, at: 30)]
+        XCTAssertTrue(BannerUpkeepPolicy.plan(worded, state: state(partnerStatus: status)).isEmpty)
+    }
+
+    /// CloudKit's words may be our own status coming back: `BannerUpkeep`
+    /// withdraws a generic one whose reword doesn't claim, and keeps one that named them.
+    func testAGenericStatusBannerIsMarkedSo() {
+        let status = Fixtures.status("🏋️", "at the gym")
+        let generic = banner("g", .status, held: true, body: CloudSync.GenericAlert.status)
+        XCTAssertEqual(BannerUpkeepPolicy.plan([generic], state: state(partnerStatus: status)),
+                       [.rewordStatus(id: "g", status: status, generic: true)])
     }
 
     /// CloudKit's words for a moment push: gone once a refresh shows nothing

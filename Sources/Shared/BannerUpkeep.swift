@@ -84,14 +84,18 @@ enum BannerUpkeep {
                 await replace(id, from: originals[id], moment: moment,
                               title: keeps ? nil : moment.displaySenderName(fallback: name),
                               body: keeps ? nil : body, in: center)
-            case let .rewordStatus(id, status, superseded):
+            case let .rewordStatus(id, status, generic):
                 guard claim({ AnnouncementPolicy.claimStatusBanner(for: status, in: &$0) != nil }) else {
-                    // Maybe our own status coming back: the banner that held theirs stays.
-                    removals.append(id)
-                    removals += superseded.dropLast()
+                    if generic {
+                        // Maybe our own status coming back.
+                        removals.append(id)
+                    } else {
+                        // Theirs, but these words were already announced: keep it as it reads.
+                        await replace(id, from: originals[id], moment: nil, title: nil, body: nil,
+                                      stamping: .status, in: center)
+                    }
                     continue
                 }
-                removals += superseded
                 let body = PushBannerPolicy.statusBody(status, reportedAt: store.hiddenPartnerStatusAt,
                                                        sealed: snapshot.partnerStatusSealed)
                 await replace(id, from: originals[id], moment: nil, title: name, body: body,

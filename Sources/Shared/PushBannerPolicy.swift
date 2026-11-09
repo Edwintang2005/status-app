@@ -193,8 +193,7 @@ enum PushBannerPolicy {
             case (.rename(let previousName)?, let status?):
                 let fallback = String(localized: "Your partner")
                 let newName = ContentFilter.displayName(status.displayName, fallback: String(localized: "a new name"))
-                // No subject: a new name isn't new words, so it mustn't
-                // supersede the status banner that still holds them.
+                // No subject: it's about a name, not words, so status upkeep leaves it be.
                 return Plan(title: ContentFilter.displayName(previousName, fallback: fallback),
                             body: String(localized: "is now going by \(newName)"),
                             thread: "status-updates",

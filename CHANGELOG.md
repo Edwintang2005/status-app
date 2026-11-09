@@ -30,6 +30,19 @@ Version 1.6.3.
     `PairingInfo` decodes field by field; the privacy manifest declares the
     active-keyboards API; tests no longer touch the real App Group; doc drift.
 
+- **Year in review.** A short video of the year — the photos, drawings and
+  statuses you shared, between an opening card with the year's counts and a
+  closing one — made on the phone and never uploaded. Home offers it from
+  1 December to 31 January; Settings → Memories keeps it all year. Save it to
+  Photos or share it. Diagnostics → "Year in review" makes one from the last
+  12 months to test with.
+
+- **Status banners no longer replace each other.** Each partner status keeps
+  its own banner until you clear it or open the app, so the ones you missed
+  read as a history. A locked phone's "updated their status" banner still
+  gets the words once readable, but only the newest can (the phone knows only
+  the latest status); older ones keep their wording.
+
 - **Resize the small picture before sending.** In the composer, a Both-cameras
   shot's inset now pinches bigger or smaller (15–60% of the photo's width,
   from 30%), anywhere on the photo, as well as dragging anywhere; it keeps its

@@ -3,13 +3,13 @@ import SwiftUI
 /// Home's one-at-a-time notices (`HomeView.activeNotice` picks the most urgent).
 enum HomeNotice: Equatable {
     case partnerLeft, extraMembers(Int), iCloud(String), freshStartClearing, freshStartStuck, freshStartRequest
-    case notificationsOff(NotificationsNotice), closeLink, widgetTip
+    case notificationsOff(NotificationsNotice), closeLink, widgetTip, recap(RecapPlan.Period)
 
     /// Urgent ones sit above the partner card; the rest below the send row.
     var urgent: Bool {
         switch self {
         case .partnerLeft, .extraMembers, .iCloud, .freshStartClearing, .freshStartStuck: true
-        case .freshStartRequest, .notificationsOff, .closeLink, .widgetTip: false
+        case .freshStartRequest, .notificationsOff, .closeLink, .widgetTip, .recap: false
         }
     }
 }
@@ -104,6 +104,21 @@ struct HomeNoticeView: View, Equatable {
                            message: "Touch and hold your Lock Screen, tap Customize, then the Lock Screen, and add \(AppConfig.appName) to the widget row: their status, and the heart that sends a nudge, without unlocking.",
                            actionTitle: "Got it",
                            action: onAction)
+        case .recap(let period):
+            HomeNoticeCard(systemImage: "film.stack",
+                           title: recapTitle(period),
+                           message: "A short video of the photos, drawings and statuses you and \(partnerName) shared, made on this iPhone. Watch it, save it or share it.",
+                           actionTitle: "Watch…",
+                           dismissTitle: "Not now",
+                           onDismiss: onDismiss,
+                           action: onAction)
+        }
+    }
+
+    private func recapTitle(_ period: RecapPlan.Period) -> LocalizedStringKey {
+        switch period {
+        case .year(let year): "Your \(String(year)) together"
+        case .lastTwelveMonths: "Your year together"
         }
     }
 

@@ -14,6 +14,8 @@ struct HomeView: View {
     @State private var showingAnniversary = false
     /// The partner's fresh start request, or a clear that keeps failing.
     @State private var showingFreshStart = false
+    /// The year in review, from its Home card.
+    @State private var recap: RecapRequest?
     /// Owned here so leaving the screen or starting a second memo stops playback.
     @State private var voicePlayer = VoicePlayer()
     /// The memo last tapped while its recording was still being fetched.
@@ -216,6 +218,7 @@ struct HomeView: View {
                    showingStatusHistory: $showingStatusHistory,
                    showingAnniversary: $showingAnniversary,
                    showingFreshStart: $showingFreshStart,
+                   recap: $recap,
                    carouselQueue: $carouselQueue,
                    carouselStart: $carouselStart)
     }
@@ -249,6 +252,7 @@ struct HomeView: View {
         if let problem = model.notificationsNotice { return .notificationsOff(problem) }
         if model.showsCloseLinkPrompt { return .closeLink }
         if model.showsWidgetTip { return .widgetTip }
+        if let period = model.recapPeriodOnHome { return .recap(period) }
         return nil
     }
 
@@ -281,6 +285,9 @@ struct HomeView: View {
             confirmingCloseLink = true
         case .widgetTip:
             model.dismissWidgetTip()
+        case .recap(let period):
+            recap = RecapRequest(period: period)
+            model.dismissRecapNotice()
         }
     }
 
@@ -290,6 +297,7 @@ struct HomeView: View {
         case .freshStartRequest: model.dismissFreshStartRequest()
         case .notificationsOff: model.dismissNotificationsNotice()
         case .closeLink: model.dismissCloseLinkPrompt()
+        case .recap: model.dismissRecapNotice()
         case .extraMembers, .iCloud, .freshStartClearing, .freshStartStuck, .widgetTip: break
         }
     }
@@ -318,7 +326,7 @@ struct HomeView: View {
     private var anySheetShowing: Bool {
         showingPicker || showingSettings || composer != nil || showingVoiceComposer
             || showingLibrary || showingStatusHistory || showingAnniversary
-            || showingFreshStart || !carouselQueue.isEmpty
+            || showingFreshStart || !carouselQueue.isEmpty || recap != nil
     }
 
     private func consumePendingRoute() {
@@ -405,6 +413,11 @@ struct HomeView: View {
     }
 }
 
+private struct RecapRequest: Identifiable {
+    let id = UUID()
+    let period: RecapPlan.Period
+}
+
 /// The composer's sheet, and whether it opens on the camera.
 private struct ComposerRequest: Identifiable {
     let id = UUID()
@@ -422,6 +435,7 @@ private struct HomeSheets: ViewModifier {
     @Binding var showingStatusHistory: Bool
     @Binding var showingAnniversary: Bool
     @Binding var showingFreshStart: Bool
+    @Binding var recap: RecapRequest?
     @Binding var carouselQueue: [Moment]
     @Binding var carouselStart: Moment?
 
@@ -486,6 +500,17 @@ private struct HomeSheets: ViewModifier {
                         .toolbar {
                             ToolbarItem(placement: .confirmationAction) {
                                 Button("Done") { showingFreshStart = false }
+                            }
+                        }
+                }
+                .presentsModelErrors()
+            }
+            .sheet(item: $recap) { request in
+                NavigationStack {
+                    RecapView(period: request.period)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { recap = nil }
                             }
                         }
                 }

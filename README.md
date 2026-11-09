@@ -251,8 +251,9 @@ A locked phone can't decrypt, so its banners say only *"Sam sent you a photo"*
 push, the app's refreshes, the widget's refresh (every 10 minutes while
 records are held), and the expanded banner. It rewords locked-phone banners
 once readable, adds a thumbnail that missed the service's deadline, withdraws
-banners for moments that are gone (deleted, cleared, reported), and keeps only
-the newest status banner — each rewrite re-added under its own identifier,
+banners for moments that are gone (deleted, cleared, reported), and keeps
+every status banner, so the unread ones read as a history (only the newest
+locked-phone one can take the latest words) — each rewrite re-added under its own identifier,
 `.passive`, so it never alerts twice — a rewrite counts as the announcement, so
 the app never posts the same moment again. A push the service never touched
 (killed, or before first unlock) has no subject; while it still shows
@@ -571,6 +572,21 @@ token rather than fetching known record names. Three things fall out of that:
   fresh install needs. Recovery isn't a special path; it's the ordinary one
   with an empty starting point.
 - Deletions propagate, so removing a moment later is a one-line change.
+
+### Year in review
+
+From 1 December to 31 January, Home offers the year's recap (a dismissible
+card), and Settings → Memories keeps a row for it all year once that year has
+pictures. It's a silent portrait video (1080×1920, ≈ 90 s at most) made on the
+phone, nothing uploaded: an opening card with the year's counts, up to 40
+photos and drawings spread evenly across the year with a slow zoom, up to 8
+statuses between them, and a closing card (`RecapPlan` decides,
+`RecapVideo` draws with `AVAssetWriter`). It reads the whole zone like "Save
+memories", fetches full pictures the phone only has thumbnails of, and puts
+in only what every surface may show — reported, sealed or filtered partner
+words stay out. Save to Photos (add-only) or share; the file goes when the
+screen closes. Diagnostics → "Year in review" makes one from the last 12
+months any time, and can put the Home card up to test it.
 
 ### Fresh start
 
