@@ -596,10 +596,12 @@ here go straight in, and only the full copies the phone doesn't hold download
 can't be fetched shows its thumbnail. It puts in only what every surface may
 show — reported, sealed or filtered partner words stay out.
 
-A backgrounded app can't use the video encoder, so leaving the app mid-way
-pauses the build and it starts again on return (a failure while away waits
-too); a run the app was killed in leaves only a temporary folder, cleared at
-launch. The finished video is kept, one per period (`RecapStore`, in the App
+A backgrounded app can't use the video encoder, so the video is written a
+slide at a time (each its own file, joined at the end without re-encoding):
+leaving the app mid-way pauses, and the return carries on from the first
+slide not yet written — no gathering again, the crossfade into it redrawn (a
+failure while away waits too). A run the app was killed in leaves only a
+temporary folder, cleared at launch. The finished video is kept, one per period (`RecapStore`, in the App
 Group, out of backups): the screen reopens on it, with "Make it again" for
 newer moments. It shows the history, so it's erased with it — unlink, block,
 starting over, a fresh start. Save to Photos (add-only) or share.

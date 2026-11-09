@@ -37,8 +37,8 @@ Version 1.6.3.
   25 December with a notification and a Home card (until 31 January), then
   stays in Settings → Memories. The finished video is kept, so it opens again
   at once ("Make it again" picks up newer moments), and it's erased along with
-  the history it shows. Leaving the app while it's being made pauses it; it
-  starts again when you're back. Save it to Photos or share it. Diagnostics → "Year in review" makes one from the last
+  the history it shows. Leaving the app or locking the phone while it's being
+  made pauses it, and it carries on from where it got to when you're back. Save it to Photos or share it. Diagnostics → "Year in review" makes one from the last
   12 months to test with. It works from what's already on the phone: iCloud
   is read only for a year older than the 500 moments the phone keeps, and
   only missing full pictures download, while the video is already being made.

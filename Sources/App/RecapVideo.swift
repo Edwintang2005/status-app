@@ -3,7 +3,7 @@ import UIKit
 
 /// Draws a `RecapPlan` into a silent portrait H.264 video, entirely on the
 /// phone: each slide is drawn once, then eased in with a slow zoom and a short
-/// crossfade from the one before.
+/// crossfade from the one before — written slide by slide, so it can resume.
 enum RecapVideo {
     static let size = CGSize(width: 1080, height: 1920)
     private static let fps: Int32 = 30
@@ -28,13 +28,79 @@ enum RecapVideo {
         }
     }
 
-    /// Cancellable: the task's cancellation stops it and removes the file.
+    /// Writes each slide to its own file in `directory` (`slide-<n>.mp4`, or a
+    /// `.skip` marker for a collage none of whose pictures came), passing over
+    /// those already there, then joins them into `url`. So a run cut off part-way
+    /// — the app left the screen and the encoder went — resumes at the first
+    /// slide missing. Cancellable; a slide half-written is removed.
     /// `picture` hands over each slide's image as it's ready (`RecapMedia`).
-    static func render(_ plan: RecapPlan, words: Words, to url: URL,
+    static func render(_ plan: RecapPlan, words: Words, in directory: URL, to url: URL,
                        picture: @escaping @Sendable (Moment) async -> UIImage?,
                        progress: @escaping @Sendable (Double) -> Void) async throws {
-        try? FileManager.default.removeItem(at: url)
-        let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
+        let fileManager = FileManager.default
+        func segment(_ index: Int) -> URL { directory.appendingPathComponent("slide-\(index).mp4") }
+        func skipped(_ index: Int) -> URL { directory.appendingPathComponent("slide-\(index).skip") }
+        let count = plan.slides.count
+        let resumeAt = (0..<count).first {
+            !fileManager.fileExists(atPath: segment($0).path) && !fileManager.fileExists(atPath: skipped($0).path)
+        } ?? count
+        // The slide the next one fades in from, drawn again on a resume.
+        let fadeFrom = (0..<resumeAt).last { fileManager.fileExists(atPath: segment($0).path) }
+
+        let totalFrames = max(1, plan.slides.reduce(0) { $0 + frames(for: $1) })
+        var frame = 0
+        var previous: CGImage?
+        var segments: [URL] = []
+        for (index, slide) in plan.slides.enumerated() {
+            let length = frames(for: slide)
+            if index < resumeAt {
+                guard fileManager.fileExists(atPath: segment(index).path) else { continue }
+                segments.append(segment(index))
+                frame += length
+                if index == fadeFrom { previous = await image(for: slide, plan: plan, words: words, picture: picture) }
+                continue
+            }
+            progress(Double(frame) / Double(totalFrames))
+            guard let current = await image(for: slide, plan: plan, words: words, picture: picture) else {
+                try Task.checkCancellation()
+                fileManager.createFile(atPath: skipped(index).path, contents: nil)
+                continue
+            }
+            try Task.checkCancellation()
+            let start = frame
+            try await write(current, after: previous, frames: length, to: segment(index)) { written in
+                if written % 15 == 0 { progress(Double(start + written) / Double(totalFrames)) }
+            }
+            segments.append(segment(index))
+            frame += length
+            previous = current
+        }
+        try await join(segments, to: url)
+        progress(1)
+    }
+
+    private static func frames(for slide: RecapPlan.Slide) -> Int {
+        Int((slide.duration * Double(fps)).rounded())
+    }
+
+    /// `nil` for a collage none of whose pictures could be had.
+    private static func image(for slide: RecapPlan.Slide, plan: RecapPlan, words: Words,
+                              picture: @Sendable (Moment) async -> UIImage?) async -> CGImage? {
+        var photos: [(Moment, UIImage)] = []
+        if case .pictures(let moments) = slide {
+            for moment in moments {
+                if let image = await picture(moment), image.size.width > 0 { photos.append((moment, image)) }
+            }
+        }
+        return draw(slide, photos: photos, plan: plan, words: words)
+    }
+
+    /// One slide's file, written beside its name and moved in only once complete.
+    private static func write(_ current: CGImage, after previous: CGImage?, frames: Int, to url: URL,
+                              progress: (Int) -> Void) async throws {
+        let partial = url.deletingPathExtension().appendingPathExtension("part.mp4")
+        try? FileManager.default.removeItem(at: partial)
+        let writer = try AVAssetWriter(outputURL: partial, fileType: .mp4)
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: Int(size.width),
@@ -58,42 +124,27 @@ enum RecapVideo {
         defer {
             if !finished {
                 writer.cancelWriting()
-                try? FileManager.default.removeItem(at: url)
+                try? FileManager.default.removeItem(at: partial)
             }
         }
 
-        let totalFrames = max(1, Int((plan.duration * Double(fps)).rounded()))
-        var frame = 0
-        var previous: CGImage?
-        for (index, slide) in plan.slides.enumerated() {
-            var photos: [(Moment, UIImage)] = []
-            if case .pictures(let moments) = slide {
-                for moment in moments {
-                    if let image = await picture(moment), image.size.width > 0 { photos.append((moment, image)) }
-                }
-                try Task.checkCancellation()
+        let duration = Double(frames) / Double(fps)
+        for step in 0..<frames {
+            try Task.checkCancellation()
+            while !input.isReadyForMoreMediaData {
+                try await Task.sleep(for: .milliseconds(5))
             }
-            guard let current = draw(slide, photos: photos, plan: plan, words: words) else { continue }
-            let frames = Int((slide.duration * Double(fps)).rounded())
-            for step in 0..<frames {
-                try Task.checkCancellation()
-                while !input.isReadyForMoreMediaData {
-                    try await Task.sleep(for: .milliseconds(5))
-                }
-                guard let pool = adaptor.pixelBufferPool else { throw Failure.writer("no buffer pool") }
-                var buffer: CVPixelBuffer?
-                CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer)
-                guard let buffer else { throw Failure.writer("no buffer") }
-                let t = Double(step) / Double(fps)
-                compose(into: buffer, current: current, progress: t / slide.duration,
-                        previous: index > 0 ? previous : nil, fadeIn: min(1, t / fade))
-                guard adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(frame), timescale: fps)) else {
-                    throw Failure.writer(writer.error?.localizedDescription ?? "couldn't add a frame")
-                }
-                frame += 1
-                if frame % 15 == 0 { progress(Double(frame) / Double(totalFrames)) }
+            guard let pool = adaptor.pixelBufferPool else { throw Failure.writer("no buffer pool") }
+            var buffer: CVPixelBuffer?
+            CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer)
+            guard let buffer else { throw Failure.writer("no buffer") }
+            let t = Double(step) / Double(fps)
+            compose(into: buffer, current: current, progress: t / duration,
+                    previous: previous, fadeIn: min(1, t / fade))
+            guard adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(step), timescale: fps)) else {
+                throw Failure.writer(writer.error?.localizedDescription ?? "couldn't add a frame")
             }
-            previous = current
+            progress(step + 1)
         }
 
         input.markAsFinished()
@@ -101,8 +152,42 @@ enum RecapVideo {
         guard writer.status == .completed else {
             throw Failure.writer(writer.error?.localizedDescription ?? "couldn't finish")
         }
+        try? FileManager.default.removeItem(at: url)
+        try FileManager.default.moveItem(at: partial, to: url)
         finished = true
-        progress(1)
+    }
+
+    /// The slides end to end, copied as they are: no re-encoding, so it's quick.
+    private static func join(_ segments: [URL], to url: URL) async throws {
+        let composition = AVMutableComposition()
+        guard let track = composition.addMutableTrack(withMediaType: .video,
+                                                      preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            throw Failure.writer("no video track")
+        }
+        // The composition only points into these; released early, the export fails (-12780).
+        let assets = segments.map { AVURLAsset(url: $0) }
+        defer { withExtendedLifetime(assets) {} }
+        var cursor = CMTime.zero
+        for asset in assets {
+            guard let source = try await asset.loadTracks(withMediaType: .video).first else { continue }
+            let range = try await source.load(.timeRange)
+            try track.insertTimeRange(range, of: source, at: cursor)
+            cursor = cursor + range.duration
+        }
+        try? FileManager.default.removeItem(at: url)
+        guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough) else {
+            throw Failure.writer("couldn't join the slides")
+        }
+        if #available(iOS 18, *) {
+            try await export.export(to: url, as: .mp4)
+        } else {
+            export.outputURL = url
+            export.outputFileType = .mp4
+            await export.export()
+            guard export.status == .completed else {
+                throw Failure.writer(export.error?.localizedDescription ?? "couldn't join the slides")
+            }
+        }
     }
 
     // MARK: - Frames

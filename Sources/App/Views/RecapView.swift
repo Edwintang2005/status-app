@@ -4,8 +4,9 @@ import SwiftUI
 
 /// Makes the year's montage on this iPhone, then offers to keep or share it.
 /// Nothing is uploaded. The finished video is kept (`RecapStore`), so the
-/// screen reopens on it; leaving the app mid-way pauses and restarts on return,
-/// as iOS doesn't let a backgrounded app use the video encoder.
+/// screen reopens on it. iOS doesn't let a backgrounded app use the video
+/// encoder, so leaving the app mid-way pauses, and the return resumes at the
+/// first slide not yet written (`Staged`).
 struct RecapView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
@@ -33,6 +34,15 @@ struct RecapView: View {
         var paused = false
     }
 
+    /// The run under way: its plan and slide files outlive a pause, so the
+    /// return carries on rather than gathering and drawing it all again.
+    private struct Staged {
+        let attempt: Int
+        let plan: RecapPlan
+        let words: RecapVideo.Words
+        let directory: URL
+    }
+
     private enum SaveState: Equatable {
         case idle, saving, saved
         case failed(String)
@@ -42,6 +52,7 @@ struct RecapView: View {
     @State private var player: AVPlayer?
     @State private var saveState: SaveState = .idle
     @State private var run = Run()
+    @State private var staged: Staged?
     /// Read inside the build, where an `@Environment` value can be stale.
     @State private var inBackground = false
 
@@ -70,6 +81,7 @@ struct RecapView: View {
         .onDisappear {
             player?.pause()
             UIApplication.shared.isIdleTimerDisabled = false
+            discardStaged()
         }
     }
 
@@ -113,7 +125,7 @@ struct RecapView: View {
                 ProgressView()
                 Text(label).font(Theme.rounded(17, .semibold))
             }
-            Text("Made on this iPhone — nothing is uploaded. If you leave \(AppConfig.appName), it starts again when you're back.")
+            Text("Made on this iPhone — nothing is uploaded. If you leave \(AppConfig.appName), it carries on when you're back.")
                 .font(Theme.rounded(14))
                 .foregroundStyle(Theme.mutedText)
                 .multilineTextAlignment(.center)
@@ -198,15 +210,26 @@ struct RecapView: View {
     private func build() async {
         player?.pause()
         player = nil
-        phase = .gathering
         saveState = .idle
         UIApplication.shared.isIdleTimerDisabled = true
         defer { UIApplication.shared.isIdleTimerDisabled = false }
 
-        guard let plan = await model.recapPlan(for: period) else {
-            phase = .empty
-            return
+        let current: Staged
+        if let staged, staged.attempt == run.attempt {
+            current = staged
+        } else {
+            discardStaged()
+            phase = .gathering
+            guard let plan = await model.recapPlan(for: period) else {
+                phase = .empty
+                return
+            }
+            guard !Task.isCancelled else { return }
+            current = Staged(attempt: run.attempt, plan: plan, words: model.recapWords(for: plan),
+                             directory: RecapStore.stagingDirectory())
+            staged = current
         }
+        let plan = current.plan
         // Pictures already here go straight in; older ones keep only a thumbnail
         // here, so their full copies download ahead while earlier slides draw.
         let media = RecapMedia(plan.slides.flatMap { slide -> [Moment] in
@@ -216,15 +239,13 @@ struct RecapView: View {
         defer { media.cancel() }
         guard !Task.isCancelled else { return }
 
-        let directory = RecapStore.stagingDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = current.directory
         let url = directory.appendingPathComponent(RecapStore.fileName(for: period))
-        let words = model.recapWords(for: plan)
-        phase = .rendering(0)
+        if case .rendering = phase {} else { phase = .rendering(0) }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             // Nonisolated: draws off the main actor, and stops with this screen's task.
-            try await RecapVideo.render(plan, words: words, to: url,
+            try await RecapVideo.render(plan, words: current.words, in: directory, to: url,
                                         picture: { await media.picture(for: $0) }) { fraction in
                 Task { @MainActor in if case .rendering = phase { phase = .rendering(fraction) } }
             }
@@ -242,6 +263,12 @@ struct RecapView: View {
         } catch {
             phase = .failed(error.localizedDescription)
         }
+        discardStaged()
+    }
+
+    private func discardStaged() {
+        if let staged { try? FileManager.default.removeItem(at: staged.directory) }
+        staged = nil
     }
 
     /// Add-only authorisation: never reads the library.
