@@ -29,7 +29,9 @@ enum RecapVideo {
     }
 
     /// Cancellable: the task's cancellation stops it and removes the file.
+    /// `picture` hands over each slide's image as it's ready (`RecapMedia`).
     static func render(_ plan: RecapPlan, words: Words, to url: URL,
+                       picture: @escaping @Sendable (Moment) async -> UIImage?,
                        progress: @escaping @Sendable (Double) -> Void) async throws {
         try? FileManager.default.removeItem(at: url)
         let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
@@ -64,7 +66,14 @@ enum RecapVideo {
         var frame = 0
         var previous: CGImage?
         for (index, slide) in plan.slides.enumerated() {
-            guard let current = draw(slide, plan: plan, words: words) else { continue }
+            var photos: [(Moment, UIImage)] = []
+            if case .pictures(let moments) = slide {
+                for moment in moments {
+                    if let image = await picture(moment), image.size.width > 0 { photos.append((moment, image)) }
+                }
+                try Task.checkCancellation()
+            }
+            guard let current = draw(slide, photos: photos, plan: plan, words: words) else { continue }
             let frames = Int((slide.duration * Double(fps)).rounded())
             for step in 0..<frames {
                 try Task.checkCancellation()
@@ -134,22 +143,19 @@ enum RecapVideo {
     private static let steel = UIColor(red: 0.44, green: 0.66, blue: 0.86, alpha: 1)
     private static let muted = UIColor(red: 0.42, green: 0.37, blue: 0.36, alpha: 1)
 
-    private static func draw(_ slide: RecapPlan.Slide, plan: RecapPlan, words: Words) -> CGImage? {
+    private static func draw(_ slide: RecapPlan.Slide, photos: [(Moment, UIImage)],
+                             plan: RecapPlan, words: Words) -> CGImage? {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
         let renderer = UIGraphicsImageRenderer(size: size, format: format)
-        var photo: UIImage?
-        if case .picture(let moment) = slide {
-            // Its media never came back: the slide is skipped, not drawn empty.
-            guard let image = MomentStore.shared.image(for: moment.id), image.size.width > 0 else { return nil }
-            photo = image
-        }
+        // Pictures with neither their media nor a thumbnail drop out; a collage with none is skipped.
+        if case .pictures = slide, photos.isEmpty { return nil }
         return renderer.image { context in
             let cg = context.cgContext
             switch slide {
             case .opening: opening(plan: plan, words: words, in: cg)
-            case .picture(let moment): if let photo { picture(moment, image: photo, words: words, in: cg) }
+            case .pictures: collage(photos, words: words, in: cg)
             case .status(let entry): status(entry, words: words, in: cg)
             case .closing: closing(words: words, in: cg)
             }
@@ -183,7 +189,7 @@ enum RecapVideo {
     /// Centred text in a band starting at `top`; returns where it ended.
     @discardableResult
     private static func text(_ string: String, _ font: UIFont, _ color: UIColor, top: CGFloat,
-                             width: CGFloat = 900, lines: Int = 0) -> CGFloat {
+                             width: CGFloat = 900, centerX: CGFloat = size.width / 2, lines: Int = 0) -> CGFloat {
         guard !string.isEmpty else { return top }
         let style = NSMutableParagraphStyle()
         style.alignment = .center
@@ -195,7 +201,7 @@ enum RecapVideo {
         let bounds = attributed.boundingRect(with: CGSize(width: width, height: limit),
                                              options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
         let height = min(ceil(bounds.height), limit)
-        attributed.draw(with: CGRect(x: (size.width - width) / 2, y: top, width: width, height: height),
+        attributed.draw(with: CGRect(x: centerX - width / 2, y: top, width: width, height: height),
                         options: [.usesLineFragmentOrigin, .usesFontLeading, .truncatesLastVisibleLine], context: nil)
         return top + height
     }
@@ -226,34 +232,45 @@ enum RecapVideo {
         text("\(moments) · \(statuses)", font(46, .medium), muted, top: y + 30)
     }
 
-    private static func picture(_ moment: Moment, image: UIImage, words: Words, in context: CGContext) {
+    /// Matted prints, each tipped a little and filled edge to edge, its caption
+    /// (or sender) beneath; the run's dates close the slide.
+    private static func collage(_ photos: [(Moment, UIImage)], words: Words, in context: CGContext) {
         backdrop(in: context)
-        let caption = moment.displayCaption
-        let maxSide = CGSize(width: 920, height: caption == nil ? 1320 : 1180)
-        let scale = min(maxSide.width / image.size.width, maxSide.height / image.size.height)
-        let fitted = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-        let mat: CGFloat = 22
-        let card = CGRect(x: (size.width - fitted.width) / 2 - mat, y: 230 + (maxSide.height - fitted.height) / 2,
-                          width: fitted.width + mat * 2, height: fitted.height + mat * 2)
+        let tilts: [CGFloat] = [-1.6, 1.3, 1.1, -1.2]
+        let mat: CGFloat = 14
+        for (index, (cell, (moment, image))) in zip(RecapPlan.cells(for: photos.count, in: size), photos).enumerated() {
+            context.saveGState()
+            context.translateBy(x: cell.midX, y: cell.midY)
+            context.rotate(by: tilts[index % tilts.count] * .pi / 180)
+            context.translateBy(x: -cell.midX, y: -cell.midY)
 
-        context.saveGState()
-        context.setShadow(offset: CGSize(width: 0, height: 18), blur: 50,
-                          color: UIColor.black.withAlphaComponent(0.22).cgColor)
-        UIColor.white.setFill()
-        UIBezierPath(roundedRect: card, cornerRadius: 44).fill()
-        context.restoreGState()
+            context.saveGState()
+            context.setShadow(offset: CGSize(width: 0, height: 14), blur: 40,
+                              color: UIColor.black.withAlphaComponent(0.22).cgColor)
+            UIColor.white.setFill()
+            UIBezierPath(roundedRect: cell, cornerRadius: 30).fill()
+            context.restoreGState()
 
-        context.saveGState()
-        let photo = card.insetBy(dx: mat, dy: mat)
-        UIBezierPath(roundedRect: photo, cornerRadius: 26).addClip()
-        image.draw(in: photo)
-        context.restoreGState()
+            let frame = cell.insetBy(dx: mat, dy: mat)
+            UIBezierPath(roundedRect: frame, cornerRadius: 18).addClip()
+            // Photos fill their print; a drawing is shown whole, its words often at the edge.
+            let fit = min(frame.width / image.size.width, frame.height / image.size.height)
+            let scale = moment.kind == .drawing ? fit : max(frame.width / image.size.width, frame.height / image.size.height)
+            let fill = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+            image.draw(in: CGRect(x: frame.midX - fill.width / 2, y: frame.midY - fill.height / 2,
+                                  width: fill.width, height: fill.height))
+            context.restoreGState()
 
-        var y = card.maxY + 60
-        if let caption { y = text(caption, font(58, .semibold), .black, top: y, lines: 3) + 18 }
-        let who = moment.fromMe ? words.myName : moment.displaySenderName(fallback: words.partnerName)
-        let when = moment.sentAt.formatted(.dateTime.day().month(.wide))
-        text(who.isEmpty ? when : "\(who) · \(when)", font(42, .medium), muted, top: y, lines: 1)
+            let who = moment.fromMe ? words.myName : moment.displaySenderName(fallback: words.partnerName)
+            text(moment.displayCaption ?? who, font(34, .semibold), .black, top: cell.maxY + 10,
+                 width: cell.width - 20, centerX: cell.midX, lines: 1)
+        }
+
+        guard let start = photos.first?.0.sentAt, let end = photos.last?.0.sentAt else { return }
+        let span = Calendar.current.isDate(start, inSameDayAs: end)
+            ? start.formatted(.dateTime.day().month(.wide))
+            : (start..<max(start, end)).formatted(.interval.day().month(.wide))
+        text(span, font(46, .semibold), crimsonText, top: size.height - 260, lines: 1)
     }
 
     private static func status(_ entry: StatusHistoryEntry, words: Words, in context: CGContext) {

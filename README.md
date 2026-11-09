@@ -578,12 +578,18 @@ token rather than fetching known record names. Three things fall out of that:
 From 1 December to 31 January, Home offers the year's recap (a dismissible
 card), and Settings → Memories keeps a row for it all year once that year has
 pictures. It's a silent portrait video (1080×1920, ≈ 90 s at most) made on the
-phone, nothing uploaded: an opening card with the year's counts, up to 40
-photos and drawings spread evenly across the year with a slow zoom, up to 8
-statuses between them, and a closing card (`RecapPlan` decides,
-`RecapVideo` draws with `AVAssetWriter`). It reads the whole zone like "Save
-memories", fetches full pictures the phone only has thumbnails of, and puts
-in only what every surface may show — reported, sealed or filtered partner
+phone, nothing uploaded: an opening card with the year's counts, up to 80
+photos and drawings spread evenly across the year as collages of two to four
+(a staggered pair, one big over two, or a 2×2 grid of tipped prints — photos
+fill their print, drawings show whole — with each caption beneath and the
+run's dates below) under a slow zoom, up to 8 statuses between them, and a
+closing card (`RecapPlan` decides,
+`RecapVideo` draws with `AVAssetWriter`). It works from the phone's own copy:
+the zone is read only when the period reaches past the index's newest 500
+(`RecapPlan.needsZone`), pictures already here go straight in, and only the
+full copies the phone doesn't hold download — ahead, in slide order, while
+earlier slides draw (`RecapMedia`); one that can't be fetched shows its
+thumbnail. It puts in only what every surface may show — reported, sealed or filtered partner
 words stay out. Save to Photos (add-only) or share; the file goes when the
 screen closes. Diagnostics → "Year in review" makes one from the last 12
 months any time, and can put the Home card up to test it.

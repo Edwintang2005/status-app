@@ -30,12 +30,14 @@ Version 1.6.3.
     `PairingInfo` decodes field by field; the privacy manifest declares the
     active-keyboards API; tests no longer touch the real App Group; doc drift.
 
-- **Year in review.** A short video of the year — the photos, drawings and
-  statuses you shared, between an opening card with the year's counts and a
-  closing one — made on the phone and never uploaded. Home offers it from
+- **Year in review.** A short video of the year — the photos and drawings you
+  shared as collages of two to four, and your statuses between them, after an
+  opening card with the year's counts and before a closing one — made on the phone and never uploaded. Home offers it from
   1 December to 31 January; Settings → Memories keeps it all year. Save it to
   Photos or share it. Diagnostics → "Year in review" makes one from the last
-  12 months to test with.
+  12 months to test with. It works from what's already on the phone: iCloud
+  is read only for a year older than the 500 moments the phone keeps, and
+  only missing full pictures download, while the video is already being made.
 
 - **Status banners no longer replace each other.** Each partner status keeps
   its own banner until you clear it or open the app, so the ones you missed

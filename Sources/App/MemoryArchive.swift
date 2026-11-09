@@ -137,7 +137,7 @@ enum MemoryArchive {
     /// A few at a time, each bounded: one stalled download can't hold the rest,
     /// and a missing photo is listed as unrecovered rather than costing the archive.
     /// Stops starting new ones once cancelled.
-    static func fetchMedia(for moments: [Moment],
+    private static func fetchMedia(for moments: [Moment],
                                    progress: @escaping @Sendable (Double) -> Void) async {
         guard !moments.isEmpty else { return }
         let backend = Backend.current

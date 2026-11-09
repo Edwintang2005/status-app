@@ -79,6 +79,7 @@
 		22D7BF4238E1538B200B96F2 /* ThumbnailFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFC83BAB72764559604314F9 /* ThumbnailFetcher.swift */; };
 		2325222318FDD5BFABC05052 /* RefreshDelta.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29F12D897F3E160F3E1473C5 /* RefreshDelta.swift */; };
 		24E13AB51C89CBA81BA70787 /* PushBannerPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71323DB86292F376B381D8AB /* PushBannerPolicyTests.swift */; };
+		24EDA3659074DD584378A9C0 /* RecapMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D0038B3CED130D1325A5529 /* RecapMedia.swift */; };
 		257874C2DC21BCC4C63B6324 /* SharePosture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 077919F0FB8B8A341F8C4DAC /* SharePosture.swift */; };
 		25E70B4A993F551A3802F86F /* BannerCandidates.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE98A12892F7C07A65DAD8FD /* BannerCandidates.swift */; };
 		25F01DD784D6D81B5DAB1FA5 /* AppFetchPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CF32DF0739A58A0786C9C15 /* AppFetchPolicy.swift */; };
@@ -641,6 +642,7 @@
 		76CBD9146BE0A00FE8443DD6 /* VoiceMemoComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceMemoComposerView.swift; sourceTree = "<group>"; };
 		7979986C14FC84136536B46B /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		7B2ECC632A94AFA2CB99CFDA /* AnniversaryEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnniversaryEditorView.swift; sourceTree = "<group>"; };
+		7D0038B3CED130D1325A5529 /* RecapMedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecapMedia.swift; sourceTree = "<group>"; };
 		7D61C1403AB98E6D29C73895 /* CameraView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraView.swift; sourceTree = "<group>"; };
 		829D452F254B2593427CDAEB /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		82D31A4B77C7482966F45C68 /* LayoutGlitchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutGlitchTests.swift; sourceTree = "<group>"; };
@@ -786,6 +788,7 @@
 				16859BAE270D92FCB0C6D0FF /* DemoSeeder.swift */,
 				CBD41874B210F70D1875AAAE /* MemoryArchive.swift */,
 				AD8D0106D60EC77F6BBD92E8 /* NotificationManager.swift */,
+				7D0038B3CED130D1325A5529 /* RecapMedia.swift */,
 				FDAA1B3F7B493F3BDAF3EA02 /* RecapVideo.swift */,
 				B55B1156B55002BD0180D1C0 /* RedStringApp.swift */,
 				33ABA1C95A999EB2373B05EF /* RedStringShortcuts.swift */,
@@ -1849,6 +1852,7 @@
 				15DDA91187D75D7EB63AC818 /* ParsedDelta.swift in Sources */,
 				2FBDC5C2E133D9A716BC93D6 /* PinchToZoom.swift in Sources */,
 				15FB05424D35F6D808A52CD9 /* PushBannerPolicy.swift in Sources */,
+				24EDA3659074DD584378A9C0 /* RecapMedia.swift in Sources */,
 				0D0A9AF0C23B57A5F65AFE21 /* RecapPlan.swift in Sources */,
 				77DD577C1A3F4F519C9BD854 /* RecapVideo.swift in Sources */,
 				17ADDF150F8A2305D4667D02 /* RecapView.swift in Sources */,

@@ -23,12 +23,13 @@ extension AppModel {
         return history.contains { $0.isPicture && interval.contains($0.sentAt) }
     }
 
-    /// The whole zone, merged with this phone's copy like the archive (the index
-    /// keeps only the newest 500); an unreachable zone recaps this phone's copy.
-    /// Partner words go through moderation: only what may be shown goes in.
+    /// This phone's copy, merged with the whole zone like the archive only when
+    /// the period reaches past the index's newest 500 (`RecapPlan.needsZone`);
+    /// an unreachable zone recaps this phone's copy. Partner words go through
+    /// moderation: only what may be shown goes in.
     func recapPlan(for period: RecapPlan.Period) async -> RecapPlan? {
         var zone: ArchiveContents.Zone?
-        if isPaired {
+        if isPaired, RecapPlan.needsZone(index: history, interval: period.interval()) {
             do {
                 zone = try await bounded(AppConfig.refreshDeadline) { try await $0.archiveZone() }
             } catch {

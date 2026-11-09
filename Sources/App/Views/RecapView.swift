@@ -10,7 +10,6 @@ struct RecapView: View {
 
     private enum Phase: Equatable {
         case gathering
-        case fetching(Double)
         case rendering(Double)
         case ready(URL)
         case empty
@@ -58,8 +57,6 @@ struct RecapView: View {
         switch phase {
         case .gathering:
             working(String(localized: "Gathering your year…"), progress: nil)
-        case .fetching(let fraction):
-            working(String(localized: "Fetching photos from iCloud…"), progress: fraction)
         case .rendering(let fraction):
             working(String(localized: "Making your video…"), progress: fraction)
         case .ready(let url):
@@ -152,17 +149,13 @@ struct RecapView: View {
             phase = .empty
             return
         }
-        // Older pictures keep only a thumbnail here; the video wants the full one.
-        let missing = plan.slides.compactMap { slide -> Moment? in
-            guard case .picture(let moment) = slide, !MomentStore.shared.hasMedia(for: moment) else { return nil }
-            return moment
-        }
-        if !missing.isEmpty {
-            phase = .fetching(0)
-            await MemoryArchive.fetchMedia(for: missing) { fraction in
-                Task { @MainActor in if case .fetching = phase { phase = .fetching(fraction) } }
-            }
-        }
+        // Pictures already here go straight in; older ones keep only a thumbnail
+        // here, so their full copies download ahead while earlier slides draw.
+        let media = RecapMedia(plan.slides.flatMap { slide -> [Moment] in
+            if case .pictures(let moments) = slide { return moments }
+            return []
+        })
+        defer { media.cancel() }
         guard !Task.isCancelled else { return }
 
         let directory = FileManager.default.temporaryDirectory
@@ -179,7 +172,8 @@ struct RecapView: View {
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             // Nonisolated: draws off the main actor, and stops with this screen's task.
-            try await RecapVideo.render(plan, words: words, to: url) { fraction in
+            try await RecapVideo.render(plan, words: words, to: url,
+                                        picture: { await media.picture(for: $0) }) { fraction in
                 Task { @MainActor in if case .rendering = phase { phase = .rendering(fraction) } }
             }
         } catch is CancellationError {
