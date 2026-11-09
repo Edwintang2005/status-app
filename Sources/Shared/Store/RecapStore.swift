@@ -53,7 +53,28 @@ struct RecapStore {
         let destination = directory.appendingPathComponent(Self.fileName(for: period))
         try? fileManager.removeItem(at: destination)
         try fileManager.moveItem(at: staged, to: destination)
+        if case .year(let year) = period { removeYears(except: year) }
         return saved(for: period) ?? Saved(url: destination, madeAt: Date())
+    }
+
+    /// Only one year is ever offered (`RecapPlan.reviewYear`), so an older
+    /// year's video is out of reach once the next unwraps: it goes, keeping
+    /// `year` and the twelve-month one Diagnostics makes.
+    func removeYears(except year: Int) {
+        guard let directory else { return }
+        let keep: Set = [Self.fileName(for: .year(year)), Self.fileName(for: .lastTwelveMonths)]
+        let entries = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        for entry in entries where !keep.contains(entry.lastPathComponent) {
+            try? FileManager.default.removeItem(at: entry)
+        }
+    }
+
+    /// Bytes the kept videos take.
+    func size() -> Int {
+        guard let directory else { return 0 }
+        let entries = (try? FileManager.default.contentsOfDirectory(at: directory,
+                                                                     includingPropertiesForKeys: [.fileSizeKey])) ?? []
+        return entries.reduce(0) { $0 + ((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
     }
 
     /// They show the history: erased whenever it is.

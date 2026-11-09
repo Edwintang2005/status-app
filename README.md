@@ -589,6 +589,11 @@ staggered pair, one big over two, or a 2×2 grid of tipped prints — photos
 fill their print, drawings show whole — with each caption beneath and the
 run's dates below) under a slow zoom, up to 8 statuses between them, and a
 closing card (`RecapPlan` decides, `RecapVideo` draws with `AVAssetWriter`).
+Each slide is drawn once on the CPU; every frame of its zoom and crossfade is
+then composed on the GPU with Core Image straight into the encoder's buffers
+— doing that on the CPU cost about 0.1 s a frame, five minutes for a year,
+and MetricKit's "too much CPU" reports. While it works, the screen shows each
+slide as it's drawn ("Slide 12 of 40").
 It works from the phone's own copy: the zone is read only when the period
 reaches past the index's newest 500 (`RecapPlan.needsZone`), pictures already
 here go straight in, and only the full copies the phone doesn't hold download
@@ -603,7 +608,9 @@ slide not yet written — no gathering again, the crossfade into it redrawn (a
 failure while away waits too). A run the app was killed in leaves only a
 temporary folder, cleared at launch. The finished video is kept, one per period (`RecapStore`, in the App
 Group, out of backups): the screen reopens on it, with "Make it again" for
-newer moments. It shows the history, so it's erased with it — unlink, block,
+newer moments. Only one year is ever offered, so once the next year unwraps
+the last one's video goes (at launch, and when the new one is kept) — save
+it to Photos to keep it. Diagnostics shows their size and can delete them. It shows the history, so it's erased with it — unlink, block,
 starting over, a fresh start. Save to Photos (add-only) or share.
 Diagnostics → "Year in review" makes one from the last 12 months any time, and
 can put the Home card up to test it.

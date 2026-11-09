@@ -43,6 +43,13 @@ struct RecapView: View {
         let directory: URL
     }
 
+    /// The slide just drawn, shown while the video is made.
+    private struct Preview {
+        let image: UIImage
+        let index: Int
+        let count: Int
+    }
+
     private enum SaveState: Equatable {
         case idle, saving, saved
         case failed(String)
@@ -53,6 +60,7 @@ struct RecapView: View {
     @State private var saveState: SaveState = .idle
     @State private var run = Run()
     @State private var staged: Staged?
+    @State private var preview: Preview?
     /// Read inside the build, where an `@Environment` value can be stale.
     @State private var inBackground = false
 
@@ -118,9 +126,27 @@ struct RecapView: View {
 
     private func working(_ label: String, progress: Double?) -> some View {
         VStack(spacing: 18) {
+            if let preview, progress != nil {
+                // The year coming together, a slide at a time.
+                Image(uiImage: preview.image)
+                    .resizable()
+                    .aspectRatio(RecapVideo.size.width / RecapVideo.size.height, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .shadow(color: .black.opacity(0.15), radius: 12, y: 6)
+                    .id(preview.index)
+                    .transition(.opacity)
+                    .frame(maxHeight: .infinity)
+                    .accessibilityHidden(true)
+            }
             if let progress {
                 ProgressView(value: progress) { Text(label) }
                     .font(Theme.rounded(17, .semibold))
+                if let preview {
+                    Text("Slide \(preview.index + 1) of \(preview.count)")
+                        .font(Theme.rounded(14))
+                        .foregroundStyle(Theme.mutedText)
+                        .monospacedDigit()
+                }
             } else {
                 ProgressView()
                 Text(label).font(Theme.rounded(17, .semibold))
@@ -132,6 +158,8 @@ struct RecapView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: 420)
+        .padding(.vertical, 12)
+        .animation(.easeInOut(duration: 0.4), value: preview?.index)
     }
 
     private func ready(_ saved: RecapStore.Saved) -> some View {
@@ -202,6 +230,7 @@ struct RecapView: View {
 
     private func show(_ saved: RecapStore.Saved) {
         player = AVPlayer(url: saved.url)
+        preview = nil
         phase = .ready(saved)
         // Opened is as good as waved away: the card has done its job.
         if case .year = period, model.recapPeriodOnHome == period { model.dismissRecapNotice() }
@@ -219,6 +248,7 @@ struct RecapView: View {
             current = staged
         } else {
             discardStaged()
+            preview = nil
             phase = .gathering
             guard let plan = await model.recapPlan(for: period) else {
                 phase = .empty
@@ -245,8 +275,13 @@ struct RecapView: View {
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             // Nonisolated: draws off the main actor, and stops with this screen's task.
+            let count = plan.slides.count
             try await RecapVideo.render(plan, words: current.words, in: directory, to: url,
-                                        picture: { await media.picture(for: $0) }) { fraction in
+                                        picture: { await media.picture(for: $0) },
+                                        drawn: { image, index in
+                                            let shown = UIImage(cgImage: image)
+                                            Task { @MainActor in preview = Preview(image: shown, index: index, count: count) }
+                                        }) { fraction in
                 Task { @MainActor in if case .rendering = phase { phase = .rendering(fraction) } }
             }
         } catch is CancellationError {

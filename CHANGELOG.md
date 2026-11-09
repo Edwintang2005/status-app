@@ -38,7 +38,10 @@ Version 1.6.3.
   stays in Settings → Memories. The finished video is kept, so it opens again
   at once ("Make it again" picks up newer moments), and it's erased along with
   the history it shows. Leaving the app or locking the phone while it's being
-  made pauses it, and it carries on from where it got to when you're back. Save it to Photos or share it. Diagnostics → "Year in review" makes one from the last
+  made pauses it, and it carries on from where it got to when you're back.
+  Each slide shows on screen as it's made, and the frames are composed on the
+  GPU (on the CPU a year took about five minutes). A year's video is kept
+  until the next year's unwraps; Diagnostics can delete saved recaps. Save it to Photos or share it. Diagnostics → "Year in review" makes one from the last
   12 months to test with. It works from what's already on the phone: iCloud
   is read only for a year older than the 500 moments the phone keeps, and
   only missing full pictures download, while the video is already being made.

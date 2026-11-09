@@ -18,6 +18,8 @@ struct DiagnosticsView: View {
     @State private var secureResult: String?
     /// Outcome line for the DEBUG public-joiner sweep.
     @State private var sweepResult: String?
+    /// Bytes the kept recap videos take; `nil` until measured.
+    @State private var recapBytes: Int?
 
     var body: some View {
         Form {
@@ -213,11 +215,22 @@ struct DiagnosticsView: View {
                 }
                 .tint(.primary)
                 .disabled(model.recapCardPreview)
+                Button {
+                    RecapStore.shared.removeAll()
+                    RecapStore.clearStaging()
+                    recapBytes = RecapStore.shared.size()
+                } label: {
+                    LabeledContent("Delete saved recap videos",
+                                   value: (recapBytes ?? 0).formatted(.byteCount(style: .file)))
+                }
+                .tint(.primary)
+                .disabled((recapBytes ?? 0) == 0)
+                .onAppear { recapBytes = RecapStore.shared.size() }
             } header: {
                 Text("Year in review")
             } footer: {
                 Group {
-                    Text("The year's recap unwraps at midday on 25 December — a notification, and a Home card until 31 January — and stays in Settings after that. These make one now, from whatever falls in the last 12 months.")
+                    Text("The year's recap unwraps at midday on 25 December — a notification, and a Home card until 31 January — and stays in Settings after that. These make one now, from whatever falls in the last 12 months. Each year's video is kept until the next year's unwraps; deleting them only means the next look makes them again.")
                 }
                 .foregroundStyle(Theme.mutedText)
             }

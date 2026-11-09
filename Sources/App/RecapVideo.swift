@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreImage
 import UIKit
 
 /// Draws a `RecapPlan` into a silent portrait H.264 video, entirely on the
@@ -9,6 +10,14 @@ enum RecapVideo {
     private static let fps: Int32 = 30
     private static let fade: TimeInterval = 0.35
     private static let zoom: CGFloat = 0.05
+    /// GPU-backed: each frame is the slide scaled and blended over the last,
+    /// which on the CPU took about 0.1 s a frame — minutes for a year.
+    private static let renderer = Renderer()
+
+    /// Thread-safe by Core Image's contract, whether or not this SDK marks it `Sendable`.
+    private final class Renderer: @unchecked Sendable {
+        let context = CIContext(options: [.cacheIntermediates: false])
+    }
 
     struct Words: Sendable {
         var myName: String
@@ -33,9 +42,11 @@ enum RecapVideo {
     /// those already there, then joins them into `url`. So a run cut off part-way
     /// — the app left the screen and the encoder went — resumes at the first
     /// slide missing. Cancellable; a slide half-written is removed.
-    /// `picture` hands over each slide's image as it's ready (`RecapMedia`).
+    /// `picture` hands over each slide's image as it's ready (`RecapMedia`);
+    /// `drawn` shows each slide as it's made, for the screen to preview.
     static func render(_ plan: RecapPlan, words: Words, in directory: URL, to url: URL,
                        picture: @escaping @Sendable (Moment) async -> UIImage?,
+                       drawn: @escaping @Sendable (CGImage, Int) -> Void = { _, _ in },
                        progress: @escaping @Sendable (Double) -> Void) async throws {
         let fileManager = FileManager.default
         func segment(_ index: Int) -> URL { directory.appendingPathComponent("slide-\(index).mp4") }
@@ -57,7 +68,10 @@ enum RecapVideo {
                 guard fileManager.fileExists(atPath: segment(index).path) else { continue }
                 segments.append(segment(index))
                 frame += length
-                if index == fadeFrom { previous = await image(for: slide, plan: plan, words: words, picture: picture) }
+                if index == fadeFrom {
+                    previous = await image(for: slide, plan: plan, words: words, picture: picture)
+                    if let previous { drawn(previous, index) }
+                }
                 continue
             }
             progress(Double(frame) / Double(totalFrames))
@@ -67,6 +81,7 @@ enum RecapVideo {
                 continue
             }
             try Task.checkCancellation()
+            drawn(current, index)
             let start = frame
             try await write(current, after: previous, frames: length, to: segment(index)) { written in
                 if written % 15 == 0 { progress(Double(start + written) / Double(totalFrames)) }
@@ -112,6 +127,9 @@ enum RecapVideo {
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
             kCVPixelBufferWidthKey as String: Int(size.width),
             kCVPixelBufferHeightKey as String: Int(size.height),
+            // IOSurface-backed, so the GPU draws straight into the encoder's buffers.
+            kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any](),
+            kCVPixelBufferMetalCompatibilityKey as String: true,
         ])
         guard writer.canAdd(input) else { throw Failure.writer("no video track") }
         writer.add(input)
@@ -129,6 +147,8 @@ enum RecapVideo {
         }
 
         let duration = Double(frames) / Double(fps)
+        let currentImage = CIImage(cgImage: current)
+        let previousImage = previous.map { CIImage(cgImage: $0) }
         for step in 0..<frames {
             try Task.checkCancellation()
             while !input.isReadyForMoreMediaData {
@@ -139,8 +159,8 @@ enum RecapVideo {
             CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer)
             guard let buffer else { throw Failure.writer("no buffer") }
             let t = Double(step) / Double(fps)
-            compose(into: buffer, current: current, progress: t / duration,
-                    previous: previous, fadeIn: min(1, t / fade))
+            compose(into: buffer, current: currentImage, progress: t / duration,
+                    previous: previousImage, fadeIn: min(1, t / fade))
             guard adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(step), timescale: fps)) else {
                 throw Failure.writer(writer.error?.localizedDescription ?? "couldn't add a frame")
             }
@@ -194,29 +214,25 @@ enum RecapVideo {
 
     /// The slide zooms in slowly across its run; the one before stays at its
     /// last zoom as it fades out under it.
-    private static func compose(into buffer: CVPixelBuffer, current: CGImage, progress: Double,
-                                previous: CGImage?, fadeIn: Double) {
-        CVPixelBufferLockBaseAddress(buffer, [])
-        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
-        guard let context = CGContext(data: CVPixelBufferGetBaseAddress(buffer),
-                                      width: Int(size.width), height: Int(size.height),
-                                      bitsPerComponent: 8,
-                                      bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
-                                      space: CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
-                                        | CGBitmapInfo.byteOrder32Little.rawValue) else { return }
-        context.interpolationQuality = .high
+    private static func compose(into buffer: CVPixelBuffer, current: CIImage, progress: Double,
+                                previous: CIImage?, fadeIn: Double) {
+        var frame = zoomed(current, progress)
         if let previous, fadeIn < 1 {
-            context.draw(previous, in: zoomed(1))
-            context.setAlpha(CGFloat(fadeIn))
+            frame = frame
+                .applyingFilter("CIColorMatrix", parameters: ["inputAVector": CIVector(x: 0, y: 0, z: 0, w: CGFloat(fadeIn))])
+                .composited(over: zoomed(previous, 1))
         }
-        context.draw(current, in: zoomed(progress))
+        let canvas = CGRect(origin: .zero, size: size)
+        renderer.context.render(frame.cropped(to: canvas), to: buffer, bounds: canvas,
+                                colorSpace: CGColorSpaceCreateDeviceRGB())
     }
 
-    private static func zoomed(_ progress: Double) -> CGRect {
+    /// Scaled about the centre, so the edges grow out of the frame evenly.
+    private static func zoomed(_ image: CIImage, _ progress: Double) -> CIImage {
         let scale = 1 + zoom * CGFloat(min(max(progress, 0), 1))
-        let width = size.width * scale, height = size.height * scale
-        return CGRect(x: (size.width - width) / 2, y: (size.height - height) / 2, width: width, height: height)
+        return image.transformed(by: CGAffineTransform(a: scale, b: 0, c: 0, d: scale,
+                                                       tx: size.width * (1 - scale) / 2,
+                                                       ty: size.height * (1 - scale) / 2))
     }
 
     // MARK: - Slides

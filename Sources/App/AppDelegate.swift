@@ -23,7 +23,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // Required for CloudKit database subscriptions to reach us at all.
         application.registerForRemoteNotifications()
         CrashReporter.shared.start()
-        Task.detached(priority: .utility) { RecapStore.clearStaging() }
+        Task.detached(priority: .utility) {
+            RecapStore.clearStaging()
+            RecapStore.shared.removeYears(except: RecapPlan.reviewYear())
+        }
         return true
     }
 
