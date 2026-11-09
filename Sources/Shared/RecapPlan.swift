@@ -141,21 +141,53 @@ struct RecapPlan: Equatable, Sendable {
         return (0..<count).map { items[Int((Double($0) * step).rounded())] }
     }
 
-    /// Home's card: the year's recap from 1 December to 31 January.
+    /// Each year's recap unwraps at midday on Christmas Day, wall-clock
+    /// wherever the phone is: a gift, so nothing shows it before then.
+    static func unwrapping(_ year: Int) -> DateComponents {
+        DateComponents(year: year, month: 12, day: 25, hour: 12, minute: 0)
+    }
+
+    static func hasUnwrapped(_ year: Int, now: Date = Date(), calendar: Calendar = .current) -> Bool {
+        guard let at = calendar.date(from: unwrapping(year)) else { return false }
+        return now >= at
+    }
+
+    struct Reminder: Equatable, Sendable {
+        var year: Int
+        var identifier: String
+        /// `unwrapping(year)`, floating.
+        var fireAt: DateComponents
+    }
+
+    static let reminderPrefix = "recap-"
+    /// userInfo key naming the reminder's year, for the tap's route.
+    static let reminderYearKey = "recap-year"
+
+    /// The Christmas note that this year's recap is ready: while paired, once
+    /// the year has a picture, until it fires — never for a year already
+    /// opened or waved away. `nil`: the scheduler removes a pending one.
+    static func reminder(paired: Bool, hasPictures: (Int) -> Bool, dismissed: Int?,
+                         now: Date = Date(), calendar: Calendar = .current) -> Reminder? {
+        guard paired, let year = calendar.dateComponents([.year], from: now).year,
+              dismissed != year, hasPictures(year),
+              !hasUnwrapped(year, now: now, calendar: calendar) else { return nil }
+        return Reminder(year: year, identifier: "\(reminderPrefix)\(year)", fireAt: unwrapping(year))
+    }
+
+    /// Home's card: the year's recap from Christmas midday to 31 January.
     static func yearOnOffer(now: Date = Date(), calendar: Calendar = .current) -> Int? {
         let parts = calendar.dateComponents([.year, .month], from: now)
         guard let year = parts.year, let month = parts.month else { return nil }
         switch month {
-        case 12: return year
+        case 12: return hasUnwrapped(year, now: now, calendar: calendar) ? year : nil
         case 1: return year - 1
         default: return nil
         }
     }
 
-    /// Settings' row: this year once December starts, else the last full one.
+    /// Settings' row: this year once it's unwrapped, else the last full one.
     static func reviewYear(now: Date = Date(), calendar: Calendar = .current) -> Int {
-        let parts = calendar.dateComponents([.year, .month], from: now)
-        let year = parts.year ?? 2000
-        return parts.month == 12 ? year : year - 1
+        let year = calendar.dateComponents([.year], from: now).year ?? 2000
+        return hasUnwrapped(year, now: now, calendar: calendar) ? year : year - 1
     }
 }

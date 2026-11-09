@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // Required for CloudKit database subscriptions to reach us at all.
         application.registerForRemoteNotifications()
         CrashReporter.shared.start()
+        Task.detached(priority: .utility) { RecapStore.clearStaging() }
         return true
     }
 
@@ -130,6 +131,10 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
                     }
                 }
                 if content.categoryIdentifier == NotificationCategory.milestone { model.pendingRoute = .anniversary }
+                if content.categoryIdentifier == NotificationCategory.recap,
+                   let year = content.userInfo[RecapPlan.reminderYearKey] as? Int {
+                    model.pendingRoute = .recap(year)
+                }
             }
         default:
             break

@@ -454,6 +454,7 @@ final class SharedStore: @unchecked Sendable {
         // No grace window: an unlink erases everything, even seconds-old recordings.
         MomentStore.shared.prune(keeping: kept.map(\.id), graceInterval: 0)
         MomentStore.clearThumbnailCache()
+        RecapStore.shared.removeAll()
     }
 
     /// Wipes pairing, cached statuses and the whole moment history.

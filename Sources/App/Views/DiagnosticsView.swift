@@ -217,7 +217,7 @@ struct DiagnosticsView: View {
                 Text("Year in review")
             } footer: {
                 Group {
-                    Text("Home offers the year's recap from 1 December to 31 January, and Settings all year once the year has pictures. These make one now, from whatever falls in the last 12 months.")
+                    Text("The year's recap unwraps at midday on 25 December — a notification, and a Home card until 31 January — and stays in Settings after that. These make one now, from whatever falls in the last 12 months.")
                 }
                 .foregroundStyle(Theme.mutedText)
             }

@@ -116,6 +116,8 @@ final class AppModel {
         /// A milestone reminder was tapped: the easter egg, whose tie (kept on
         /// purpose) opens the count that names the milestone.
         case anniversary
+        /// The Christmas note was tapped: that year's recap.
+        case recap(Int)
     }
     var pendingRoute: Route?
 
@@ -181,6 +183,9 @@ final class AppModel {
     /// What was last handed to the system, so `reload` reschedules only on change.
     @ObservationIgnored private var scheduledReminders: [MilestoneReminderPlan.Reminder]?
     @ObservationIgnored private var reminderSync: Task<Void, Never>?
+    /// What `syncRecapReminder` last scheduled; outer `nil` until the first sync.
+    @ObservationIgnored var scheduledRecapReminder: RecapPlan.Reminder??
+    @ObservationIgnored var recapReminderSync: Task<Void, Never>?
     @ObservationIgnored private var isCleaningSubscriptions = false
     /// The gallery marked moments seen without reloading the widgets each page.
     @ObservationIgnored private var widgetReloadOwed = false
@@ -471,6 +476,7 @@ final class AppModel {
         update(\.history, MomentIndex.shared.load())
         refreshRecentStatusesIfNeeded()
         syncMilestoneReminders()
+        syncRecapReminder()
     }
 
     private func update<Value: Equatable>(_ keyPath: ReferenceWritableKeyPath<AppModel, Value>, _ value: Value) {

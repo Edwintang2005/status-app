@@ -122,16 +122,42 @@ final class RecapPlanTests: XCTestCase {
                        "the index already reaches back past the year")
     }
 
-    func testHomeOffersDecemberThroughJanuary() {
-        XCTAssertEqual(RecapPlan.yearOnOffer(now: day(2026, 12, 1), calendar: calendar), 2026)
+    private func at(_ year: Int, _ month: Int, _ day: Int, _ hour: Int) -> Date {
+        calendar.date(from: DateComponents(year: year, month: month, day: day, hour: hour))!
+    }
+
+    /// Midday on Christmas Day, only while paired and once the year has a picture;
+    /// gone once it's fired, and never for a year already opened or waved away.
+    func testTheReminderComesAtChristmasMidday() throws {
+        func reminder(paired: Bool = true, pictures: Bool = true, dismissed: Int? = nil,
+                      now: Date) -> RecapPlan.Reminder? {
+            RecapPlan.reminder(paired: paired, hasPictures: { _ in pictures }, dismissed: dismissed,
+                               now: now, calendar: calendar)
+        }
+        let due = try XCTUnwrap(reminder(now: day(2026, 3, 1)))
+        XCTAssertEqual(due.year, 2026)
+        XCTAssertEqual(due.identifier, "recap-2026")
+        XCTAssertEqual(due.fireAt, DateComponents(year: 2026, month: 12, day: 25, hour: 12, minute: 0))
+        XCTAssertNotNil(reminder(now: at(2026, 12, 25, 11)))
+        XCTAssertNil(reminder(paired: false, now: day(2026, 3, 1)))
+        XCTAssertNil(reminder(pictures: false, now: day(2026, 3, 1)))
+        XCTAssertNil(reminder(dismissed: 2026, now: day(2026, 3, 1)))
+        XCTAssertNil(reminder(now: at(2026, 12, 25, 12)), "already fired")
+    }
+
+    /// A gift: nothing shows the year's recap before it unwraps.
+    func testHomeOffersItFromChristmasMiddayThroughJanuary() {
+        XCTAssertNil(RecapPlan.yearOnOffer(now: at(2026, 12, 1, 9), calendar: calendar))
+        XCTAssertNil(RecapPlan.yearOnOffer(now: at(2026, 12, 25, 11), calendar: calendar))
+        XCTAssertEqual(RecapPlan.yearOnOffer(now: at(2026, 12, 25, 12), calendar: calendar), 2026)
         XCTAssertEqual(RecapPlan.yearOnOffer(now: day(2027, 1, 31), calendar: calendar), 2026)
-        XCTAssertNil(RecapPlan.yearOnOffer(now: day(2026, 11, 30), calendar: calendar))
         XCTAssertNil(RecapPlan.yearOnOffer(now: day(2027, 2, 1), calendar: calendar))
     }
 
-    func testSettingsShowsTheLastFullYearUntilDecember() {
+    func testSettingsShowsTheLastFullYearUntilItUnwraps() {
         XCTAssertEqual(RecapPlan.reviewYear(now: day(2026, 11, 9), calendar: calendar), 2025)
-        XCTAssertEqual(RecapPlan.reviewYear(now: day(2026, 12, 1), calendar: calendar), 2026)
+        XCTAssertEqual(RecapPlan.reviewYear(now: at(2026, 12, 25, 11), calendar: calendar), 2025)
+        XCTAssertEqual(RecapPlan.reviewYear(now: at(2026, 12, 25, 12), calendar: calendar), 2026)
         XCTAssertEqual(RecapPlan.reviewYear(now: day(2027, 1, 15), calendar: calendar), 2026)
     }
 }

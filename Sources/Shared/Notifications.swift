@@ -15,6 +15,8 @@ enum NotificationCategory {
     static let moment = "moment"
     /// A local milestone reminder (`MilestoneReminderPlan`); opens the count.
     static let milestone = "milestone"
+    /// The local Christmas note (`RecapPlan.reminder`); opens that year's recap.
+    static let recap = "recap"
 
     /// userInfo key the notification service stamps (value: the category) on a
     /// banner worded from unencrypted fields alone, so the app's sweep supersedes it.

@@ -54,6 +54,8 @@ enum NotificationManager {
                                    intentIdentifiers: [], hiddenPreviewsBodyPlaceholder: hidden),
             UNNotificationCategory(identifier: NotificationCategory.milestone, actions: [],
                                    intentIdentifiers: [], hiddenPreviewsBodyPlaceholder: hidden),
+            UNNotificationCategory(identifier: NotificationCategory.recap, actions: [],
+                                   intentIdentifiers: [], hiddenPreviewsBodyPlaceholder: hidden),
         ])
     }
 
@@ -195,6 +197,28 @@ enum NotificationManager {
             } catch {
                 log.error("Failed to schedule a milestone reminder: \(error.localizedDescription)")
             }
+        }
+    }
+
+    /// Replaces any pending year-in-review note with `reminder`, or none.
+    static func scheduleRecapReminder(_ reminder: RecapPlan.Reminder?) async {
+        let center = UNUserNotificationCenter.current()
+        let pending = await center.pendingNotificationRequests()
+            .map(\.identifier)
+            .filter { $0.hasPrefix(RecapPlan.reminderPrefix) }
+        center.removePendingNotificationRequests(withIdentifiers: pending)
+        guard let reminder else { return }
+        let content = UNMutableNotificationContent()
+        content.title = AppConfig.appName
+        content.body = String(localized: "A little gift: your \(String(reminder.year)) together is ready to watch 🎁")
+        content.sound = .default
+        content.categoryIdentifier = NotificationCategory.recap
+        content.userInfo[RecapPlan.reminderYearKey] = reminder.year
+        let trigger = UNCalendarNotificationTrigger(dateMatching: reminder.fireAt, repeats: false)
+        do {
+            try await center.add(UNNotificationRequest(identifier: reminder.identifier, content: content, trigger: trigger))
+        } catch {
+            log.error("Failed to schedule the recap reminder: \(error.localizedDescription)")
         }
     }
 

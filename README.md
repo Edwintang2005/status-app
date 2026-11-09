@@ -575,24 +575,36 @@ token rather than fetching known record names. Three things fall out of that:
 
 ### Year in review
 
-From 1 December to 31 January, Home offers the year's recap (a dismissible
-card), and Settings → Memories keeps a row for it all year once that year has
-pictures. It's a silent portrait video (1080×1920, ≈ 90 s at most) made on the
-phone, nothing uploaded: an opening card with the year's counts, up to 80
-photos and drawings spread evenly across the year as collages of two to four
-(a staggered pair, one big over two, or a 2×2 grid of tipped prints — photos
+Each year's recap is a Christmas gift: it unwraps at midday on 25 December,
+wall-clock wherever the phone is (`RecapPlan.unwrapping`). Then a local
+notification says it's ready (scheduled while paired once the year has a
+picture; tapping opens it), Home shows a dismissible card until 31 January,
+and Settings → Memories keeps a row for it after that — until it unwraps,
+that row is the year before. Nothing shows a year's recap earlier.
+
+It's a silent portrait video (1080×1920, ≈ 90 s at most) made on the phone,
+nothing uploaded: an opening card with the year's counts, up to 80 photos and
+drawings spread evenly across the year as collages of two to four (a
+staggered pair, one big over two, or a 2×2 grid of tipped prints — photos
 fill their print, drawings show whole — with each caption beneath and the
 run's dates below) under a slow zoom, up to 8 statuses between them, and a
-closing card (`RecapPlan` decides,
-`RecapVideo` draws with `AVAssetWriter`). It works from the phone's own copy:
-the zone is read only when the period reaches past the index's newest 500
-(`RecapPlan.needsZone`), pictures already here go straight in, and only the
-full copies the phone doesn't hold download — ahead, in slide order, while
-earlier slides draw (`RecapMedia`); one that can't be fetched shows its
-thumbnail. It puts in only what every surface may show — reported, sealed or filtered partner
-words stay out. Save to Photos (add-only) or share; the file goes when the
-screen closes. Diagnostics → "Year in review" makes one from the last 12
-months any time, and can put the Home card up to test it.
+closing card (`RecapPlan` decides, `RecapVideo` draws with `AVAssetWriter`).
+It works from the phone's own copy: the zone is read only when the period
+reaches past the index's newest 500 (`RecapPlan.needsZone`), pictures already
+here go straight in, and only the full copies the phone doesn't hold download
+— ahead, in slide order, while earlier slides draw (`RecapMedia`); one that
+can't be fetched shows its thumbnail. It puts in only what every surface may
+show — reported, sealed or filtered partner words stay out.
+
+A backgrounded app can't use the video encoder, so leaving the app mid-way
+pauses the build and it starts again on return (a failure while away waits
+too); a run the app was killed in leaves only a temporary folder, cleared at
+launch. The finished video is kept, one per period (`RecapStore`, in the App
+Group, out of backups): the screen reopens on it, with "Make it again" for
+newer moments. It shows the history, so it's erased with it — unlink, block,
+starting over, a fresh start. Save to Photos (add-only) or share.
+Diagnostics → "Year in review" makes one from the last 12 months any time, and
+can put the Home card up to test it.
 
 ### Fresh start
 

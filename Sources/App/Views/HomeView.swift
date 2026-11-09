@@ -339,6 +339,8 @@ struct HomeView: View {
             composer = ComposerRequest(opensCamera: true)
         case .anniversary:
             showingAnniversary = true
+        case .recap(let year):
+            recap = RecapRequest(period: .year(year))
         case .newMoments:
             carouselQueue = model.carouselMoments
         case .moment(let id):

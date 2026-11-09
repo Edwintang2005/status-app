@@ -632,6 +632,8 @@ final class Outbox {
                 statusLog.remove(fromMe: true, at: purge.myLogs)
                 statusLog.remove(fromMe: false, at: purge.theirLogs)
                 indexChanged()
+                // A recap shows the cleared history.
+                RecapStore.shared.removeAll()
                 // The receipt record went with the clear; what's left is published afresh.
                 store.mutate {
                     $0.freshStart.finished(epoch)

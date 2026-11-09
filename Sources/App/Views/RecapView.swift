@@ -3,17 +3,34 @@ import Photos
 import SwiftUI
 
 /// Makes the year's montage on this iPhone, then offers to keep or share it.
-/// Nothing is uploaded; the file lives only until this screen closes.
+/// Nothing is uploaded. The finished video is kept (`RecapStore`), so the
+/// screen reopens on it; leaving the app mid-way pauses and restarts on return,
+/// as iOS doesn't let a backgrounded app use the video encoder.
 struct RecapView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.scenePhase) private var scenePhase
     let period: RecapPlan.Period
 
     private enum Phase: Equatable {
         case gathering
         case rendering(Double)
-        case ready(URL)
+        case ready(RecapStore.Saved)
         case empty
         case failed(String)
+
+        var isWorking: Bool {
+            switch self {
+            case .gathering, .rendering: true
+            case .ready, .empty, .failed: false
+            }
+        }
+    }
+
+    /// The build task's identity: a new attempt rebuilds, and a pause cancels
+    /// the build and its return starts it again.
+    private struct Run: Equatable {
+        var attempt = 0
+        var paused = false
     }
 
     private enum SaveState: Equatable {
@@ -24,9 +41,9 @@ struct RecapView: View {
     @State private var phase: Phase = .gathering
     @State private var player: AVPlayer?
     @State private var saveState: SaveState = .idle
-    @State private var attempt = 0
-    /// Per run, removed when the screen closes.
-    @State private var folder: URL?
+    @State private var run = Run()
+    /// Read inside the build, where an `@Environment` value can be stale.
+    @State private var inBackground = false
 
     var body: some View {
         ZStack {
@@ -37,11 +54,22 @@ struct RecapView: View {
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: attempt) { await build() }
+        .task(id: run) { await start() }
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .background:
+                inBackground = true
+                if self.phase.isWorking { run.paused = true }
+            case .active:
+                inBackground = false
+                if run.paused { run.paused = false }
+            default:
+                break
+            }
+        }
         .onDisappear {
             player?.pause()
             UIApplication.shared.isIdleTimerDisabled = false
-            if let folder { try? FileManager.default.removeItem(at: folder) }
         }
     }
 
@@ -69,7 +97,7 @@ struct RecapView: View {
             VStack(spacing: 16) {
                 ContentUnavailableView("Couldn't make the video", systemImage: "exclamationmark.triangle",
                                        description: Text(reason))
-                Button("Try again") { attempt += 1 }
+                Button("Try again") { run.attempt += 1 }
                     .buttonStyle(.borderedProminent)
                     .tint(Theme.accent)
             }
@@ -85,7 +113,7 @@ struct RecapView: View {
                 ProgressView()
                 Text(label).font(Theme.rounded(17, .semibold))
             }
-            Text("Made on this iPhone — nothing is uploaded. Keep \(AppConfig.appName) open until it's done.")
+            Text("Made on this iPhone — nothing is uploaded. If you leave \(AppConfig.appName), it starts again when you're back.")
                 .font(Theme.rounded(14))
                 .foregroundStyle(Theme.mutedText)
                 .multilineTextAlignment(.center)
@@ -94,8 +122,9 @@ struct RecapView: View {
         .frame(maxWidth: 420)
     }
 
-    private func ready(_ url: URL) -> some View {
-        VStack(spacing: 18) {
+    private func ready(_ saved: RecapStore.Saved) -> some View {
+        let url = saved.url
+        return VStack(spacing: 18) {
             VideoPlayer(player: player)
                 .aspectRatio(RecapVideo.size.width / RecapVideo.size.height, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -125,6 +154,16 @@ struct RecapView: View {
                     .foregroundStyle(Theme.warmText)
                     .multilineTextAlignment(.center)
             }
+            HStack(spacing: 6) {
+                Text("Made \(saved.madeAt.formatted(.dateTime.day().month(.wide)))")
+                    .foregroundStyle(Theme.mutedText)
+                Text("·").foregroundStyle(Theme.mutedText).accessibilityHidden(true)
+                // Newer moments since: a fresh one picks them up.
+                Button("Make it again") { run.attempt += 1 }
+                    .foregroundStyle(Theme.accentText)
+                    .frame(minHeight: 44)
+            }
+            .font(Theme.rounded(14))
         }
         .padding(.vertical, 12)
     }
@@ -139,7 +178,26 @@ struct RecapView: View {
 
     // MARK: - Work
 
+    /// The kept video when there is one and no rebuild was asked for; a paused run waits.
+    private func start() async {
+        guard !run.paused else { return }
+        if run.attempt == 0, let saved = RecapStore.shared.saved(for: period) {
+            show(saved)
+            return
+        }
+        await build()
+    }
+
+    private func show(_ saved: RecapStore.Saved) {
+        player = AVPlayer(url: saved.url)
+        phase = .ready(saved)
+        // Opened is as good as waved away: the card has done its job.
+        if case .year = period, model.recapPeriodOnHome == period { model.dismissRecapNotice() }
+    }
+
     private func build() async {
+        player?.pause()
+        player = nil
         phase = .gathering
         saveState = .idle
         UIApplication.shared.isIdleTimerDisabled = true
@@ -158,15 +216,9 @@ struct RecapView: View {
         defer { media.cancel() }
         guard !Task.isCancelled else { return }
 
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("recap-\(UUID().uuidString)", isDirectory: true)
-        if let folder { try? FileManager.default.removeItem(at: folder) }
-        folder = directory
-        let name: String = switch period {
-        case .year(let year): "\(AppConfig.appName) \(String(year))"
-        case .lastTwelveMonths: "\(AppConfig.appName) recap"
-        }
-        let url = directory.appendingPathComponent(name).appendingPathExtension("mp4")
+        let directory = RecapStore.stagingDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent(RecapStore.fileName(for: period))
         let words = model.recapWords(for: plan)
         phase = .rendering(0)
         do {
@@ -179,14 +231,17 @@ struct RecapView: View {
         } catch is CancellationError {
             return
         } catch {
-            phase = .failed(error.localizedDescription)
+            // The encoder goes when the app leaves the screen, sometimes before
+            // the phase change arrives: wait for the return instead of failing.
+            if inBackground { run.paused = true } else { phase = .failed(error.localizedDescription) }
             return
         }
         guard !Task.isCancelled else { return }
-        player = AVPlayer(url: url)
-        phase = .ready(url)
-        // Opened is as good as waved away: the card has done its job.
-        if case .year = period, model.recapPeriodOnHome == period { model.dismissRecapNotice() }
+        do {
+            show(try RecapStore.shared.keep(url, for: period))
+        } catch {
+            phase = .failed(error.localizedDescription)
+        }
     }
 
     /// Add-only authorisation: never reads the library.
