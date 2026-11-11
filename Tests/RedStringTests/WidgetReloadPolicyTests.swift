@@ -76,4 +76,34 @@ final class WidgetReloadPolicyTests: XCTestCase {
         XCTAssertFalse(WidgetReloadPolicy.waitsQuietly(after: CKError(.serverResponseLost)))
         XCTAssertFalse(WidgetReloadPolicy.waitsQuietly(after: CancellationError()))
     }
+
+    /// Opening the app redraws without fetching; the outage it hit must stay visible.
+    func testAWidgetRunKeepsTheLastFetchThroughRedraws() {
+        let failed = SharedStore.WidgetRun.recorded(after: nil, at: now, outcome: .unreachable,
+                                                    detail: "no auth token", nextReload: now.addingTimeInterval(3600))
+        XCTAssertEqual(failed.lastFetch?.outcome, .unreachable)
+        let redrawn = SharedStore.WidgetRun.recorded(after: failed, at: now.addingTimeInterval(60), outcome: .skipped,
+                                                     detail: nil, nextReload: now.addingTimeInterval(3600))
+        XCTAssertEqual(redrawn.outcome, .skipped)
+        XCTAssertEqual(redrawn.lastFetch, failed.lastFetch)
+        let fetched = SharedStore.WidgetRun.recorded(after: redrawn, at: now.addingTimeInterval(120), outcome: .fetched,
+                                                     detail: nil, nextReload: now.addingTimeInterval(3600))
+        XCTAssertEqual(fetched.lastFetch?.outcome, .fetched)
+    }
+
+    /// A run stored before `lastFetch` existed still reads; the summary names the old attempt.
+    func testAWidgetRunReadsOldDataAndSaysWhatItLastTried() throws {
+        let legacy = #"{"at":"2026-11-11T09:00:00Z","outcome":"skipped","nextReload":"2026-11-11T10:00:00Z"}"#
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let old = try decoder.decode(SharedStore.WidgetRun.self, from: Data(legacy.utf8))
+        XCTAssertNil(old.lastFetch)
+        let failed = SharedStore.WidgetRun.recorded(after: nil, at: now, outcome: .unreachable,
+                                                    detail: "no auth token", nextReload: now)
+        let redrawn = SharedStore.WidgetRun.recorded(after: failed, at: now.addingTimeInterval(60),
+                                                     outcome: .skipped, detail: nil, nextReload: now)
+        XCTAssertTrue(redrawn.summary.contains("last fetch"))
+        XCTAssertTrue(redrawn.summary.contains("no auth token"))
+        XCTAssertFalse(failed.summary.contains("last fetch"), "its own attempt isn't repeated")
+    }
 }

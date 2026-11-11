@@ -315,12 +315,40 @@ final class SharedStore: @unchecked Sendable {
             case unpaired
         }
 
+        /// One attempt to reach iCloud.
+        struct Fetch: Codable, Equatable, Sendable {
+            var at: Date
+            var outcome: Outcome
+            var detail: String?
+        }
+
         var at: Date
         var outcome: Outcome
         var detail: String?
         var nextReload: Date
+        /// The last run that tried iCloud — kept through the runs that didn't
+        /// (opening the app redraws without fetching), so an outage stays visible.
+        var lastFetch: Fetch?
+
+        /// This run, carrying the previous one's attempt when it made none.
+        static func recorded(after previous: WidgetRun?, at: Date, outcome: Outcome,
+                             detail: String?, nextReload: Date) -> WidgetRun {
+            let fetched = [.fetched, .unreachable, .failed].contains(outcome)
+            return WidgetRun(at: at, outcome: outcome, detail: detail, nextReload: nextReload,
+                             lastFetch: fetched ? Fetch(at: at, outcome: outcome, detail: detail) : previous?.lastFetch)
+        }
 
         var summary: String {
+            let next = nextReload.formatted(date: .omitted, time: .shortened)
+            var line = "\(Self.words(outcome, detail)) (\(at.formatted(date: .abbreviated, time: .shortened))), next \(next)"
+            if let lastFetch, lastFetch.at != at {
+                line += " · last fetch: \(Self.words(lastFetch.outcome, lastFetch.detail)) "
+                    + "(\(lastFetch.at.formatted(date: .abbreviated, time: .shortened)))"
+            }
+            return line
+        }
+
+        private static func words(_ outcome: Outcome, _ detail: String?) -> String {
             let what = switch outcome {
             case .fetched: String(localized: "fetched")
             case .skipped: String(localized: "drawn from this iPhone's copy")
@@ -328,9 +356,7 @@ final class SharedStore: @unchecked Sendable {
             case .failed: String(localized: "fetch failed")
             case .unpaired: String(localized: "not linked")
             }
-            let line = [what, detail].compactMap { $0 }.joined(separator: " — ")
-            let next = nextReload.formatted(date: .omitted, time: .shortened)
-            return "\(line) (\(at.formatted(date: .abbreviated, time: .shortened))), next \(next)"
+            return [what, detail].compactMap { $0 }.joined(separator: " — ")
         }
     }
 

@@ -12,6 +12,7 @@ final class FreshStartOutboxTests: XCTestCase {
     private var backend: FakeBackend!
     private var outbox: Outbox!
     private var deletedMedia: [String] = []
+    private var recapClears = 0
     private let epoch = Fixtures.date(1_000)
 
     override func setUp() async throws {
@@ -23,8 +24,10 @@ final class FreshStartOutboxTests: XCTestCase {
         backend = FakeBackend()
         backend.freshStartSavedAt = epoch
         deletedMedia = []
+        recapClears = 0
         outbox = .testing(store: store, index: index, statusLog: statusLog, backend: backend,
-                          deleteMedia: { [unowned self] in self.deletedMedia.append($0) })
+                          deleteMedia: { [unowned self] in self.deletedMedia.append($0) },
+                          clearRecaps: { [unowned self] in self.recapClears += 1 })
     }
 
     private var freshStart: FreshStart { store.snapshot.freshStart }
@@ -83,6 +86,7 @@ final class FreshStartOutboxTests: XCTestCase {
         XCTAssertEqual(backend.clears.first?.keep, Fixtures.date(500), "the status still showing keeps its log record")
         XCTAssertEqual(Set(index.load().map(\.id)), ["new", "unsent"], "an unsent send is the only copy")
         XCTAssertEqual(deletedMedia, ["old"])
+        XCTAssertEqual(recapClears, 1, "a recap shows the cleared history")
         XCTAssertEqual(statusLog.load().map(\.message), ["now"])
         XCTAssertEqual(freshStart.finishedBefore, epoch)
         XCTAssertEqual(freshStart.clearedBefore, epoch)

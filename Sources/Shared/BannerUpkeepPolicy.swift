@@ -93,6 +93,11 @@ enum BannerUpkeepPolicy {
            !state.statusHeld, let status = state.partnerStatus {
             actions.append(.rewordStatus(id: newest.id, status: status,
                                          generic: newest.body == CloudSync.GenericAlert.status))
+            // Older ones still in CloudKit's words name nobody and may be our own
+            // status echoing from another device: they go once there's a readable newest.
+            actions += statuses
+                .filter { $0.id != newest.id && $0.held && $0.body == CloudSync.GenericAlert.status }
+                .map { .remove($0.id) }
         }
         return actions
     }

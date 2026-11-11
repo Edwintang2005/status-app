@@ -45,9 +45,9 @@ struct StatusProvider: TimelineProvider {
                                     heldSince: SharedStore.shared.unreadableTally.heldSince,
                                     incomplete: refresh.result?.incomplete ?? false,
                                     offline: refresh.offline)
-            SharedStore.shared.lastWidgetRun = SharedStore.WidgetRun(at: Date(), outcome: refresh.outcome,
-                                                                     detail: refresh.detail,
-                                                                     nextReload: plan.nextReload)
+            let store = SharedStore.shared
+            store.lastWidgetRun = .recorded(after: store.lastWidgetRun, at: Date(), outcome: refresh.outcome,
+                                            detail: refresh.detail, nextReload: plan.nextReload)
             let drawn = entry(at: Date(), from: snapshot, size: size)
             let entries = plan.entries.map { StatusEntry(date: $0, content: drawn.content, photo: drawn.photo) }
             completion(Timeline(entries: entries, policy: .after(plan.nextReload)))

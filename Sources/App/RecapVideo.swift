@@ -113,7 +113,10 @@ enum RecapVideo {
     /// One slide's file, written beside its name and moved in only once complete.
     private static func write(_ current: CGImage, after previous: CGImage?, frames: Int, to url: URL,
                               progress: (Int) -> Void) async throws {
-        let partial = url.deletingPathExtension().appendingPathExtension("part.mp4")
+        // Its own name per run: a cancelled run unwinding after a resumed one
+        // started on the same slide removes only its own.
+        let partial = url.deletingPathExtension()
+            .appendingPathExtension("\(UUID().uuidString.prefix(8)).part.mp4")
         try? FileManager.default.removeItem(at: partial)
         let writer = try AVAssetWriter(outputURL: partial, fileType: .mp4)
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
@@ -152,6 +155,10 @@ enum RecapVideo {
         for step in 0..<frames {
             try Task.checkCancellation()
             while !input.isReadyForMoreMediaData {
+                // A writer that failed between appends is never ready again.
+                guard writer.status == .writing else {
+                    throw Failure.writer(writer.error?.localizedDescription ?? "the encoder stopped")
+                }
                 try await Task.sleep(for: .milliseconds(5))
             }
             guard let pool = adaptor.pixelBufferPool else { throw Failure.writer("no buffer pool") }
@@ -194,20 +201,26 @@ enum RecapVideo {
             try track.insertTimeRange(range, of: source, at: cursor)
             cursor = cursor + range.duration
         }
-        try? FileManager.default.removeItem(at: url)
         guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough) else {
             throw Failure.writer("couldn't join the slides")
         }
+        // Its own name, moved in once whole: a cancelled run's export (pre-iOS 18
+        // ignores cancellation) mustn't write over a resumed run's.
+        let joined = url.deletingLastPathComponent().appendingPathComponent("joined-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: joined) }
         if #available(iOS 18, *) {
-            try await export.export(to: url, as: .mp4)
+            try await export.export(to: joined, as: .mp4)
         } else {
-            export.outputURL = url
+            export.outputURL = joined
             export.outputFileType = .mp4
             await export.export()
             guard export.status == .completed else {
                 throw Failure.writer(export.error?.localizedDescription ?? "couldn't join the slides")
             }
         }
+        try Task.checkCancellation()
+        try? FileManager.default.removeItem(at: url)
+        try FileManager.default.moveItem(at: joined, to: url)
     }
 
     // MARK: - Frames

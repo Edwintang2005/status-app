@@ -617,7 +617,15 @@ Group, out of backups): the screen reopens on it, with "Make it again" for
 newer moments. Only one year is ever offered, so once the next year unwraps
 the last one's video goes (at launch, and when the new one is kept) — save
 it to Photos to keep it. Diagnostics shows their size and can delete them. It shows the history, so it's erased with it — unlink, block,
-starting over, a fresh start. Save to Photos (add-only) or share.
+starting over, a fresh start — and whenever anything in it may be gone: a
+report, a delete or caption edit (ours or a fetched one, pictures only), the
+strong-language filter switching. A recap being made when one of those
+happens is gathered again rather than resumed or kept, and one open on screen
+whose file went is made again. Dates are Gregorian
+whatever calendar the phone shows. A partner who has left gets no Christmas
+note or Home card (Settings keeps the row). If the year reaches past the
+phone's 500 moments and iCloud doesn't answer, the video is made from the
+phone's copy and shown with a note, but not kept. Save to Photos (add-only) or share.
 Diagnostics → "Year in review" makes one from the last 12 months any time, and
 can put the Home card up to test it.
 

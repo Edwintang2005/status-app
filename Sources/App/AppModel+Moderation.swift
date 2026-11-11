@@ -38,6 +38,8 @@ extension AppModel {
         store.hiddenMomentIDs = hidden
         MomentIndex.shared.remove(id: moment.id)
         MomentStore.shared.delete(id: moment.id)
+        // Reported is gone from every surface, a kept recap included.
+        RecapStore.shared.removeAll()
         store.refreshDerived()
         reload()
         sendReport(Report.Details(kind: moment.noun,
@@ -53,6 +55,7 @@ extension AppModel {
         guard let theirs = snapshot.theirs else { return }
         // The words' date, so the partner renaming themselves doesn't unhide them.
         persist(theirs.wordsAt, \.hiddenPartnerStatusAt, \.hiddenPartnerStatusAt)
+        RecapStore.shared.removeAll()
         SharedStore.reloadWidgets()
         sendReport(Report.Details(kind: "status",
                                   identifier: "status at \(theirs.updatedAt.formatted(.iso8601))",

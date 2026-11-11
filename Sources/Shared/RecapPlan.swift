@@ -9,7 +9,7 @@ struct RecapPlan: Equatable, Sendable {
         /// Diagnostics' test run: any time of year.
         case lastTwelveMonths
 
-        func interval(now: Date = Date(), calendar: Calendar = .current) -> DateInterval {
+        func interval(now: Date = Date(), calendar: Calendar = RecapPlan.gregorian) -> DateInterval {
             switch self {
             case .year(let year):
                 let start = calendar.date(from: DateComponents(year: year, month: 1, day: 1)) ?? now
@@ -38,6 +38,14 @@ struct RecapPlan: Equatable, Sendable {
         }
     }
 
+    /// Years, Christmas and "25 December" are Gregorian whatever calendar the
+    /// phone shows (Islamic, Hebrew, Buddhist, Japanese), in this phone's time zone.
+    static var gregorian: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        return calendar
+    }
+
     var period: Period
     var interval: DateInterval
     var slides: [Slide]
@@ -55,7 +63,7 @@ struct RecapPlan: Equatable, Sendable {
     /// partner's neither reported, sealed nor filtered — invariant 20). `nil`
     /// when there's no picture to build around.
     static func make(_ period: Period, moments: [Moment], statuses: [StatusHistoryEntry],
-                     now: Date = Date(), calendar: Calendar = .current) -> RecapPlan? {
+                     now: Date = Date(), calendar: Calendar = RecapPlan.gregorian) -> RecapPlan? {
         let interval = period.interval(now: now, calendar: calendar)
         let inPeriod = moments.filter { $0.kind.isSupported && interval.contains($0.sentAt) }
         let pictures = inPeriod.filter(\.isPicture).sorted { $0.sentAt < $1.sentAt }
@@ -74,6 +82,13 @@ struct RecapPlan: Equatable, Sendable {
         return RecapPlan(period: period, interval: interval,
                          slides: [.opening] + middle + [.closing],
                          momentCount: inPeriod.count, statusCount: words.count)
+    }
+
+    /// A deletion makes a kept recap stale only if it took a picture this
+    /// phone held; a memo, or our own delete echoing back (already gone from
+    /// the index), doesn't.
+    static func invalidates(removed: Set<String>, known: [Moment]) -> Bool {
+        known.contains { $0.isPicture && removed.contains($0.id) }
     }
 
     /// Whether the period reaches past this phone's index, so only iCloud has
@@ -144,10 +159,11 @@ struct RecapPlan: Equatable, Sendable {
     /// Each year's recap unwraps at midday on Christmas Day, wall-clock
     /// wherever the phone is: a gift, so nothing shows it before then.
     static func unwrapping(_ year: Int) -> DateComponents {
-        DateComponents(year: year, month: 12, day: 25, hour: 12, minute: 0)
+        // Gregorian, and no time zone: the trigger floats with the phone.
+        DateComponents(calendar: Calendar(identifier: .gregorian), year: year, month: 12, day: 25, hour: 12, minute: 0)
     }
 
-    static func hasUnwrapped(_ year: Int, now: Date = Date(), calendar: Calendar = .current) -> Bool {
+    static func hasUnwrapped(_ year: Int, now: Date = Date(), calendar: Calendar = RecapPlan.gregorian) -> Bool {
         guard let at = calendar.date(from: unwrapping(year)) else { return false }
         return now >= at
     }
@@ -167,7 +183,7 @@ struct RecapPlan: Equatable, Sendable {
     /// the year has a picture, until it fires — never for a year already
     /// opened or waved away. `nil`: the scheduler removes a pending one.
     static func reminder(paired: Bool, hasPictures: (Int) -> Bool, dismissed: Int?,
-                         now: Date = Date(), calendar: Calendar = .current) -> Reminder? {
+                         now: Date = Date(), calendar: Calendar = RecapPlan.gregorian) -> Reminder? {
         guard paired, let year = calendar.dateComponents([.year], from: now).year,
               dismissed != year, hasPictures(year),
               !hasUnwrapped(year, now: now, calendar: calendar) else { return nil }
@@ -175,7 +191,7 @@ struct RecapPlan: Equatable, Sendable {
     }
 
     /// Home's card: the year's recap from Christmas midday to 31 January.
-    static func yearOnOffer(now: Date = Date(), calendar: Calendar = .current) -> Int? {
+    static func yearOnOffer(now: Date = Date(), calendar: Calendar = RecapPlan.gregorian) -> Int? {
         let parts = calendar.dateComponents([.year, .month], from: now)
         guard let year = parts.year, let month = parts.month else { return nil }
         switch month {
@@ -186,7 +202,7 @@ struct RecapPlan: Equatable, Sendable {
     }
 
     /// Settings' row: this year once it's unwrapped, else the last full one.
-    static func reviewYear(now: Date = Date(), calendar: Calendar = .current) -> Int {
+    static func reviewYear(now: Date = Date(), calendar: Calendar = RecapPlan.gregorian) -> Int {
         let year = calendar.dateComponents([.year], from: now).year ?? 2000
         return hasUnwrapped(year, now: now, calendar: calendar) ? year : year - 1
     }

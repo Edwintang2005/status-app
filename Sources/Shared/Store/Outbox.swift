@@ -24,6 +24,8 @@ final class Outbox {
     @ObservationIgnored private let indexChanged: () -> Void
     /// Drops a moment's files: `MomentStore.delete` in the app.
     @ObservationIgnored private let deleteMedia: (String) -> Void
+    /// Drops kept recaps (`RecapStore`) when what they show is deleted or cleared.
+    @ObservationIgnored private let clearRecaps: () -> Void
     /// A moment reached iCloud, first time or on a retry: Home's "Sent to …".
     @ObservationIgnored var uploaded: (Moment) -> Void
     /// An upload landed with nothing else running and no pass under way: a
@@ -82,6 +84,7 @@ final class Outbox {
          hasMedia: @escaping (Moment) -> Bool,
          uploadSize: @escaping (Moment) -> Int = { _ in 0 },
          deleteMedia: @escaping (String) -> Void,
+         clearRecaps: @escaping () -> Void,
          protect: @escaping @MainActor (String, @MainActor () async throws -> Void) async throws -> Void,
          indexChanged: @escaping () -> Void,
          uploaded: @escaping (Moment) -> Void = { _ in }) {
@@ -92,6 +95,7 @@ final class Outbox {
         self.hasMedia = hasMedia
         self.uploadSize = uploadSize
         self.deleteMedia = deleteMedia
+        self.clearRecaps = clearRecaps
         self.protect = protect
         self.indexChanged = indexChanged
         self.uploaded = uploaded
@@ -254,6 +258,7 @@ final class Outbox {
     @discardableResult
     func editCaption(of id: String, to caption: String, now: Date = Date()) -> Bool {
         guard index.editCaption(id: id, to: caption, at: now) != nil else { return false }
+        clearRecaps()
         indexChanged()
         return true
     }
@@ -304,6 +309,7 @@ final class Outbox {
         owedDeletionCount = store.pendingMomentDeletions.count
         index.remove(id: moment.id)
         deleteMedia(moment.id)
+        clearRecaps()
         indexChanged()
         return true
     }
@@ -633,7 +639,7 @@ final class Outbox {
                 statusLog.remove(fromMe: false, at: purge.theirLogs)
                 indexChanged()
                 // A recap shows the cleared history.
-                RecapStore.shared.removeAll()
+                clearRecaps()
                 // The receipt record went with the clear; what's left is published afresh.
                 store.mutate {
                     $0.freshStart.finished(epoch)

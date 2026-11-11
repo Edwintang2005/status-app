@@ -30,6 +30,18 @@ Version 1.6.3.
     `PairingInfo` decodes field by field; the privacy manifest declares the
     active-keyboards API; tests no longer touch the real App Group; doc drift.
 
+- **Fixes from an audit of the recap and outage work.** A saved recap is
+  deleted when a picture in it is reported, deleted or re-captioned, or the
+  strong-language filter changes — and a recap still being made then starts
+  over rather than keeping it; the Christmas dates are
+  Gregorian on every calendar; no "your year together" note or Home card once
+  a partner has left; a recap made without iCloud's older moments is shown
+  with a note and not kept; the build can no longer hang on a failed encoder,
+  let the screen sleep mid-render after a quick leave-and-return, or show an
+  error instead of pausing as the app leaves; Diagnostics' widget line keeps
+  the last iCloud attempt through redraws; older status banners still in
+  iCloud's generic words go once the newest is reworded.
+
 - **Widgets recover from an iCloud outage.** When Apple's sign-in service is
   down, the widget's own checks now wait quietly (hourly) instead of
   spending its refresh budget, and opening the app — or its first fetch to

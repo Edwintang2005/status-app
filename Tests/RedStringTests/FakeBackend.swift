@@ -175,11 +175,12 @@ extension Outbox {
                         hasMedia: @escaping (Moment) -> Bool = { _ in true },
                         uploadSize: @escaping (Moment) -> Int = { _ in 0 },
                         deleteMedia: @escaping (String) -> Void = { _ in },
+                        clearRecaps: @escaping () -> Void = {},
                         indexChanged: @escaping () -> Void = {},
                         uploaded: @escaping (Moment) -> Void = { _ in }) -> Outbox {
         Outbox(store: store, index: index, statusLog: statusLog, backend: { backend },
                hasMedia: hasMedia, uploadSize: uploadSize, deleteMedia: deleteMedia,
-               protect: { _, body in try await body() },
+               clearRecaps: clearRecaps, protect: { _, body in try await body() },
                indexChanged: indexChanged, uploaded: uploaded)
     }
 }

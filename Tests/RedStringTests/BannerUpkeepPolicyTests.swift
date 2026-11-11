@@ -176,4 +176,17 @@ final class BannerUpkeepPolicyTests: XCTestCase {
                      "another kind's words don't count")
         XCTAssertNil(BannerUpkeepPolicy.inferredSubject(subscriptionID: nil, body: CloudSync.GenericAlert.status))
     }
+
+    /// Older banners in CloudKit's words say nothing and may be our own status
+    /// echoing: they go once the newest is judged; one that named them stays.
+    func testOlderGenericStatusBannersGoOnceTheNewestIsJudged() {
+        let status = Fixtures.status("🏖️", "beach day")
+        let banners = [banner("generic", .status, held: true, at: 10, body: CloudSync.GenericAlert.status),
+                       banner("named", .status, held: true, at: 20, body: "updated their status"),
+                       banner("newest", .status, held: true, at: 30)]
+        XCTAssertEqual(BannerUpkeepPolicy.plan(banners, state: state(partnerStatus: status)),
+                       [.rewordStatus(id: "newest", status: status, generic: false), .remove("generic")])
+        XCTAssertTrue(BannerUpkeepPolicy.plan(banners, state: state(statusHeld: true, partnerStatus: status)).isEmpty,
+                      "nothing is judged while the newest can't be read")
+    }
 }

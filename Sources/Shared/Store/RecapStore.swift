@@ -77,10 +77,26 @@ struct RecapStore {
         return entries.reduce(0) { $0 + ((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
     }
 
-    /// They show the history: erased whenever it is.
+    /// They show the history: erased whenever it is. Stamps when, so a run
+    /// started before it — paused, or still drawing — isn't kept either.
     func removeAll() {
         guard let directory else { return }
         try? FileManager.default.removeItem(at: directory)
+        FileManager.default.createFile(atPath: clearedMarker(for: directory).path, contents: Data())
+    }
+
+    /// Whether the kept recaps were cleared after `start`: a render begun then
+    /// may show what's gone, so it's gathered again rather than resumed or kept.
+    func cleared(since start: Date) -> Bool {
+        guard let directory,
+              let at = try? clearedMarker(for: directory).resourceValues(forKeys: [.contentModificationDateKey])
+                .contentModificationDate else { return false }
+        return at >= start
+    }
+
+    /// Beside the folder, not in it: it outlives the folder's removal.
+    private func clearedMarker(for directory: URL) -> URL {
+        directory.deletingLastPathComponent().appendingPathComponent(directory.lastPathComponent + ".cleared")
     }
 
     /// Renders in progress stage here (`RecapView`); a run the app was killed

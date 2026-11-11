@@ -289,8 +289,12 @@ extension CloudSync {
         let oldestRetained = indexed.count >= AppConfig.momentHistoryLimit
             ? indexed[AppConfig.momentHistoryLimit - 1].sentAt : nil
 
-        MomentIndex.shared.remove(ids: Set(parsed.removedMomentIDs))
+        let removed = Set(parsed.removedMomentIDs)
+        MomentIndex.shared.remove(ids: removed)
         parsed.removedMomentIDs.forEach(MomentStore.shared.delete(id:))
+        // A kept recap may show a picture just deleted; it's remade on the next look.
+        // Only pictures this phone held — never memos, nor our own delete echoing back.
+        if RecapPlan.invalidates(removed: removed, known: indexed) { RecapStore.shared.removeAll() }
         // The cloud cap pruning the oldest entries, mirrored locally.
         StatusHistoryLog.shared.remove(fromMe: true, at: parsed.removedMyLogs)
         StatusHistoryLog.shared.remove(fromMe: false, at: parsed.removedTheirLogs)
@@ -309,6 +313,8 @@ extension CloudSync {
                                      oldestRetained: oldestRetained,
                                      fullResync: fullResync,
                                      announcedFloor: held.lastAnnouncedMomentSentAt)
+        // Collages show captions: a partner's edit makes a kept recap stale.
+        if outcome.result.editedPartnerMoments.contains(where: \.isPicture) { RecapStore.shared.removeAll() }
         // Bound to `let`s before crossing actors.
         let fold = outcome.fold
         let complete = !changes.moreComing

@@ -199,6 +199,8 @@ final class AppModel {
         didSet {
             guard oldValue != contentFilterEnabled else { return }
             store.contentFilterEnabled = contentFilterEnabled
+            // A kept recap was drawn under the old setting.
+            RecapStore.shared.removeAll()
             SharedStore.reloadWidgets()
         }
     }
@@ -250,6 +252,7 @@ final class AppModel {
                              hasMedia: { MomentStore.shared.hasMedia(for: $0) },
                              uploadSize: { MomentStore.shared.uploadSize(for: $0) },
                              deleteMedia: { MomentStore.shared.delete(id: $0) },
+                             clearRecaps: { RecapStore.shared.removeAll() },
                              protect: { name, body in try await AppModel.withUploadProtection(name, body) },
                              indexChanged: { store.refreshDerived() })
         let log = log

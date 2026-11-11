@@ -18,6 +18,7 @@ final class OutboxTests: XCTestCase {
     private var statusLog: StatusHistoryLog!
     /// Moment ids whose files the outbox deleted.
     private var deletedMedia: [String] = []
+    private var recapClears = 0
 
     override func setUp() async throws {
         store = SharedStore(defaults: temporaryDefaults())
@@ -29,10 +30,12 @@ final class OutboxTests: XCTestCase {
         indexChanges = 0
         confirmed = []
         deletedMedia = []
+        recapClears = 0
         statusLog = StatusHistoryLog(fileURL: temporaryFile("status-history.json"), onCorrupt: {})
         outbox = .testing(store: store, index: index, statusLog: statusLog, backend: backend,
                           hasMedia: { [unowned self] in self.media.contains($0.id) },
                           deleteMedia: { [unowned self] in self.deletedMedia.append($0) },
+                          clearRecaps: { [unowned self] in self.recapClears += 1 },
                           indexChanged: { [unowned self] in self.indexChanges += 1 },
                           uploaded: { [unowned self] in self.confirmed.append($0.id) })
     }
@@ -733,6 +736,7 @@ final class OutboxTests: XCTestCase {
         XCTAssertTrue(outbox.deleteMoment(moment, now: moment.sentAt.addingTimeInterval(60)))
         XCTAssertTrue(index.load().isEmpty)
         XCTAssertEqual(deletedMedia, ["mine"])
+        XCTAssertEqual(recapClears, 1, "a kept recap may show it")
         XCTAssertEqual(store.pendingMomentDeletions, ["mine"])
         XCTAssertEqual(outbox.owedDeletionCount, 1, "waiting to send until iCloud confirms")
         let sent = await outbox.sendDeletions()
@@ -786,6 +790,15 @@ final class OutboxTests: XCTestCase {
         XCTAssertEqual(backend.deleted, [["a"]])
     }
 
+    /// Collages show captions: an edit makes a kept recap stale; a refused one doesn't.
+    func testACaptionEditClearsKeptRecaps() {
+        let moment = Fixtures.moment("mine", fromMe: true)
+        index.insert([moment])
+        XCTAssertTrue(outbox.editCaption(of: "mine", to: "new words"))
+        XCTAssertEqual(recapClears, 1)
+        XCTAssertFalse(outbox.editCaption(of: "missing", to: "words"))
+        XCTAssertEqual(recapClears, 1)
+    }
 }
 
 /// A flag a `@Sendable` test hook can set.

@@ -41,6 +41,11 @@ struct RecapView: View {
         let plan: RecapPlan
         let words: RecapVideo.Words
         let directory: URL
+        /// The zone it needed answered (`AppModel.recapPlan`); if not, never kept.
+        let complete: Bool
+        /// When gathering began: a clear since (`RecapStore.cleared(since:)`)
+        /// means it may show what's gone, so it's gathered again.
+        let startedAt: Date
     }
 
     /// The slide just drawn, shown while the video is made.
@@ -63,6 +68,8 @@ struct RecapView: View {
     @State private var preview: Preview?
     /// Read inside the build, where an `@Environment` value can be stale.
     @State private var inBackground = false
+    /// Shown, not kept: iCloud didn't answer for the year's older moments.
+    @State private var partial = false
 
     var body: some View {
         ZStack {
@@ -74,6 +81,11 @@ struct RecapView: View {
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .task(id: run) { await start() }
+        // One owner for the screen staying awake: a cancelled build can unwind
+        // after the next has started, so it mustn't switch it off itself.
+        .onChange(of: phase.isWorking, initial: true) { _, working in
+            UIApplication.shared.isIdleTimerDisabled = working
+        }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .background:
@@ -82,10 +94,15 @@ struct RecapView: View {
             case .active:
                 inBackground = false
                 if run.paused { run.paused = false }
+                recheckShown()
             default:
                 break
             }
         }
+        // A deletion, report or filter change while the video is open can take
+        // the kept file (or make a shown partial stale): make it again.
+        .onChange(of: model.history) { _, _ in recheckShown() }
+        .onChange(of: model.contentFilterEnabled) { _, _ in recheckShown() }
         .onDisappear {
             player?.pause()
             UIApplication.shared.isIdleTimerDisabled = false
@@ -194,6 +211,13 @@ struct RecapView: View {
                     .foregroundStyle(Theme.warmText)
                     .multilineTextAlignment(.center)
             }
+            if partial {
+                Text("iCloud didn't answer, so this was made from this iPhone's copy and may miss older moments. It isn't kept — make it again later for the whole year.")
+                    .font(Theme.rounded(13))
+                    .foregroundStyle(Theme.mutedText)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack(spacing: 6) {
                 Text("Made \(saved.madeAt.formatted(.dateTime.day().month(.wide)))")
                     .foregroundStyle(Theme.mutedText)
@@ -228,35 +252,44 @@ struct RecapView: View {
         await build()
     }
 
-    private func show(_ saved: RecapStore.Saved) {
+    private func show(_ saved: RecapStore.Saved, partial: Bool = false) {
         player = AVPlayer(url: saved.url)
         preview = nil
+        self.partial = partial
         phase = .ready(saved)
-        // Opened is as good as waved away: the card has done its job.
-        if case .year = period, model.recapPeriodOnHome == period { model.dismissRecapNotice() }
+        // Opened is as good as waved away — unless it couldn't be kept.
+        if !partial, case .year = period, model.recapPeriodOnHome == period { model.dismissRecapNotice() }
+    }
+
+    private func recheckShown() {
+        guard case .ready(let saved) = phase else { return }
+        let stale = partial
+            ? staged.map { RecapStore.shared.cleared(since: $0.startedAt) } ?? true
+            : !FileManager.default.fileExists(atPath: saved.url.path)
+        if stale { run.attempt += 1 }
     }
 
     private func build() async {
         player?.pause()
         player = nil
         saveState = .idle
-        UIApplication.shared.isIdleTimerDisabled = true
-        defer { UIApplication.shared.isIdleTimerDisabled = false }
 
         let current: Staged
-        if let staged, staged.attempt == run.attempt {
+        if let staged, staged.attempt == run.attempt, !RecapStore.shared.cleared(since: staged.startedAt) {
             current = staged
         } else {
             discardStaged()
             preview = nil
             phase = .gathering
-            guard let plan = await model.recapPlan(for: period) else {
+            let startedAt = Date()
+            guard let gathered = await model.recapPlan(for: period) else {
                 phase = .empty
                 return
             }
             guard !Task.isCancelled else { return }
-            current = Staged(attempt: run.attempt, plan: plan, words: model.recapWords(for: plan),
-                             directory: RecapStore.stagingDirectory())
+            current = Staged(attempt: run.attempt, plan: gathered.plan, words: model.recapWords(for: gathered.plan),
+                             directory: RecapStore.stagingDirectory(), complete: gathered.complete,
+                             startedAt: startedAt)
             staged = current
         }
         let plan = current.plan
@@ -287,12 +320,27 @@ struct RecapView: View {
         } catch is CancellationError {
             return
         } catch {
-            // The encoder goes when the app leaves the screen, sometimes before
-            // the phase change arrives: wait for the return instead of failing.
-            if inBackground { run.paused = true } else { phase = .failed(error.localizedDescription) }
+            // The encoder goes as the app leaves the screen, sometimes before the
+            // phase change arrives (still `.inactive`): wait for the return, slides kept.
+            if inBackground || UIApplication.shared.applicationState != .active {
+                run.paused = true
+            } else {
+                phase = .failed(error.localizedDescription)
+            }
             return
         }
         guard !Task.isCancelled else { return }
+        // Something it shows was reported, deleted or edited while it was drawn.
+        if RecapStore.shared.cleared(since: current.startedAt) {
+            discardStaged()
+            await build()
+            return
+        }
+        guard current.complete else {
+            // Shown from the staging folder, which goes when the screen closes.
+            show(RecapStore.Saved(url: url, madeAt: Date()), partial: true)
+            return
+        }
         do {
             show(try RecapStore.shared.keep(url, for: period))
         } catch {

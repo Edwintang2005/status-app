@@ -52,4 +52,16 @@ final class RecapStoreTests: XCTestCase {
         XCTAssertNil(store.saved(for: .year(2026)))
         XCTAssertNil(store.saved(for: .lastTwelveMonths))
     }
+
+    /// A run begun before a clear may show what's gone; one begun after doesn't.
+    func testAClearIsStampedForRunsInProgress() throws {
+        let store = store()
+        let before = Date().addingTimeInterval(-1)
+        XCTAssertFalse(store.cleared(since: before), "never cleared")
+        store.removeAll()
+        XCTAssertTrue(store.cleared(since: before))
+        XCTAssertFalse(store.cleared(since: Date().addingTimeInterval(1)))
+        _ = try store.keep(staged("again"), for: .year(2026))
+        XCTAssertNotNil(store.saved(for: .year(2026)), "the marker sits beside the folder, not in its way")
+    }
 }

@@ -137,7 +137,9 @@ final class RecapPlanTests: XCTestCase {
         let due = try XCTUnwrap(reminder(now: day(2026, 3, 1)))
         XCTAssertEqual(due.year, 2026)
         XCTAssertEqual(due.identifier, "recap-2026")
-        XCTAssertEqual(due.fireAt, DateComponents(year: 2026, month: 12, day: 25, hour: 12, minute: 0))
+        XCTAssertEqual(due.fireAt, DateComponents(calendar: Calendar(identifier: .gregorian),
+                                                  year: 2026, month: 12, day: 25, hour: 12, minute: 0))
+        XCTAssertNil(due.fireAt.timeZone, "floats with the phone")
         XCTAssertNotNil(reminder(now: at(2026, 12, 25, 11)))
         XCTAssertNil(reminder(paired: false, now: day(2026, 3, 1)))
         XCTAssertNil(reminder(pictures: false, now: day(2026, 3, 1)))
@@ -159,5 +161,26 @@ final class RecapPlanTests: XCTestCase {
         XCTAssertEqual(RecapPlan.reviewYear(now: at(2026, 12, 25, 11), calendar: calendar), 2025)
         XCTAssertEqual(RecapPlan.reviewYear(now: at(2026, 12, 25, 12), calendar: calendar), 2026)
         XCTAssertEqual(RecapPlan.reviewYear(now: day(2027, 1, 15), calendar: calendar), 2026)
+    }
+
+    /// The year and Christmas are Gregorian whatever calendar the phone shows.
+    func testTheRecapCalendarIsGregorian() {
+        XCTAssertEqual(RecapPlan.gregorian.identifier, .gregorian)
+        let year = RecapPlan.Period.year(2026).interval()
+        let parts = RecapPlan.gregorian.dateComponents([.year, .month, .day], from: year.start)
+        XCTAssertEqual([parts.year, parts.month, parts.day], [2026, 1, 1])
+        var hebrew = Calendar(identifier: .hebrew)
+        hebrew.timeZone = TimeZone(identifier: "UTC")!
+        XCTAssertNotEqual(RecapPlan.Period.year(2026).interval(calendar: hebrew).start, year.start,
+                          "which is why every default is the Gregorian one")
+    }
+
+    /// Only a picture this phone held makes a kept recap stale: not a memo,
+    /// nor our own delete echoing back after it already left the index.
+    func testOnlyAHeldPictureDeletionInvalidates() {
+        let known = [Fixtures.moment("photo"), Fixtures.moment("memo", kind: .voice)]
+        XCTAssertTrue(RecapPlan.invalidates(removed: ["photo"], known: known))
+        XCTAssertFalse(RecapPlan.invalidates(removed: ["memo"], known: known))
+        XCTAssertFalse(RecapPlan.invalidates(removed: ["already-gone"], known: known))
     }
 }

@@ -7,7 +7,9 @@ extension AppModel {
     /// here, until opened or waved away.
     var recapPeriodOnHome: RecapPlan.Period? {
         if recapCardPreview { return .lastTwelveMonths }
-        guard let year = RecapPlan.yearOnOffer(), recapNoticeDismissed != year,
+        // Not "your year together" once they've left; Settings still has it.
+        guard !snapshot.partnerHasLeft,
+              let year = RecapPlan.yearOnOffer(), recapNoticeDismissed != year,
               hasRecap(for: .year(year)) else { return nil }
         return .year(year)
     }
@@ -20,7 +22,8 @@ extension AppModel {
 
     /// Reschedules only when the plan moved, since `reload` runs after nearly everything.
     func syncRecapReminder() {
-        let plan = RecapPlan.reminder(paired: isPaired, hasPictures: { self.hasRecap(for: .year($0)) },
+        let plan = RecapPlan.reminder(paired: isPaired && !snapshot.partnerHasLeft,
+                                      hasPictures: { self.hasRecap(for: .year($0)) },
                                       dismissed: recapNoticeDismissed)
         if case .some(let scheduled) = scheduledRecapReminder, scheduled == plan { return }
         scheduledRecapReminder = .some(plan)
@@ -39,15 +42,18 @@ extension AppModel {
     }
 
     /// This phone's copy, merged with the whole zone like the archive only when
-    /// the period reaches past the index's newest 500 (`RecapPlan.needsZone`);
-    /// an unreachable zone recaps this phone's copy. Partner words go through
+    /// the period reaches past the index's newest 500 (`RecapPlan.needsZone`).
+    /// An unreachable zone recaps this phone's copy, `complete` false: shown
+    /// with a note and never kept as the year's video. Partner words go through
     /// moderation: only what may be shown goes in.
-    func recapPlan(for period: RecapPlan.Period) async -> RecapPlan? {
+    func recapPlan(for period: RecapPlan.Period) async -> (plan: RecapPlan, complete: Bool)? {
         var zone: ArchiveContents.Zone?
+        var complete = true
         if isPaired, RecapPlan.needsZone(index: history, interval: period.interval()) {
             do {
                 zone = try await bounded(AppConfig.refreshDeadline) { try await $0.archiveZone() }
             } catch {
+                complete = false
                 log.error("Recap couldn't read the zone: \(error.localizedDescription); using this iPhone's copy.")
             }
         }
@@ -62,7 +68,7 @@ extension AppModel {
         let statuses = contents.statuses.filter {
             !$0.moderation(reportedAt: reportedAt, sealedAt: sealedAt, filterEnabled: filterOn).message.isPlaceholder
         }
-        return RecapPlan.make(period, moments: contents.moments, statuses: statuses)
+        return RecapPlan.make(period, moments: contents.moments, statuses: statuses).map { ($0, complete) }
     }
 
     func recapWords(for plan: RecapPlan) -> RecapVideo.Words {
