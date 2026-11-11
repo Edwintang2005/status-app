@@ -175,6 +175,12 @@ extension Moment.Kind: Codable {
 // MARK: - Presentation
 
 extension Moment {
+    /// A caption as it's sent: one line (a pasted break becomes a space), trimmed, capped.
+    static func caption(from typed: String) -> String {
+        let oneLine = typed.split(whereSeparator: \.isNewline).joined(separator: " ")
+        return String(oneLine.trimmingCharacters(in: .whitespaces).prefix(AppConfig.captionMaxLength))
+    }
+
     /// Voice memos are audio rather than an image, which most screens branch on.
     var isVoice: Bool { kind == .voice }
 

@@ -503,6 +503,8 @@ the file (`MomentStore.imported`: a 48 MP original decoded whole would pass the
 extension's ~120 MB ceiling), written with its place, filed in the index as an
 unsent own moment, then uploaded through an `Outbox` of the sheet's own.
 
+- The caption wraps but is one line, as every caption is (`Moment.caption(from:)`:
+  a pasted break becomes a space); the keyboard's return key sends.
 - Sent: a success haptic and the sheet closes — nothing to read.
 - Closed early, offline or failed: the moment is already filed, so the app's
   next retry pass sends it; the sheet says so ("It's saved and will send next

@@ -701,7 +701,7 @@ final class AppModel {
     /// Own moments only. Filed at once; sent now, or by the recovery pass once
     /// there's a connection. An emptied caption removes it.
     func editCaption(of moment: Moment, to caption: String) async {
-        let words = String(caption.trimmingCharacters(in: .whitespacesAndNewlines).prefix(AppConfig.captionMaxLength))
+        let words = Moment.caption(from: caption)
         guard moment.fromMe, words != moment.caption, outbox.editCaption(of: moment.id, to: words) else { return }
         reload()
         guard isPaired else { return }
@@ -739,8 +739,7 @@ final class AppModel {
                            duration: TimeInterval = 0,
                            waveform: [Double] = []) -> Moment {
         Moment(kind: kind,
-               caption: String(caption.trimmingCharacters(in: .whitespacesAndNewlines)
-                                   .prefix(AppConfig.captionMaxLength)),
+               caption: Moment.caption(from: caption),
                senderName: snapshot.mine?.displayName ?? "",
                fromMe: true,
                duration: duration,

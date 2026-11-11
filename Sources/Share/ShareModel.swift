@@ -115,7 +115,7 @@ final class ShareModel {
             phase = .blocked(blocked)
             return
         }
-        let words = String(caption.trimmingCharacters(in: .whitespacesAndNewlines).prefix(AppConfig.captionMaxLength))
+        let words = Moment.caption(from: caption)
         let moment = Moment(kind: .photo,
                             caption: words,
                             senderName: store.snapshot.mine?.displayName ?? "",

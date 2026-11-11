@@ -142,11 +142,14 @@ struct ShareView: View {
                 .font(Theme.rounded(18, .medium))
                 .lineLimit(1...3)
                 .focused($captionFocused)
-                .submitLabel(.done)
-                .onChange(of: model.caption) { _, text in
-                    if text.count > AppConfig.captionMaxLength {
-                        model.caption = String(text.prefix(AppConfig.captionMaxLength))
-                    }
+                .submitLabel(.send)
+                // Wraps, but never breaks: a wrapping field's return types a line break,
+                // so return sends instead, and a pasted break becomes a space.
+                .onChange(of: model.caption) { old, text in
+                    guard text.contains(where: \.isNewline) || text.count > AppConfig.captionMaxLength else { return }
+                    let pressedReturn = text == old + "\n"
+                    model.caption = pressedReturn ? old : Moment.caption(from: text)
+                    if pressedReturn { Task { await model.send() } }
                 }
                 .padding(.vertical, 12)
                 .padding(.horizontal, 14)

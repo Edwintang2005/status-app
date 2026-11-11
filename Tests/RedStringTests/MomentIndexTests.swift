@@ -263,3 +263,14 @@ final class MomentIndexTests: XCTestCase {
         XCTAssertNotNil(index.load().first?.captionEditedAt, "marked edited")
     }
 }
+
+/// Captions travel as one line (`Moment.caption(from:)`).
+final class MomentCaptionTests: XCTestCase {
+    func testACaptionIsOneTrimmedLine() {
+        XCTAssertEqual(Moment.caption(from: "  sunset\nat bondi \r\n"), "sunset at bondi")
+        XCTAssertEqual(Moment.caption(from: "a\n\n\nb"), "a b")
+        XCTAssertEqual(Moment.caption(from: "\n \n"), "")
+        XCTAssertEqual(Moment.caption(from: String(repeating: "x", count: AppConfig.captionMaxLength + 5)).count,
+                       AppConfig.captionMaxLength)
+    }
+}
