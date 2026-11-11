@@ -6,6 +6,26 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 Version 1.6.3.
 
+- **Share a photo from any app.** "Red String" in the share sheet takes one
+  photo, shows it in the app's own style (light or dark) with "To <partner>"
+  and a caption, and sends it as an ordinary moment. Read at 2048 px straight
+  from the file, so a 48 MP original never fills the sheet's memory. Closed
+  early, offline or failed, it's already saved and the app sends it next time;
+  the app leaves a send the sheet is still making alone. A fifth shipping
+  target and a sixth entitlements file.
+- **Photos carry where they were taken.** Red String's camera asks for
+  location the first time it opens and tags every shot; a photo picked from
+  the library or shared in keeps its own place; a doodle over a photo keeps
+  the photo's. Only the full-size picture carries it, never the thumbnail. The
+  gallery shows the place under the picture ("Bondi Beach") — nothing for
+  moments from before, blank-canvas doodles, or a declined permission — and
+  Save to Photos now saves the file itself, so its place goes with it.
+- **Tap a moment's time for the full date.** "Sam · 3 months ago" in the
+  gallery shows "Tuesday 10 November 2026 at 20:11" on a tap, on every page
+  until tapped again.
+- **Memories shelved** to the roadmap ("On this day / Memories") with the
+  first design pass's notes.
+
 - **Audit fixes.** From a full audit before the feature pause:
   - **A photo always gets its banner.** A heart or status push that brings a
     photo with it (APNs keeps one notification per app for an offline phone)

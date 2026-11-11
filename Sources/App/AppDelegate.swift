@@ -12,6 +12,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
         NotificationManager.registerCategories()
+        #if DEBUG
+        DemoMode.noteAppLaunch()
+        #endif
         // Background app refreshes on a locked phone lack the keys just like the
         // extensions; only an unlocked look may count toward giving up (invariant 2).
         SharedStore.protectedDataAvailable = application.isProtectedDataAvailable

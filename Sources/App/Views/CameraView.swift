@@ -36,6 +36,8 @@ struct CameraView: View {
                 dismiss()
             }
             await model.start()
+            // After the camera's own prompt, never over it. The composer stops it.
+            LocationStamp.shared.start()
         }
         .onDisappear { model.stop() }
         .sensoryFeedback(.impact(weight: .light), trigger: model.countdown) { _, new in new != nil }

@@ -56,6 +56,7 @@ final class SharedStore: @unchecked Sendable {
         static let lastWidgetRun = "lastWidgetRun"
         static let crashReports = "crashReports"
         static let layoutGlitches = "layoutGlitches"
+        static let shareUploadClaims = "shareUploadClaims"
     }
 
     init(store: GroupKeyValueStore = GroupFileStore()) {
@@ -222,6 +223,14 @@ final class SharedStore: @unchecked Sendable {
     var widgetTipDismissed: Bool {
         get { store.bool(forKey: Key.widgetTipDismissed) }
         set { store.setBool(newValue, forKey: Key.widgetTipDismissed) }
+    }
+
+    /// Sends the share sheet started, by moment id: the app's retry pass,
+    /// deletes and the fresh start's clear leave them alone while
+    /// `ShareIntake.isClaimed`. Written only by the sheet, one at a time.
+    var shareUploadClaims: [String: Date] {
+        get { decode([String: Date].self, forKey: Key.shareUploadClaims) ?? [:] }
+        set { encode(newValue, forKey: Key.shareUploadClaims) }
     }
 
     /// The year whose Home recap card was waved away (or opened). Per device,
@@ -751,7 +760,7 @@ final class SharedStore: @unchecked Sendable {
     }
     private static let protectedData = OSAllocatedUnfairLock(initialState: true)
 
-    /// Which of the four processes this is, for the tally above.
+    /// Which of the five processes this is, for the tally above.
     static let processLabel: String = {
         guard let extensionInfo = Bundle.main.infoDictionary?["NSExtension"] as? [String: Any],
               let point = extensionInfo["NSExtensionPointIdentifier"] as? String else {
@@ -760,6 +769,7 @@ final class SharedStore: @unchecked Sendable {
         switch point {
         case "com.apple.widgetkit-extension": return "widget"
         case "com.apple.usernotifications.content-extension": return "expanded banner"
+        case "com.apple.share-services": return "share sheet"
         default: return "notification service"
         }
     }()

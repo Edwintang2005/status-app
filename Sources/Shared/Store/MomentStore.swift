@@ -60,9 +60,10 @@ struct MomentStore {
     /// CloudKit without re-reading from disk. The full copy keeps the photo's
     /// own frame (it's what "Save to Photos" hands back); the thumbnail is the
     /// centred square every tile shows, so a non-square photo costs it nothing.
+    /// `location` goes into the full copy's GPS tags only (`PhotoLocation`).
     @discardableResult
-    func write(_ image: UIImage, id: String) throws -> (full: Data, thumb: Data) {
-        guard let full = Self.jpeg(image,
+    func write(_ image: UIImage, id: String, location: PhotoLocation? = nil) throws -> (full: Data, thumb: Data) {
+        guard var full = Self.jpeg(image,
                                    maxDimension: Self.fullMaxDimension,
                                    quality: Self.fullQuality),
               let thumb = Self.squareJPEG(image,
@@ -70,6 +71,7 @@ struct MomentStore {
                                           quality: Self.thumbQuality) else {
             throw MomentStoreError.encodingFailed
         }
+        if let location, let stamped = PhotoLocation.stamped(full, with: location) { full = stamped }
         try write(full: full, thumb: thumb, id: id)
         return (full, thumb)
     }
@@ -88,6 +90,24 @@ struct MomentStore {
                                                       [kCGImageSourceShouldCache: false] as CFDictionary) else {
             return nil
         }
+        return decoded(source, maxPixel: maxPixel)
+    }
+
+    /// A picture from elsewhere (the share sheet) at the stored size, without
+    /// ever holding the original decoded: a 48 MP photo is ~190 MB.
+    static func imported(_ url: URL) -> UIImage? {
+        decoded(url, maxPixel: fullMaxDimension)
+    }
+
+    static func imported(_ data: Data) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData,
+                                                       [kCGImageSourceShouldCache: false] as CFDictionary) else {
+            return nil
+        }
+        return decoded(source, maxPixel: fullMaxDimension)
+    }
+
+    private static func decoded(_ source: CGImageSource, maxPixel: CGFloat) -> UIImage? {
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             // Honours EXIF orientation: an undoodled photo keeps its camera frame.

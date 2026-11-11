@@ -314,9 +314,10 @@ final class Outbox {
         return true
     }
 
-    /// The owed deletes. One still uploading — last launch's included — waits
-    /// for its landing (`linkFreed` runs this again), or the record would come
-    /// back after the delete. Never sent is fine: "already gone" counts as done.
+    /// The owed deletes. One still uploading — last launch's included, or the
+    /// share sheet's (`ShareIntake.isClaimed`) — waits for its landing or its
+    /// claim to lapse, or the record would come back after the delete. Never
+    /// sent is fine: "already gone" counts as done.
     @discardableResult
     func sendDeletions(automatic: Bool = false, now: Date = Date()) async -> Bool {
         guard store.pairing != nil, !isSendingDeletions, !store.pendingMomentDeletions.isEmpty else { return false }
@@ -324,7 +325,9 @@ final class Outbox {
         isSendingDeletions = true
         defer { isSendingDeletions = false }
         await adoptBackgroundUploads()
+        let shared = store.shareUploadClaims
         let owed = store.pendingMomentDeletions.subtracting(uploadsInFlight)
+            .filter { !ShareIntake.isClaimed($0, in: shared, now: now) }
         guard !owed.isEmpty else { return false }
         let backend = backend()
         do {
@@ -475,9 +478,12 @@ final class Outbox {
         await adoptBackgroundUploads()
         guard !isRetryingUploads, !isClearingHistory else { return false }
         var changed = !index.salvagePendingUploads(hasMedia: hasMedia).isEmpty
+        let shared = store.shareUploadClaims
         let pending = UploadOrder.smallestFirst(
             index.load().filter { moment in
                 guard moment.fromMe, !moment.uploaded, !uploadsInFlight.contains(moment.id) else { return false }
+                // A tap sends it anyway: the sheet may be long gone, and a second save only overwrites.
+                if automatic, ShareIntake.isClaimed(moment.id, in: shared, now: now) { return false }
                 guard automatic, let refused = uploadRejectedAt[moment.id] else { return true }
                 return now.timeIntervalSince(refused) >= AppConfig.rejectedUploadRetryInterval
             },
@@ -606,11 +612,13 @@ final class Outbox {
         // Claimed before the look below, so a retry pass can't slip in during it.
         isClearingHistory = true
         defer { isClearingHistory = false }
-        // No upload running either, last launch's included: one could land mid-clear.
-        // Standing aside here, the clear runs again once the link frees (`linkFreed`).
+        // No upload running either, last launch's or the share sheet's included: one
+        // could land mid-clear. Standing aside here, the clear runs again once the
+        // link frees (`linkFreed`), or at the next recovery pass once the claim lapses.
         await adoptBackgroundUploads()
         guard let pairing = store.pairing, SharedStore.protectedDataAvailable,
-              !isRetryingUploads, uploadsInFlight.isEmpty else { return false }
+              !isRetryingUploads, uploadsInFlight.isEmpty,
+              !ShareIntake.anyClaimed(in: store.shareUploadClaims) else { return false }
         let keep = store.snapshot.mine?.wordsAt
         let backend = backend()
         var cleared = false

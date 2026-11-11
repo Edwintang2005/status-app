@@ -15,7 +15,7 @@ fields end-to-end encrypted.
 |---|---|
 | **Status** | An emoji plus a short message — `🥰 missing you`, `😴 sleeping`. Two taps from a preset, or type your own. |
 | **Nudge** | A heart on your lock screen. Tapping it makes their phone show *"Sam is thinking of you 💭"*. |
-| **Photos & doodles** | Snap a photo, draw a doodle, or scribble over a photo, and it lands on their home screen widget. Pick the paper colour for a doodle. |
+| **Photos & doodles** | Snap a photo, draw a doodle, or scribble over a photo, and it lands on their home screen widget. Pick the paper colour for a doodle. Or share one photo from any app's share sheet. A photo carries where it was taken (see "Where a photo was taken"). |
 | **Voice memos** | Up to 4 minutes (`AppConfig.voiceMemoMaxDuration`), with a live waveform while recording. Playable from the expanded notification without opening the app; a badge on the photo widget says one is waiting. Swipe across any playback waveform to scrub. |
 | **History** | Every photo, doodle and memo is kept. Browse the lot in the library — filterable by *from them* / *from me* and by type — save any to Photos, and get it all back on a new phone. |
 | **Status history** | A log of both sides' statuses, grouped by day, behind a tap on the partner card. Every change is its own CloudKit record, so it comes back on a new phone — see "Status history" below. |
@@ -63,9 +63,9 @@ Then, once:
    survives. Then re-run `make project`.
 2. **Change the bundle IDs** if `com.edwintang.redstring` isn't yours. Four
    places must agree:
-   - `PRODUCT_BUNDLE_IDENTIFIER` in [project.yml](project.yml) (all five targets, both test bundles included)
+   - `PRODUCT_BUNDLE_IDENTIFIER` in [project.yml](project.yml) (all seven targets, both test bundles included)
    - the identifiers in [Sources/Shared/AppConfig.swift](Sources/Shared/AppConfig.swift)
-   - the container and group IDs in all five `.entitlements` files
+   - the container and group IDs in all six `.entitlements` files
    - the `NSUbiquitousContainers` key in
      [Info.plist](Sources/App/Resources/Info.plist)
 3. **Create the CloudKit container** — Xcode does this for you the first time
@@ -459,6 +459,66 @@ only stops a notification firing twice.
 One subtlety worth knowing if you touch this: the carousel's list is **captured
 when it opens**. Reading the unseen set live would shrink the list underneath
 the user, because paging marks each one seen as it appears.
+
+Under each picture, "Sam · 3 months ago" is a button: a tap shows the full date
+and time ("Tuesday 10 November 2026 at 20:11") on every page until tapped again.
+
+### Where a photo was taken
+
+A photo carries its place in its own GPS tags, in the full-size JPEG only
+(`PhotoLocation`, written by `MomentStore.write`): no record field, so no schema
+change, and the asset is already encrypted by CloudKit. The thumbnail every
+tile and widget shows never has it.
+
+- **Red String's camera** asks for location ("while using") the first time it
+  opens — after the camera's own prompt — and stamps the shot with a fix taken
+  since the camera opened, no coarser than 100 m (`LocationStamp`: it stops at
+  the shot's first good fix, never running through a doodle). Declined, or no
+  fix by Send, the shot simply has no place. There's no in-app switch: iOS
+  Settings is the off switch for the camera.
+- **A photo picked from the library or shared from another app** keeps its own
+  tags, where it was taken rather than where you are, whatever the permission
+  (iOS's share sheet has its own "Location" switch under Options).
+- **A doodle over a photo** keeps the photo's place; a doodle on a blank
+  canvas has none.
+- **The gallery** shows "📍 Surry Hills, Sydney" under a picture whose full copy
+  has a place (`PlaceLine`; `PlaceNames` reverse geocodes on the viewing phone —
+  coordinates go to Apple's geocoder — one look at a time, cached for the launch
+  by ~100 m area). Nothing shows otherwise — every moment from before this, a
+  blank-canvas doodle, a declined permission — and a lookup that fails offline
+  is tried again next time. A page showing only the thumbnail gains the line
+  once the full copy downloads.
+- **Save to Photos** files it under its place and the time it was sent. Our own
+  file goes as it is; the partner's is redrawn and carries only the place that
+  passed `PhotoLocation`'s checks (invariant 23).
+- **Archive memories** copies the full files, places included.
+
+### Sharing from another app
+
+The share sheet's "Red String" (`Sources/Share`, its own extension target) takes
+one image, shows it in the app's own style, light or dark, with "To \<partner\>"
+and a caption, and sends it as an ordinary `.photo` moment. Stage for stage it's
+the composer's path (invariant 11): the picture is read at 2048 px straight from
+the file (`MomentStore.imported`: a 48 MP original decoded whole would pass the
+extension's ~120 MB ceiling), written with its place, filed in the index as an
+unsent own moment, then uploaded through an `Outbox` of the sheet's own.
+
+- Sent: a success haptic and the sheet closes — nothing to read.
+- Closed early, offline or failed: the moment is already filed, so the app's
+  next retry pass sends it; the sheet says so ("It's saved and will send next
+  time Red String opens").
+- While the sheet is sending, it holds a claim (`SharedStore.shareUploadClaims`,
+  `ShareIntake.isClaimed`, `AppConfig.shareUploadHold`). The app's automatic
+  retry pass waits it out, so the same photo isn't uploaded twice side by side;
+  a delete or the fresh start's clear waits too, or the upload would land after
+  the delete. A tap on "waiting to send" ignores it — a second save only
+  overwrites. The sheet drops the claim on a real failure, renews it when it
+  stops waiting at `uploadDeadline` with the upload still moving, and closes
+  as sent only once the index has it sent.
+- A swipe down can't close the sheet mid-send (`isModalInPresentation`); Done can.
+- The gate is read again at Send, so an unlink while the sheet is open files nothing.
+- Not set up (terms), not linked, or the partner has left: the sheet says why
+  and sends nothing (`ShareIntake.blocked`).
 
 ### Whose name shows
 
@@ -881,6 +941,7 @@ Sources/App/           the app: AppModel, views, camera, audio, notifications
 Sources/Widget/        status, photo and heart widgets
 Sources/NotificationService/   push enrichment
 Sources/NotificationContent/   the expanded (long-pressed) banner
+Sources/Share/         the share sheet's "Red String": one photo, captioned and sent
 Tests/                 RedStringTests (no host app) and RedStringUITests
 ```
 

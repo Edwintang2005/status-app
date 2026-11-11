@@ -7,7 +7,7 @@ import SwiftUI
 struct MomentComposerView: View {
     /// Straight into the camera, as a banner's "Reply with a photo" asks.
     var opensCamera = false
-    var onSend: (UIImage, Moment.Kind, String) -> Void
+    var onSend: (UIImage, Moment.Kind, String, PhotoLocation?) -> Void
 
     @Environment(\.dismiss) private var dismiss
 
@@ -16,6 +16,10 @@ struct MomentComposerView: View {
     /// A two-camera shot: `photo` is its main picture, and the inset stays
     /// movable until Send flattens it.
     @State private var dualShot: DualShot?
+    /// Where `photo` was taken: a library pick's own tags, or the camera's fix.
+    @State private var photoLocation: PhotoLocation?
+    /// A camera shot whose fix may still land before Send.
+    @State private var photoFromCamera = false
     @State private var caption = ""
     @State private var isDrawing = false
     @State private var pickerItem: PhotosPickerItem?
@@ -81,6 +85,7 @@ struct MomentComposerView: View {
         }
         // A doodle is minutes of work; a pull-down must not throw it away.
         .interactiveDismissDisabled(hasContent)
+        .onDisappear { LocationStamp.shared.stop() }
         .task {
             guard opensCamera, !openedCamera, CameraView.isAvailable else { return }
             openedCamera = true
@@ -91,6 +96,8 @@ struct MomentComposerView: View {
         .fullScreenCover(isPresented: $showingCamera) {
             CameraView { shot in
                 Task {
+                    photoLocation = LocationStamp.shared.takeForShot()
+                    photoFromCamera = true
                     switch shot {
                     case .photo(let image):
                         // Off the main thread, like the library path: a full camera
@@ -112,6 +119,8 @@ struct MomentComposerView: View {
             Task {
                 if let data = try? await item.loadTransferable(type: Data.self),
                    let image = UIImage(data: data) {
+                    photoLocation = PhotoLocation.read(from: data)
+                    photoFromCamera = false
                     // Downscale off the main thread: a 48 MP original decodes
                     // to ~190 MB, and `MomentStore` caps the longest edge anyway.
                     photo = await Task.detached(priority: .userInitiated) {
@@ -221,6 +230,8 @@ struct MomentComposerView: View {
                 Button {
                     photo = nil
                     dualShot = nil
+                    photoLocation = nil
+                    photoFromCamera = false
                 } label: {
                     sourceLabel("Clear", systemImage: "xmark")
                 }
@@ -271,11 +282,13 @@ struct MomentComposerView: View {
 
     private func send() {
         guard canSend else { return }
+        let location = PhotoLocation.forSend(hasPhoto: photo != nil, photo: photoLocation,
+                                             fromCamera: photoFromCamera) { LocationStamp.shared.current }
         // An undrawn photo travels in its own frame: every surface shows the
         // centred square regardless, and "Save to Photos" returns the whole shot.
         // Strokes were laid over that square, so a doodle flattens to it.
         if controller.strokeCount == 0, dualShot == nil, let photo {
-            onSend(photo, kind, caption)
+            onSend(photo, kind, caption, location)
         } else {
             let (controller, photo, dualShot, kind, caption, onSend) = (controller, photo, dualShot, kind, caption, onSend)
             Task {
@@ -292,7 +305,7 @@ struct MomentComposerView: View {
                     if controller.strokeCount == 0, let base { return base }
                     return await controller.render(over: base)
                 }
-                onSend(image, kind, caption)
+                onSend(image, kind, caption, location)
             }
         }
         dismiss()
@@ -437,7 +450,7 @@ private extension UIImage {
 
 #if DEBUG
 #Preview("Composer") {
-    MomentComposerView { _, _, _ in }
+    MomentComposerView { _, _, _, _ in }
         .environment(AppModel.previewModel())
         .tint(Theme.accent)
 }

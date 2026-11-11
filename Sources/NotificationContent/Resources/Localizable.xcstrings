@@ -40,7 +40,13 @@
     "Couldn't open the shared space. Ask them to send a fresh invite link, and check you're both on the same build of %@." : {
 
     },
+    "couldn't reach iCloud" : {
+
+    },
     "Couldn't reach your shared space just now. Try again in a moment." : {
+
+    },
+    "Crash" : {
 
     },
     "drawing" : {
@@ -49,7 +55,28 @@
     "Drawing" : {
 
     },
+    "drawn from this iPhone's copy" : {
+
+    },
+    "edited a caption" : {
+
+    },
+    "edited a caption: %@" : {
+
+    },
+    "fetch failed" : {
+
+    },
+    "fetch failed after %@ s" : {
+
+    },
+    "fetched" : {
+
+    },
     "From a shared space you've left." : {
+
+    },
+    "Hang" : {
 
     },
     "Happy anniversary" : {
@@ -85,10 +112,16 @@
     "iCloud took too long to answer." : {
 
     },
+    "in %@" : {
+
+    },
     "is now going by %@" : {
 
     },
     "is thinking of you 💭" : {
+
+    },
+    "left generic after %@ s" : {
 
     },
     "left your shared space" : {
@@ -107,6 +140,9 @@
 
     },
     "Moments were removed from your shared space." : {
+
+    },
+    "not linked" : {
 
     },
     "Only the person who created the link can set this." : {
@@ -133,6 +169,15 @@
     "Play · %@" : {
 
     },
+    "removed %lld moments" : {
+
+    },
+    "removed a caption" : {
+
+    },
+    "removed a moment" : {
+
+    },
     "Reported" : {
 
     },
@@ -152,6 +197,9 @@
 
     },
     "Sign in to iCloud in Settings to use %@." : {
+
+    },
+    "Slow launch" : {
 
     },
     "Surprise!" : {
@@ -181,6 +229,15 @@
     "This iPhone's history couldn't be read just now." : {
 
     },
+    "timed out after %@ s" : {
+
+    },
+    "Too many disk writes" : {
+
+    },
+    "Too much CPU" : {
+
+    },
     "Update %@ to see this." : {
 
     },
@@ -193,10 +250,16 @@
     "was thinking of you earlier 💭" : {
 
     },
+    "worded in %@ s" : {
+
+    },
     "You changed your status from another device." : {
 
     },
     "You did it!" : {
+
+    },
+    "You edited a caption from another device." : {
 
     },
     "You reported this moment." : {
@@ -206,6 +269,9 @@
 
     },
     "You sent something from another device." : {
+
+    },
+    "Your caption edit was sent to %@." : {
 
     },
     "Your moment was sent to %@." : {

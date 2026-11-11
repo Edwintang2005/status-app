@@ -1,0 +1,324 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "%@ has left your shared space, so there's no one to send this to." : {
+
+    },
+    "%lld months" : {
+
+    },
+    "%lld people besides you are on your shared space, so closing the invite link would keep all of them in. To be sure only your partner has access, unlink in Settings — which deletes the shared space for both of you — and send them a new link." : {
+
+    },
+    "%lld years" : {
+
+    },
+    "🎁 has a surprise for you — open %@ to see it" : {
+
+    },
+    "1 month" : {
+
+    },
+    "1 year" : {
+
+    },
+    "a new name" : {
+
+    },
+    "A surprise — open %@ to see it" : {
+
+    },
+    "Add a caption" : {
+
+    },
+    "Cancel" : {
+
+    },
+    "CloudKit didn't return an invite link. Try again." : {
+
+    },
+    "Couldn't close the invite link safely, so it's open again. Your partner may have been taken off your shared space: ask them to tap the invite link now to get back in, before their app unlinks. (%@)" : {
+
+    },
+    "Couldn't encode that image." : {
+
+    },
+    "Couldn't finish closing the invite link, and couldn't confirm it reopened. If your partner can't get back in, reopen it — Settings → Invite link → Reopen the invite link — and ask them to tap the link. (%@)" : {
+
+    },
+    "Couldn't open that picture. If it's in iCloud, check your connection and try again." : {
+
+    },
+    "Couldn't open the shared space. Ask them to send a fresh invite link, and check you're both on the same build of %@." : {
+
+    },
+    "couldn't reach iCloud" : {
+
+    },
+    "Couldn't reach your shared space just now. Try again in a moment." : {
+
+    },
+    "Crash" : {
+
+    },
+    "Done" : {
+
+    },
+    "drawing" : {
+
+    },
+    "drawn from this iPhone's copy" : {
+
+    },
+    "edited a caption" : {
+
+    },
+    "edited a caption: %@" : {
+
+    },
+    "fetch failed" : {
+
+    },
+    "fetch failed after %@ s" : {
+
+    },
+    "fetched" : {
+
+    },
+    "From a shared space you've left." : {
+
+    },
+    "Hang" : {
+
+    },
+    "Happy anniversary" : {
+
+    },
+    "Happy birthday" : {
+
+    },
+    "Happy New Year" : {
+
+    },
+    "Hidden" : {
+
+    },
+    "Hidden by your content filter" : {
+
+    },
+    "iCloud didn't confirm the save. It will be retried." : {
+
+    },
+    "iCloud doesn't show the fresh start agreed by both of you, so nothing was cleared. It will be checked again next time you open the app." : {
+
+    },
+    "iCloud is restricted on this device." : {
+
+    },
+    "iCloud is temporarily unavailable. Try again shortly." : {
+
+    },
+    "iCloud isn't available right now." : {
+
+    },
+    "iCloud took too long to answer." : {
+
+    },
+    "in %@" : {
+
+    },
+    "is now going by %@" : {
+
+    },
+    "is thinking of you 💭" : {
+
+    },
+    "It's saved and will send next time Red String opens." : {
+
+    },
+    "left generic after %@ s" : {
+
+    },
+    "left your shared space" : {
+
+    },
+    "Link up with your partner in Red String first, then share again." : {
+
+    },
+    "Love you" : {
+
+    },
+    "Merry Christmas" : {
+
+    },
+    "moment" : {
+
+    },
+    "Moments were cleared for your fresh start." : {
+
+    },
+    "Moments were removed from your shared space." : {
+
+    },
+    "not linked" : {
+
+    },
+    "Only the person who created the link can set this." : {
+
+    },
+    "Only the person who joined the link can ask for this." : {
+
+    },
+    "Open Red String first to finish setting up, then share again." : {
+
+    },
+    "Partner" : {
+
+    },
+    "photo" : {
+
+    },
+    "Red String" : {
+
+    },
+    "removed %lld moments" : {
+
+    },
+    "removed a caption" : {
+
+    },
+    "removed a moment" : {
+
+    },
+    "Reported" : {
+
+    },
+    "Send" : {
+
+    },
+    "Send to %@" : {
+
+    },
+    "Sending… you can close this, it'll keep going in Red String." : {
+
+    },
+    "Sent" : {
+
+    },
+    "sent you a drawing ✏️" : {
+
+    },
+    "sent you a photo 📷" : {
+
+    },
+    "sent you a voice memo 🎙️" : {
+
+    },
+    "sent you something 📷" : {
+
+    },
+    "sent you something new: update %@ to see it" : {
+
+    },
+    "Sign in to iCloud in Settings to use %@." : {
+
+    },
+    "Slow launch" : {
+
+    },
+    "Surprise!" : {
+
+    },
+    "That recording is no longer on this device." : {
+
+    },
+    "The photo you're sharing" : {
+
+    },
+    "The shared App Group container isn't available." : {
+
+    },
+    "The shared space is no longer available. Everything shared has been removed from this device — pair again to start over." : {
+
+    },
+    "This device is signed into a different iCloud account than the one you paired with. Sign back into that account to see your shared space, or unlink from Settings." : {
+
+    },
+    "This device isn't paired yet." : {
+
+    },
+    "This iCloud account still has an earlier shared space. Rejoin it to carry on, or start a new one — which deletes the old one." : {
+
+    },
+    "This invite is from someone you've blocked." : {
+
+    },
+    "This iPhone's history couldn't be read just now." : {
+
+    },
+    "timed out after %@ s" : {
+
+    },
+    "To %@" : {
+
+    },
+    "Too many disk writes" : {
+
+    },
+    "Too much CPU" : {
+
+    },
+    "updated their status" : {
+
+    },
+    "voice memo" : {
+
+    },
+    "was thinking of you earlier 💭" : {
+
+    },
+    "worded in %@ s" : {
+
+    },
+    "You changed your status from another device." : {
+
+    },
+    "You did it!" : {
+
+    },
+    "You edited a caption from another device." : {
+
+    },
+    "You sent a nudge from another device." : {
+
+    },
+    "You sent something from another device." : {
+
+    },
+    "You're offline. It's saved and will send once Red String is back online." : {
+
+    },
+    "Your caption edit was sent to %@." : {
+
+    },
+    "Your moment was sent to %@." : {
+
+    },
+    "Your nudge was sent to %@." : {
+
+    },
+    "Your partner" : {
+
+    },
+    "Your partner joined through this link, so closing it re-seats them: they're briefly taken off and need to tap the link once more to get back in." : {
+
+    },
+    "Your shared space changed." : {
+
+    },
+    "Your status was sent to %@." : {
+
+    }
+  },
+  "version" : "1.0"
+}

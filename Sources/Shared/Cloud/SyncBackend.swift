@@ -311,7 +311,24 @@ enum Backend {
 /// backend so the app runs on a Simulator with no iCloud account. Debug-only and
 /// environment-gated — a normal launch never comes near it.
 enum DemoMode {
+    /// The share sheet has no launch environment of its own: it follows the
+    /// app's last launch (`noteAppLaunch`), so a demo sheet never reaches iCloud.
     static let isActive = ProcessInfo.processInfo.environment["REDSTRING_DEMO"] == "1"
+        || (SharedStore.processLabel == "share sheet" && marker.map { FileManager.default.fileExists(atPath: $0.path) } == true)
+
+    static func noteAppLaunch() {
+        guard let marker else { return }
+        if isActive {
+            FileManager.default.createFile(atPath: marker.path, contents: Data())
+        } else {
+            try? FileManager.default.removeItem(at: marker)
+        }
+    }
+
+    private static var marker: URL? {
+        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: AppConfig.appGroupID)?
+            .appendingPathComponent("demo-mode")
+    }
 }
 
 /// Mirrors what `CloudSync` stamps locally, so callers behave the same over either.

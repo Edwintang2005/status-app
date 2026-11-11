@@ -461,8 +461,8 @@ private struct HomeSheets: ViewModifier {
             }
             // In the item: state read only in a sheet's closure can arrive stale.
             .sheet(item: $composer) { request in
-                MomentComposerView(opensCamera: request.opensCamera) { image, kind, caption in
-                    Task { await model.sendMoment(image: image, kind: kind, caption: caption) }
+                MomentComposerView(opensCamera: request.opensCamera) { image, kind, caption, location in
+                    Task { await model.sendMoment(image: image, kind: kind, caption: caption, location: location) }
                 }
                 .presentsModelErrors()
             }

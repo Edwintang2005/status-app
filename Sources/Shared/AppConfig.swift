@@ -5,12 +5,12 @@ import Foundation
 enum AppConfig {
     static let appName = "Red String"
 
-    /// Must match `com.apple.security.application-groups` in all five entitlements
-    /// files (app Debug and Release, widget, notification service, notification content).
+    /// Must match `com.apple.security.application-groups` in all six entitlements
+    /// files (app Debug and Release, widget, notification service, notification content, share).
     static let appGroupID = "group.com.edwintang.redstring"
 
-    /// Must match `com.apple.developer.icloud-container-identifiers` in all five
-    /// entitlements files (app Debug and Release, widget, notification service, notification content).
+    /// Must match `com.apple.developer.icloud-container-identifiers` in all six
+    /// entitlements files (app Debug and Release, widget, notification service, notification content, share).
     static let cloudContainerID = "iCloud.com.edwintang.redstring"
 
     /// Custom zone holding both partners' status records. Custom (not default)
@@ -147,6 +147,9 @@ enum AppConfig {
     /// An upload whose bytes haven't moved for this long is cancelled and left
     /// pending (`UploadWatch`), checked every `uploadTickInterval`.
     static let uploadStallTimeout: TimeInterval = 90
+    /// How long the app's retry pass leaves a send the share sheet started
+    /// (`ShareIntake.isClaimed`): past the sheet's own wait, with room to land.
+    static let shareUploadHold: TimeInterval = uploadDeadline + 60
     static let uploadTickInterval: TimeInterval = 5
     static let refreshDeadline: TimeInterval = 120
     /// Status, receipt, anniversary and subscription writes: small records, so

@@ -39,6 +39,8 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Take a photo to send straight to your partner's widget.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Your photos carry where they were taken, so your partner can see the place.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Record a voice memo to send to your partner.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

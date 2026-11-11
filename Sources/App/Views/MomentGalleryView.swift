@@ -1,3 +1,4 @@
+import CoreLocation
 import Photos
 import SwiftUI
 
@@ -29,6 +30,10 @@ struct MomentGalleryView: View {
     @State private var editingCaption: Moment?
     @State private var captionDraft = ""
     @State private var deleting: Moment?
+    /// Tapped: every page's time reads as the full date until tapped again.
+    @State private var showsFullDate = false
+    /// Where each page's picture was taken, once named (`PlaceNames`).
+    @State private var places: [String: String] = [:]
 
     private enum ReplyKind: String, Identifiable {
         case moment, voiceMemo
@@ -236,8 +241,8 @@ struct MomentGalleryView: View {
     private func replyComposer(_ kind: ReplyKind) -> some View {
         switch kind {
         case .moment:
-            MomentComposerView { image, kind, caption in
-                Task { await model.sendMoment(image: image, kind: kind, caption: caption) }
+            MomentComposerView { image, kind, caption, location in
+                Task { await model.sendMoment(image: image, kind: kind, caption: caption, location: location) }
             }
             .presentsModelErrors()
         case .voiceMemo:
@@ -327,9 +332,29 @@ struct MomentGalleryView: View {
                             .multilineTextAlignment(.center)
                     }
                 }
-                Text(attribution)
-                    .font(Theme.rounded(13))
-                    .foregroundStyle(Theme.mutedText)
+                Button {
+                    showsFullDate.toggle()
+                } label: {
+                    Text(showsFullDate ? self.attribution(moment, partnerName: model.partnerName,
+                                                          filterOn: filterOn, fullDate: true) : attribution)
+                        .font(Theme.rounded(13))
+                        .foregroundStyle(Theme.mutedText)
+                        .multilineTextAlignment(.center)
+                        .contentTransition(.opacity)
+                }
+                .buttonStyle(.plain)
+                .animation(.easeOut(duration: 0.15), value: showsFullDate)
+                .accessibilityHint(showsFullDate ? "Shows how long ago" : "Shows the full date and time")
+                // Here, not in the line: a moment without a place gets no view, so no gap.
+                .task(id: "\(moment.id)-\(loading.contains(moment.id))") {
+                    // The full copy carries the place: a page showing only the thumbnail asks again once it lands.
+                    guard !moment.isVoice, moment.kind.isSupported, !loading.contains(moment.id),
+                          places[moment.id] == nil else { return }
+                    if let place = await PlaceNames.shared.name(for: moment.id) { places[moment.id] = place }
+                }
+                if let place = places[moment.id] {
+                    PlaceLine(place: place)
+                }
                 if let seen = seenLine(moment) {
                     Label(seen, systemImage: "eye.fill")
                         .font(Theme.rounded(12))
@@ -489,11 +514,14 @@ struct MomentGalleryView: View {
 
     /// Shows the name attached at send time; falls back to the current partner
     /// name only when the record carries none (or the filter hides it).
-    private func attribution(_ moment: Moment, partnerName: String, filterOn: Bool) -> String {
+    private func attribution(_ moment: Moment, partnerName: String, filterOn: Bool,
+                             fullDate: Bool = false) -> String {
         let who = moment.fromMe
             ? String(localized: "You")
             : moment.displaySenderName(fallback: partnerName, filterEnabled: filterOn)
-        let when = moment.sentAt.relativeWording()
+        let when = fullDate
+            ? moment.sentAt.formatted(.dateTime.weekday(.wide).day().month(.wide).year().hour().minute())
+            : moment.sentAt.relativeWording()
         guard moment.captionEditedAt != nil else { return "\(who) · \(when)" }
         return String(localized: "\(who) · \(when) · Edited")
     }
@@ -582,7 +610,8 @@ struct MomentGalleryView: View {
     /// Add-only authorisation: never reads the library, so a gentler prompt.
     private func save() async {
         guard let moment = current,
-              let image = MomentStore.shared.image(for: moment.id) else { return }
+              let file = MomentStore.shared.imageURL(for: moment.id),
+              MomentStore.shared.hasImage(for: moment.id) else { return }
         // Checked after every `await`: the user can page away mid-save, and a
         // late "Saved"/failure would then claim the wrong photo.
         let saving = moment.id
@@ -594,9 +623,29 @@ struct MomentGalleryView: View {
             return
         }
 
+        // Our own file goes as it is. The partner's is anything their build wrote
+        // (invariant 23): redrawn, carrying only the place that passed `PhotoLocation`.
+        let fromMe = moment.fromMe
+        let copy: Data? = fromMe ? nil : await Task.detached(priority: .userInitiated) {
+            MomentStore.shared.image(for: saving)?.jpegData(compressionQuality: 0.92)
+        }.value
+        guard fromMe || copy != nil else {
+            if selection == saving { saveState = .failed(String(localized: "Couldn't read that photo.")) }
+            return
+        }
+        let place = PhotoLocation.read(from: file)
+        let sentAt = moment.sentAt
         do {
             try await PHPhotoLibrary.shared().performChanges {
-                PHAssetChangeRequest.creationRequestForAsset(from: image)
+                let request = PHAssetCreationRequest.forAsset()
+                if let copy {
+                    request.addResource(with: .photo, data: copy, options: nil)
+                } else {
+                    request.addResource(with: .photo, fileURL: file, options: nil)
+                }
+                // Filed under when it was sent and where it was taken, as Photos would its own.
+                request.creationDate = sentAt
+                request.location = place.map { CLLocation(latitude: $0.latitude, longitude: $0.longitude) }
             }
             if selection == saving { saveState = .saved }
         } catch {

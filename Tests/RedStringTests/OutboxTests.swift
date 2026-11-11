@@ -142,6 +142,25 @@ final class OutboxTests: XCTestCase {
         XCTAssertTrue(index.load().allSatisfy(\.uploaded))
     }
 
+    /// The share sheet's own send: the app leaves it alone while the claim stands.
+    func testAShareSheetSendIsLeftAloneWhileClaimed() async {
+        queue(["shared", "b"])
+        let now = Date()
+        store.shareUploadClaims = ShareIntake.claiming("shared", in: [:], now: now)
+        await outbox.retryPendingUploads(automatic: true, now: now)
+        XCTAssertEqual(backend.sent, ["b"])
+        await outbox.retryPendingUploads(automatic: true, now: now.addingTimeInterval(AppConfig.shareUploadHold))
+        XCTAssertEqual(Set(backend.sent), ["b", "shared"], "a lapsed claim is the app's to send")
+    }
+
+    /// The footer's "waiting to send" is a tap: the sheet may be long gone, and a second save only overwrites.
+    func testATapSendsAClaimedShareAnyway() async {
+        queue(["shared"])
+        store.shareUploadClaims = ShareIntake.claiming("shared", in: [:])
+        await outbox.retryPendingUploads(automatic: false)
+        XCTAssertEqual(backend.sent, ["shared"])
+    }
+
     func testAPendingSendWithNoMediaIsDroppedNotRetriedForever() async {
         queue(["ghost"])
         media.remove("ghost")
@@ -770,6 +789,23 @@ final class OutboxTests: XCTestCase {
         let retried = await outbox.sendDeletions()
         XCTAssertTrue(retried)
         XCTAssertTrue(store.pendingMomentDeletions.isEmpty)
+    }
+
+    /// Deleted while the share sheet uploads it: the delete waits out the claim,
+    /// or the sheet's upload would land after it and bring the photo back.
+    func testADeleteWaitsForTheShareSheetsUpload() async {
+        queue(["shared"])
+        let moment = index.load()[0]
+        let now = Date()
+        store.shareUploadClaims = ShareIntake.claiming("shared", in: [:], now: now)
+        XCTAssertTrue(outbox.deleteMoment(moment, now: moment.sentAt))
+        let early = await outbox.sendDeletions(now: now)
+        XCTAssertFalse(early)
+        XCTAssertTrue(backend.deleted.isEmpty, "still the sheet's")
+        XCTAssertEqual(store.pendingMomentDeletions, ["shared"], "still owed")
+        let later = await outbox.sendDeletions(now: now.addingTimeInterval(AppConfig.shareUploadHold))
+        XCTAssertTrue(later)
+        XCTAssertEqual(backend.deleted, [["shared"]])
     }
 
     /// Deleted while still uploading: the delete waits, or the record would land after it.

@@ -171,64 +171,11 @@ app.
 
 ## Tier 2 — soon: strong, needs one design decision or a small probe
 
-### Share from anywhere (M–L) ★★ 🔬 — shelved
-**Shelved, October 2026:** a good build, but unproven demand — nobody yet knows
-how often moments would start in another app. If it's picked up, pilot it on
-its own branch through TestFlight first, with a local-only count of share-sheet
-sends in Diagnostics (nothing leaves the phone) to show whether it's used.
-
-A Share Extension, so you can send a photo, screenshot or saved meme from any
-app's share sheet without opening Red String. It's the lowest-effort way to
-send that the app could have: whatever you were looking at goes to them in two
-taps. No schema change: a shared image is an ordinary `.photo` moment.
-- **The sheet:** a preview, a caption field (`captionMaxLength`), "To
-  \<partner\>" and Send. SwiftUI hosted in the extension's principal view
-  controller, using `Theme`. Accept one image at first
-  (`NSExtensionActivationSupportsImageWithMaxCount = 1`). Several images
-  would become several moments later; text and URLs wait for links as moments.
-- **Same send path, stage for stage** (invariant 11):
-  - Media goes on disk first, then the index entry (`SharedStore.record`,
-    under the index's flock), then `Outbox.upload`.
-  - Two app-only pieces need extension stand-ins.
-    `AppModel.withUploadProtection` uses `UIApplication`, so the extension uses
-    `ProcessInfo.performExpiringActivity`. `senderName` comes from
-    `snapshot.mine`.
-  - `newMoment`/`send` move from `AppModel` into `Outbox` or a shared helper,
-    so both callers file moments identically.
-- **Memory:** share extensions get a much smaller memory ceiling than the app
-  (about 120 MB; measure it). A 48 MP HEIC decoded whole would overflow it.
-  - Load the shared item as a file (`loadFileRepresentation`) and downsample it
-    with ImageIO to `MomentStore.fullMaxDimension`, as `MomentStore.decoded`
-    already does.
-  - Then hand `MomentStore.write` a 2048-px image, never the original.
-- **When it lands:**
-  - The sheet stays up with a progress ring until the record is confirmed. A
-    1 MB photo usually takes a second or two. Then it shows ✓ and dismisses.
-  - If the person dismisses early, or it's offline, the moment stays queued
-    (`uploaded == false`) and the sheet says so honestly: "Saved — it'll send
-    next time Red String opens." The queue's footer count already covers it.
-  - "Send the queue while the app is suspended" (Tier 2) is what would make
-    this send without opening the app. Build them together if the probe below
-    fails.
-- **A send from the extension overlapping an app retry of the same moment is
-  safe:**
-  - The record name is fixed, so the second save only overwrites.
-  - The partner's NSE claims the second push as already announced
-    (`claimMomentBanner`).
-  - To spare the duplicate upload, stamp the index entry with a short "sending
-    from the share sheet" lease the app's retry pass waits out. That's cheaper
-    than a cross-process `uploadsInFlight`.
-- **Gates:**
-  - Terms accepted (`acceptedTermsVersion`), paired, and the pairing's account
-    signed in (`requirePairing` already checks that). Otherwise the sheet
-    says "Open Red String to finish setting up" and sends nothing.
-  - The share sheet only runs unlocked, so encrypted fields are always
-    writable here, unlike in the NSE.
-- **Afterwards:** `SharedStore.reloadWidgets()` from the extension is allowed
-  (invariant 6 forbids it only in the widget process). The app re-reads the
-  index on foregrounding, so the new moment appears there with no new
-  signalling.
-- **Phase 2: the partner in the share sheet's top row.**
+### Share from anywhere — what's left (S–M) ★★ 🔬
+The sheet shipped (November 2026, CHANGELOG): one photo from any share sheet,
+captioned and sent as an ordinary `.photo` moment through `Outbox.upload`, its
+location kept. Still to do:
+- **The partner in the share sheet's top row.**
   - Donate an `INSendMessageIntent` (the partner as an `INPerson`, using
     `moderatedPartnerName`) on every send. Declare `INSendMessageIntent` in the
     extension's `IntentsSupported`.
@@ -236,25 +183,18 @@ taps. No schema change: a shared image is an ordinary `.photo` moment.
     it opens the sheet with `extensionContext.intent` set.
   - Delete the donations on unlink, block and local reset
     (`INInteraction.deleteAll`), next to `finishUnlink`.
-- **Build:**
-  - A fifth shipping target in `project.yml`, compiling `Sources/Shared/`,
-    with its own `Localizable.xcstrings` and privacy manifest. Then
-    `make project` and commit.
-  - A sixth entitlements file (App Group + iCloud container): invariant 12's
-    lockstep list grows by one.
-  - CI builds it with the app.
-- 🔬 **Probe first, on a device:**
-  1. Does a long-lived `CKModifyRecordsOperation` started in a share extension
-     finish after `completeRequest` and the extension's termination? And does
-     the app's `container.allLongLivedOperationIDs()` list it
-     (`Outbox.adoptBackgroundUploads`)? Long-lived operations may be tracked
-     per bundle, not per container.
-     - If it finishes but the app can't see it, the lease above covers the
-       overlap.
-     - If it doesn't finish, the queued fallback is the design, and the
-       suspended-queue item becomes a prerequisite.
+- **Several photos per share**, each its own moment, smallest first.
+- 🔬 **Probe on a device:**
+  1. Does the sheet's long-lived upload finish after `completeRequest` and the
+     extension's termination, and does the app's
+     `container.allLongLivedOperationIDs()` list it
+     (`Outbox.adoptBackgroundUploads`)? Either way the claim
+     (`ShareIntake.isClaimed`) and the fixed record name keep it to one moment;
+     if it never finishes, "Send the queue while the app is suspended" would
+     send it without opening the app.
   2. The extension's real memory ceiling, with a 48 MP HEIC, a ProRAW and a
-     panorama shared from Photos.
+     panorama shared from Photos (it never decodes past 2048 px:
+     `MomentStore.imported`).
   3. Cold-start time to a usable sheet. `Shared/` is large, so measure before
      trimming.
 
@@ -348,11 +288,24 @@ Recent statuses ranked by time of day and weekday ("☕️" at 8 am, "🚗" at 5
 pm), on device from the status log, so the most common send is one tap. No
 schema.
 
-### On this day (S) ★★
-A quiet Home card (and optionally a widget state) for both: the photo you
-shared a year ago today. Starts a conversation without either of you having to.
-Local only, from `MomentIndex`; respects reported/hidden moments and the fresh
-start's `clearedBefore`.
+### On this day / Memories (M) ★★ — shelved
+**Shelved, November 2026:** the shape isn't settled yet. A quiet Home card (and
+optionally a widget state, or a morning note) for both: the photo you shared a
+year ago today. Starts a conversation without either of you having to.
+Respects reported/hidden moments and the fresh start's `clearedBefore`.
+Notes from the first design pass:
+- `MomentIndex` keeps only the newest 500 — about 100 days for a busy couple —
+  so "a year ago" is usually gone from it. Two ways back: a tiny uncapped
+  ledger of every picture's id, kind, date and sender (≈1 MB for 10,000),
+  backfilled once by the archive's whole-zone look, media fetched by record
+  name on demand (no schema change); or a `CKQuery` on `sentAt` (a queryable
+  index: a schema release, and online only).
+- Only fresh starts, reports and unlinks remove old moments (own deletes are
+  limited to `momentDeleteWindow`), so a ledger has few ways to go stale.
+- Open questions: how often (daily when one fits, or a few a week); whether
+  memos count; whether both phones should get the same memory (a date-seeded
+  pick does that); fallbacks before there's a year of history (six months,
+  a month ago).
 
 ### Warm acknowledgement (S–M) ★★
 Double-tap a photo or status for a quiet "💛 loved this" next to "Seen".

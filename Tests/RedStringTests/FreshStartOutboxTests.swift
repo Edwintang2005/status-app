@@ -97,6 +97,25 @@ final class FreshStartOutboxTests: XCTestCase {
         XCTAssertFalse(again, "done")
     }
 
+    /// A share-sheet upload could land mid-clear: the clear stands aside until its claim goes.
+    func testTheClearWaitsForTheShareSheet() async {
+        store.mutate {
+            $0.freshStart.mine = FreshStartRecord(stage: .agreeing, epoch: self.epoch)
+            $0.freshStart.theirs = FreshStartRecord(stage: .committed, epoch: self.epoch)
+        }
+        index.insert([Fixtures.moment("old", at: Fixtures.date(100))])
+        backend.clearZone = FreshStartPolicy.Zone(momentsBefore: ["old"])
+        store.shareUploadClaims = ShareIntake.claiming("shared", in: [:])
+        await outbox.advanceFreshStart()
+        XCTAssertTrue(backend.clears.isEmpty)
+        XCTAssertEqual(index.load().map(\.id), ["old"])
+
+        store.shareUploadClaims = [:]
+        await outbox.advanceFreshStart()
+        XCTAssertEqual(backend.clears.map(\.epoch), [epoch])
+        XCTAssertTrue(index.load().isEmpty)
+    }
+
     /// The zone half failing leaves this device's copy untouched; the next pass runs it all again.
     func testAFailedClearTouchesNothingHereAndRetries() async {
         store.mutate {

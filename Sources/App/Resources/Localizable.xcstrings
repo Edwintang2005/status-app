@@ -13,8 +13,21 @@
     ". Thinking of you, %@" : {
 
     },
+    "·" : {
+
+    },
     "%@" : {
 
+    },
+    "%@ · %@ · Edited" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · %2$@ · Edited"
+          }
+        }
+      }
     },
     "%@ & %@" : {
       "localizations" : {
@@ -122,6 +135,9 @@
 
     },
     "%@ needs the microphone" : {
+
+    },
+    "%@ sees the new caption, quietly. Leave it empty to remove it." : {
 
     },
     "%@ sent a voice memo" : {
@@ -375,10 +391,19 @@
     "1 year" : {
 
     },
+    "1s" : {
+
+    },
+    "2s" : {
+
+    },
     "3 seconds" : {
 
     },
     "3s" : {
+
+    },
+    "5s" : {
 
     },
     "10 seconds" : {
@@ -402,6 +427,12 @@
     "A glance at each other, from anywhere. First — what should they call you?" : {
 
     },
+    "A little gift: your %@ together is ready to watch 🎁" : {
+
+    },
+    "A moment can be deleted for both of you only within five minutes of sending it." : {
+
+    },
     "a new name" : {
 
     },
@@ -409,6 +440,9 @@
 
     },
     "A private status app for two people." : {
+
+    },
+    "A short video of the photos, drawings and statuses you and %@ shared, made on this iPhone. Watch it, save it or share it." : {
 
     },
     "A surprise — open %@ to see it" : {
@@ -562,6 +596,9 @@
     "Cancel timer" : {
 
     },
+    "Caption" : {
+
+    },
     "Celebration" : {
 
     },
@@ -709,7 +746,13 @@
     "Couldn't load. Retry" : {
 
     },
+    "Couldn't make the video" : {
+
+    },
     "Couldn't open the shared space. Ask them to send a fresh invite link, and check you're both on the same build of %@." : {
+
+    },
+    "couldn't reach iCloud" : {
 
     },
     "Couldn't reach iCloud" : {
@@ -751,6 +794,9 @@
     "Couldn't unlink" : {
 
     },
+    "Crash" : {
+
+    },
     "Cream background" : {
 
     },
@@ -763,6 +809,12 @@
     "days" : {
 
     },
+    "Delay before the small picture" : {
+
+    },
+    "Delete" : {
+
+    },
     "Delete everything" : {
 
     },
@@ -772,7 +824,16 @@
     "Delete everything and start over?" : {
 
     },
+    "Delete for both of you…" : {
+
+    },
     "Delete it and start a new one" : {
+
+    },
+    "Delete saved recap videos" : {
+
+    },
+    "Delete this %@ for both of you?" : {
 
     },
     "Delete your old shared space?" : {
@@ -823,13 +884,28 @@
     "Drag the red string from the fox to the fish" : {
 
     },
-    "Drag to move it." : {
+    "Drag to move it, pinch to resize it." : {
 
     },
     "drawing" : {
 
     },
     "Drawings" : {
+
+    },
+    "drawn from this iPhone's copy" : {
+
+    },
+    "Edit caption" : {
+
+    },
+    "Edit caption…" : {
+
+    },
+    "edited a caption" : {
+
+    },
+    "edited a caption: %@" : {
 
     },
     "Emoji" : {
@@ -853,10 +929,25 @@
     "Everything this phone sent is in iCloud." : {
 
     },
+    "fetch failed" : {
+
+    },
+    "fetch failed after %@ s" : {
+
+    },
+    "fetched" : {
+
+    },
+    "Fetches the whole shared history again and compares it with what this phone believes it sent. Anything marked sent that iCloud never received is sent again — a photo saved during patchy signal can look delivered here without ever having left the phone." : {
+
+    },
     "Fetching from iCloud…" : {
 
     },
     "Fetching full size…" : {
+
+    },
+    "Fill" : {
 
     },
     "Fills their screen when they next open the app" : {
@@ -886,6 +977,9 @@
     "From me" : {
 
     },
+    "Gathering your year…" : {
+
+    },
     "Get %@ from the App Store first, then come back and tap this link to join me." : {
 
     },
@@ -896,6 +990,9 @@
 
     },
     "Guess what…" : {
+
+    },
+    "Hang" : {
 
     },
     "Happy %@" : {
@@ -916,10 +1013,19 @@
     "Hearts wait out your Focus" : {
 
     },
+    "Here's to %@" : {
+
+    },
+    "Here's to what's next" : {
+
+    },
     "Hidden" : {
 
     },
     "Hidden by your content filter" : {
+
+    },
+    "Hide from widget" : {
 
     },
     "Hide strong language" : {
@@ -949,6 +1055,9 @@
     "iCloud didn't answer in time. If the request got through, it shows here shortly." : {
 
     },
+    "iCloud didn't answer, so this was made from this iPhone's copy and may miss older moments. It isn't kept — make it again later for the whole year." : {
+
+    },
     "iCloud didn't confirm the save. It will be retried." : {
 
     },
@@ -976,6 +1085,9 @@
     "If you agree, the history you share is cleared from both iPhones and iCloud. Agreeing can't be undone." : {
 
     },
+    "in %@" : {
+
+    },
     "in ^[%lld day](inflect: true)" : {
 
     },
@@ -998,6 +1110,9 @@
 
     },
     "It may not be downloaded from iCloud yet. Check your connection and try again." : {
+
+    },
+    "It's removed from both iPhones and iCloud. Copies already saved to Photos or exported aren't affected." : {
 
     },
     "It's removed from this iPhone straight away, and an email to us opens with the details — send it and we'll respond within 24 hours." : {
@@ -1039,7 +1154,13 @@
     "Last fresh start" : {
 
     },
+    "Last notification" : {
+
+    },
     "Lavender background" : {
+
+    },
+    "left generic after %@ s" : {
 
     },
     "left your shared space" : {
@@ -1078,6 +1199,15 @@
     "Low light" : {
 
     },
+    "Made %@" : {
+
+    },
+    "Made on this iPhone — nothing is uploaded. If you leave %@, it carries on when you're back." : {
+
+    },
+    "Made with %@" : {
+
+    },
     "Mail isn't set up on this iPhone, so the report has been copied to your clipboard for the next %lld minutes. Please email it to %@." : {
       "localizations" : {
         "en" : {
@@ -1088,7 +1218,22 @@
         }
       }
     },
+    "Make a recap of the last 12 months" : {
+
+    },
     "Make a wish, then tap the candles to blow them out" : {
+
+    },
+    "Make it again" : {
+
+    },
+    "Make it bigger" : {
+
+    },
+    "Make it smaller" : {
+
+    },
+    "Making your video…" : {
 
     },
     "Memories" : {
@@ -1173,6 +1318,9 @@
     "No tolerance for objectionable content or abuse" : {
 
     },
+    "not linked" : {
+
+    },
     "Not now" : {
 
     },
@@ -1207,6 +1355,9 @@
 
     },
     "Nothing matches these filters yet." : {
+
+    },
+    "Nothing to put in a recap yet" : {
 
     },
     "Nothing was deleted from iCloud, so what you've shared is still in %@'s copy. You can clear this iPhone now and try again from a better connection, or cancel and wait." : {
@@ -1254,6 +1405,9 @@
     "On" : {
 
     },
+    "Once paired, both people should be listed as accepted with the link closed. A partner shown as “public” while the link is open hasn't been locked in yet — closing the link removes public participants, so the button below closes it and re-adds them as private — they then tap the link once to confirm." : {
+
+    },
     "Once they do, the count appears here." : {
 
     },
@@ -1278,10 +1432,16 @@
     "Or, if they've already sent you a link, just tap it — this app will open and pair itself." : {
 
     },
+    "Our" : {
+
+    },
     "Our date" : {
 
     },
     "Our time together" : {
+
+    },
+    "Our year" : {
 
     },
     "Pairing" : {
@@ -1309,6 +1469,9 @@
 
     },
     "Photos and doodles" : {
+
+    },
+    "Photos and drawings you send each other make the recap." : {
 
     },
     "Photos, drawings and voice memos stay in iCloud and download again when you open them, which needs a connection. The newest few, and anything not sent yet, stay on this iPhone." : {
@@ -1377,6 +1540,9 @@
     "Ready when you are · up to %@" : {
 
     },
+    "Recap card is on Home" : {
+
+    },
     "RECENT" : {
 
     },
@@ -1423,6 +1589,15 @@
 
     },
     "Remove the date?" : {
+
+    },
+    "removed %lld moments" : {
+
+    },
+    "removed a caption" : {
+
+    },
+    "removed a moment" : {
 
     },
     "Reopen" : {
@@ -1522,6 +1697,9 @@
 
     },
     "Saving memories" : {
+
+    },
+    "Saving…" : {
 
     },
     "Say anything" : {
@@ -1629,6 +1807,9 @@
     "Share voice memo" : {
 
     },
+    "Share…" : {
+
+    },
     "Show diagnostics" : {
 
     },
@@ -1638,7 +1819,19 @@
     "Show hidden text" : {
 
     },
+    "Show in widget" : {
+
+    },
+    "Show the recap card on Home" : {
+
+    },
+    "Shows how long ago" : {
+
+    },
     "Shows status history" : {
+
+    },
+    "Shows the full date and time" : {
 
     },
     "Sign in to iCloud in Settings to use %@." : {
@@ -1651,6 +1844,19 @@
 
     },
     "Sky blue background" : {
+
+    },
+    "Slide %lld of %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Slide %1$lld of %2$lld"
+          }
+        }
+      }
+    },
+    "Slow launch" : {
 
     },
     "Small picture" : {
@@ -1728,7 +1934,19 @@
     "Take photo" : {
 
     },
+    "Take the small picture now" : {
+
+    },
+    "Taken in %@" : {
+
+    },
     "Taking the photo in %lld seconds" : {
+
+    },
+    "Taking the small picture in %@" : {
+
+    },
+    "Tap an area to fill it with the colour, or a line to recolour it" : {
 
     },
     "Tap anywhere to close" : {
@@ -1791,6 +2009,12 @@
     "The shared space is no longer available. Everything shared has been removed from this device — pair again to start over." : {
 
     },
+    "The video couldn't be made: %@" : {
+
+    },
+    "The year's recap unwraps at midday on 25 December — a notification, and a Home card until 31 January — and stays in Settings after that. These make one now, from whatever falls in the last 12 months. Each year's video is kept until the next year's unwraps; deleting them only means the next look makes them again." : {
+
+    },
     "them" : {
 
     },
@@ -1828,9 +2052,6 @@
 
     },
     "This device isn't paired yet." : {
-
-    },
-    "This drawing will be lost." : {
 
     },
     "This iCloud account is already paired. Rejoin and the statuses, photos and memos come back on their own." : {
@@ -1883,6 +2104,9 @@
         }
       }
     },
+    "timed out after %@ s" : {
+
+    },
     "Timer" : {
 
     },
@@ -1901,6 +2125,15 @@
     "Together" : {
 
     },
+    "Too late to delete" : {
+
+    },
+    "Too many disk writes" : {
+
+    },
+    "Too much CPU" : {
+
+    },
     "Too short to keep. Record again." : {
 
     },
@@ -1908,6 +2141,9 @@
 
     },
     "Touch and hold your Lock Screen." : {
+
+    },
+    "Tries to make your partner a private participant and close the link to anyone new. Caution: if the promotion fails, CloudKit can drop them from the share entirely — their app then unlinks and they must rejoin with the invite link (history comes back, but not their local read/seen state). Only use it with your partner on standby." : {
 
     },
     "Try again" : {
@@ -1932,6 +2168,9 @@
 
     },
     "Undo" : {
+
+    },
+    "Undo brings it back." : {
 
     },
     "Unlink" : {
@@ -1985,6 +2224,9 @@
     "was thinking of you earlier 💭" : {
 
     },
+    "Watch…" : {
+
+    },
     "We respond to every report within 24 hours. Red String has no server, so we can't see or delete anything in iCloud ourselves: reporting removes the content from your iPhone straight away, and Block ends the link and refuses that person's invites for good. Your words are end-to-end encrypted, so we only see what you include in your email." : {
 
     },
@@ -2021,6 +2263,9 @@
     "Wide selfie" : {
 
     },
+    "Widget" : {
+
+    },
     "Withdraw" : {
 
     },
@@ -2031,6 +2276,12 @@
 
     },
     "Withdrawn on this iPhone; iCloud will be told once it can be reached." : {
+
+    },
+    "worded in %@ s" : {
+
+    },
+    "Year in review" : {
 
     },
     "Yesterday" : {
@@ -2065,6 +2316,9 @@
 
     },
     "You did it!" : {
+
+    },
+    "You edited a caption from another device." : {
 
     },
     "You sent a %@" : {
@@ -2110,7 +2364,19 @@
     "You've been invited" : {
 
     },
+    "Your %@" : {
+
+    },
+    "Your %@ in review" : {
+
+    },
+    "Your %@ together" : {
+
+    },
     "Your answer is saved on this iPhone and will be sent once iCloud can be reached." : {
+
+    },
+    "Your caption edit was sent to %@." : {
 
     },
     "Your date: %@." : {
@@ -2152,6 +2418,9 @@
     "Your partner joined through this link, so closing it re-seats them: they're briefly taken off and need to tap the link once more to get back in." : {
 
     },
+    "Your recap video" : {
+
+    },
     "Your shared history is cleared on this iPhone." : {
 
     },
@@ -2190,6 +2459,12 @@
 
     },
     "Your words are end-to-end encrypted in iCloud; photos, drawings and voice memos are encrypted by iCloud. No servers, no accounts, no ads." : {
+
+    },
+    "Your year" : {
+
+    },
+    "Your year together" : {
 
     },
     "Zoom %@" : {

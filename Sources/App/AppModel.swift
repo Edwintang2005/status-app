@@ -711,12 +711,12 @@ final class AppModel {
 
     /// Filed locally first so the UI and widget update at once, then uploaded.
     /// A failed upload leaves the local copy in place.
-    func sendMoment(image: UIImage, kind: Moment.Kind, caption: String) async {
+    func sendMoment(image: UIImage, kind: Moment.Kind, caption: String, location: PhotoLocation? = nil) async {
         let moment = newMoment(kind: kind, caption: caption)
         let id = moment.id
         await send(moment, taskName: "moment-upload",
                    saveFailure: String(localized: "Couldn't save that moment")) {
-            try MomentStore.shared.write(image, id: id)
+            try MomentStore.shared.write(image, id: id, location: location)
         }
     }
 
