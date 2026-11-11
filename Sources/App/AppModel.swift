@@ -54,6 +54,8 @@ final class AppModel {
     @ObservationIgnored var catchUpTask: Task<Void, Never>?
     /// Whichever refresh last fetched — the reconnect catch-up judges by it, not by who ran it.
     @ObservationIgnored var lastFetchSucceededAt: Date?
+    /// The last fetch failed: the next to succeed redraws the widgets (`redrawWidgets`).
+    @ObservationIgnored var fetchFailing = false
     /// Status publishes this model has in flight — not yet "waiting to send".
     private var statusSendsInFlight = 0
     /// The footer's tap-to-retry is running.

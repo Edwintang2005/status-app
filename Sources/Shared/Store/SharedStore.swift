@@ -53,6 +53,7 @@ final class SharedStore: @unchecked Sendable {
         static let notificationsNoticeDismissed = "notificationsNoticeDismissed"
         static let cameraSettings = "cameraSettings"
         static let lastBannerPass = "lastBannerPass"
+        static let lastWidgetRun = "lastWidgetRun"
         static let crashReports = "crashReports"
         static let layoutGlitches = "layoutGlitches"
     }
@@ -299,6 +300,43 @@ final class SharedStore: @unchecked Sendable {
             let line = [what, detail].compactMap { $0 }.joined(separator: " — ")
             return "\(line) (\(at.formatted(date: .abbreviated, time: .shortened)))"
         }
+    }
+
+    /// The widget's last timeline, for Diagnostics: whether WidgetKit still
+    /// calls it, and whether its own check reached iCloud.
+    struct WidgetRun: Codable, Equatable, Sendable {
+        enum Outcome: String, Codable, Sendable {
+            case fetched
+            /// The app or another kind had just fetched; drawn from the store.
+            case skipped
+            /// iCloud refused or had no route (`WidgetReloadPolicy.waitsQuietly`).
+            case unreachable
+            case failed
+            case unpaired
+        }
+
+        var at: Date
+        var outcome: Outcome
+        var detail: String?
+        var nextReload: Date
+
+        var summary: String {
+            let what = switch outcome {
+            case .fetched: String(localized: "fetched")
+            case .skipped: String(localized: "drawn from this iPhone's copy")
+            case .unreachable: String(localized: "couldn't reach iCloud")
+            case .failed: String(localized: "fetch failed")
+            case .unpaired: String(localized: "not linked")
+            }
+            let line = [what, detail].compactMap { $0 }.joined(separator: " — ")
+            let next = nextReload.formatted(date: .omitted, time: .shortened)
+            return "\(line) (\(at.formatted(date: .abbreviated, time: .shortened))), next \(next)"
+        }
+    }
+
+    var lastWidgetRun: WidgetRun? {
+        get { decode(WidgetRun.self, forKey: Key.lastWidgetRun) }
+        set { encodeOptional(newValue, forKey: Key.lastWidgetRun) }
     }
 
     var lastBannerPass: BannerPass? {

@@ -36,6 +36,7 @@ struct RedStringApp: App {
                         // What's on this phone first: the fetch may be minutes offline, and a
                         // read made while suspended (or before first unlock) can be stale.
                         model.reload()
+                        model.redrawWidgets()
                         Task { await model.refreshOnForeground() }
                     case .background:
                         // Receipts wait out a short debounce; leaving sends them now.

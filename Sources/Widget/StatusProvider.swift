@@ -45,6 +45,9 @@ struct StatusProvider: TimelineProvider {
                                     heldSince: SharedStore.shared.unreadableTally.heldSince,
                                     incomplete: refresh.result?.incomplete ?? false,
                                     offline: refresh.offline)
+            SharedStore.shared.lastWidgetRun = SharedStore.WidgetRun(at: Date(), outcome: refresh.outcome,
+                                                                     detail: refresh.detail,
+                                                                     nextReload: plan.nextReload)
             let drawn = entry(at: Date(), from: snapshot, size: size)
             let entries = plan.entries.map { StatusEntry(date: $0, content: drawn.content, photo: drawn.photo) }
             completion(Timeline(entries: entries, policy: .after(plan.nextReload)))
@@ -60,10 +63,12 @@ struct StatusProvider: TimelineProvider {
         return StatusEntry(date: date, content: content, photo: photo)
     }
 
-    /// `offline`: no route at all, so the next reload backs off (`WidgetReloadPolicy`).
+    /// `offline`: no route or no sign-in, so the next reload backs off (`WidgetReloadPolicy`).
     private struct Refresh: Sendable {
         var result: RefreshResult?
         var offline = false
+        var outcome: SharedStore.WidgetRun.Outcome
+        var detail: String?
     }
 
     /// Every kind's provider in this process joins the one refresh in flight.
@@ -71,10 +76,12 @@ struct StatusProvider: TimelineProvider {
 
     /// Best effort — a failure here just means the cached snapshot is served.
     private static func refreshIfPossible() async -> Refresh {
-        guard await MainActor.run(body: { SharedStore.shared.pairing != nil }) else { return Refresh() }
+        guard await MainActor.run(body: { SharedStore.shared.pairing != nil }) else { return Refresh(outcome: .unpaired) }
         let store = SharedStore.shared
         guard WidgetReloadPolicy.shouldFetch(lastSyncedAt: store.snapshot.lastSyncedAt,
-                                             reloadRequestedAt: store.widgetReloadRequestedAt) else { return Refresh() }
+                                             reloadRequestedAt: store.widgetReloadRequestedAt) else {
+            return Refresh(outcome: .skipped)
+        }
         return await refreshFlight.run {
             do {
                 // WidgetKit gives the provider a limited budget; give up well before it.
@@ -82,10 +89,13 @@ struct StatusProvider: TimelineProvider {
                 // Often the first of ours to run after an unlock: it rewords what a
                 // locked phone's pushes couldn't. Bounded, like everything here.
                 try? await withDeadline(3) { await BannerUpkeep.run() }
-                return Refresh(result: result)
+                return Refresh(result: result, outcome: .fetched)
             } catch {
                 log.notice("Widget refresh skipped: \(error.localizedDescription)")
-                return Refresh(offline: SendFailure(error) == .offline)
+                let quiet = WidgetReloadPolicy.waitsQuietly(after: error)
+                return Refresh(offline: quiet, outcome: quiet ? .unreachable : .failed,
+                               detail: error is CancellationError
+                                   ? String(localized: "no answer in time") : error.localizedDescription)
             }
         }
     }

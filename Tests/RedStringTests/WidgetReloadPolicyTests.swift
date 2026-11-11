@@ -1,3 +1,4 @@
+import CloudKit
 import XCTest
 
 /// The widget's next-refresh schedule: hourly when caught up, soon while a
@@ -63,5 +64,16 @@ final class WidgetReloadPolicyTests: XCTestCase {
         let plan = TimelinePlan(lastNudgeSentAt: nil, lastNudgeFailedAt: nil, heldSince: now,
                                 incomplete: false, offline: true, now: now)
         XCTAssertEqual(plan.nextReload, held)
+    }
+
+    /// An Apple sign-in outage reads like no route: retrying soon can't get
+    /// past it, so the widget waits hourly instead of spending its budget.
+    func testSignInFailuresWaitLikeOffline() {
+        XCTAssertTrue(WidgetReloadPolicy.waitsQuietly(after: CKError(.networkUnavailable)))
+        XCTAssertTrue(WidgetReloadPolicy.waitsQuietly(after: CKError(.accountTemporarilyUnavailable)))
+        XCTAssertTrue(WidgetReloadPolicy.waitsQuietly(after: CKError(.notAuthenticated)))
+        XCTAssertTrue(WidgetReloadPolicy.waitsQuietly(after: SyncError.iCloudUnavailable(.noAccount)))
+        XCTAssertFalse(WidgetReloadPolicy.waitsQuietly(after: CKError(.serverResponseLost)))
+        XCTAssertFalse(WidgetReloadPolicy.waitsQuietly(after: CancellationError()))
     }
 }

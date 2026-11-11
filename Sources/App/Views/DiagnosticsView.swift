@@ -29,6 +29,7 @@ struct DiagnosticsView: View {
                     LabeledContent("Account", value: diagnostics.accountStatus)
                     LabeledContent("Pairing", value: diagnostics.pairing)
                     LabeledContent("Last notification", value: diagnostics.lastNotification)
+                    LabeledContent("Widget", value: diagnostics.widget)
                 } header: {
                     Text("This device")
                 } footer: {

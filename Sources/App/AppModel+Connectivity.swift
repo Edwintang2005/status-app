@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import os
+import UIKit
 
 // Readiness, the network path, and the refresh with its recovery pass.
 extension AppModel {
@@ -163,6 +164,15 @@ extension AppModel {
         if await outbox.sendDeletions(automatic: automatic) { reload() }
     }
 
+    /// Redraws every widget from this phone's copy, even with nothing new: a
+    /// reload asked for from the front doesn't count against WidgetKit's
+    /// budget, so opening the app frees a widget left on an old timeline (an
+    /// outage's failed refreshes) instead of it waiting out its hourly backstop.
+    func redrawWidgets() {
+        guard UIApplication.shared.applicationState == .active else { return }
+        SharedStore.reloadWidgets()
+    }
+
     /// One fetch and reload; `false` when it failed or there was nothing to fetch for.
     private func fetchOnce() async -> Bool {
         // Re-checked when paired too: this is what notices an iCloud account
@@ -179,11 +189,16 @@ extension AppModel {
             recentStatusesKey = nil
             reload()
             lastFetchSucceededAt = Date()
+            if fetchFailing {
+                fetchFailing = false
+                redrawWidgets()
+            }
             // A fetch that worked is proof the monitor's "down" is stale.
             offlineShowTask?.cancel()
             setOffline(false)
             return true
         } catch {
+            fetchFailing = true
             // The backend may have unlinked us (a vanished zone means the other
             // person ended things), so re-read local state either way.
             reload()

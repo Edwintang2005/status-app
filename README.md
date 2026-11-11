@@ -292,10 +292,16 @@ delivery path. The widget and the open app still rely on:
    kind per tick (the status, photo and heart widgets each run the provider).
    Hourly when caught up; while a locked phone's pushes sit undecrypted it
    retries every 10 minutes, then every 20 after half an hour, and back to
-   hourly after two (`WidgetReloadPolicy`). Offline (`SendFailure.offline`)
-   it's hourly regardless — a retry can't fetch, and the push APNs holds for
+   hourly after two (`WidgetReloadPolicy`). Offline (`SendFailure.offline`),
+   or with iCloud refusing the sign-in (`waitsQuietly`: an Apple account
+   outage, a signed-out phone), it's hourly regardless — a retry can't fetch, and the push APNs holds for
    the app arrives on reconnect if anything was sent, waking the service; a widget kind that finds another
    fetched in the last minute uses that result instead of fetching again, and
+   the app redraws every widget whenever it comes to the front and after its
+   first fetch to work following a failure (`AppModel.redrawWidgets` — free
+   from the front), so opening the app frees a widget an outage left on an old
+   timeline. Diagnostics' "Widget" line shows its last run, its outcome and
+   its next refresh (`SharedStore.WidgetRun`); and
    the kinds in one process share a single refresh. A reload the app or the
    extension asked for doesn't fetch at all for two minutes — they just wrote
    what it shows — so marking photos seen or filing a push no longer costs the

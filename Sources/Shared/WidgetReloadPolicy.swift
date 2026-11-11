@@ -1,3 +1,4 @@
+import CloudKit
 import Foundation
 
 /// When the widget next runs its own refresh. Nothing reloads a widget on
@@ -8,7 +9,17 @@ import Foundation
 /// Offline, retrying soon can't fetch anything: hourly, and the push APNs
 /// holds for this app — delivered on reconnect if anything was sent — wakes
 /// the notification service, which refreshes and reloads the widgets.
+/// iCloud refusing the sign-in (an Apple outage, a signed-out account) is
+/// treated the same: no retry can get past it, and the app's return redraws.
 enum WidgetReloadPolicy {
+    /// A refresh failure no prompt retry can get past.
+    static func waitsQuietly(after error: Error) -> Bool {
+        if SendFailure(error) == .offline { return true }
+        if let sync = error as? SyncError, case .iCloudUnavailable = sync { return true }
+        guard let error = error as? CKError else { return false }
+        return [.notAuthenticated, .accountTemporarilyUnavailable].contains(error.code)
+    }
+
     /// All caught up: the refresh is only a backstop for dropped pushes.
     static let settled: TimeInterval = 60 * 60
 

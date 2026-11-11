@@ -26,6 +26,8 @@ struct CloudDiagnostics: Sendable {
     var freshStart: String
     /// How the notification service's last push went (`SharedStore.BannerPass`).
     var lastNotification: String
+    /// The widget's last timeline run (`SharedStore.WidgetRun`).
+    var widget = "not run yet"
     /// MetricKit's crash and hang reports, newest first (`CrashReport.summary`).
     var crashReports: [String] = []
     /// Sheets that opened blank (`LayoutGlitch.summary`).
@@ -49,6 +51,7 @@ struct CloudDiagnostics: Sendable {
             "Unreadable encrypted records: \(unreadableRecords)",
             "Fresh start: \(freshStart)",
             "Last notification: \(lastNotification)",
+            "Widget: \(widget)",
             "Crashes and hangs: \(crashReports.isEmpty ? "none yet" : crashReports.joined(separator: " | "))",
             "Blank sheets: \(layoutGlitches.isEmpty ? "none" : layoutGlitches.joined(separator: " | "))",
         ]
@@ -120,10 +123,11 @@ extension CloudSync {
         }
 
         var subscriptions: [String] = []
-        let (pairing, unreadable, freshStart, lastNotification, crashReports, layoutGlitches) = await MainActor.run {
+        let (pairing, unreadable, freshStart, lastNotification, widget, crashReports, layoutGlitches) = await MainActor.run {
             (SharedStore.shared.pairing, SharedStore.shared.unreadableTally.summary,
              SharedStore.shared.snapshot.freshStart.summary,
              SharedStore.shared.lastBannerPass?.summary ?? "none yet",
+             SharedStore.shared.lastWidgetRun?.summary ?? "not run yet",
              SharedStore.shared.crashReports.map(\.summary),
              SharedStore.shared.layoutGlitches.map(\.summary))
         }
@@ -164,6 +168,7 @@ extension CloudSync {
             unreadableRecords: unreadable,
             freshStart: freshStart,
             lastNotification: lastNotification,
+            widget: widget,
             crashReports: crashReports,
             layoutGlitches: layoutGlitches,
             problems: problems

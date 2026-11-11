@@ -30,6 +30,13 @@ Version 1.6.3.
     `PairingInfo` decodes field by field; the privacy manifest declares the
     active-keyboards API; tests no longer touch the real App Group; doc drift.
 
+- **Widgets recover from an iCloud outage.** When Apple's sign-in service is
+  down, the widget's own checks now wait quietly (hourly) instead of
+  spending its refresh budget, and opening the app — or its first fetch to
+  work again — redraws every widget, so a frozen widget no longer needs a
+  restart. Diagnostics gains a "Widget" line: its last run, whether it
+  reached iCloud (and why not), and its next refresh.
+
 - **Year in review.** A short video of the year — the photos and drawings you
   shared as collages of two to four, and your statuses between them, after an
   opening card with the year's counts and before a closing one — made on the
