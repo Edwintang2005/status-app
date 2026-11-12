@@ -83,3 +83,73 @@ enum ShareIntake {
         return kept
     }
 }
+
+/// One opening of the share sheet, for Diagnostics: when its process started,
+/// when it was on screen, and how it ended. A launch that never reached the
+/// screen is the trace of a sheet that flashed and closed — iOS logs nothing
+/// for an extension the host gave up on.
+struct ShareLaunch: Codable, Equatable, Sendable {
+    enum Outcome: String, Codable, Sendable {
+        case sent, queued, cancelled, unreadable, unsaved, blocked
+    }
+
+    var id: String
+    /// The process's own start, when the system says; else when the sheet loaded.
+    /// Whole seconds once stored, so the timings below are kept as durations.
+    var processStartedAt: Date
+    /// Seconds from the process's start to the sheet loading, and to its being on screen.
+    var loadedAfter: TimeInterval
+    var shownAfter: TimeInterval?
+    var outcome: Outcome?
+
+    static let limit = 10
+
+    init(id: String = UUID().uuidString, processStartedAt: Date, loadedAt: Date) {
+        self.id = id
+        self.processStartedAt = processStartedAt
+        loadedAfter = max(loadedAt.timeIntervalSince(processStartedAt), 0)
+    }
+
+    mutating func shown(at date: Date) {
+        shownAfter = max(date.timeIntervalSince(processStartedAt), 0)
+    }
+
+    /// Hand-written like every stored type: a field a later build adds can't cost the list.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        processStartedAt = try c.decode(Date.self, forKey: .processStartedAt)
+        loadedAfter = try c.decodeIfPresent(TimeInterval.self, forKey: .loadedAfter) ?? 0
+        shownAfter = try c.decodeIfPresent(TimeInterval.self, forKey: .shownAfter)
+        outcome = try c.decodeIfPresent(String.self, forKey: .outcome).flatMap(Outcome.init(rawValue:))
+    }
+
+    /// `launches` with `launch` filed (replacing its earlier copy), newest first, capped.
+    static func recording(_ launch: ShareLaunch, in launches: [ShareLaunch]) -> [ShareLaunch] {
+        Array(([launch] + launches.filter { $0.id != launch.id })
+            .sorted { $0.processStartedAt + $0.loadedAfter > $1.processStartedAt + $1.loadedAfter }
+            .prefix(limit))
+    }
+
+    var summary: String {
+        let when = processStartedAt.formatted(date: .abbreviated, time: .standard)
+        guard let shownAfter else {
+            return "\(when) · never on screen (loaded \(Self.seconds(loadedAfter)) in)"
+        }
+        let words: String
+        switch outcome {
+        case .sent: words = "sent"
+        case .queued: words = "saved, left for the app"
+        case .cancelled: words = "cancelled"
+        case .unreadable: words = "couldn't open the picture"
+        case .unsaved: words = "couldn't save the picture"
+        case .blocked: words = "not set up to send"
+        case nil: words = "closed without an outcome"
+        }
+        return "\(when) · on screen in \(Self.seconds(shownAfter)) · \(words)"
+    }
+
+    private static func seconds(_ interval: TimeInterval) -> String {
+        "\(max(interval, 0).formatted(.number.precision(.fractionLength(1)))) s"
+    }
+}

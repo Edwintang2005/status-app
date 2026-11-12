@@ -208,3 +208,61 @@ final class ShareIntakeTests: XCTestCase {
         XCTAssertTrue(ShareIntake.releasesClaim(after: CKError(.networkUnavailable)))
     }
 }
+
+/// The share sheet's launch record (`ShareLaunch`), shown in Diagnostics.
+final class ShareLaunchTests: XCTestCase {
+    private let start = Date(timeIntervalSince1970: 1_790_000_000)
+
+    func testALaunchThatNeverReachedTheScreenSaysSo() {
+        let launch = ShareLaunch(processStartedAt: start, loadedAt: start.addingTimeInterval(2.4))
+        XCTAssertTrue(launch.summary.contains("never on screen"))
+        XCTAssertTrue(launch.summary.contains("2.4 s"))
+    }
+
+    func testAShownLaunchSaysHowLongAndHowItEnded() {
+        var launch = ShareLaunch(processStartedAt: start, loadedAt: start.addingTimeInterval(0.6))
+        launch.shown(at: start.addingTimeInterval(1.3))
+        launch.outcome = .sent
+        XCTAssertTrue(launch.summary.contains("on screen in 1.3 s · sent"), launch.summary)
+        launch.outcome = nil
+        XCTAssertTrue(launch.summary.contains("closed without an outcome"))
+    }
+
+    func testRecordingReplacesItsOwnCopyAndKeepsTheNewest() {
+        var launches: [ShareLaunch] = []
+        for n in 0..<(ShareLaunch.limit + 3) {
+            launches = ShareLaunch.recording(ShareLaunch(id: "l\(n)", processStartedAt: start,
+                                                         loadedAt: start.addingTimeInterval(Double(n))), in: launches)
+        }
+        XCTAssertEqual(launches.count, ShareLaunch.limit)
+        XCTAssertEqual(launches.first?.id, "l\(ShareLaunch.limit + 2)", "newest first")
+        var newest = launches[0]
+        newest.shown(at: start.addingTimeInterval(20))
+        launches = ShareLaunch.recording(newest, in: launches)
+        XCTAssertEqual(launches.count, ShareLaunch.limit)
+        XCTAssertEqual(launches.filter { $0.id == newest.id }.count, 1)
+        XCTAssertNotNil(launches[0].shownAfter)
+    }
+
+    func testItRoundTripsAndToleratesMissingFields() throws {
+        var launch = ShareLaunch(processStartedAt: start, loadedAt: start.addingTimeInterval(1))
+        launch.outcome = .queued
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        XCTAssertEqual(try decoder.decode(ShareLaunch.self, from: encoder.encode(launch)), launch)
+        let sparse = Data(#"{"id":"x","processStartedAt":"2026-11-12T10:00:00Z","outcome":"from-a-newer-build"}"#.utf8)
+        let decoded = try decoder.decode(ShareLaunch.self, from: sparse)
+        XCTAssertEqual(decoded.loadedAfter, 0)
+        XCTAssertNil(decoded.shownAfter)
+        XCTAssertNil(decoded.outcome, "an outcome this build doesn't know")
+    }
+
+    func testTheStoreKeepsThem() {
+        let store = SharedStore(defaults: temporaryDefaults())
+        XCTAssertTrue(store.shareLaunches.isEmpty)
+        store.shareLaunches = [ShareLaunch(id: "a", processStartedAt: start, loadedAt: start)]
+        XCTAssertEqual(store.shareLaunches.map(\.id), ["a"])
+    }
+}

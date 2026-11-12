@@ -8,8 +8,11 @@ final class ShareViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        model.beginLaunch(processStartedAt: Self.processStartedAt)
         let items = extensionContext?.inputItems.compactMap { $0 as? NSExtensionItem } ?? []
         let host = UIHostingController(rootView: ShareView(model: model, items: items) { [weak self] in
+            // Before the request ends: the extension can be gone before it disappears.
+            self?.model.leave()
             self?.extensionContext?.completeRequest(returningItems: nil)
         } holdOpen: { [weak self] sending in
             // On the presented controller itself: a modifier inside the host doesn't reach the sheet.
@@ -23,6 +26,21 @@ final class ShareViewController: UIViewController {
         host.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(host.view)
         host.didMove(toParent: self)
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        model.markShown()
+    }
+
+    /// When the system started this process: the launch's cost before any of our code ran.
+    private static var processStartedAt: Date? {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+        guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0 else { return nil }
+        let start = info.kp_proc.p_un.__p_starttime
+        return Date(timeIntervalSince1970: TimeInterval(start.tv_sec) + TimeInterval(start.tv_usec) / 1_000_000)
     }
 
     /// However it closes — Done, a swipe, the system — a send still settling is the app's soon.

@@ -473,3 +473,39 @@ enum HistoryCoverage {
         coverage == owed && finished ? limit : coverage
     }
 }
+
+#if DEBUG
+/// Diagnostics' test padding: placeholder partner moments that fill this
+/// phone's index toward its cap, so a long history's load, save and the
+/// notification service's memory can be measured. Local only — never sent;
+/// already seen, and dated before 2020, so no recap, banner or widget reaches them.
+extension MomentIndex {
+    static let paddingPrefix = "test-pad-"
+
+    static func padding(count: Int, before oldest: Date?) -> [Moment] {
+        let floor = Date(timeIntervalSince1970: 1_577_836_800)  // 1 January 2020
+        let start = min(oldest ?? floor, floor)
+        return (0..<max(count, 0)).map { n in
+            let voice = n % 7 == 0
+            return Moment(id: "\(paddingPrefix)\(n)", kind: voice ? .voice : .photo,
+                          caption: "Test padding \(n)", senderName: "Padding",
+                          sentAt: start.addingTimeInterval(-Double(n + 1) * 6 * 3_600),
+                          fromMe: false, seen: true, duration: voice ? 12 : 0,
+                          waveform: voice ? (0..<32).map { Double(($0 * 37 + n) % 100) / 100 } : [])
+        }
+    }
+
+    static func isPadding(_ id: String) -> Bool { id.hasPrefix(paddingPrefix) }
+
+    /// The index file's size, and how long decoding and re-encoding it take here.
+    func measure() -> (count: Int, bytes: Int, decode: TimeInterval, encode: TimeInterval)? {
+        guard let fileURL, let data = try? Data(contentsOf: fileURL) else { return nil }
+        var start = Date()
+        guard let decoded = try? JSONDecoder.shared.decode(LossyArray<Moment>.self, from: data) else { return nil }
+        let decode = Date().timeIntervalSince(start)
+        start = Date()
+        _ = try? Self.encoder.encode(decoded.elements)
+        return (decoded.elements.count, data.count, decode, Date().timeIntervalSince(start))
+    }
+}
+#endif

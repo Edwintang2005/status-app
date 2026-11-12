@@ -58,6 +58,7 @@ final class SharedStore: @unchecked Sendable {
         static let layoutGlitches = "layoutGlitches"
         static let shareUploadClaims = "shareUploadClaims"
         static let historyCoverage = "historyCoverage"
+        static let shareLaunches = "shareLaunches"
     }
 
     init(store: GroupKeyValueStore = GroupFileStore()) {
@@ -417,6 +418,12 @@ final class SharedStore: @unchecked Sendable {
 
     /// MetricKit's crash and hang reports, newest first, for Diagnostics. Per
     /// device, written only by the app; a bad entry costs only itself.
+    /// The share sheet's last openings, newest first (`ShareLaunch`). Written only by the sheet.
+    var shareLaunches: [ShareLaunch] {
+        get { decode(LossyArray<ShareLaunch>.self, forKey: Key.shareLaunches)?.elements ?? [] }
+        set { encodeOptional(newValue.isEmpty ? nil : newValue, forKey: Key.shareLaunches) }
+    }
+
     var crashReports: [CrashReport] {
         get { decode(LossyArray<CrashReport>.self, forKey: Key.crashReports)?.elements ?? [] }
         set { encodeOptional(newValue.isEmpty ? nil : newValue, forKey: Key.crashReports) }

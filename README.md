@@ -522,6 +522,12 @@ unsent own moment, then uploaded through an `Outbox` of the sheet's own.
   the text unchanged but for a word — while a pasted block never does
   (`ShareIntake.captionEdit`).
 - Sent: a success haptic and the sheet closes — nothing to read.
+- Each opening is recorded for Diagnostics' "Share sheet launches"
+  (`ShareLaunch`, `SharedStore.shareLaunches`, the newest 10): when the
+  process started (from the system), how long until it loaded and was on
+  screen, and how it ended. iOS logs nothing for an extension the host gave up
+  on before it drew, so "never on screen" is the only trace of a sheet that
+  flashed and closed.
 - Closed early, offline or failed: the moment is already filed, so the app's
   next retry pass sends it; the sheet says so ("It's saved and will send next
   time Red String opens").
@@ -783,7 +789,11 @@ every fetch — in any process — counts as a resync, so nothing older than the
 last announced moment is announced and the partner's older moments are filed
 already seen (as on a reinstall: no "1,500 new"); the year in review treats the
 index as incomplete; and only a fetch that continued the stored token when it
-landed can finish the sweep. But image files
+landed can finish the sweep. Diagnostics shows the refill's state, and in Debug
+builds "History (test)" pads this phone's index to 5,000 with local
+placeholders (`MomentIndex.padding`: never sent, already seen, dated before
+2020, no pictures to fetch), times a load and save, and removes them again —
+for trying a full-size history before having one. But image files
 only for the `momentImageCacheLimit` (60) most recent, around 45 MB, and
 thumbnails (30–60 KB each) for the `momentThumbnailLimit` (500) most recent,
 about 25 MB (`MediaRetention`). Unsent sends and favourites keep both whatever

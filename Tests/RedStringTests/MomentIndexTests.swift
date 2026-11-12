@@ -343,3 +343,31 @@ final class MomentCaptionTests: XCTestCase {
                        AppConfig.captionMaxLength)
     }
 }
+
+/// Diagnostics' test padding (`MomentIndex.padding`): local, seen, and out of every recap's reach.
+final class HistoryPaddingTests: XCTestCase {
+    func testPaddingIsSeenOldAndRecognisable() {
+        let oldest = Date(timeIntervalSince1970: 1_700_000_000)
+        let padding = MomentIndex.padding(count: 50, before: oldest)
+        XCTAssertEqual(padding.count, 50)
+        XCTAssertEqual(Set(padding.map(\.id)).count, 50)
+        XCTAssertTrue(padding.allSatisfy { MomentIndex.isPadding($0.id) && $0.seen && !$0.fromMe })
+        let twenty20 = Date(timeIntervalSince1970: 1_577_836_800)
+        XCTAssertTrue(padding.allSatisfy { $0.sentAt < twenty20 }, "before any recap period")
+        XCTAssertTrue(padding.contains { $0.isVoice && !$0.waveform.isEmpty }, "memos too, for a realistic size")
+        XCTAssertTrue(MomentIndex.padding(count: 0, before: nil).isEmpty)
+        XCTAssertFalse(MomentIndex.isPadding("ABC-123"))
+    }
+
+    func testPaddingFillsToTheCapAndIsMeasured() throws {
+        let index = MomentIndex(fileURL: temporaryFile("moments-index.json"), onCorrupt: {})
+        index.insert([Fixtures.moment("real")])
+        index.insert(MomentIndex.padding(count: AppConfig.momentHistoryLimit - 1, before: Fixtures.t0))
+        XCTAssertEqual(index.load().count, AppConfig.momentHistoryLimit)
+        XCTAssertEqual(index.load().first?.id, "real", "padding sits behind the real history")
+        let measured = try XCTUnwrap(index.measure())
+        XCTAssertEqual(measured.count, AppConfig.momentHistoryLimit)
+        XCTAssertGreaterThan(measured.bytes, 0)
+        print("PADDED INDEX: \(measured.bytes / 1024) KB, decode \(Int(measured.decode * 1000)) ms, encode \(Int(measured.encode * 1000)) ms")
+    }
+}

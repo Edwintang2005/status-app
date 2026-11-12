@@ -23,7 +23,9 @@ final class ShareModel {
         case queued(String)
     }
 
-    private(set) var phase: Phase = .loading
+    private(set) var phase: Phase = .loading {
+        didSet { noteOutcome() }
+    }
     private(set) var image: UIImage?
     var caption = ""
     let partnerName: String
@@ -33,6 +35,8 @@ final class ShareModel {
     @ObservationIgnored private var filed: String?
     /// The sheet has closed: a send still running mustn't renew the full hold.
     @ObservationIgnored private var left = false
+    /// This opening, for Diagnostics (`SharedStore.shareLaunches`).
+    @ObservationIgnored private var launch: ShareLaunch?
     @ObservationIgnored private let store = SharedStore.shared
     @ObservationIgnored private let log = Logger(subsystem: AppConfig.appGroupID, category: "Share")
     @ObservationIgnored private lazy var outbox = Outbox(
@@ -178,8 +182,47 @@ final class ShareModel {
     /// (`ShareIntake.closing`), not minutes later.
     func leave() {
         left = true
+        if launch?.outcome == nil {
+            launch?.outcome = .cancelled
+            saveLaunch()
+        }
         guard let filed, phase != .sent else { return }
         store.shareUploadClaims = ShareIntake.closing(filed, in: store.shareUploadClaims)
+    }
+
+    // MARK: - Launch record
+
+    func beginLaunch(processStartedAt: Date?) {
+        let now = Date()
+        launch = ShareLaunch(processStartedAt: processStartedAt ?? now, loadedAt: now)
+        noteOutcome()
+        saveLaunch()
+    }
+
+    func markShown() {
+        guard launch != nil, launch?.shownAfter == nil else { return }
+        launch?.shown(at: Date())
+        saveLaunch()
+    }
+
+    private func noteOutcome() {
+        let outcome: ShareLaunch.Outcome?
+        switch phase {
+        case .sent: outcome = .sent
+        case .queued: outcome = .queued
+        case .unreadable: outcome = .unreadable
+        case .unsaved: outcome = .unsaved
+        case .blocked: outcome = .blocked
+        case .loading, .ready, .sending: outcome = nil
+        }
+        guard let outcome, launch != nil, launch?.outcome != outcome else { return }
+        launch?.outcome = outcome
+        saveLaunch()
+    }
+
+    private func saveLaunch() {
+        guard let launch else { return }
+        store.shareLaunches = ShareLaunch.recording(launch, in: store.shareLaunches)
     }
 
     private func watchForLanding(_ id: String) {

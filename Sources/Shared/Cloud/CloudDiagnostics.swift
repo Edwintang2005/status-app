@@ -32,6 +32,8 @@ struct CloudDiagnostics: Sendable {
     var crashReports: [String] = []
     /// Sheets that opened blank (`LayoutGlitch.summary`).
     var layoutGlitches: [String] = []
+    /// The share sheet's last openings, newest first (`ShareLaunch.summary`).
+    var shareLaunches: [String] = []
     /// Anything that failed while gathering the above, rather than a silent gap.
     var problems: [String]
 
@@ -54,6 +56,7 @@ struct CloudDiagnostics: Sendable {
             "Widget: \(widget)",
             "Crashes and hangs: \(crashReports.isEmpty ? "none yet" : crashReports.joined(separator: " | "))",
             "Blank sheets: \(layoutGlitches.isEmpty ? "none" : layoutGlitches.joined(separator: " | "))",
+            "Share sheet: \(shareLaunches.isEmpty ? "not opened yet" : shareLaunches.joined(separator: " | "))",
         ]
         if !problems.isEmpty {
             lines.append("Problems: " + problems.joined(separator: " | "))
@@ -123,13 +126,14 @@ extension CloudSync {
         }
 
         var subscriptions: [String] = []
-        let (pairing, unreadable, freshStart, lastNotification, widget, crashReports, layoutGlitches) = await MainActor.run {
+        let (pairing, unreadable, freshStart, lastNotification, widget, crashReports, layoutGlitches, shareLaunches) = await MainActor.run {
             (SharedStore.shared.pairing, SharedStore.shared.unreadableTally.summary,
              SharedStore.shared.snapshot.freshStart.summary,
              SharedStore.shared.lastBannerPass?.summary ?? "none yet",
              SharedStore.shared.lastWidgetRun?.summary ?? "not run yet",
              SharedStore.shared.crashReports.map(\.summary),
-             SharedStore.shared.layoutGlitches.map(\.summary))
+             SharedStore.shared.layoutGlitches.map(\.summary),
+             SharedStore.shared.shareLaunches.map(\.summary))
         }
         let database = pairing.map { self.database(for: $0) } ?? container.privateCloudDatabase
         do {
@@ -171,6 +175,7 @@ extension CloudSync {
             widget: widget,
             crashReports: crashReports,
             layoutGlitches: layoutGlitches,
+            shareLaunches: shareLaunches,
             problems: problems
         )
     }

@@ -20,6 +20,8 @@ struct DiagnosticsView: View {
     @State private var sweepResult: String?
     /// Bytes the kept recap videos take; `nil` until measured.
     @State private var recapBytes: Int?
+    /// The last "Time a load and save" result.
+    @State private var historyTiming: String?
 
     var body: some View {
         Form {
@@ -179,6 +181,9 @@ struct DiagnosticsView: View {
                 list("Crashes and hangs", diagnostics.crashReports,
                      empty: "None yet. iOS hands these over about once a day, and a crash usually on the next launch; they stay on this phone.")
 
+                list("Share sheet launches", diagnostics.shareLaunches,
+                     empty: "Not opened yet. Each time Red String is picked in a share sheet, its start, when it was on screen and how it ended are kept here; \"never on screen\" is one that flashed and closed.")
+
                 if !diagnostics.problems.isEmpty {
                     Section("Problems") {
                         ForEach(diagnostics.problems, id: \.self) { problem in
@@ -235,6 +240,10 @@ struct DiagnosticsView: View {
                 }
                 .foregroundStyle(Theme.mutedText)
             }
+
+            #if DEBUG
+            historyTest
+            #endif
         }
         .scrollContentBackground(.hidden)
         .background(Theme.Background())
@@ -323,6 +332,56 @@ struct DiagnosticsView: View {
     }
 
     #if DEBUG
+    /// Fills this phone's history toward its cap with local placeholders, so a
+    /// long history's speed and the notification service's memory can be tried.
+    @ViewBuilder
+    private var historyTest: some View {
+        let padded = model.history.lazy.filter { MomentIndex.isPadding($0.id) }.count
+        Section {
+            LabeledContent("Moments on this phone",
+                           value: padded == 0 ? "\(model.history.count)" : "\(model.history.count) (\(padded) padding)")
+            LabeledContent("History refill", value: Self.refillState)
+            Button {
+                historyTiming = "Timing…"
+                Task {
+                    let result = await Task.detached(priority: .userInitiated) { MomentIndex.shared.measure() }.value
+                    historyTiming = result.map {
+                        "\($0.count) moments · \($0.bytes.formatted(.byteCount(style: .file))) · "
+                            + "load \(Int($0.decode * 1000)) ms · save \(Int($0.encode * 1000)) ms"
+                    } ?? "Couldn't read the history."
+                }
+            } label: {
+                Text("Time a load and save")
+            }
+            .tint(.primary)
+            if let historyTiming {
+                Text(historyTiming)
+                    .font(.system(.footnote, design: .monospaced))
+                    .foregroundStyle(Theme.mutedText)
+            }
+            Button("Pad history to \(AppConfig.momentHistoryLimit.formatted())") { model.padHistory() }
+                .tint(.primary)
+                .disabled(model.history.count >= AppConfig.momentHistoryLimit)
+            Button("Remove padding", role: .destructive) { model.removePadding() }
+                .disabled(padded == 0)
+        } header: {
+            Text("History (test)")
+        } footer: {
+            Group {
+                Text("Padding adds placeholder moments to this iPhone's history only — nothing is sent to iCloud or your partner. They're dated before 2020 and already seen, so no recap, notification or widget shows them; their library tiles show Retry, as they have no pictures. Remove them before archiving memories. With the history padded, have your partner send something while Xcode is attached to the notification service to see its memory.")
+            }
+            .foregroundStyle(Theme.mutedText)
+        }
+    }
+
+    private static var refillState: String {
+        switch SharedStore.shared.historyCoverage {
+        case nil: return "not checked yet"
+        case HistoryCoverage.owed: return "under way"
+        case let limit?: return limit >= AppConfig.momentHistoryLimit ? "complete" : "filled to \(limit)"
+        }
+    }
+
     private static let probeProcesses: [(name: String, label: String)] = [
         ("RedStringNotificationService", "Notification service"),
         ("RedStringWidgetExtension", "Widget"),

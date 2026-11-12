@@ -16,6 +16,11 @@ Version 1.6.3.
   picture; older tiles fetch theirs as you scroll back, so storage stays about
   where it was. Marking moments seen and starring them now save off the main
   thread, so paging the gallery doesn't stutter on a long history.
+- **Share sheet launches in Diagnostics.** Each time Red String is picked in
+  a share sheet, Diagnostics keeps when it started, how long it took to appear
+  and how it ended (sent, saved for the app, cancelled…). One that never made
+  it on screen is listed as such — the trace of a sheet that flashed and closed,
+  which iOS doesn't log.
 - **Favourites.** Star any moment, yours or theirs, from the gallery's
   toolbar or a library tile's long-press menu; the library's filter menu adds
   "Favourites only", alongside the direction and type filters. Local to this

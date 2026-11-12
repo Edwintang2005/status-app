@@ -556,6 +556,9 @@ final class AppModel {
     /// Older entries keep metadata but not media files; fetches the file back from CloudKit on demand.
     func ensureMedia(for moment: Moment) async -> Bool {
         if MomentStore.shared.hasMedia(for: moment) { return true }
+        #if DEBUG
+        if MomentIndex.isPadding(moment.id) { return false }
+        #endif
         // A kind from a newer build: nothing this build could store or draw.
         guard moment.kind.isSupported else { return false }
         do {
@@ -570,6 +573,28 @@ final class AppModel {
     /// The home card and photo widget only ever read the thumbnail; the one
     /// download attempt inside a refresh can fail (a widget deadline, a killed
     /// extension), and nothing else would fetch it again.
+    #if DEBUG
+    /// Diagnostics: fill the index toward its cap with local placeholders (`MomentIndex.padding`).
+    func padHistory() {
+        let room = AppConfig.momentHistoryLimit - history.count
+        let padding = MomentIndex.padding(count: room, before: history.last?.sentAt)
+        let store = store
+        writeIndex {
+            MomentIndex.shared.insert(padding)
+            store.refreshDerived()
+        }
+    }
+
+    func removePadding() {
+        let ids = Set(history.lazy.map(\.id).filter(MomentIndex.isPadding))
+        let store = store
+        writeIndex {
+            MomentIndex.shared.remove(ids: ids)
+            store.refreshDerived()
+        }
+    }
+    #endif
+
     /// A favourite starred offline, or whose copy was fetched and lost: its full
     /// copy, a few per pass, so it opens offline as promised.
     func fetchMissingFavourites() async {
@@ -611,6 +636,10 @@ final class AppModel {
     func ensureThumbnail(for moment: Moment) async -> Bool {
         if MomentStore.shared.hasThumbnail(for: moment.id) { return true }
         guard !moment.isVoice else { return false }
+        #if DEBUG
+        // Placeholders have no record to fetch from.
+        if MomentIndex.isPadding(moment.id) { return false }
+        #endif
         return await thumbnailFetcher.thumbnail(for: moment)
     }
 
