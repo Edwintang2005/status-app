@@ -25,6 +25,14 @@ enum ShareIntake {
         return age >= -60 && age < AppConfig.shareUploadHold
     }
 
+    /// When the earliest standing claim on one of `ids` lapses: the app sends then,
+    /// rather than waiting for its next pass.
+    static func nextLapse(of ids: some Sequence<String>, in claims: [String: Date], now: Date = Date()) -> Date? {
+        ids.filter { isClaimed($0, in: claims, now: now) }
+            .compactMap { claims[$0].map { $0.addingTimeInterval(AppConfig.shareUploadHold) } }
+            .min()
+    }
+
     static func anyClaimed(in claims: [String: Date], now: Date = Date()) -> Bool {
         claims.keys.contains { isClaimed($0, in: claims, now: now) }
     }
@@ -33,6 +41,39 @@ enum ShareIntake {
     /// moves — so only a real failure gives the moment back to the app at once.
     static func releasesClaim(after error: Error) -> Bool {
         !(error is CancellationError)
+    }
+
+    /// The caption field wraps, so its return key types a line break: read as
+    /// Send when one break arrived with at most a word's autocorrection around it
+    /// (anywhere in the text); a pasted block's breaks become spaces instead.
+    static func captionEdit(from old: String, to new: String) -> (caption: String, send: Bool) {
+        let breaks = { (text: String) in text.reduce(0) { $1.isNewline ? $0 + 1 : $0 } }
+        let joined = String(new.filter { !$0.isNewline })
+        // Around the break, at most a word's correction: the rest of the text is the old one.
+        let kept = joined.commonPrefix(with: old).count
+            + String(joined.reversed()).commonPrefix(with: String(old.reversed())).count
+        let typedReturn = breaks(new) == breaks(old) + 1
+            && abs(joined.count - old.count) <= 2
+            && kept >= old.count - 3
+            && !(old.isEmpty && !joined.isEmpty)
+        if typedReturn { return (String(joined.prefix(AppConfig.captionMaxLength)), true) }
+        return (Moment.caption(from: new), false)
+    }
+
+    /// The sheet's wait ran out with the upload still moving: renewed while the
+    /// sheet is open, shortened if it has closed (`closing`).
+    static func afterTimeout(_ id: String, in claims: [String: Date], left: Bool, now: Date = Date()) -> [String: Date] {
+        let renewed = claiming(id, in: claims, now: now)
+        return left ? closing(id, in: renewed, now: now) : renewed
+    }
+
+    /// Closing the sheet mid-send: the claim then lapses in `closedHold`, not
+    /// the full hold, so the app sends it soon rather than in minutes.
+    static func closing(_ id: String, in claims: [String: Date], now: Date = Date()) -> [String: Date] {
+        guard claims[id] != nil else { return claims }
+        var claims = claims
+        claims[id] = now.addingTimeInterval(AppConfig.shareClosedHold - AppConfig.shareUploadHold).wholeSeconds
+        return claims
     }
 
     /// `claims` with `id` added and the lapsed ones dropped.

@@ -66,10 +66,15 @@ enum AppConfig {
     /// up to an hour.
     static let nudgeWidgetKind = "RedStringNudgeWidget"
 
-    /// Entries kept in the on-device history index. Metadata only, so this can
-    /// be generous — CloudKit keeps everything regardless, and a fresh install
-    /// pulls the whole zone back.
-    static let momentHistoryLimit = 500
+    /// Entries kept in the on-device history index. Metadata only (~230 bytes
+    /// each: 5,000 is ~1.1 MB, decoded in tens of ms), so it can be generous —
+    /// CloudKit keeps everything regardless, and a fresh install pulls the whole zone back.
+    static let momentHistoryLimit = 5_000
+
+    /// How many recent moments keep their thumbnail (~30–60 KB each) on this
+    /// device; older tiles fetch theirs as they scroll into view. Favourites and
+    /// unsent sends keep theirs whatever their age (`MediaRetention`).
+    static let momentThumbnailLimit = 500
 
     /// How many recent moments keep their media files on this device. Older
     /// ones are fetched from CloudKit on demand when you scroll to them.
@@ -150,6 +155,9 @@ enum AppConfig {
     /// How long the app's retry pass leaves a send the share sheet started
     /// (`ShareIntake.isClaimed`): past the sheet's own wait, with room to land.
     static let shareUploadHold: TimeInterval = uploadDeadline + 60
+    /// The rest of the hold once the sheet is closed mid-send: long enough for a
+    /// save already handed to iCloud to land, short enough that the app sends soon.
+    static let shareClosedHold: TimeInterval = 90
     static let uploadTickInterval: TimeInterval = 5
     static let refreshDeadline: TimeInterval = 120
     /// Status, receipt, anniversary and subscription writes: small records, so

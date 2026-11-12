@@ -527,8 +527,8 @@ final class Outbox {
     /// The media "Clear downloaded media" must leave: own sends not yet in
     /// iCloud (their files are the only copy, and the retry pass drops a
     /// pending entry whose media is gone), uploads in flight, the index's
-    /// `newest` (the app would fetch them straight back) and the widget's
-    /// picture. Own sends inside the usual cache window stay too: one marked
+    /// `newest` (the app would fetch them straight back), favourites (they
+    /// open offline) and the widget's picture. Own sends inside the usual cache window stay too: one marked
     /// sent that iCloud never got can be re-sent only while its media is here
     /// (`MomentIndex.requeueMissingUploads`). A corrupt index's unsent sends are
     /// re-queued first, so they count. `nil` for an unreadable index.
@@ -539,6 +539,7 @@ final class Outbox {
         var keep = Set(all.prefix(newest).map(\.id))
             .union(all.lazy.filter { $0.fromMe && !$0.uploaded }.map(\.id))
             .union(all.prefix(ownWindow).lazy.filter(\.fromMe).map(\.id))
+            .union(all.lazy.filter(\.isFavourite).map(\.id))
             .union(uploadsInFlight)
         if let drawn = store.snapshot.latestPartnerVisualMoment { keep.insert(drawn.id) }
         return keep

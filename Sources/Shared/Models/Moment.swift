@@ -62,6 +62,8 @@ struct Moment: Codable, Hashable, Identifiable {
     /// When the caption last changed after sending — edited here, or a changed
     /// copy arriving. Local only: drives the "Edited" mark.
     var captionEditedAt: Date?
+    /// Starred on this phone: local only, never sent, and kept in the index past its cap.
+    var favouritedAt: Date?
 
     /// Recording length in seconds; voice memos only. In the metadata so length
     /// shows without the audio file being on this device.
@@ -93,6 +95,7 @@ struct Moment: Codable, Hashable, Identifiable {
         self.uploaded = uploaded
         self.captionPublished = true
         self.captionEditedAt = nil
+        self.favouritedAt = nil
         self.duration = duration
         self.waveform = waveform
     }
@@ -101,6 +104,7 @@ struct Moment: Codable, Hashable, Identifiable {
         case id, kind, caption, senderName, sentAt, fromMe, seen, uploaded, duration, waveform
         case seenAt, seenByPartnerAt
         case captionPublished, captionEditedAt
+        case favouritedAt
         /// The waveform as one byte per sample, base64 — the index's compact form.
         case waveformBytes
     }
@@ -126,6 +130,7 @@ struct Moment: Codable, Hashable, Identifiable {
         uploaded = try container.decodeIfPresent(Bool.self, forKey: .uploaded) ?? true
         captionPublished = try container.decodeIfPresent(Bool.self, forKey: .captionPublished) ?? true
         captionEditedAt = try container.decodeIfPresent(Date.self, forKey: .captionEditedAt)
+        favouritedAt = try container.decodeIfPresent(Date.self, forKey: .favouritedAt)
         duration = try container.decodeIfPresent(TimeInterval.self, forKey: .duration) ?? 0
         if let bytes = try container.decodeIfPresent(String.self, forKey: .waveformBytes)
             .flatMap({ Data(base64Encoded: $0) }) {
@@ -149,6 +154,7 @@ struct Moment: Codable, Hashable, Identifiable {
         try container.encode(uploaded, forKey: .uploaded)
         if !captionPublished { try container.encode(captionPublished, forKey: .captionPublished) }
         try container.encodeIfPresent(captionEditedAt, forKey: .captionEditedAt)
+        try container.encodeIfPresent(favouritedAt, forKey: .favouritedAt)
         try container.encode(duration, forKey: .duration)
         if encoder.userInfo[Self.compactWaveformsKey] as? Bool == true {
             if !waveform.isEmpty {
@@ -183,6 +189,8 @@ extension Moment {
 
     /// Voice memos are audio rather than an image, which most screens branch on.
     var isVoice: Bool { kind == .voice }
+
+    var isFavourite: Bool { favouritedAt != nil }
 
     /// A photo or a doodle — what the home card, the widget and the gallery draw.
     var isPicture: Bool { kind == .photo || kind == .drawing }

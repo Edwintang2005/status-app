@@ -4,10 +4,12 @@ import UIKit
 /// The share sheet's principal class: hosts `ShareView` and ends the request
 /// when it closes. Sending is `ShareModel`'s.
 final class ShareViewController: UIViewController {
+    private let model = ShareModel()
+
     override func viewDidLoad() {
         super.viewDidLoad()
         let items = extensionContext?.inputItems.compactMap { $0 as? NSExtensionItem } ?? []
-        let host = UIHostingController(rootView: ShareView(items: items) { [weak self] in
+        let host = UIHostingController(rootView: ShareView(model: model, items: items) { [weak self] in
             self?.extensionContext?.completeRequest(returningItems: nil)
         } holdOpen: { [weak self] sending in
             // On the presented controller itself: a modifier inside the host doesn't reach the sheet.
@@ -22,15 +24,21 @@ final class ShareViewController: UIViewController {
         view.addSubview(host.view)
         host.didMove(toParent: self)
     }
+
+    /// However it closes — Done, a swipe, the system — a send still settling is the app's soon.
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        model.leave()
+    }
 }
 
 struct ShareView: View {
+    @State var model: ShareModel
     let items: [NSExtensionItem]
     var close: () -> Void
     /// While sending, a swipe down mustn't end the extension under the upload.
     var holdOpen: (Bool) -> Void
 
-    @State private var model = ShareModel()
     @FocusState private var captionFocused: Bool
 
     var body: some View {
@@ -143,13 +151,12 @@ struct ShareView: View {
                 .lineLimit(1...3)
                 .focused($captionFocused)
                 .submitLabel(.send)
-                // Wraps, but never breaks: a wrapping field's return types a line break,
-                // so return sends instead, and a pasted break becomes a space.
+                // Wraps, but never breaks (`ShareIntake.captionEdit`): return sends.
                 .onChange(of: model.caption) { old, text in
                     guard text.contains(where: \.isNewline) || text.count > AppConfig.captionMaxLength else { return }
-                    let pressedReturn = text == old + "\n"
-                    model.caption = pressedReturn ? old : Moment.caption(from: text)
-                    if pressedReturn { Task { await model.send() } }
+                    let edit = ShareIntake.captionEdit(from: old, to: text)
+                    model.caption = edit.caption
+                    if edit.send { Task { await model.send() } }
                 }
                 .padding(.vertical, 12)
                 .padding(.horizontal, 14)

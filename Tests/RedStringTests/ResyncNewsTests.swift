@@ -2,7 +2,7 @@ import CloudKit
 import XCTest
 
 /// A full resync re-delivers every moment the index doesn't hold — past its
-/// 500 cap, or after a rebuild — and none of that is news (invariant 10).
+/// cap, after a rebuild, or in the sweep to a raised cap — and none of that is news (invariant 10).
 final class ResyncNewsTests: XCTestCase {
     private let zone = Fixtures.zone
 
@@ -41,6 +41,24 @@ final class ResyncNewsTests: XCTestCase {
         XCTAssertEqual(result.arrived.map(\.id), ["rebuilt", "fresh"], "both are filed")
         XCTAssertEqual(result.result.newPartnerMoments.map(\.id), ["fresh"])
         XCTAssertTrue(result.result.fullResync)
+    }
+
+    /// What the resync re-delivers from before the floor is history, already looked at:
+    /// filed seen, so Home, the widget's memo badge and the library's dots don't count it as new.
+    func testResyncedHistoryIsFiledSeen() throws {
+        let old = momentRecord(.participant, "old", at: Fixtures.date(500))
+        let fresh = momentRecord(.participant, "fresh", at: Fixtures.date(2_000))
+        let mine = momentRecord(.owner, "mine", at: Fixtures.date(400))
+        let result = outcome([old, fresh, mine], fullResync: true, floor: Fixtures.date(1_000))
+        let byID = Dictionary(uniqueKeysWithValues: result.arrived.map { ($0.id, $0) })
+        XCTAssertTrue(try XCTUnwrap(byID["old"]).seen)
+        XCTAssertFalse(try XCTUnwrap(byID["fresh"]).seen, "past the floor: news, and unseen")
+        XCTAssertTrue(try XCTUnwrap(byID["mine"]).seen, "own sends are seen anyway")
+
+        let incremental = outcome([old], fullResync: false, floor: Fixtures.date(1_000))
+        XCTAssertFalse(try XCTUnwrap(incremental.arrived.first).seen, "a late offline send is still new")
+        let noFloor = outcome([old], fullResync: true)
+        XCTAssertFalse(try XCTUnwrap(noFloor.arrived.first).seen, "nothing announced yet: nothing to call old")
     }
 
     /// An incremental delta's unknown moment is news whatever its date: a send

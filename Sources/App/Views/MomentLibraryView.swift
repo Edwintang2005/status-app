@@ -13,6 +13,8 @@ struct MomentLibraryView: View {
     @State private var retries: [String: Int] = [:]
     @State private var filter: HistoryFilter = .all
     @State private var kind: MomentKindFilter = .all
+    /// Combines with both other filters: "favourite photos from Sam".
+    @State private var favouritesOnly = false
     @State private var reporting: Moment?
     @State private var deleting: Moment?
 
@@ -24,7 +26,9 @@ struct MomentLibraryView: View {
     private let columns = [GridItem(.adaptive(minimum: Self.tileMinimum), spacing: 8)]
 
     private var filtered: [Moment] {
-        model.history.filter { filter.allows(fromMe: $0.fromMe) && kind.allows($0.kind) }
+        model.history.filter {
+            filter.allows(fromMe: $0.fromMe) && kind.allows($0.kind) && (!favouritesOnly || $0.isFavourite)
+        }
     }
 
     var body: some View {
@@ -43,12 +47,20 @@ struct MomentLibraryView: View {
                         .zIndex(1)
 
                     if filtered.isEmpty {
-                        ContentUnavailableView {
-                            Label("Nothing here yet", systemImage: "photo.on.rectangle.angled")
-                        } description: {
-                            Text(filter == .all && kind == .all
-                                 ? "Anything you send each other shows up here."
-                                 : "Nothing matches these filters yet.")
+                        if favouritesOnly, filter == .all, kind == .all {
+                            ContentUnavailableView {
+                                Label("No favourites yet", systemImage: "star")
+                            } description: {
+                                Text("Tap the star on a moment, or press and hold one here, to keep it in your favourites. They're only on this iPhone.")
+                            }
+                        } else {
+                            ContentUnavailableView {
+                                Label("Nothing here yet", systemImage: "photo.on.rectangle.angled")
+                            } description: {
+                                Text(filter == .all && kind == .all
+                                     ? "Anything you send each other shows up here."
+                                     : "Nothing matches these filters yet.")
+                            }
                         }
                     } else {
                         ScrollView {
@@ -60,7 +72,7 @@ struct MomentLibraryView: View {
                             .padding(12)
                         }
                         // A new filter starts at the top, not wherever the old list was.
-                        .id("\(filter.rawValue).\(kind.rawValue)")
+                        .id("\(filter.rawValue).\(kind.rawValue).\(favouritesOnly)")
                         .topBarBacking()
                     }
                 }
@@ -71,6 +83,9 @@ struct MomentLibraryView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Menu {
+                        Toggle(isOn: $favouritesOnly) {
+                            Label("Favourites only", systemImage: "star")
+                        }
                         Picker("Type", selection: $kind) {
                             ForEach(MomentKindFilter.allCases) { choice in
                                 Label(choice.label, systemImage: choice.symbolName).tag(choice)
@@ -81,13 +96,13 @@ struct MomentLibraryView: View {
                         // Says its choice, rather than a bare glyph that read as a
                         // menu button. Not a Label: the toolbar would drop its title.
                         HStack(spacing: 5) {
-                            Image(systemName: "line.3.horizontal.decrease")
-                            Text(kind.label)
+                            Image(systemName: favouritesOnly ? "star.fill" : "line.3.horizontal.decrease")
+                            Text(favouritesOnly && kind == .all ? String(localized: "Favourites") : kind.label)
                         }
                         .font(Theme.rounded(15, .semibold))
                     }
-                    .accessibilityLabel("Filter by type")
-                    .accessibilityValue(kind.label)
+                    .accessibilityLabel("Filter")
+                    .accessibilityValue(favouritesOnly ? String(localized: "\(kind.label), favourites only") : kind.label)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
@@ -149,6 +164,17 @@ struct MomentLibraryView: View {
                         .padding(7)
                 }
             }
+            .overlay(alignment: .bottomTrailing) {
+                if moment.isFavourite {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(5)
+                        .background(.black.opacity(0.35), in: Circle())
+                        .padding(6)
+                        .accessibilityHidden(true)
+                }
+            }
             .overlay(alignment: .bottomLeading) {
                 // Un-uploaded sends wear a clock (cleared by `Outbox.retryPendingUploads`);
                 // seen-by-partner (read receipts on, both sides) wears an eye. A
@@ -182,6 +208,7 @@ struct MomentLibraryView: View {
     /// toggle (this phone's display) and Report — no control of their moments.
     @ViewBuilder
     private func tileActions(_ moment: Moment) -> some View {
+        FavouriteToggle(moment: moment)
         if moment.fromMe {
             if moment.canDelete() {
                 Button(role: .destructive) {
@@ -209,6 +236,7 @@ struct MomentLibraryView: View {
                      moment.sentAt.relativeWording()]
         if !moment.kind.isSupported { parts.append(String(localized: "update \(AppConfig.appName) to see it")) }
         if !moment.seen && !moment.fromMe { parts.append(String(localized: "new")) }
+        if moment.isFavourite { parts.append(String(localized: "favourite")) }
         if moment.fromMe {
             if !moment.uploaded {
                 parts.append(String(localized: "waiting to send"))

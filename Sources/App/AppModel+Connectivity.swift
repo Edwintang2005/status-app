@@ -142,6 +142,7 @@ extension AppModel {
             await sendQueued(automatic: true)
             await outbox.flushReceipts(automatic: true)
             await restoreLatestThumbnailIfMissing()
+            await fetchMissingFavourites()
             await checkShareMembers(throttled: true)
             await checkInstalledWidgets()
         } while recoveryGate.takeRequest()
@@ -162,6 +163,22 @@ extension AppModel {
         if await outbox.republishCaptions(automatic: automatic) { reload() }
         // After the uploads too: one deleted while still sending goes once it lands.
         if await outbox.sendDeletions(automatic: automatic) { reload() }
+        sendWhenShareClaimsLapse()
+    }
+
+    /// A share-sheet send the passes above stood aside for goes the moment its
+    /// claim lapses, not at whatever pass comes next.
+    private func sendWhenShareClaimsLapse() {
+        let waiting = history.filter { $0.fromMe && !$0.uploaded }.map(\.id) + Array(store.pendingMomentDeletions)
+        guard let lapse = ShareIntake.nextLapse(of: waiting, in: store.shareUploadClaims) else { return }
+        shareClaimWake?.cancel()
+        shareClaimWake = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(max(1, lapse.timeIntervalSinceNow + 1)))
+            guard !Task.isCancelled else { return }
+            // Woken: a pass scheduling the next wake mustn't cancel this one mid-upload.
+            self?.shareClaimWake = nil
+            await self?.sendQueued(automatic: true)
+        }
     }
 
     /// Redraws every widget from this phone's copy, even with nothing new: a

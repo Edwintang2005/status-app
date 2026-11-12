@@ -42,14 +42,15 @@ extension AppModel {
     }
 
     /// This phone's copy, merged with the whole zone like the archive only when
-    /// the period reaches past the index's newest 500 (`RecapPlan.needsZone`).
+    /// the period reaches past the index's cap (`RecapPlan.needsZone`).
     /// An unreachable zone recaps this phone's copy, `complete` false: shown
     /// with a note and never kept as the year's video. Partner words go through
     /// moderation: only what may be shown goes in.
     func recapPlan(for period: RecapPlan.Period) async -> (plan: RecapPlan, complete: Bool)? {
         var zone: ArchiveContents.Zone?
         var complete = true
-        if isPaired, RecapPlan.needsZone(index: history, interval: period.interval()) {
+        if isPaired, RecapPlan.needsZone(index: history, interval: period.interval(),
+                                         complete: HistoryCoverage.isComplete(store.historyCoverage)) {
             do {
                 zone = try await bounded(AppConfig.refreshDeadline) { try await $0.archiveZone() }
             } catch {

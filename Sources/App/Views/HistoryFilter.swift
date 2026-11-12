@@ -63,6 +63,24 @@ enum MomentKindFilter: String, CaseIterable, Identifiable {
     }
 }
 
+/// Star or unstar a moment, for the gallery's and library's menus.
+struct FavouriteToggle: View {
+    @Environment(AppModel.self) private var model
+    let moment: Moment
+
+    var body: some View {
+        Button {
+            model.setFavourite(moment, !moment.isFavourite)
+        } label: {
+            if moment.isFavourite {
+                Label("Remove from favourites", systemImage: "star.slash")
+            } else {
+                Label("Favourite", systemImage: "star")
+            }
+        }
+    }
+}
+
 /// The segmented control for a `HistoryFilter`.
 struct HistoryFilterPicker: View {
     @Binding var filter: HistoryFilter

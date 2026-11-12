@@ -312,9 +312,8 @@ struct MomentStore {
     }
 
     /// Drops files outside the cache window. Thumbnails of `thumbnailIDs` stay
-    /// whatever their age — the library grid draws from them, and at ~30 KB each
-    /// the whole index's worth is small. Files newer than `graceInterval` are
-    /// spared — media is written before its index entry, and a prune in that gap
+    /// whatever their age — the library grid draws from them. Files newer than
+    /// `graceInterval` are spared — media is written before its index entry, and a prune in that gap
     /// would delete the only copy. Pass 0 only for a full wipe.
     func prune(keeping ids: some Collection<String>,
                thumbnailsFor thumbnailIDs: some Collection<String> = [String](),
@@ -343,8 +342,8 @@ struct MomentStore {
 
     /// Settings' "Clear downloaded media": full photos and recordings outside
     /// `ids`, each re-fetched from CloudKit when opened. Thumbnails stay — the
-    /// library grid and widget draw from them, and the whole index's worth is
-    /// small. The grace window spares a file another process has just written
+    /// library grid and widget draw from them, and the prune already bounds
+    /// them. The grace window spares a file another process has just written
     /// (a delivery, a send not yet in the index). Returns the bytes removed.
     @discardableResult
     func clearDownloaded(keeping ids: Set<String>,

@@ -126,4 +126,44 @@ final class MediaPrefetchPlanTests: XCTestCase {
         XCTAssertEqual(missing.map(\.id), ["new", "mine", "old"],
                        "no memos, nothing on disk, and no unsent own send — the server hasn't got it")
     }
+
+    // MARK: What stays on the phone (`MediaRetention`)
+
+    private func history(_ count: Int) -> [Moment] {
+        (0..<count).map { Fixtures.moment("m\($0)", at: Fixtures.date(Double(-$0))) }
+    }
+
+    /// Thumbnails for the newest 500, full copies for the newest 60; favourites
+    /// and unsent sends keep both whatever their age.
+    func testTheNewestKeepTheirFilesAndFavouritesAlways() {
+        var moments = history(AppConfig.momentThumbnailLimit + 100)
+        moments[550].favouritedAt = Fixtures.t0
+        moments[580] = Fixtures.moment("unsent", at: moments[580].sentAt, fromMe: true, uploaded: false)
+        let thumbs = MediaRetention.thumbnails(of: moments)
+        let full = MediaRetention.fullCopies(of: moments)
+        XCTAssertEqual(thumbs.count, AppConfig.momentThumbnailLimit + 2)
+        XCTAssertTrue(thumbs.isSuperset(of: ["m0", "m499", "m550", "unsent"]))
+        XCTAssertFalse(thumbs.contains("m500"), "past the newest 500: fetched as it scrolls into view")
+        XCTAssertEqual(full, Set(moments.prefix(AppConfig.momentImageCacheLimit).map(\.id)).union(["m550", "unsent"]))
+    }
+
+    /// The widget's and Home's picture keeps its files however far back it sits.
+    func testTheDrawnPictureIsKeptPastTheWindows() {
+        let moments = history(AppConfig.momentThumbnailLimit + 100)
+        XCTAssertTrue(MediaRetention.thumbnails(of: moments, drawn: "m590").contains("m590"))
+        XCTAssertTrue(MediaRetention.fullCopies(of: moments, drawn: "m590").contains("m590"))
+        XCTAssertFalse(MediaRetention.thumbnails(of: moments).contains("m590"))
+        XCTAssertTrue(MediaPrefetchPlan.missingThumbnails(in: moments, drawn: "m590", hasThumbnail: { _ in false })
+            .contains { $0.id == "m590" }, "a reinstall's backfill fetches it too")
+    }
+
+    /// After a resync, only thumbnails that would be kept are fetched: the rest would feed the prune.
+    func testTheBackfillStopsAtTheKeptThumbnails() {
+        var moments = history(AppConfig.momentThumbnailLimit + 50)
+        moments[520].favouritedAt = Fixtures.t0
+        let missing = MediaPrefetchPlan.missingThumbnails(in: moments, hasThumbnail: { _ in false })
+        XCTAssertEqual(missing.count, AppConfig.momentThumbnailLimit + 1)
+        XCTAssertTrue(missing.contains { $0.id == "m520" })
+        XCTAssertFalse(missing.contains { $0.id == "m510" })
+    }
 }

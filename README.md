@@ -460,6 +460,19 @@ One subtlety worth knowing if you touch this: the carousel's list is **captured
 when it opens**. Reading the unseen set live would shrink the list underneath
 the user, because paging marks each one seen as it appears.
 
+**Favourites** are this phone's own: the star in the gallery's toolbar, or
+"Favourite" in a library tile's long-press menu, stars a moment (both people's;
+`Moment.favouritedAt`, local only — never sent, and the other phone never
+knows). Starred tiles wear a star, and the library's filter menu has "Favourites
+only", which combines with the direction and type filters. A favourite never
+falls off the end of the history: the index's 5,000-entry cap spares it, as it
+does an unsent send (unstarred past the cap, it stays until the next moment
+arrives, so a slip can be starred back). Starring fetches its full copy, which
+the prune and Settings → Storage then leave alone, so it opens offline. The
+star shows at once; the index is written behind it, in order, off the main
+thread (`AppModel.writeIndex`, as marking seen is).
+An unlink or fresh start clears them with the rest of the history.
+
 Under each picture, "Sam · 3 months ago" is a button: a tap shows the full date
 and time ("Tuesday 10 November 2026 at 20:11") on every page until tapped again.
 
@@ -504,11 +517,22 @@ extension's ~120 MB ceiling), written with its place, filed in the index as an
 unsent own moment, then uploaded through an `Outbox` of the sheet's own.
 
 - The caption wraps but is one line, as every caption is (`Moment.caption(from:)`:
-  a pasted break becomes a space); the keyboard's return key sends.
+  a pasted break becomes a space); the keyboard's return key sends, wherever
+  the cursor is and through an autocorrection — one new break with the rest of
+  the text unchanged but for a word — while a pasted block never does
+  (`ShareIntake.captionEdit`).
 - Sent: a success haptic and the sheet closes — nothing to read.
 - Closed early, offline or failed: the moment is already filed, so the app's
   next retry pass sends it; the sheet says so ("It's saved and will send next
   time Red String opens").
+- Closing the sheet while it's still sending — Done, a swipe, the system —
+  shortens the claim to `shareClosedHold` (90 s: room for a save already handed
+  to iCloud to land, so the app rarely uploads it twice; `ShareIntake.closing`,
+  from the controller's `viewDidDisappear`), and a send that later times out
+  in a closed sheet doesn't renew it (`afterTimeout`), and the app sends it as soon as any claim lapses
+  (`AppModel.sendWhenShareClaimsLapse`) rather than at its next pass. A send
+  that outlived the sheet's wait closes the sheet as sent if it lands while
+  it's still open.
 - While the sheet is sending, it holds a claim (`SharedStore.shareUploadClaims`,
   `ShareIntake.isClaimed`, `AppConfig.shareUploadHold`). The app's automatic
   retry pass waits it out, so the same photo isn't uploaded twice side by side;
@@ -620,7 +644,7 @@ are still local-only. The sheet opens from the partner card on the home screen.
 ### History, and where it lives
 
 Every moment is its own CloudKit record, kept indefinitely. Nothing is
-overwritten and nothing expires: sign in on a new phone and the newest 500
+overwritten and nothing expires: sign in on a new phone and the newest 5,000
 come back into the app (`AppConfig.momentHistoryLimit`, the index's cap), and
 "Save memories" exports every one the zone holds. The one way history
 is deleted while you stay linked is a fresh start, which needs you both (below).
@@ -663,7 +687,7 @@ then composed on the GPU with Core Image straight into the encoder's buffers
 and MetricKit's "too much CPU" reports. While it works, the screen shows each
 slide as it's drawn ("Slide 12 of 40").
 It works from the phone's own copy: the zone is read only when the period
-reaches past the index's newest 500 (`RecapPlan.needsZone`), pictures already
+reaches past the index's newest 5,000 (`RecapPlan.needsZone`), pictures already
 here go straight in, and only the full copies the phone doesn't hold download
 — ahead, in slide order, while earlier slides draw (`RecapMedia`); one that
 can't be fetched shows its thumbnail. It puts in only what every surface may
@@ -686,7 +710,7 @@ happens is gathered again rather than resumed or kept, and one open on screen
 whose file went is made again. Dates are Gregorian
 whatever calendar the phone shows. A partner who has left gets no Christmas
 note or Home card (Settings keeps the row). If the year reaches past the
-phone's 500 moments and iCloud doesn't answer, the video is made from the
+phone's 5,000 moments and iCloud doesn't answer, the video is made from the
 phone's copy and shown with a note, but not kept. Save to Photos (add-only) or share.
 Diagnostics → "Year in review" makes one from the last 12 months any time, and
 can put the Home card up to test it.
@@ -747,12 +771,25 @@ the sends queued, and retries automatically only hourly
 (`AppConfig.storageFullRetryInterval`) — the footer's tap retries at once.
 
 **On the phone:** bounded, and much smaller. The device keeps
-metadata for the last `AppConfig.momentHistoryLimit` (500) entries — a few
-hundred bytes each, so well under 100 KB — but image files only for the
-`momentImageCacheLimit` (60) most recent, around 45 MB. Thumbnails (about
-30 KB each) are kept for every indexed entry, so the history grid always has
-something to draw; a tile whose thumbnail is missing fetches just that as it
-scrolls into view. Scroll further back in the gallery and the full image is
+metadata for the last `AppConfig.momentHistoryLimit` (5,000) entries — about
+230 bytes each, so around 1 MB (measured in the simulator: 500 → 112 KB, 7 ms
+to decode; 5,000 → 1.1 MB, 25–50 ms to decode and about as long to rewrite,
+with some 8 MB more held while it's merged — expect a few times that on a
+phone). Every write rewrites the whole file, so the app's frequent ones (seen,
+starred) go off the main thread. A phone that filled its index under a smaller
+cap sweeps the zone once on first launch (`HistoryCoverage`,
+`SharedStore.historyCoverage`; any token clear owes one). Until it finishes,
+every fetch — in any process — counts as a resync, so nothing older than the
+last announced moment is announced and the partner's older moments are filed
+already seen (as on a reinstall: no "1,500 new"); the year in review treats the
+index as incomplete; and only a fetch that continued the stored token when it
+landed can finish the sweep. But image files
+only for the `momentImageCacheLimit` (60) most recent, around 45 MB, and
+thumbnails (30–60 KB each) for the `momentThumbnailLimit` (500) most recent,
+about 25 MB (`MediaRetention`). Unsent sends and favourites keep both whatever
+their age. A tile whose thumbnail isn't kept fetches just that as it scrolls
+into view, with a spinner meanwhile; after a reinstall the Wi-Fi backfill
+fetches only the thumbnails that would be kept. Scroll further back in the gallery and the full image is
 **fetched from CloudKit on demand**, with a spinner while it lands.
 Settings → Storage clears those full files early (thumbnails, the newest ten
 and unsent sends stay — `Outbox.mediaToKeep`), along with the app's temporary

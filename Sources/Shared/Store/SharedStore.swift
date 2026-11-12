@@ -57,6 +57,7 @@ final class SharedStore: @unchecked Sendable {
         static let crashReports = "crashReports"
         static let layoutGlitches = "layoutGlitches"
         static let shareUploadClaims = "shareUploadClaims"
+        static let historyCoverage = "historyCoverage"
     }
 
     init(store: GroupKeyValueStore = GroupFileStore()) {
@@ -223,6 +224,13 @@ final class SharedStore: @unchecked Sendable {
     var widgetTipDismissed: Bool {
         get { store.bool(forKey: Key.widgetTipDismissed) }
         set { store.setBool(newValue, forKey: Key.widgetTipDismissed) }
+    }
+
+    /// The cap a complete sweep of the zone last filled the index to
+    /// (`HistoryCoverage`); `owed` from any token clear until the sweep ends.
+    var historyCoverage: Int? {
+        get { decode(Int.self, forKey: Key.historyCoverage) }
+        set { encodeOptional(newValue, forKey: Key.historyCoverage) }
     }
 
     /// Sends the share sheet started, by moment id: the app's retry pass,
@@ -557,13 +565,11 @@ final class SharedStore: @unchecked Sendable {
         guard let all = MomentIndex.shared.insertReadable(moments, cleared: cleared) else { return }
         refreshDerived(reloadWidgets: false)
 
-        // Index keeps every entry; only recent files stay on disk — older
-        // media is re-fetched from CloudKit on demand. A send still waiting to
-        // upload has no cloud copy to re-fetch, so its files stay whatever its age.
-        // Thumbnails stay for the whole index: the library grid scrolls through them.
-        let keep = all.prefix(AppConfig.momentImageCacheLimit).map(\.id)
-            + all.filter { $0.fromMe && !$0.uploaded }.map(\.id)
-        MomentStore.shared.prune(keeping: keep, thumbnailsFor: all.map(\.id))
+        // Only recent files stay on disk (`MediaRetention`); older media is
+        // re-fetched from CloudKit when it's looked at.
+        let drawn = snapshot.latestPartnerVisualMoment?.id
+        MomentStore.shared.prune(keeping: MediaRetention.fullCopies(of: all, drawn: drawn),
+                                 thumbnailsFor: MediaRetention.thumbnails(of: all, drawn: drawn))
         requestWidgetReload()
     }
 
@@ -793,6 +799,8 @@ final class SharedStore: @unchecked Sendable {
 
     func clearChangeTokens() {
         for role in [PairRole.owner, .participant] { setChangeToken(nil, for: Self.changeTokenKey(for: role)) }
+        // The next fetch sweeps the whole zone; until it ends, the index may stop short.
+        historyCoverage = HistoryCoverage.owed
     }
 
     /// `widgetNeedsFetch: false` (the usual case) stamps `widgetReloadRequestedAt`:

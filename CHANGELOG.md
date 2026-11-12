@@ -6,6 +6,22 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 Version 1.6.3.
 
+- **Ten times the history on the phone.** The library now keeps your newest
+  5,000 moments instead of 500 (about 1 MB of details). A phone updating from
+  an older build fetches the rest of its history once, on first launch — quietly:
+  nothing old is announced or comes back as new — and until that finishes the
+  year in review asks iCloud for anything older. A reinstall no longer shows the
+  partner's old moments as new either. Thumbnails
+  stay for the newest 500, plus favourites, unsent sends and the widget's
+  picture; older tiles fetch theirs as you scroll back, so storage stays about
+  where it was. Marking moments seen and starring them now save off the main
+  thread, so paging the gallery doesn't stutter on a long history.
+- **Favourites.** Star any moment, yours or theirs, from the gallery's
+  toolbar or a library tile's long-press menu; the library's filter menu adds
+  "Favourites only", alongside the direction and type filters. Local to this
+  phone and never sent. A favourite stays in the history past its 5,000-moment
+  limit; starring one fetches its full picture and keeps it on the phone (Clear
+  downloaded media included), so it opens offline.
 - **Share a photo from any app.** "Red String" in the share sheet takes one
   photo, shows it in the app's own style (light or dark) with "To <partner>"
   and a caption, and sends it as an ordinary moment. Read at 2048 px straight

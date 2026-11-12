@@ -32,6 +32,7 @@ struct MomentGalleryView: View {
     @State private var deleting: Moment?
     /// Tapped: every page's time reads as the full date until tapped again.
     @State private var showsFullDate = false
+    @State private var starTaps = 0
     /// Where each page's picture was taken, once named (`PlaceNames`).
     @State private var places: [String: String] = [:]
 
@@ -117,6 +118,21 @@ struct MomentGalleryView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
+                }
+                if let current {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            model.setFavourite(current, !current.isFavourite)
+                            starTaps += 1
+                        } label: {
+                            Image(systemName: current.isFavourite ? "star.fill" : "star")
+                                .contentTransition(.symbolEffect(.replace))
+                        }
+                        // The tap, not the state: paging between starred and not would buzz.
+                        .sensoryFeedback(.selection, trigger: starTaps)
+                        .accessibilityLabel("Favourite")
+                        .accessibilityValue(current.isFavourite ? "On" : "Off")
+                    }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     exportButton

@@ -290,7 +290,16 @@ struct ParsedDelta {
             myToLog = mine
         }
 
-        let arrived = moments.filter { !pastCap($0) }.sorted { $0.sentAt < $1.sentAt }
+        // A resync re-delivering the partner's history from before the last
+        // announced moment files it seen, or a reinstall (or the cap's sweep)
+        // reads it all as new: Home's count, the widget's memo badge, the dots.
+        let arrived = moments.filter { !pastCap($0) }.map { moment -> Moment in
+            guard fullResync, !moment.fromMe, !moment.seen, !alreadyKnown.contains(moment.id),
+                  !AnnouncementPolicy.isNews(moment, fullResync: true, floor: announcedFloor, now: now) else { return moment }
+            var seen = moment
+            seen.seen = true
+            return seen
+        }.sorted { $0.sentAt < $1.sentAt }
         let isNews = { (moment: Moment) in
             !alreadyKnown.contains(moment.id) && !pastCap(moment)
                 && AnnouncementPolicy.isNews(moment, fullResync: fullResync, floor: announcedFloor, now: now)

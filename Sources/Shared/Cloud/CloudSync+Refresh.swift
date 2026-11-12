@@ -21,9 +21,15 @@ extension CloudSync {
         let zone = zoneID(for: pairing)
         let tokenKey = SharedStore.changeTokenKey(for: pairing.role)
 
-        var previous = await MainActor.run {
-            Self.decodeToken(SharedStore.shared.changeToken(for: tokenKey))
+        // `startedFrom` is the stored bytes this fetch continues: only a fetch that
+        // still continues them when it lands may finish a sweep (`HistoryCoverage`).
+        let start = await MainActor.run {
+            let stored = SharedStore.shared.changeToken(for: tokenKey)
+            return (stored: stored, sweeping: SharedStore.shared.historyCoverage == HistoryCoverage.owed)
         }
+        var previous = Self.decodeToken(start.stored)
+        var startedFrom = start.stored
+        let sweeping = start.sweeping
 
         // Extensions live under a 24–30 MB ceiling: they take one batch of a
         // large delta and leave the rest to the app, which finishes the resync.
@@ -34,6 +40,7 @@ extension CloudSync {
         } catch let error as CKError where Self.isTokenExpired(error) {
             log.notice("Change token expired, resyncing the whole zone.")
             previous = nil
+            startedFrom = nil
             await MainActor.run { SharedStore.shared.setChangeToken(nil, for: tokenKey) }
             changes = try await fetchZoneChanges(zone: zone, in: database, since: nil, oneBatch: oneBatch)
         } catch let error as CKError where Self.isAlreadyGone(error) {
@@ -52,7 +59,9 @@ extension CloudSync {
         }
 
         // Apply before the token (invariant 2); re-applying a delta is harmless.
-        let applied = await apply(changes, pairing: pairing, fullResync: previous == nil)
+        // A sweep another process began (its first batch kept a token) is still a
+        // resync to the batches that finish it: old history isn't news.
+        let applied = await apply(changes, pairing: pairing, fullResync: previous == nil || sweeping)
         var result = applied.result
         result.incomplete = changes.moreComing
         if !changes.failedIDs.isEmpty {
@@ -101,6 +110,8 @@ extension CloudSync {
             let encoded = Self.encodeToken(token)
             let hadToken = previous != nil
             let readable = readable
+            let finished = !changes.moreComing
+            let startedFrom = startedFrom
             await MainActor.run {
                 let store = SharedStore.shared
                 let persists = TokenAdvancePolicy.persists(readable: readable,
@@ -111,7 +122,12 @@ extension CloudSync {
                     if readable { log.notice("Not advancing the change token: the pairing or the stored token changed during apply.") }
                     return
                 }
+                // Batches taken since the tokens were cleared add up to the whole zone,
+                // as long as this one continued the stored lineage, not an older one.
+                let sameLineage = store.changeToken(for: tokenKey) == startedFrom
                 store.setChangeToken(encoded, for: tokenKey)
+                store.historyCoverage = HistoryCoverage.after(store.historyCoverage,
+                                                              finished: finished && sameLineage)
             }
         }
 

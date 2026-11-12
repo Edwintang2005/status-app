@@ -63,11 +63,14 @@ enum MediaPrefetchPlan {
         }
     }
 
-    /// The library's backlog after a complete full resync: every picture in the
-    /// index without its thumbnail, newest first. An own send still waiting to
-    /// upload isn't on the server to fetch.
-    static func missingThumbnails(in index: [Moment], hasThumbnail: (Moment) -> Bool) -> [Moment] {
-        index.filter { !$0.isVoice && ($0.uploaded || !$0.fromMe) && !hasThumbnail($0) }
+    /// The library's backlog after a complete full resync: every picture whose
+    /// thumbnail is kept (`MediaRetention.thumbnails`) and isn't here, newest
+    /// first — fetching the rest would only feed the prune. An own send still
+    /// waiting to upload isn't on the server to fetch.
+    static func missingThumbnails(in index: [Moment], drawn: String? = nil,
+                                  hasThumbnail: (Moment) -> Bool) -> [Moment] {
+        let kept = MediaRetention.thumbnails(of: index, drawn: drawn)
+        return index.filter { kept.contains($0.id) && !$0.isVoice && ($0.uploaded || !$0.fromMe) && !hasThumbnail($0) }
             .sorted { $0.sentAt > $1.sentAt }
     }
 
@@ -75,5 +78,26 @@ enum MediaPrefetchPlan {
     /// thumbnail for a photo or doodle, the recording for a memo.
     static func attachment(for moment: Moment) -> Fetch {
         moment.isVoice ? .full : .thumbnail
+    }
+}
+
+/// Which files the phone keeps for the history (`SharedStore.record`'s prune);
+/// everything else is fetched again when it's looked at.
+enum MediaRetention {
+    /// Full copies: the newest `momentImageCacheLimit`, unsent sends (their only
+    /// copy), favourites (they open offline) and `drawn` — the widget's and
+    /// Home's picture, however far back the memos and own sends since have pushed it.
+    static func fullCopies(of history: [Moment], drawn: String? = nil) -> Set<String> {
+        Set(history.prefix(AppConfig.momentImageCacheLimit).map(\.id)).union(lasting(history, drawn))
+    }
+
+    /// Thumbnails: the newest `momentThumbnailLimit` — what the library opens
+    /// on — and the same lasting ones.
+    static func thumbnails(of history: [Moment], drawn: String? = nil) -> Set<String> {
+        Set(history.prefix(AppConfig.momentThumbnailLimit).map(\.id)).union(lasting(history, drawn))
+    }
+
+    private static func lasting(_ history: [Moment], _ drawn: String?) -> [String] {
+        history.lazy.filter { ($0.fromMe && !$0.uploaded) || $0.isFavourite }.map(\.id) + (drawn.map { [$0] } ?? [])
     }
 }

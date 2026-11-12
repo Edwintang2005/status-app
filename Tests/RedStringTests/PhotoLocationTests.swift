@@ -158,6 +158,50 @@ final class ShareIntakeTests: XCTestCase {
         XCTAssertFalse(ShareIntake.anyClaimed(in: claims, now: now.addingTimeInterval(AppConfig.shareUploadHold)))
     }
 
+    /// The field wraps, so its return key types a break: that's Send, wherever the
+    /// cursor is and through an autocorrection; a pasted block isn't.
+    func testReturnSendsAndPastedBreaksBecomeSpaces() {
+        XCTAssertTrue(ShareIntake.captionEdit(from: "sunset", to: "sunset\n") == ("sunset", true))
+        XCTAssertTrue(ShareIntake.captionEdit(from: "sunset bondi", to: "sunset\n bondi") == ("sunset bondi", true),
+                      "the cursor mid-caption")
+        XCTAssertTrue(ShareIntake.captionEdit(from: "at teh beach", to: "at the beach\n") == ("at the beach", true),
+                      "autocorrect committed with the return")
+        XCTAssertTrue(ShareIntake.captionEdit(from: "", to: "a pasted line\nand another") == ("a pasted line and another", false))
+        XCTAssertTrue(ShareIntake.captionEdit(from: "hi", to: "hi there friend\n") == ("hi there friend", false),
+                      "a pasted block ending in a break doesn't send")
+        let long = String(repeating: "word ", count: 10)
+        XCTAssertTrue(ShareIntake.captionEdit(from: long, to: "line1\nline2") == ("line1 line2", false),
+                      "a select-all paste over the caption")
+        XCTAssertTrue(ShareIntake.captionEdit(from: "", to: "ok\n") == ("ok", false), "a paste into an empty field")
+        XCTAssertTrue(ShareIntake.captionEdit(from: "", to: "\n") == ("", true), "return on its own")
+        XCTAssertTrue(ShareIntake.captionEdit(from: "bondi 🌅", to: "bondi 🌅\r\n") == ("bondi 🌅", true), "CRLF, emoji")
+        let full = String(repeating: "x", count: AppConfig.captionMaxLength)
+        XCTAssertTrue(ShareIntake.captionEdit(from: full, to: full + "\n") == (full, true), "at the cap")
+    }
+
+    /// Closed mid-send: the app takes over in seconds, not minutes, and wakes for it.
+    func testClosingShortensTheClaimAndTheAppWakesAtTheLapse() throws {
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        let claims = ShareIntake.claiming("a", in: [:], now: now)
+        let closed = ShareIntake.closing("a", in: claims, now: now)
+        XCTAssertTrue(ShareIntake.isClaimed("a", in: closed, now: now.addingTimeInterval(AppConfig.shareClosedHold - 1)))
+        XCTAssertFalse(ShareIntake.isClaimed("a", in: closed, now: now.addingTimeInterval(AppConfig.shareClosedHold)))
+        XCTAssertEqual(ShareIntake.closing("b", in: claims, now: now), claims, "nothing to shorten")
+        let lapse = try XCTUnwrap(ShareIntake.nextLapse(of: ["a", "x"], in: closed, now: now))
+        XCTAssertEqual(lapse, now.addingTimeInterval(AppConfig.shareClosedHold))
+        XCTAssertNil(ShareIntake.nextLapse(of: ["x"], in: closed, now: now))
+    }
+
+    /// A send timing out in a sheet already closed keeps the short hold.
+    func testATimeoutRenewsOnlyWhileTheSheetIsOpen() {
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        let claims = ShareIntake.claiming("a", in: [:], now: now)
+        let open = ShareIntake.afterTimeout("a", in: claims, left: false, now: now)
+        let left = ShareIntake.afterTimeout("a", in: claims, left: true, now: now)
+        XCTAssertTrue(ShareIntake.isClaimed("a", in: open, now: now.addingTimeInterval(AppConfig.shareClosedHold + 10)))
+        XCTAssertFalse(ShareIntake.isClaimed("a", in: left, now: now.addingTimeInterval(AppConfig.shareClosedHold)))
+    }
+
     /// Timing out isn't failing: the upload runs on in the sheet, so its claim stands.
     func testOnlyARealFailureGivesTheSendBack() {
         XCTAssertFalse(ShareIntake.releasesClaim(after: CancellationError()))

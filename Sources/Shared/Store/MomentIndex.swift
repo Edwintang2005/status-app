@@ -118,19 +118,26 @@ final class MomentIndex: @unchecked Sendable {
         return decoded.elements
     }
 
-    private func saveUnlocked(_ moments: [Moment]) {
-        guard let fileURL, !readFailed else { return }
+    /// What was written. Only an arrival trims to the cap (`insertReadable`):
+    /// every other write keeps what's there, so an entry unstarred past the cap
+    /// stays until the next moment arrives and can be starred back.
+    @discardableResult
+    private func saveUnlocked(_ moments: [Moment], trimming: Bool = false) -> [Moment] {
+        guard let fileURL, !readFailed else { return moments }
         do {
             // The cap never drops a send still waiting to upload: it has no
             // cloud copy, and leaving the index takes it out of the retry queue.
+            // Nor a favourite: starring one is asking to keep it.
             let pendingBeyondCap = moments.dropFirst(AppConfig.momentHistoryLimit)
-                .filter { $0.fromMe && !$0.uploaded }
-            let trimmed = Array(moments.prefix(AppConfig.momentHistoryLimit)) + pendingBeyondCap
+                .filter { ($0.fromMe && !$0.uploaded) || $0.isFavourite }
+            let trimmed = trimming ? Array(moments.prefix(AppConfig.momentHistoryLimit)) + pendingBeyondCap : moments
             try Self.encoder.encode(trimmed).write(to: fileURL, options: .atomic)
             cache = FileIdentity(fileURL).map { ($0, trimmed) }
+            return trimmed
         } catch {
             cache = nil
             log.error("Failed to write moment index: \(error.localizedDescription)")
+            return moments
         }
     }
 
@@ -167,6 +174,7 @@ final class MomentIndex: @unchecked Sendable {
                     moment.seenByPartnerAt = moment.seenByPartnerAt ?? existing.seenByPartnerAt
                     moment.uploaded = moment.uploaded || existing.uploaded
                     moment.captionEditedAt = existing.captionEditedAt
+                    moment.favouritedAt = moment.favouritedAt ?? existing.favouritedAt
                     if !existing.captionPublished {
                         // An edit still on its way out beats the copy it's replacing.
                         moment.caption = existing.caption
@@ -191,8 +199,8 @@ final class MomentIndex: @unchecked Sendable {
                 all[index].sentAt = now
             }
             all.sort(by: Self.newestFirst)
-            saveUnlocked(all)
-            return readFailed ? nil : all
+            let kept = saveUnlocked(all, trimming: true)
+            return readFailed ? nil : kept
         }
     }
 
@@ -210,6 +218,20 @@ final class MomentIndex: @unchecked Sendable {
             all[index].captionEditedAt = date.wholeSeconds
             saveUnlocked(all)
             return all[index]
+        }
+    }
+
+    /// Stars or unstars on this phone; the history either way.
+    @discardableResult
+    func setFavourite(id: String, _ favourite: Bool, at date: Date = Date()) -> [Moment] {
+        lock.lock()
+        defer { lock.unlock() }
+        return crossLock.withLock {
+            var all = loadUnlocked(writing: true)
+            guard !readFailed, let index = all.firstIndex(where: { $0.id == id }),
+                  all[index].isFavourite != favourite else { return all }
+            all[index].favouritedAt = favourite ? date.wholeSeconds : nil
+            return saveUnlocked(all)
         }
     }
 
@@ -425,5 +447,29 @@ struct LossyArray<Element: Decodable>: Decodable {
         init(from decoder: Decoder) throws {
             value = try? Element(from: decoder)
         }
+    }
+}
+
+/// Whether the index holds everything its cap allows (`SharedStore.historyCoverage`):
+/// an index filled under a smaller cap (an update raised it) or by a sweep that
+/// never finished stops short, and only a sweep of the whole zone fills it.
+enum HistoryCoverage {
+    /// Tokens cleared, a sweep under way: complete once a fetch ends with nothing more coming.
+    static let owed = 0
+
+    /// At launch: sweep again, once, when the index was filled under a smaller
+    /// cap or before this was kept.
+    static func needsSweep(_ coverage: Int?, limit: Int = AppConfig.momentHistoryLimit) -> Bool {
+        guard let coverage else { return true }
+        return coverage != owed && coverage < limit
+    }
+
+    static func isComplete(_ coverage: Int?, limit: Int = AppConfig.momentHistoryLimit) -> Bool {
+        (coverage ?? owed) >= limit
+    }
+
+    /// After a fetch whose token was kept: an owed sweep is done once nothing more is coming.
+    static func after(_ coverage: Int?, finished: Bool, limit: Int = AppConfig.momentHistoryLimit) -> Int? {
+        coverage == owed && finished ? limit : coverage
     }
 }

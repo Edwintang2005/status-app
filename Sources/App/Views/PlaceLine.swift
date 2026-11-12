@@ -44,10 +44,12 @@ final class PlaceNames {
         let previous = queue
         let look = Task { @MainActor [self] in
             await previous?.value
+            // A page swiped past while it waited: skipped, so the one stopped on isn't behind it.
+            guard !Task.isCancelled else { return nil as String? }
             return await lookUp(location)
         }
         queue = Task { _ = await look.value }
-        return await look.value
+        return await withTaskCancellationHandler { await look.value } onCancel: { look.cancel() }
     }
 
     private func lookUp(_ location: PhotoLocation) async -> String? {

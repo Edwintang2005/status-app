@@ -29,6 +29,10 @@ final class ShareModel {
     let partnerName: String
 
     @ObservationIgnored private var location: PhotoLocation?
+    /// The moment this sheet filed and may still be sending.
+    @ObservationIgnored private var filed: String?
+    /// The sheet has closed: a send still running mustn't renew the full hold.
+    @ObservationIgnored private var left = false
     @ObservationIgnored private let store = SharedStore.shared
     @ObservationIgnored private let log = Logger(subsystem: AppConfig.appGroupID, category: "Share")
     @ObservationIgnored private lazy var outbox = Outbox(
@@ -134,6 +138,7 @@ final class ShareModel {
         }
         // Claimed before it's filed, so no retry pass can catch it in between.
         store.shareUploadClaims = ShareIntake.claiming(moment.id, in: store.shareUploadClaims)
+        filed = moment.id
         store.record(moment)
 
         let progress = Task { @MainActor [weak self] in
@@ -158,12 +163,37 @@ final class ShareModel {
                 // Filed and pending: the app's next pass sends it, so let it start now.
                 release(moment.id)
             } else {
-                // Still moving here: renewed, so the app doesn't send it alongside.
-                store.shareUploadClaims = ShareIntake.claiming(moment.id, in: store.shareUploadClaims)
+                // Still moving here: renewed, so the app doesn't send it alongside,
+                // and the sheet closes as sent if it lands while it's open.
+                store.shareUploadClaims = ShareIntake.afterTimeout(moment.id, in: store.shareUploadClaims, left: left)
+                if !left { watchForLanding(moment.id) }
             }
             phase = .queued(SendFailure(error) == .offline
                 ? String(localized: "You're offline. It's saved and will send once Red String is back online.")
                 : String(localized: "It's saved and will send next time Red String opens."))
+        }
+    }
+
+    /// Closed before the send settled: the app takes it over shortly
+    /// (`ShareIntake.closing`), not minutes later.
+    func leave() {
+        left = true
+        guard let filed, phase != .sent else { return }
+        store.shareUploadClaims = ShareIntake.closing(filed, in: store.shareUploadClaims)
+    }
+
+    private func watchForLanding(_ id: String) {
+        Task { @MainActor [weak self] in
+            let until = Date().addingTimeInterval(AppConfig.shareUploadHold)
+            while Date() < until, !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                guard let self, case .queued = phase else { return }
+                if MomentIndex.shared.load().first(where: { $0.id == id })?.uploaded == true {
+                    release(id)
+                    phase = .sent
+                    return
+                }
+            }
         }
     }
 

@@ -195,6 +195,75 @@ final class MomentIndexTests: XCTestCase {
         XCTAssertEqual(saved.count, AppConfig.momentHistoryLimit + 1)
     }
 
+    /// A favourite is local only: it survives the copy iCloud sends again, and the cap.
+    func testAFavouriteIsKeptThroughRedeliveryAndTheCap() throws {
+        let (index, _) = makeIndex()
+        let old = Fixtures.moment("old", at: Fixtures.date(-10_000))
+        index.insert([old])
+        let starred = index.setFavourite(id: "old", true, at: Fixtures.date(5.7))
+        XCTAssertEqual(starred.first?.favouritedAt, Fixtures.date(5), "whole seconds")
+
+        index.insert([Fixtures.moment("old", at: Fixtures.date(-10_000))])
+        XCTAssertTrue(try XCTUnwrap(index.load().first).isFavourite, "a fetched copy carries none")
+
+        let flood = (0..<AppConfig.momentHistoryLimit).map { Fixtures.moment("p\($0)", at: Fixtures.date(Double($0))) }
+        index.insert(flood)
+        XCTAssertTrue(index.load().contains { $0.id == "old" }, "starring one is asking to keep it")
+
+        index.setFavourite(id: "old", false)
+        index.insert([Fixtures.moment("new", at: Fixtures.date(1_000_000))])
+        XCTAssertFalse(index.load().contains { $0.id == "old" }, "unstarred, the cap applies again")
+    }
+
+    /// Unstarred past the cap, it stays until the next arrival — a page turn's
+    /// seen-write included — so a slip can be starred back.
+    func testUnstarringPastTheCapCanBeUndone() {
+        let (index, _) = makeIndex()
+        index.insert([Fixtures.moment("old", at: Fixtures.date(-10_000))])
+        index.setFavourite(id: "old", true)
+        index.insert((0..<AppConfig.momentHistoryLimit).map { Fixtures.moment("p\($0)", at: Fixtures.date(Double($0))) })
+        XCTAssertTrue(index.setFavourite(id: "old", false).contains { $0.id == "old" })
+        XCTAssertTrue(index.markSeen(ids: ["p3"]).contains { $0.id == "old" }, "a page turn doesn't trim")
+        XCTAssertTrue(index.setFavourite(id: "old", true).contains { $0.id == "old" && $0.isFavourite })
+        index.setFavourite(id: "old", false)
+        index.insert([Fixtures.moment("newer", at: Fixtures.date(1_000_000))])
+        XCTAssertFalse(index.load().contains { $0.id == "old" }, "the next arrival trims it")
+    }
+
+    /// The cap raised by an update: the index is swept once, and stops short until it is.
+    func testAnIndexFilledUnderASmallerCapIsSweptOnce() {
+        XCTAssertEqual(HistoryCoverage.after(HistoryCoverage.owed, finished: false, limit: 5_000), HistoryCoverage.owed,
+                       "a fetch that landed on another lineage passes finished: false")
+        XCTAssertTrue(HistoryCoverage.needsSweep(nil), "kept before this was recorded")
+        XCTAssertTrue(HistoryCoverage.needsSweep(500, limit: 5_000))
+        XCTAssertFalse(HistoryCoverage.needsSweep(HistoryCoverage.owed), "already under way")
+        XCTAssertFalse(HistoryCoverage.needsSweep(5_000, limit: 5_000))
+        XCTAssertEqual(HistoryCoverage.after(HistoryCoverage.owed, finished: false, limit: 5_000), HistoryCoverage.owed)
+        XCTAssertEqual(HistoryCoverage.after(HistoryCoverage.owed, finished: true, limit: 5_000), 5_000)
+        XCTAssertEqual(HistoryCoverage.after(500, finished: true, limit: 5_000), 500, "only an owed sweep completes")
+        XCTAssertFalse(HistoryCoverage.isComplete(HistoryCoverage.owed, limit: 5_000))
+        XCTAssertTrue(HistoryCoverage.isComplete(5_000, limit: 5_000))
+    }
+
+    func testClearingTheTokensOwesASweep() {
+        let store = SharedStore(defaults: temporaryDefaults())
+        store.historyCoverage = AppConfig.momentHistoryLimit
+        store.clearChangeTokens()
+        XCTAssertEqual(store.historyCoverage, HistoryCoverage.owed)
+    }
+
+    func testFavouritesSurviveTheFileAndOlderEntriesDecode() throws {
+        let (index, url) = makeIndex()
+        index.insert([Fixtures.moment("a"), Fixtures.moment("b", at: Fixtures.date(1))])
+        index.setFavourite(id: "a", true)
+        let reread = MomentIndex(fileURL: url, onCorrupt: {}).load()
+        XCTAssertEqual(reread.filter(\.isFavourite).map(\.id), ["a"])
+        let legacy = Data(#"{"id":"x","kind":"photo","caption":"","senderName":"Sam","sentAt":"2026-01-01T00:00:00Z","fromMe":false}"#.utf8)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        XCTAssertFalse(try decoder.decode(Moment.self, from: legacy).isFavourite, "an older build's entry")
+    }
+
     func testFutureDatesAreHealed() {
         let (index, _) = makeIndex()
         index.insert([Fixtures.moment("ahead", at: Date().addingTimeInterval(3 * 86_400))])

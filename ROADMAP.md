@@ -294,8 +294,9 @@ optionally a widget state, or a morning note) for both: the photo you shared a
 year ago today. Starts a conversation without either of you having to.
 Respects reported/hidden moments and the fresh start's `clearedBefore`.
 Notes from the first design pass:
-- `MomentIndex` keeps only the newest 500 — about 100 days for a busy couple —
-  so "a year ago" is usually gone from it. Two ways back: a tiny uncapped
+- `MomentIndex` keeps the newest 5,000 (raised from 500, November 2026) —
+  about 18 months for a busy couple — so "a year ago" is usually there; older
+  still needs the ledger or the zone. Two ways back: a tiny uncapped
   ledger of every picture's id, kind, date and sender (≈1 MB for 10,000),
   backfilled once by the archive's whole-zone look, media fetched by record
   name on demand (no schema change); or a `CKQuery` on `sentAt` (a queryable

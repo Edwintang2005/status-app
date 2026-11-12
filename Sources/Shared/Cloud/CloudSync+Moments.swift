@@ -282,7 +282,8 @@ extension CloudSync {
     /// like `prefetchMedia`, when the pairing changes underneath.
     func prefetchMissingThumbnails(pairing: PairingInfo) async {
         let store = MomentStore.shared
-        let missing = MediaPrefetchPlan.missingThumbnails(in: MomentIndex.shared.load(),
+        let drawn = await MainActor.run { SharedStore.shared.snapshot.latestPartnerVisualMoment?.id }
+        let missing = MediaPrefetchPlan.missingThumbnails(in: MomentIndex.shared.load(), drawn: drawn,
                                                           hasThumbnail: { store.hasThumbnail(for: $0.id) })
         guard !missing.isEmpty else { return }
         let samePairing = { await MainActor.run { SharedStore.shared.pairing?.sameZone(as: pairing) == true } }

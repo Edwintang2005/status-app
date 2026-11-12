@@ -95,9 +95,10 @@ struct RecapPlan: Equatable, Sendable {
     /// all of it: the index keeps the newest `limit` moments and the zone keeps
     /// every one. Statuses never need it — every phone's log mirrors the
     /// cloud log's pruning.
+    /// An index not yet swept to its cap (`HistoryCoverage`) may stop short however few it holds.
     static func needsZone(index: [Moment], interval: DateInterval,
-                          limit: Int = AppConfig.momentHistoryLimit) -> Bool {
-        guard index.count >= limit, let oldest = index.map(\.sentAt).min() else { return false }
+                          limit: Int = AppConfig.momentHistoryLimit, complete: Bool = true) -> Bool {
+        guard index.count >= limit || !complete, let oldest = index.map(\.sentAt).min() else { return !complete }
         return oldest > interval.start
     }
 

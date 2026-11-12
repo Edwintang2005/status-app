@@ -36,7 +36,9 @@ struct CameraView: View {
                 dismiss()
             }
             await model.start()
-            // After the camera's own prompt, never over it. The composer stops it.
+            // After the camera's own prompt, never over it. The composer stops it —
+            // unless it closed while the camera was starting.
+            guard !Task.isCancelled else { return }
             LocationStamp.shared.start()
         }
         .onDisappear { model.stop() }

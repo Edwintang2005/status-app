@@ -78,6 +78,9 @@ final class AppModel {
     /// Sent moments whose edited caption is still owed: kept with `history`, not
     /// re-scanned on every Home render (`pendingSendCount`).
     @ObservationIgnored private var owedCaptionIDs: Set<String> = []
+    @ObservationIgnored private var indexWritesPending = 0
+    @ObservationIgnored var shareClaimWake: Task<Void, Never>?
+    private static let indexWrites = DispatchQueue(label: "RedString.indexWrites", qos: .userInitiated)
 
     private static func owedCaptions(in history: [Moment]) -> Set<String> {
         Set(history.lazy.filter { $0.fromMe && $0.uploaded && !$0.captionPublished }.map(\.id))
@@ -383,20 +386,60 @@ final class AppModel {
         return [latestVisualMoment].compactMap { $0 }
     }
 
+    /// This phone only: nothing drawn on a widget, nothing sent. Shown at once,
+    /// written behind (`writeIndex`); a full copy is fetched so it opens offline.
+    func setFavourite(_ moment: Moment, _ favourite: Bool) {
+        guard let index = history.firstIndex(where: { $0.id == moment.id }) else { return }
+        history[index].favouritedAt = favourite ? Date().wholeSeconds : nil
+        let id = moment.id
+        writeIndex { MomentIndex.shared.setFavourite(id: id, favourite) }
+        if favourite { Task { _ = await ensureMedia(for: moment) } }
+    }
+
     /// Looked at, or — for a memo — listened to.
     /// `reloadWidgets: false` while paging the gallery: one reload when it
     /// closes (`flushWidgetReload`), not one per page.
     func markSeen(_ moment: Moment, reloadWidgets: Bool = true) {
         guard !moment.seen, !moment.fromMe else { return }
-        history = MomentIndex.shared.markSeen(ids: [moment.id])
-        let owesReceipt = readReceiptsEnabled && isPaired
-        // The widget's unheard-memo badge is a snapshot field; this is what clears it.
-        let refreshed = store.refreshDerived(reloadWidgets: reloadWidgets) { snapshot in
-            if owesReceipt { snapshot.receiptsDirty = true }
+        if let index = history.firstIndex(where: { $0.id == moment.id }) {
+            history[index].seen = true
+            history[index].seenAt = Date().wholeSeconds
         }
-        if refreshed.changed, !reloadWidgets { widgetReloadOwed = true }
-        snapshot = refreshed.snapshot
-        if owesReceipt { outbox.scheduleReceiptFlush() }
+        let owesReceipt = readReceiptsEnabled && isPaired
+        // Owed now, not when the write lands: the gallery can close first. Only a
+        // memo's seen state is drawn (the unheard badge; invariant 6).
+        if !reloadWidgets, moment.isVoice { widgetReloadOwed = true }
+        let id = moment.id
+        let store = store
+        writeIndex { [weak self] in
+            MomentIndex.shared.markSeen(ids: [id])
+            // The widget's unheard-memo badge is a snapshot field; this is what clears it.
+            let refreshed = store.refreshDerived(reloadWidgets: reloadWidgets) { snapshot in
+                // A write landing after an unlink owes the new pairing nothing.
+                if owesReceipt, store.pairing != nil { snapshot.receiptsDirty = true }
+            }
+            Task { @MainActor in
+                guard let model = self else { return }
+                if refreshed.changed, !reloadWidgets { model.widgetReloadOwed = true }
+                model.snapshot = refreshed.snapshot
+                if owesReceipt { model.outbox.scheduleReceiptFlush() }
+            }
+        }
+    }
+
+    /// The index is rewritten whole (5,000 entries is tens of ms): taps and
+    /// page turns write it here, in order, off the main actor. `history` already
+    /// shows the change; `reload` leaves it alone until the last write lands.
+    private func writeIndex(_ write: @escaping @Sendable () -> Void) {
+        indexWritesPending += 1
+        Self.indexWrites.async { [weak self] in
+            write()
+            Task { @MainActor in
+                guard let model = self else { return }
+                model.indexWritesPending -= 1
+                if model.indexWritesPending == 0 { model.update(\.history, MomentIndex.shared.load()) }
+            }
+        }
     }
 
     // MARK: - Celebrations
@@ -427,6 +470,10 @@ final class AppModel {
         // too, so a retraction a stale write overtook is healed. Before any
         // await: the scene's own refresh may run its recovery pass first.
         if isPaired { store.mutate(reloadWidgets: false) { $0.rearmUnsettledReceipts() } }
+        // An index filled under a smaller cap is swept once to the new one. Every
+        // fetch until it ends is a resync: news only past the floor seeded at
+        // pairing (invariant 10), and older history filed seen.
+        if HistoryCoverage.needsSweep(store.historyCoverage) { store.clearChangeTokens() }
         await refreshReadiness()
         guard isPaired else { return }
         // Easy to lose across reinstalls, but re-asserted daily rather than on
@@ -478,7 +525,8 @@ final class AppModel {
             shareMembersCheckedAt = nil
             update(\.invitePostureChecked, false)
         }
-        update(\.history, MomentIndex.shared.load())
+        // A write still queued would be undone here; its landing re-reads instead.
+        if indexWritesPending == 0 { update(\.history, MomentIndex.shared.load()) }
         refreshRecentStatusesIfNeeded()
         syncMilestoneReminders()
         syncRecapReminder()
@@ -522,6 +570,13 @@ final class AppModel {
     /// The home card and photo widget only ever read the thumbnail; the one
     /// download attempt inside a refresh can fail (a widget deadline, a killed
     /// extension), and nothing else would fetch it again.
+    /// A favourite starred offline, or whose copy was fetched and lost: its full
+    /// copy, a few per pass, so it opens offline as promised.
+    func fetchMissingFavourites() async {
+        let missing = history.filter { $0.isFavourite && $0.kind.isSupported && !MomentStore.shared.hasMedia(for: $0) }
+        for moment in missing.prefix(5) where await !ensureMedia(for: moment) { return }
+    }
+
     func restoreLatestThumbnailIfMissing() async {
         guard let latest = store.snapshot.latestPartnerVisualMoment,
               !MomentStore.shared.hasThumbnail(for: latest.id) else { return }
@@ -942,6 +997,8 @@ final class AppModel {
     /// inside a background task so suspension can't cut it off.
     func flushReceiptsForBackground() async {
         guard isPaired else { return }
+        // A page seen just before leaving is still being written: it goes too.
+        await withCheckedContinuation { done in Self.indexWrites.async { done.resume() } }
         let outbox = outbox
         await Self.withUploadProtection("receipts") { await outbox.flushReceiptsNow() }
     }

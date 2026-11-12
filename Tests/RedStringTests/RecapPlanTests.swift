@@ -120,6 +120,10 @@ final class RecapPlanTests: XCTestCase {
         let reachesBack = full + [Fixtures.moment("old", at: day(2025, 12, 1))]
         XCTAssertFalse(RecapPlan.needsZone(index: reachesBack, interval: year, limit: 3),
                        "the index already reaches back past the year")
+        XCTAssertTrue(RecapPlan.needsZone(index: short, interval: year, limit: 3, complete: false),
+                      "filled under a smaller cap and not yet swept: short however few it holds")
+        XCTAssertTrue(RecapPlan.needsZone(index: [], interval: year, limit: 3, complete: false))
+        XCTAssertFalse(RecapPlan.needsZone(index: reachesBack, interval: year, limit: 3, complete: false))
     }
 
     private func at(_ year: Int, _ month: Int, _ day: Int, _ hour: Int) -> Date {

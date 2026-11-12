@@ -474,6 +474,13 @@ final class OutboxTests: XCTestCase {
         XCTAssertEqual(outbox.mediaToKeep(newest: 3, ownWindow: 0), ["m11", "m10", "m9", "unsent", "drawn"])
     }
 
+    /// Favourites open offline: clearing leaves their full copies.
+    func testClearingKeepsFavourites() {
+        index.insert([Fixtures.moment("new", at: Fixtures.date(2)), Fixtures.moment("old", at: Fixtures.date(0))])
+        index.setFavourite(id: "old", true)
+        XCTAssertEqual(outbox.mediaToKeep(newest: 0, ownWindow: 0), ["old"])
+    }
+
     /// Own sends the zone may never have received stay re-sendable, as the usual cache keeps them.
     func testClearingKeepsOwnSendsInsideTheCacheWindow() throws {
         index.insert([Fixtures.moment("theirs", at: Fixtures.date(2)),
