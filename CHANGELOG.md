@@ -21,6 +21,9 @@ Version 1.6.3.
   and how it ended (sent, saved for the app, cancelled…). One that never made
   it on screen is listed as such — the trace of a sheet that flashed and closed,
   which iOS doesn't log.
+- **The share sheet's keyboard comes back.** Switching away from Photos while
+  typing a caption and coming back left the cursor in the field but no
+  keyboard; now it returns with the caption as you left it.
 - **Favourites.** Star any moment, yours or theirs, from the gallery's
   toolbar or a library tile's long-press menu; the library's filter menu adds
   "Favourites only", alongside the direction and type filters. Local to this

@@ -58,6 +58,9 @@ struct ShareView: View {
     var holdOpen: (Bool) -> Void
 
     @FocusState private var captionFocused: Bool
+    /// The caption had the keyboard when the host app went to the background:
+    /// iOS doesn't bring it back for an extension on return, so the sheet does.
+    @State private var refocusOnReturn = false
 
     var body: some View {
         NavigationStack {
@@ -85,6 +88,19 @@ struct ShareView: View {
             close()
         }
         .onChange(of: isSending, initial: true) { _, sending in holdOpen(sending) }
+        .onReceive(NotificationCenter.default.publisher(for: .NSExtensionHostWillResignActive)) { _ in
+            refocusOnReturn = captionFocused
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSExtensionHostDidBecomeActive)) { _ in
+            guard refocusOnReturn, model.phase == .ready else { return }
+            refocusOnReturn = false
+            // Still focused, keyboard gone: only letting go and taking it again brings it back.
+            captionFocused = false
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(100))
+                if model.phase == .ready { captionFocused = true }
+            }
+        }
     }
 
     private var title: String {

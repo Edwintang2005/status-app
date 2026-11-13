@@ -521,6 +521,10 @@ unsent own moment, then uploaded through an `Outbox` of the sheet's own.
   the cursor is and through an autocorrection — one new break with the rest of
   the text unchanged but for a word — while a pasted block never does
   (`ShareIntake.captionEdit`).
+- Left for another app with the keyboard up, it brings the keyboard back on
+  return (`NSExtensionHostDidBecomeActive`): iOS keeps the field focused but
+  doesn't show the keyboard for an extension, so the sheet lets go and takes
+  focus again.
 - Sent: a success haptic and the sheet closes — nothing to read.
 - Each opening is recorded for Diagnostics' "Share sheet launches"
   (`ShareLaunch`, `SharedStore.shareLaunches`, the newest 10): when the
