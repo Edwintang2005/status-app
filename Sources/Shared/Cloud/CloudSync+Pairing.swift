@@ -92,11 +92,7 @@ extension CloudSync {
         log.notice("Deleting the previous shared zone before a new invite, as confirmed.")
         do {
             let result = try await database.modifyRecordZones(saving: [], deleting: [zoneID])
-            switch result.deleteResults[zoneID] {
-            case .success?: break
-            case .failure(let error)?: throw error
-            case nil: throw SyncError.saveUnconfirmed
-            }
+            try Self.confirmZoneDeleted(result.deleteResults, zoneID)
         } catch let error as CKError where Self.isAlreadyGone(error) {}
         for attempt in 1...5 {
             if attempt > 1 { try? await Task.sleep(for: .seconds(1)) }

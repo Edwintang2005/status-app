@@ -256,7 +256,8 @@ every status banner, so the unread ones read as a history (only the newest
 locked-phone one can take the latest words) — each rewrite re-added under its own identifier,
 `.passive`, so it never alerts twice — a rewrite counts as the announcement, so
 the app never posts the same moment again. A push the service never touched
-(killed, or before first unlock) has no subject; while it still shows
+(killed, or before first unlock — when the shared files can't be read, the
+service leaves CloudKit's words rather than guess the space is gone) has no subject; while it still shows
 CloudKit's own words, its subscription says what it was about and it's handled
 like a locked-phone banner. Hearts stack in their own thread, each still its
 own banner. Tapping a photo or drawing banner opens that moment.
@@ -310,8 +311,9 @@ delivery path. The widget and the open app still rely on:
    after one.
 4. **An `NWPathMonitor` in `AppModel`**, which refreshes on the
    offline→online edge — so a phone that regains signal recovers without
-   waiting to be re-opened. A failed first attempt (DNS or a VPN still coming
-   up) is retried after 5 and 20 seconds (`AppConfig.reconnectRetryDelays`).
+   waiting to be re-opened. Until a fetch since the edge has worked and
+   nothing is left queued (DNS or a VPN still coming up, a send hitting the
+   flap), it goes again after 5 and 20 seconds (`AppConfig.reconnectRetryDelays`).
    It reacts only to that edge, never to path churn while the network stays
    up — and only while the app is running: a suspended app catches up the
    next time it comes to the front.
@@ -331,7 +333,8 @@ off for the app or iCloud is full), and any successful fetch clears it. Sends
 never wait on it — the monitor doesn't run while the app is suspended, and a
 banner's "heart back" or reply wakes the app before it catches up.
 `networkFailure` is CFNetwork's catch-all (a dropped upload, TLS, a proxy), so
-it stays transient: it alerts, and a retry pass moves on to the next send.
+it stays transient: no alert — the send waits under "waiting to send" — and a
+retry pass moves on to the next send. Only a full iCloud alerts.
 
 When iCloud asks the app to slow down (`requestRateLimited`, `zoneBusy`,
 `serviceUnavailable`), automatic retries wait for as long as it says, at most
@@ -422,7 +425,7 @@ One scrolling column, partner first:
    partner's fresh start request (its only delivery), notifications off
    (re-checked on every foregrounding; "Not now" lasts per device until the
    problem changes), the owner's close-the-link prompt, the Lock Screen widget
-   tip.
+   tip, the year in review from Christmas to the end of January.
 7. **The moment card** (what's waiting — below), the latest received memo, and
    the footer: last synced, or the "Sent to …" / "waiting to send · tap to
    retry" pill.
@@ -443,7 +446,8 @@ falls back to just the most recent, rather than replaying the archive.
 
 **Everything else lives in the library**, behind the photo button in the top
 left: a grid of the full history, unseen ones marked with a dot, your own sends
-flagged with a small arrow. Tap any of them to open the pager over the whole
+wearing a clock until they've gone and an eye once they've been seen (read
+receipts on, both sides). Tap any of them to open the pager over the whole
 history.
 
 Under each of the partner's moments in the pager, **Send a heart back** and
@@ -732,7 +736,9 @@ status history and read receipts — from both phones and the zone, and keeps
 the link, both current statuses, the heart and the date. One person asks, the
 other agrees; nothing is deleted before both have. Save memories is offered
 first on both sides (skippable behind a confirmation); an archive that
-couldn't read the whole zone stops before anything is asked or agreed.
+couldn't read the whole zone, or couldn't save every picture and memo (each
+failed download is tried once more), stops before anything is asked or agreed —
+as "Save memories and unlink" stops before the unlink.
 
 It's a handshake over one `FreshStart` record per side (`freshstart-<role>`,
 encrypted `stage`, `epoch`, `clearedBefore`), with no subscription: the
@@ -983,7 +989,7 @@ Two things to know about the CloudKit schema:
   build and the dev schema has the wrong shape, reset the Development
   environment in the Console before running again.
 - **Subscriptions must be created in Development first**, then promoted — the
-  app registers them on launch and after pairing, so this happens on its own
+  app registers them after pairing and re-checks them once a day at launch, so this happens on its own
   as long as step 2 was done in Debug.
 
 ## Layout

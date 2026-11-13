@@ -20,8 +20,8 @@ extension CloudSync {
         }
 
         if case .superseded(let server) = outcome {
-            // Surfaced, not swallowed: marking ours sent would show a status the
-            // partner never gets. The newer one is adopted in its place.
+            // Never marked sent: that would show a status the partner never
+            // gets. The newer one is adopted in its place.
             await MainActor.run {
                 _ = SharedStore.shared.mutate { $0.adoptSupersedingStatus(server, over: payload) }
             }

@@ -44,7 +44,7 @@ enum NotificationCategory {
 /// name already, and userInfo never leaves the phone.
 enum BannerSubject: Equatable, Sendable {
     case moment(String)
-    /// The partner's status; only the newest banner of these stays.
+    /// The partner's status; every one stays, but only the newest held one takes the latest words.
     case status
     case hearts
     /// A moment push left in CloudKit's words: which moment, if any, isn't known.

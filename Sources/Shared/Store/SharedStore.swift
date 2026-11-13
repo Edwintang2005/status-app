@@ -5,7 +5,8 @@ import os
 import WidgetKit
 #endif
 
-/// App Group state shared between the app, widget and notification processes.
+/// App Group state shared between the app and its extensions (widget, notification
+/// service, expanded banner, share sheet).
 /// File-backed, not `UserDefaults` — see `GroupFileStore` for why.
 /// `@unchecked`: all state is the key-value store (internally locked), the
 /// decoded-value cache (under `decodedLock`) and the cross-process locks, so
@@ -77,8 +78,8 @@ final class SharedStore: @unchecked Sendable {
         set { encode(newValue, forKey: Key.snapshot) }
     }
 
-    /// The snapshot has writers in three processes (app, widget, notification
-    /// service); without this lock, concurrent read-modify-writes lose updates.
+    /// The snapshot has writers in five processes (the app and each extension);
+    /// without this lock, concurrent read-modify-writes lose updates.
     private static let snapshotLock = CrossProcessLock(name: "snapshot.lock")
 
     /// Locked read–modify–write plus a widget reload. A snapshot that exists
@@ -86,18 +87,23 @@ final class SharedStore: @unchecked Sendable {
     /// save that over every watermark — and the change is dropped.
     @discardableResult
     func mutate(reloadWidgets: Bool = true, _ body: (inout Snapshot) -> Void) -> Snapshot {
-        let result = Self.snapshotLock.withLock { () -> Snapshot? in
+        let outcome = Self.snapshotLock.withLock { () -> (Snapshot, Bool)? in
             if case .unreadable = store.storedValue(forKey: Key.snapshot) { return nil }
-            var current = snapshot
+            let before = snapshot
+            var current = before
             body(&current)
+            // Unchanged: no write (it would make every other process re-read the
+            // file) and no widget reload — nothing a widget draws moved.
+            guard current != before else { return (current, false) }
             snapshot = current
-            return current
+            return (current, true)
         }
-        guard let result else {
+        guard let outcome else {
             log.error("Snapshot exists but can't be read; nothing written.")
             return snapshot
         }
-        if reloadWidgets { requestWidgetReload() }
+        let (result, changed) = outcome
+        if changed, reloadWidgets { requestWidgetReload() }
         return result
     }
 
@@ -106,6 +112,19 @@ final class SharedStore: @unchecked Sendable {
     var pairing: PairingInfo? {
         get { decode(PairingInfo.self, forKey: Key.pairing) }
         set { encodeOptional(newValue, forKey: Key.pairing) }
+    }
+
+    enum PairingState {
+        case paired(PairingInfo)
+        case unpaired
+        /// The file is there but can't be read (before first unlock, an I/O error):
+        /// not knowing isn't "unlinked", or a partner's push reads as from a space we left.
+        case unreadable
+    }
+
+    var pairingState: PairingState {
+        if case .unreadable = store.storedValue(forKey: Key.pairing) { return .unreadable }
+        return pairing.map(PairingState.paired) ?? .unpaired
     }
 
     /// Whether this device sends (and shows) read receipts. On by default —
@@ -416,14 +435,14 @@ final class SharedStore: @unchecked Sendable {
         set { encodeOptional(newValue.isEmpty ? nil : newValue, forKey: Key.layoutGlitches) }
     }
 
-    /// MetricKit's crash and hang reports, newest first, for Diagnostics. Per
-    /// device, written only by the app; a bad entry costs only itself.
     /// The share sheet's last openings, newest first (`ShareLaunch`). Written only by the sheet.
     var shareLaunches: [ShareLaunch] {
         get { decode(LossyArray<ShareLaunch>.self, forKey: Key.shareLaunches)?.elements ?? [] }
         set { encodeOptional(newValue.isEmpty ? nil : newValue, forKey: Key.shareLaunches) }
     }
 
+    /// MetricKit's crash and hang reports, newest first, for Diagnostics. Per
+    /// device, written only by the app; a bad entry costs only itself.
     var crashReports: [CrashReport] {
         get { decode(LossyArray<CrashReport>.self, forKey: Key.crashReports)?.elements ?? [] }
         set { encodeOptional(newValue.isEmpty ? nil : newValue, forKey: Key.crashReports) }
@@ -888,7 +907,10 @@ final class SharedStore: @unchecked Sendable {
 
     private func encode<T: Encodable>(_ value: T, forKey key: String) {
         do {
-            store.setData(try JSONEncoder.shared.encode(value), forKey: key)
+            let data = try JSONEncoder.shared.encode(value)
+            // The same bytes again: a rewrite would only make every process re-read it.
+            guard store.data(forKey: key) != data else { return }
+            store.setData(data, forKey: key)
         } catch {
             log.error("Failed to encode \(String(describing: T.self)): \(error.localizedDescription)")
         }
@@ -907,6 +929,8 @@ extension JSONEncoder {
     static let shared: JSONEncoder = {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
+        // Stable bytes for equal values, so an unchanged write is seen as one.
+        encoder.outputFormatting = .sortedKeys
         return encoder
     }()
 }

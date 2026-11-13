@@ -23,7 +23,14 @@ enum WidgetReloadPolicy {
     /// All caught up: the refresh is only a backstop for dropped pushes.
     static let settled: TimeInterval = 60 * 60
 
-    static func nextReload(heldSince: Date?, incomplete: Bool, offline: Bool = false, now: Date = Date()) -> Date {
+    /// Before first unlock the store can't be read and the widget draws from
+    /// nothing: soon, so the unlock is caught up within minutes, not an hour.
+    /// Not as soon as a held record: nothing here can say how long it's been locked.
+    static let whileLocked: TimeInterval = 15 * 60
+
+    static func nextReload(heldSince: Date?, incomplete: Bool, offline: Bool = false,
+                           locked: Bool = false, now: Date = Date()) -> Date {
+        if locked { return now.addingTimeInterval(whileLocked) }
         // Budget spent here is budget gone once the phone is back online.
         if offline { return now.addingTimeInterval(settled) }
         if let heldSince {
@@ -74,6 +81,7 @@ struct TimelinePlan: Equatable, Sendable {
          heldSince: Date?,
          incomplete: Bool,
          offline: Bool = false,
+         locked: Bool = false,
          now: Date = Date()) {
         var entries = [now]
         for expiry in [lastNudgeSentAt?.addingTimeInterval(AppConfig.nudgeCooldown),
@@ -83,6 +91,6 @@ struct TimelinePlan: Equatable, Sendable {
         }
         self.entries = entries.sorted()
         nextReload = WidgetReloadPolicy.nextReload(heldSince: heldSince, incomplete: incomplete,
-                                                   offline: offline, now: now)
+                                                   offline: offline, locked: locked, now: now)
     }
 }

@@ -84,7 +84,7 @@ struct RecapView: View {
         // One owner for the screen staying awake: a cancelled build can unwind
         // after the next has started, so it mustn't switch it off itself.
         .onChange(of: phase.isWorking, initial: true) { _, working in
-            UIApplication.shared.isIdleTimerDisabled = working
+            model.keepAwake(.recap, working)
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -105,7 +105,7 @@ struct RecapView: View {
         .onChange(of: model.contentFilterEnabled) { _, _ in recheckShown() }
         .onDisappear {
             player?.pause()
-            UIApplication.shared.isIdleTimerDisabled = false
+            model.keepAwake(.recap, false)
             discardStaged()
         }
     }

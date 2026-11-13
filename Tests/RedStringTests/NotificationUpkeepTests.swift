@@ -16,6 +16,18 @@ final class NotificationUpkeepTests: XCTestCase {
         ]), "still registered: the ex's writes would keep pushing here")
     }
 
+    /// A refused or unreported save is no push for that kind: it must not be stamped verified for a day.
+    func testRegistrationCountsOnlySubscriptionsThatCameBackSaved() {
+        let ids = [CloudSync.SubscriptionID.status, CloudSync.SubscriptionID.moment]
+        let saved = CKQuerySubscription(recordType: "Status", predicate: NSPredicate(value: true),
+                                        subscriptionID: CloudSync.SubscriptionID.status)
+        XCTAssertTrue(CloudSync.subscriptionsSaved([:], []), "nothing asked for")
+        XCTAssertTrue(CloudSync.subscriptionsSaved([ids[0]: .success(saved), ids[1]: .success(saved)], ids))
+        XCTAssertFalse(CloudSync.subscriptionsSaved([ids[0]: .success(saved)], ids), "one not reported")
+        XCTAssertFalse(CloudSync.subscriptionsSaved([ids[0]: .success(saved),
+                                                     ids[1]: .failure(CKError(.serverRejectedRequest))], ids))
+    }
+
     func testTheSharedAccountCacheIsTrustedOnlyWithinItsLifetime() {
         let now = Fixtures.t0
         XCTAssertTrue(CloudSync.isFresh(now.addingTimeInterval(-60), now: now))

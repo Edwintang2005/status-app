@@ -28,6 +28,8 @@ enum BannerUpkeepPolicy {
         /// The partner's status record is still held unreadable.
         var statusHeld: Bool
         var partnerStatus: StatusPayload?
+        /// The fetch before this pass took the whole delta and read every record.
+        var caughtUp = false
         /// Every partner moment past the announced floor has been announced:
         /// a generic moment banner (`BannerSubject.newMoments`) had nothing new to say.
         var nothingUnannounced = false
@@ -57,8 +59,10 @@ enum BannerUpkeepPolicy {
         var actions: [Action] = []
         if let index = state.index {
             for banner in banners {
-                if banner.subject == .newMoments, state.nothingUnannounced {
-                    // CloudKit's words for a push that was an edit, a deletion or our own.
+                // CloudKit's words for a push that was an edit, a deletion or our own — but only
+                // once caught up with nothing held: otherwise its moment may just not be here yet.
+                if banner.subject == .newMoments, state.caughtUp, state.nothingUnannounced,
+                   state.heldMomentIDs.isEmpty {
                     actions.append(.remove(banner.id))
                     continue
                 }

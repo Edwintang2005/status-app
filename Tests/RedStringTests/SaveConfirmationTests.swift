@@ -46,6 +46,23 @@ final class SaveConfirmationTests: XCTestCase {
         XCTAssertEqual(CloudSync.confirmedPrunes(result, stale), [Fixtures.date(0), Fixtures.date(1)])
     }
 
+    /// An unlink that trusted the call alone said the space was gone while it stood.
+    func testAZoneDeletionIsConfirmedByItsOwnResult() {
+        XCTAssertNoThrow(try CloudSync.confirmZoneDeleted([zone: .success(())], zone))
+        XCTAssertThrowsError(try CloudSync.confirmZoneDeleted([zone: .failure(CKError(.networkFailure))], zone)) { error in
+            XCTAssertEqual((error as? CKError)?.code, .networkFailure)
+        }
+        // A zone already gone is reported as itself, so the callers' "already gone" catch still applies.
+        XCTAssertThrowsError(try CloudSync.confirmZoneDeleted([zone: .failure(CKError(.zoneNotFound))], zone)) { error in
+            XCTAssertTrue(CloudSync.isAlreadyGone(error as! CKError))
+        }
+        XCTAssertThrowsError(try CloudSync.confirmZoneDeleted([:], zone)) { error in
+            guard case SyncError.saveUnconfirmed? = error as? SyncError else {
+                return XCTFail("expected saveUnconfirmed, got \(error)")
+            }
+        }
+    }
+
     func testDeletionIsConfirmedTheSameWay() {
         XCTAssertNoThrow(try CloudSync.confirmDeleted(result(delete: .success(())), id))
         XCTAssertThrowsError(try CloudSync.confirmDeleted(result(delete: .failure(CKError(.unknownItem))), id))

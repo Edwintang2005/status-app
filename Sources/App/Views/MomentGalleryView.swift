@@ -55,8 +55,8 @@ struct MomentGalleryView: View {
     /// Deleted here or by its sender: its page goes. An index that couldn't be
     /// read is empty, which isn't everything deleted.
     private var moments: [Moment] {
-        let here = Set(model.history.map(\.id))
-        return here.isEmpty ? opened : opened.filter { here.contains($0.id) }
+        let here = model.historyByID
+        return here.isEmpty ? opened : opened.filter { here[$0.id] != nil }
     }
 
     /// The page after a removed one, else the one before; none left closes the gallery.
@@ -75,7 +75,7 @@ struct MomentGalleryView: View {
     /// The model's copy: `moments` was taken when the gallery opened, and an
     /// edited caption (here, or the partner's arriving) is newer.
     private func live(_ moment: Moment) -> Moment {
-        model.history.first { $0.id == moment.id } ?? moment
+        model.historyByID[moment.id] ?? moment
     }
 
     /// `scrollPosition(id:)` wants an optional; the pager never reports `nil`
@@ -96,7 +96,8 @@ struct MomentGalleryView: View {
                     ContentUnavailableView("Nothing here yet",
                                            systemImage: "photo.on.rectangle.angled")
                 } else {
-                    // Never a page-style TabView (CLAUDE.md file map, `MomentGalleryView`).
+                    // Never a page-style TabView: it builds every page, and stalls
+                    // mid-swipe when one changes.
                     ScrollView(.horizontal) {
                         LazyHStack(spacing: 0) {
                             ForEach(moments) { moment in
@@ -357,10 +358,14 @@ struct MomentGalleryView: View {
                         .foregroundStyle(Theme.mutedText)
                         .multilineTextAlignment(.center)
                         .contentTransition(.opacity)
+                        // A 13 pt line is a small target: 44 pt tall to tap.
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .animation(.easeOut(duration: 0.15), value: showsFullDate)
                 .accessibilityHint(showsFullDate ? "Shows how long ago" : "Shows the full date and time")
+                .accessibilityIdentifier("gallery.attribution")
                 // Here, not in the line: a moment without a place gets no view, so no gap.
                 .task(id: "\(moment.id)-\(loading.contains(moment.id))") {
                     // The full copy carries the place: a page showing only the thumbnail asks again once it lands.

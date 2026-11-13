@@ -46,10 +46,10 @@ struct PartnerCard: View, Equatable {
 
     private func card(now: Date) -> some View {
         let heartAt = heartAt(now: now)
-        return Button(action: onOpen) {
-            content(heartAt: heartAt)
-        }
-        .buttonStyle(.plain)
+        // Gestures, not a `Button`: a button takes a long press as its tap.
+        return content(heartAt: heartAt)
+        .contentShape(Theme.cardShape)
+        .onTapGesture(perform: onOpen)
         .overlay {
             Theme.cardShape
                 .strokeBorder(Theme.accent, lineWidth: 2)
@@ -66,19 +66,41 @@ struct PartnerCard: View, Equatable {
         .overlay(alignment: .top) {
             if !reduceMotion { risingHeart }
         }
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(summary(heartAt: heartAt, now: now))
         .accessibilityHint("Shows status history")
-        .contextMenu { moderationActions }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(.default, onOpen)
+        // A dialog, not a context menu: the menu lifts the card into a layer above
+        // every sheet, and a press caught while Home settled after launch left it
+        // drawn over the next sheet to open.
+        .onLongPressGesture(minimumDuration: 0.5) {
+            guard hasModerationActions else { return }
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            confirmingReport = true
+        }
         // Guideline 1.2: reachable under VoiceOver and Voice Control, not only by long-press.
         .accessibilityActions { moderationActions }
         .confirmationDialog("Report this status?",
                             isPresented: $confirmingReport,
                             titleVisibility: .visible) {
             Button("Report", role: .destructive, action: onReport)
+            if canReveal {
+                Button("Show hidden text", action: onReveal)
+            }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Its text is hidden on this iPhone straight away, and an email to us opens with the details — send it and we'll respond within 24 hours.")
         }
+    }
+
+    private var hasModerationActions: Bool {
+        if let status, !status.isReported { true } else { false }
+    }
+
+    private var canReveal: Bool {
+        guard let status, !status.isReported else { return false }
+        return status.isFiltered && status.message.isPlaceholder
     }
 
     private var risingHeart: some View {
@@ -107,13 +129,13 @@ struct PartnerCard: View, Equatable {
 
     @ViewBuilder
     private var moderationActions: some View {
-        if let status, !status.isReported {
+        if hasModerationActions {
             Button(role: .destructive) {
                 confirmingReport = true
             } label: {
                 Label("Report this status…", systemImage: "flag")
             }
-            if status.isFiltered, status.message.isPlaceholder {
+            if canReveal {
                 Button(action: onReveal) {
                     Label("Show hidden text", systemImage: "eye")
                 }

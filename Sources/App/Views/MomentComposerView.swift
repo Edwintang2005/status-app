@@ -29,6 +29,8 @@ struct MomentComposerView: View {
     @State private var importFailed = false
     @State private var confirmingDiscard = false
     @FocusState private var captionFocused: Bool
+    /// Set once: a second tap on Send while the sheet is on its way out would send it twice.
+    @State private var sent = false
 
     /// Anything worth a second thought before it's thrown away.
     private var hasContent: Bool { canSend || !caption.isEmpty }
@@ -73,7 +75,7 @@ struct MomentComposerView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Send") { send() }
                         .font(Theme.rounded(17, .semibold))
-                        .disabled(!canSend)
+                        .disabled(!canSend || sent)
                 }
             }
             .confirmationDialog("Discard this moment?",
@@ -281,7 +283,8 @@ struct MomentComposerView: View {
     }
 
     private func send() {
-        guard canSend else { return }
+        guard canSend, !sent else { return }
+        sent = true
         let location = PhotoLocation.forSend(hasPhoto: photo != nil, photo: photoLocation,
                                              fromCamera: photoFromCamera) { LocationStamp.shared.current }
         // An undrawn photo travels in its own frame: every surface shows the

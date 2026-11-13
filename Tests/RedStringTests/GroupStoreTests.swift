@@ -64,6 +64,56 @@ final class GroupStoreTests: XCTestCase {
         XCTAssertEqual(shared.snapshot.lastSeenPartnerNudgeCount, 7)
     }
 
+    /// A `mutate` that changes nothing writes nothing: every other process would
+    /// otherwise re-read the file, and a widget reload would be spent on nothing.
+    func testAnUnchangedMutateLeavesTheFileAndTheWidgetsAlone() throws {
+        let (store, directory) = makeStore()
+        let shared = SharedStore(store: store)
+        shared.mutate(reloadWidgets: false) { $0.lastSeenPartnerNudgeCount = 3 }
+        let file = directory.appendingPathComponent("snapshot")
+        let before = try XCTUnwrap(FileIdentity(file))
+
+        shared.mutate { $0.lastSeenPartnerNudgeCount = 3 }
+        XCTAssertEqual(FileIdentity(file), before, "same value: not rewritten")
+        XCTAssertNil(shared.widgetReloadRequestedAt, "nor a reload asked for")
+
+        shared.mutate { $0.lastSeenPartnerNudgeCount = 4 }
+        XCTAssertNotEqual(FileIdentity(file), before)
+        XCTAssertNotNil(shared.widgetReloadRequestedAt)
+    }
+
+    /// The same bytes again aren't rewritten.
+    func testAnIdenticalValueIsNotRewritten() throws {
+        let (store, directory) = makeStore()
+        let shared = SharedStore(store: store)
+        shared.widgetReloadRequestedAt = Fixtures.t0
+        let file = directory.appendingPathComponent("widgetReloadRequestedAt")
+        let before = try XCTUnwrap(FileIdentity(file))
+        shared.widgetReloadRequestedAt = Fixtures.t0
+        XCTAssertEqual(FileIdentity(file), before)
+        shared.widgetReloadRequestedAt = Fixtures.t0.addingTimeInterval(1)
+        XCTAssertNotEqual(FileIdentity(file), before)
+    }
+
+    /// Before first unlock the pairing file can't be read: that's never "unpaired",
+    /// or a partner's push is worded as from a space this phone left.
+    func testAnUnreadablePairingIsNotUnpaired() throws {
+        let (store, directory) = makeStore()
+        let shared = SharedStore(store: store)
+        guard case .unpaired = shared.pairingState else { return XCTFail("nothing stored yet") }
+        shared.pairing = PairingInfo(role: .owner, zoneName: AppConfig.coupleZoneName, zoneOwnerName: "_owner",
+                                     pairedAt: Fixtures.t0)
+        guard case .paired(let info) = shared.pairingState else { return XCTFail("stored") }
+        XCTAssertEqual(info.role, .owner)
+
+        let file = directory.appendingPathComponent("pairing")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: file.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path) }
+        // A fresh process, as a push wakes one before first unlock: nothing cached.
+        let (cold, _) = makeStore(in: directory)
+        guard case .unreadable = SharedStore(store: cold).pairingState else { return XCTFail("unreadable isn't unpaired") }
+    }
+
     private func makeStore(legacy: UserDefaults? = nil, isAppExtension: Bool = false,
                            in directory: URL? = nil) -> (GroupFileStore, URL) {
         let directory = directory ?? temporaryDirectory().appendingPathComponent("State", isDirectory: true)

@@ -89,7 +89,8 @@ final class ExpandedBanner {
     /// as well — the view may close, and the process go, before the fetch ends.
     func refresh() async {
         guard SharedStore.shared.pairing != nil else { return reload(final: true) }
-        try? await withDeadline(3) { await BannerUpkeep.run() }
+        // Before the fetch nothing is known to be caught up: the banner being looked at stays.
+        try? await withDeadline(3) { await BannerUpkeep.run(caughtUp: false) }
         // One widget reload for the pass, which fetches again unless this one got everything.
         let hold = SharedStore.shared.holdWidgetReloads()
         let result = try? await withDeadline(AppConfig.widgetDeadline) { try await CloudSync.shared.refresh() }
@@ -99,7 +100,7 @@ final class ExpandedBanner {
             try? await withDeadline(AppConfig.widgetDeadline) { try await CloudSync.shared.fetchAttachment(for: moment) }
         }
         reload(final: true)
-        try? await withDeadline(3) { await BannerUpkeep.run() }
+        try? await withDeadline(3) { await BannerUpkeep.run(caughtUp: result?.isWholeDelta ?? false) }
     }
 
     private func reload(final: Bool) {

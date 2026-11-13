@@ -234,7 +234,11 @@ struct FreshStartView: View {
             ? String(localized: "Memories saved to iCloud Drive › \(AppConfig.appName) › \(outcome.folder.lastPathComponent).")
             : String(localized: "Memories saved on this iPhone only.")
         if !outcome.isComplete {
-            let text = saved + " " + String(localized: "Some of your history couldn't be read from iCloud, so nothing was asked or agreed. Try again with a better connection.")
+            // Only an update saves a newer build's moments; anything else may just need signal.
+            let why = outcome.unsupported > 0 && outcome.unrecovered == 0
+                ? String(localized: "Some of your history needs a newer version of \(AppConfig.appName) to be saved, so nothing was asked or agreed. Update it from the App Store, then try again.")
+                : String(localized: "Some of your history couldn't be saved, so nothing was asked or agreed. Try again with a better connection.")
+            let text = saved + " " + why
             if outcome.destination == .deviceOnly {
                 noticeAfterShare = text
                 sharing = SharedArchive(url: outcome.folder)

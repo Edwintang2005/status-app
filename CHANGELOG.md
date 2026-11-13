@@ -6,6 +6,49 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 Version 1.6.3.
 
+- **Whole-codebase review fixes.**
+  - *Save memories, then unlink or fresh start* no longer goes ahead when
+    photos or memos couldn't be downloaded: the archive now has to hold every
+    file before anything is deleted. Each file is copied as soon as it's on the
+    phone (a long archive's early downloads could be tidied away before the
+    copy), failed downloads are tried once more after a pause, and the screen
+    stays awake while it runs. A moment from a newer version of the app also
+    stops it, with "update first" rather than "try again with a better connection".
+  - Unlinking from the inviting phone, and replacing an old shared space,
+    check iCloud actually deleted it rather than trusting the call.
+  - Setting up pushes no longer takes a refusal from iCloud as "already set
+    up" and stops checking for a day; each subscription must come back saved.
+  - A favourite whose download hangs no longer stops automatic sends until
+    relaunch: on-demand downloads are bounded, and topping up favourites runs
+    beside the send pass instead of inside it.
+  - Before the first unlock after a restart, a push is no longer worded
+    "From a shared space you've left": an unreadable store is told apart from
+    an unlinked one, and the banner is reworded once the phone can read. The
+    widget, which can't read either, comes back in 15 minutes rather than an hour.
+  - A "sent you something" banner is kept until a full fetch shows nothing new
+    is coming — the expanded banner could remove itself while open.
+  - The photo composer's Send can't send twice.
+  - The gallery's tappable date line is a full 44 pt target.
+  - Long-pressing your partner's status opens the report dialog directly,
+    with no lifted card — the likely cause of their status box briefly drawing
+    over a sheet opened just after launch.
+  - Opening the app keeps the milestone and Christmas notes (their tap is the
+    way in), and widgets redraw only on a return from the background.
+  - Less work per sync: unchanged state isn't rewritten (and doesn't reload
+    widgets), a sync with no moments in it doesn't read the 5,000-moment
+    history, arrivals are filed off the main thread, and the gallery looks
+    moments up by id instead of scanning the history on every page turn.
+  - A corrupt history file is only set aside under the cross-process lock.
+  - The UI smoke reports a sheet that needed a second tap, or an audit that
+    timed out, instead of passing over it.
+  - Docs and comments brought up to date.
+
+- **Faster CI.** The Release check runs as its own job beside the tests and
+  builds one architecture rather than two (129 s → 66 s on an M2); the
+  simulator boots while the Debug build runs; Debug builds no longer make
+  dSYMs (Release and archives still do), and the test bundle no longer
+  compiles the accent colour's catalogue. The jobs are now `test` and
+  `release` — a branch rule naming `build-and-test` needs updating.
 - **Ten times the history on the phone.** The library now keeps your newest
   5,000 moments instead of 500 (about 1 MB of details). A phone updating from
   an older build fetches the rest of its history once, on first launch — quietly:

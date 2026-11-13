@@ -24,6 +24,11 @@ struct ArchiveContents: Sendable {
 
     /// Nothing the zone held was left out.
     var isComplete: Bool { includesZone && unreadable == 0 }
+
+    /// Safe as the last copy before an unlink or a fresh start: nothing left out,
+    /// and every picture and memo saved — a download that failed is a photo the
+    /// delete would take with it.
+    func isComplete(unrecovered: Int) -> Bool { isComplete && unrecovered == 0 }
     var isEmpty: Bool { moments.isEmpty && statuses.isEmpty }
 
     /// Local copies win: they keep what an unreadable re-delivery would blank

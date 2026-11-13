@@ -24,7 +24,8 @@ extension CloudSync {
         do {
             switch pairing.role {
             case .owner:
-                _ = try await database.modifyRecordZones(saving: [], deleting: [zone])
+                let result = try await database.modifyRecordZones(saving: [], deleting: [zone])
+                try Self.confirmZoneDeleted(result.deleteResults, zone)
             case .participant:
                 try await deleteOwnRecords(role: pairing.role, in: zone, database: database)
                 try await leaveShare(zone: zone, database: database)
@@ -71,7 +72,8 @@ extension CloudSync {
         guard case .success(let record)? = zones[zone],
               let shareID = record.share?.recordID else {
             // No share reference — drop the zone from our shared database instead.
-            _ = try await database.modifyRecordZones(saving: [], deleting: [zone])
+            let result = try await database.modifyRecordZones(saving: [], deleting: [zone])
+            try Self.confirmZoneDeleted(result.deleteResults, zone)
             return
         }
         try Self.confirmDeleted(try await database.modifyRecords(saving: [], deleting: [shareID]), shareID)

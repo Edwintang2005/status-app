@@ -84,7 +84,8 @@ extension AppModel {
         await refresh()
     }
 
-    /// Returns once the fetch lands; the recovery pass it unlocks runs on after,
+    /// Returns once the fetch lands — or at once when one is already running
+    /// (it then runs again after); the recovery pass it unlocks runs on after,
     /// so pull-to-refresh doesn't wait on uploads.
     func refresh(noteIfBusy: Bool = true) async {
         guard refreshGate.begin(noteIfBusy: noteIfBusy) else { return }
@@ -141,12 +142,21 @@ extension AppModel {
         repeat {
             await sendQueued(automatic: true)
             await outbox.flushReceipts(automatic: true)
-            await restoreLatestThumbnailIfMissing()
-            await fetchMissingFavourites()
+            topUpMedia()
             await checkShareMembers(throttled: true)
             await checkInstalledWidgets()
         } while recoveryGate.takeRequest()
         recoveryGate.end()
+    }
+
+    /// Downloads, not sends: off the recovery gate, one run at a time.
+    private func topUpMedia() {
+        guard mediaTopUp == nil else { return }
+        mediaTopUp = Task {
+            await restoreLatestThumbnailIfMissing()
+            await fetchMissingFavourites()
+            mediaTopUp = nil
+        }
     }
 
     /// Everything queued, in order. Re-read before the uploads, which can take
@@ -185,9 +195,12 @@ extension AppModel {
     /// reload asked for from the front doesn't count against WidgetKit's
     /// budget, so opening the app frees a widget left on an old timeline (an
     /// outage's failed refreshes) instead of it waiting out its hourly backstop.
-    func redrawWidgets() {
-        guard UIApplication.shared.applicationState == .active else { return }
+    /// - Returns: whether it asked (only from the front).
+    @discardableResult
+    func redrawWidgets() -> Bool {
+        guard UIApplication.shared.applicationState == .active else { return false }
         SharedStore.reloadWidgets()
+        return true
     }
 
     /// One fetch and reload; `false` when it failed or there was nothing to fetch for.

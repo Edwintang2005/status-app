@@ -191,6 +191,12 @@ final class StatusHistoryLog: @unchecked Sendable {
         do {
             decoded = try JSONDecoder.shared.decode(LossyArray<StatusHistoryEntry>.self, from: data)
         } catch {
+            // A plain read holds no cross-process lock: sidelined only under it, re-read
+            // there, or it could bin a fresh file another process's writer just saved.
+            guard writing else {
+                cache = nil
+                return crossLock.withLock { loadUnlocked(writing: true) }
+            }
             log.error("Corrupt status history: \(error.localizedDescription)")
             // Bytes kept in the sidecar; the zone's `StatusLog` records refill the
             // newest of each side on the full resync the token clear forces.

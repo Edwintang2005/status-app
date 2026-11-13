@@ -1,8 +1,7 @@
 import Foundation
 import os
 
-/// Cross-process key/value storage shared by the app, widget and notification
-/// extension. Files, not `UserDefaults(suiteName:)` — the suite's plist can land
+/// Cross-process key/value storage shared by the app and its four extensions. Files, not `UserDefaults(suiteName:)` — the suite's plist can land
 /// in the app's private container, leaving extensions reading an empty suite.
 protocol GroupKeyValueStore: AnyObject {
     func data(forKey key: String) -> Data?

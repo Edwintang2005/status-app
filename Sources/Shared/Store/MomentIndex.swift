@@ -92,6 +92,12 @@ final class MomentIndex: @unchecked Sendable {
         do {
             decoded = try JSONDecoder.shared.decode(LossyArray<Moment>.self, from: data)
         } catch {
+            // A plain read holds no cross-process lock: sidelined only under it, re-read
+            // there, or it could bin a fresh file another process's writer just saved.
+            guard writing else {
+                cache = nil
+                return crossLock.withLock { loadUnlocked(writing: true) }
+            }
             log.error("Corrupt moment index: \(error.localizedDescription)")
             // Preserve the bytes rather than letting the next save overwrite them,
             // then clear the sync cursors so the next refresh pulls the whole zone

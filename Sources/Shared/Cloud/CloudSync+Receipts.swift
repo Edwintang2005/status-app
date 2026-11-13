@@ -12,7 +12,6 @@ extension CloudSync {
         let recordID = CKRecord.ID(recordName: pairing.role.receiptRecordName,
                                    zoneID: zoneID(for: pairing))
 
-        // `.changedKeys` never reports a conflict: the last writer's map wins.
         try await withZoneRecovery(pairing) {
             try await saveReceipts(seen, statusSeen: statusSeen, to: recordID, in: database)
         }

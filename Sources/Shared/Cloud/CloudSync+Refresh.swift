@@ -10,8 +10,11 @@ extension CloudSync {
     /// the entire zone back — which is how a reinstall recovers the full history.
     @discardableResult
     func refresh() async throws -> RefreshResult {
-        guard let pairing = await MainActor.run(body: { SharedStore.shared.pairing }) else {
-            throw SyncError.notPaired
+        let pairing: PairingInfo
+        switch await MainActor.run(body: { SharedStore.shared.pairingState }) {
+        case .paired(let info): pairing = info
+        case .unpaired: throw SyncError.notPaired
+        case .unreadable: throw SyncError.storeUnreadable
         }
         // `requirePairing`'s account check, alongside the fetch rather than before
         // it — a cold extension's lookup is a round trip of its own. Judged before
@@ -296,8 +299,9 @@ extension CloudSync {
         }
 
         // Captured before the deletions and the insert below, so "new" can mean
-        // "not already stored".
-        let indexed = MomentIndex.shared.load()
+        // "not already stored". Only when the delta touches moments: decoding 5,000
+        // entries for a status or a heart is most of an extension's pass.
+        let indexed = parsed.moments.isEmpty && parsed.removedMomentIDs.isEmpty ? [] : MomentIndex.shared.load()
         let alreadyKnown = Set(indexed.map(\.id))
         // Published words only: an edit still on its way out isn't contradicted by the old copy.
         let knownCaptions = Dictionary(indexed.filter(\.captionPublished).map { ($0.id, $0.caption) },
@@ -380,12 +384,12 @@ extension CloudSync {
                 store.requestWidgetReload()
             }
         } else {
-            await MainActor.run {
-                store.record(arrived) {
-                    let epoch = SharedStore.shared.snapshot.freshStart.clearedBefore
-                    let isCleared = FreshStartPolicy.clearedFilter(createdAt: created.moments, epoch: epoch)
-                    return { isCleared($0.id) }
-                }
+            // Off the main actor: an index rewrite, a snapshot write and a media
+            // prune, all thread-safe, mustn't stall the app's UI per arriving moment.
+            store.record(arrived) {
+                let epoch = SharedStore.shared.snapshot.freshStart.clearedBefore
+                let isCleared = FreshStartPolicy.clearedFilter(createdAt: created.moments, epoch: epoch)
+                return { isCleared($0.id) }
             }
         }
 

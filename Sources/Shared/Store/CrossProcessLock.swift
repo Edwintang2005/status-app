@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-/// Mutual exclusion across the app, widget and notification-service *processes*
+/// Mutual exclusion across the app's and its extensions' *processes*
 /// (`NSLock` only covers one process). POSIX `flock` on a group-container file:
 /// kernel-released if the holder dies, and contends correctly across threads too.
 final class CrossProcessLock: @unchecked Sendable {

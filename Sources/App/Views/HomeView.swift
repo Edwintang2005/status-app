@@ -329,8 +329,10 @@ struct HomeView: View {
             || showingFreshStart || !carouselQueue.isEmpty || recap != nil
     }
 
-    private func consumePendingRoute() {
-        guard let route = model.pendingRoute, !anySheetShowing, !model.rootSheetShowing else { return }
+    /// - Returns: whether a sheet is now on its way up over Home.
+    @discardableResult
+    private func consumePendingRoute() -> Bool {
+        guard let route = model.pendingRoute, !anySheetShowing, !model.rootSheetShowing else { return false }
         model.pendingRoute = nil
         switch route {
         case .compose:
@@ -343,16 +345,18 @@ struct HomeView: View {
             recap = RecapRequest(period: .year(year))
         case .newMoments:
             carouselQueue = model.carouselMoments
+            return !carouselQueue.isEmpty
         case .moment(let id):
             // Not filed yet (the widget can run ahead of the app): the new arrivals.
             guard let moment = model.history.first(where: { $0.id == id && !$0.isVoice }) else {
                 carouselQueue = model.carouselMoments
-                return
+                return !carouselQueue.isEmpty
             }
             let unseen = model.unseenVisualMoments
             carouselStart = moment
             carouselQueue = unseen.contains { $0.id == id } ? unseen : [moment]
         }
+        return true
     }
 
     // MARK: - Actions
@@ -535,16 +539,20 @@ private struct HomeLifecycle: ViewModifier {
     @Binding var momentArrivals: Int
     @Binding var showsSent: Bool
     let sentPillSeconds: TimeInterval
-    let consumePendingRoute: () -> Void
+    /// Whether a sheet is now on its way up over Home.
+    let consumePendingRoute: () -> Bool
 
     func body(content: Content) -> some View {
         content
             .onChange(of: model.pendingRoute) { _, route in
-                if route != nil { consumePendingRoute() }
+                if route != nil { _ = consumePendingRoute() }
             }
             // `onChange` misses a route latched while this view wasn't mounted, so
-            // consume any pending one on mount too.
-            .onAppear { consumePendingRoute() }
+            // consume any pending one on mount too. Their status counts as seen on
+            // arrival — unless that route (a banner tap at launch) covers it at once.
+            .onAppear {
+                if !consumePendingRoute() { model.markPartnerStatusSeen() }
+            }
             // A deep link that arrived while another sheet was up stays latched;
             // present it once that sheet closes instead of silently dropping it.
             .onChange(of: anySheetShowing) { _, showing in
@@ -556,18 +564,18 @@ private struct HomeLifecycle: ViewModifier {
                     voicePlayer.pause()
                     return
                 }
-                consumePendingRoute()
                 // A status that landed under a sheet is seen once it's uncovered —
-                // unless the queued composer just covered it again.
-                model.homeSheetShowing = anySheetShowing
+                // unless a queued route just covered it again.
+                let covered = consumePendingRoute()
+                model.homeSheetShowing = covered
+                guard !covered else { return }
                 model.markPartnerStatusSeen()
             }
             .onChange(of: model.rootSheetShowing) { _, showing in
                 if showing {
                     voicePlayer.pause()
-                } else {
+                } else if !consumePendingRoute() {
                     model.markPartnerStatusSeen()
-                    consumePendingRoute()
                 }
             }
             // Arrivals while Home is in front: the card updates in place under the
@@ -596,8 +604,7 @@ private struct HomeLifecycle: ViewModifier {
             .onAppear { model.homeSheetShowing = anySheetShowing }
             .onDisappear { model.homeSheetShowing = false }
             // The status read receipt: their status counts as seen whenever it is
-            // on this screen in the foreground — on arrival, and on every return.
-            .onAppear { model.markPartnerStatusSeen() }
+            // on this screen in the foreground — on arrival (above), and on every return.
             .onChange(of: model.snapshot.theirs?.updatedAt) { _, _ in model.markPartnerStatusSeen() }
             .onChange(of: scenePhase) { _, phase in
                 guard phase == .active else { return }
@@ -612,11 +619,11 @@ private struct HomeLifecycle: ViewModifier {
             }
             // The clear only runs while the app is in front; a sleeping screen ends it.
             .onChange(of: model.isClearingHistory, initial: true) { _, clearing in
-                UIApplication.shared.isIdleTimerDisabled = clearing
+                model.keepAwake(.freshStartClear, clearing)
                 guard clearing else { return }
                 AccessibilityNotification.Announcement(String(localized: "Clearing your shared history. Keep \(AppConfig.appName) open until it finishes.")).post()
             }
-            .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+            .onDisappear { model.keepAwake(.freshStartClear, false) }
             .onChange(of: model.freshStartPhase) { old, new in
                 guard case .clearing = old else { return }
                 if case .clearing = new { return }

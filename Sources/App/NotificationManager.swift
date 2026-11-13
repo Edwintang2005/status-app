@@ -77,9 +77,16 @@ enum NotificationManager {
     }
 
     /// Sweeps this app's delivered notifications. Called when the app becomes
-    /// active — everything a banner said is then on screen.
+    /// active — everything a banner said is then on screen. Except the milestone
+    /// and Christmas notes: their tap is the way in (the count, the recap), and
+    /// opening the app by its icon mustn't throw that away.
     static func clearDelivered() {
-        UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+        UNUserNotificationCenter.current().getDeliveredNotifications { delivered in
+            let kept: Set<String> = [NotificationCategory.milestone, NotificationCategory.recap]
+            let ids = delivered.filter { !kept.contains($0.request.content.categoryIdentifier) }
+                .map(\.request.identifier)
+            if !ids.isEmpty { UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ids) }
+        }
     }
 
     /// Removes delivered banners still wearing CloudKit's generic wording, or the
@@ -142,8 +149,6 @@ enum NotificationManager {
         }
     }
 
-    /// The partner unlinked and no push said so: quiet, since nothing can be
-    /// done about it from a banner — Home's notice carries what to do next.
     /// The partner deleted moments soon after sending them; worded as the push would be.
     static func postRemoval(from name: String, count: Int) async {
         let content = UNMutableNotificationContent()
@@ -160,6 +165,8 @@ enum NotificationManager {
         }
     }
 
+    /// The partner unlinked and no push said so: quiet, since nothing can be
+    /// done about it from a banner — Home's notice carries what to do next.
     static func postPartnerLeft(name: String) async {
         let content = UNMutableNotificationContent()
         content.title = name

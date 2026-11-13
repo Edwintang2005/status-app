@@ -16,14 +16,16 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # One DerivedData for every step of a job, so each builds on the last.
+  DERIVED_DATA: build/DerivedData
+  RESULTS: build/Results
+
+# Two jobs side by side: the run takes as long as the slower one.
 jobs:
-  build-and-test:
+  test:
     runs-on: macos-26
     timeout-minutes: 45
-    env:
-      # One DerivedData for every step, so each builds on the last.
-      DERIVED_DATA: build/DerivedData
-      RESULTS: build/Results
     steps:
       - uses: actions/checkout@v4
 
@@ -62,19 +64,23 @@ jobs:
             | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["name"] for r in sorted(d, reverse=True) if "iOS" in r for x in d[r] if x["name"].startswith("iPhone")))')
           echo "Using $SIM"
           echo "SIM=$SIM" >> "$GITHUB_ENV"
+          # Boots while the build runs; the test step waits for it.
+          xcrun simctl boot "$SIM" >/dev/null 2>&1 &
 
-      # Unsigned, warnings as errors. One Debug build: the app, both extensions
-      # and the unit tests.
+      # Unsigned, warnings as errors. One Debug build: the app, all four extensions
+      # and the unit tests. No index store: nothing reads it here, and the same
+      # settings on the UI-test build keep it from rebuilding these products.
       - name: Build Debug for testing
         run: |
           xcodebuild build-for-testing -project RedString.xcodeproj -scheme RedString \
             -destination "platform=iOS Simulator,name=$SIM" \
             -configuration Debug CODE_SIGNING_ALLOWED=NO \
-            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES \
+            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES COMPILER_INDEX_STORE_ENABLE=NO \
             -derivedDataPath "$DERIVED_DATA" -resultBundlePath "$RESULTS/build-debug.xcresult"
 
       - name: Unit tests
         run: |
+          xcrun simctl bootstatus "$SIM" -b
           xcodebuild test-without-building -project RedString.xcodeproj -scheme RedString \
             -destination "platform=iOS Simulator,name=$SIM" \
             -configuration Debug CODE_SIGNING_ALLOWED=NO \
@@ -87,23 +93,48 @@ jobs:
           xcodebuild build-for-testing -project RedString.xcodeproj -scheme RedStringUITests \
             -destination "platform=iOS Simulator,name=$SIM" \
             -configuration Debug CODE_SIGNING_ALLOWED=NO \
-            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES \
+            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES COMPILER_INDEX_STORE_ENABLE=NO \
             -derivedDataPath "$DERIVED_DATA" -resultBundlePath "$RESULTS/build-uitests.xcresult"
 
-      # Release too: the #if DEBUG boundaries (demo mode, previews) are
-      # otherwise first compiled on archive day.
+      - name: Upload results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcresults-test
+          path: build/Results
+          if-no-files-found: ignore
+
+  # Release too: the #if DEBUG boundaries (demo mode, previews) are otherwise
+  # first compiled on archive day. Builds the committed project; the test job
+  # checks it against project.yml.
+  release:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # The same Xcode as the test job.
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "^26.0"
+
+      - run: xcodebuild -version
+
+      # arm64 only (the generic simulator means x86_64 as well) and no dSYMs:
+      # this is a compile check, and both doubled it.
       - name: Build Release
         run: |
           xcodebuild -project RedString.xcodeproj -scheme RedString \
             -destination "generic/platform=iOS Simulator" \
             -configuration Release CODE_SIGNING_ALLOWED=NO \
             SWIFT_TREAT_WARNINGS_AS_ERRORS=YES \
+            ARCHS=arm64 DEBUG_INFORMATION_FORMAT=dwarf \
             -derivedDataPath "$DERIVED_DATA" -resultBundlePath "$RESULTS/build-release.xcresult" build
 
       - name: Upload results
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: xcresults
+          name: xcresults-release
           path: build/Results
           if-no-files-found: ignore

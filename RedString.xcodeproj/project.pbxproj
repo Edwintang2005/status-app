@@ -396,7 +396,6 @@
 		A9B4CF5F59927F105644DEFE /* CloudSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30D8E86092F4D16270481EB1 /* CloudSync.swift */; };
 		A9DF51CC1F10497766F43B14 /* SharePostureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AA001125C4CD986CB614BB0 /* SharePostureTests.swift */; };
 		A9FFA4F9C91044EEF5128A4D /* MilestoneReminderPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA68F3769B7B000DE4551E6C /* MilestoneReminderPlan.swift */; };
-		AA0CA77226C4F0B2FE358259 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B010D0666534AA91EF320B6F /* Assets.xcassets */; };
 		AA1D312CE641482239496FD4 /* PushBannerPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C154094576CEFD18DB54ABD0 /* PushBannerPolicy.swift */; };
 		AA1EEFD203CAAE9EC14A8D11 /* RecapPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BC980E9FFF04CCFB127815F /* RecapPlan.swift */; };
 		AAEDB5472BA6D57121D2B92E /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68217B2049E1E37F4824759E /* Theme.swift */; };
@@ -1357,7 +1356,6 @@
 			buildConfigurationList = 99272621FE69BABECB517C6F /* Build configuration list for PBXNativeTarget "RedStringTests" */;
 			buildPhases = (
 				32FCE1F8656D8AC109C0CF76 /* Sources */,
-				1F89859CFB49104FD810AD24 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -1514,14 +1512,6 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		1F89859CFB49104FD810AD24 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				AA0CA77226C4F0B2FE358259 /* Assets.xcassets in Resources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		2A18F93F4C9A3E732EE584A3 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -2498,7 +2488,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 86;
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 3L8Q3U3WY3;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;

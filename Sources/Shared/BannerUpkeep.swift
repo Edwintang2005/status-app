@@ -9,7 +9,9 @@ import os
 enum BannerUpkeep {
     private static let log = Logger(subsystem: AppConfig.appGroupID, category: "BannerUpkeep")
 
-    static func run(incoming: BannerSubject? = nil) async {
+    /// - Parameter caughtUp: this pass's fetch took the whole delta and read every
+    ///   record: only then does "nothing unannounced in the index" mean nothing is coming.
+    static func run(incoming: BannerSubject? = nil, caughtUp: Bool) async {
         let center = UNUserNotificationCenter.current()
         let delivered = await center.deliveredNotifications()
         #if DEBUG
@@ -53,6 +55,7 @@ enum BannerUpkeep {
             },
             statusHeld: heldNames.contains(theirs.statusRecordName),
             partnerStatus: snapshot.theirs,
+            caughtUp: caughtUp,
             nothingUnannounced: index.map {
                 AnnouncementPolicy.bannerCandidates($0, floor: snapshot.lastAnnouncedMomentSentAt)
                     .allSatisfy { snapshot.hasAnnounced($0.id) }

@@ -6,6 +6,8 @@ import os
 /// `CKError` so the message in Settings stays honest.
 enum SyncError: LocalizedError {
     case notPaired
+    /// The pairing file exists but can't be read yet (`SharedStore.PairingState.unreadable`).
+    case storeUnreadable
     case iCloudUnavailable(CKAccountStatus)
     case shareURLMissing
     /// The invite-close handshake couldn't finish: the share was unreadable
@@ -54,6 +56,8 @@ enum SyncError: LocalizedError {
         switch self {
         case .notPaired:
             return String(localized: "This device isn't paired yet.")
+        case .storeUnreadable:
+            return String(localized: "This iPhone's data can't be read until it's unlocked.")
         case .iCloudUnavailable(let status):
             switch status {
             case .noAccount:
@@ -447,6 +451,13 @@ actor CloudSync: SyncBackend {
     /// Same for a deletion; "never existed" is a success the callers decide on.
     static func confirmDeleted(_ result: ModifyResult, _ id: CKRecord.ID) throws {
         guard let deleted = result.deleteResults[id] else { throw SyncError.saveUnconfirmed }
+        try deleted.get()
+    }
+
+    /// Same for a zone: a failed zone can sit inside a result that didn't throw,
+    /// and an unlink that trusts the call alone reports the space gone while it stands.
+    static func confirmZoneDeleted(_ results: [CKRecordZone.ID: Result<Void, Error>], _ id: CKRecordZone.ID) throws {
+        guard let deleted = results[id] else { throw SyncError.saveUnconfirmed }
         try deleted.get()
     }
 }

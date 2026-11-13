@@ -103,6 +103,14 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         content.userInfo[NotificationCategory.heldBannerKey] = push.category
     }
 
+    /// Before first unlock nothing here can be read: CloudKit's words go out as
+    /// they are, held, and whatever runs first once it can read rewords them.
+    private func unreadableStore(_ content: UNMutableNotificationContent, push: PushBannerPolicy.Push) -> UNNotificationContent {
+        note(.unworded, "store unreadable")
+        Self.markUnworded(content, push: push)
+        return content
+    }
+
     private func setFallback(_ content: UNMutableNotificationContent) {
         let copy = content.copy() as? UNNotificationContent
         deliveryLock.lock()
@@ -126,18 +134,25 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
             return content
         }
 
-        // Unpaired with the old subscriptions still registered (an offline block,
-        // a local-only reset): never at full volume, never a heart to send back.
-        guard await MainActor.run(body: { SharedStore.shared.pairing != nil }) else {
+        switch await MainActor.run(body: { SharedStore.shared.pairingState }) {
+        case .paired:
+            break
+        case .unpaired:
+            // Unpaired with the old subscriptions still registered (an offline block,
+            // a local-only reset): never at full volume, never a heart to send back.
             widgetNeedsFetch = false
             note(.worded, "unpaired")
             apply(PushBannerPolicy.unpaired, to: content)
             return content
+        case .unreadable:
+            return unreadableStore(content, push: push)
         }
 
         let result: RefreshResult
         do {
             result = try await CloudSync.shared.refresh()
+        } catch SyncError.storeUnreadable {
+            return unreadableStore(content, push: push)
         } catch SyncError.notPaired {
             // Unpaired, like the guard above: there's nothing for the widget to fetch.
             widgetNeedsFetch = false
@@ -192,7 +207,7 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         setFallback(content)
         // This push's own picture first; then earlier banners (`tidyUp`).
         guard let moment = plan.attachment else {
-            await tidyUp(incoming: plan.subject)
+            await tidyUp(incoming: plan.subject, caughtUp: result.isWholeDelta)
             return content
         }
         // The refresh fetched at most the widget's thumbnail; pull only what the
@@ -208,16 +223,16 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
             content.attachments = [attachment]
             content.userInfo[BannerSubject.wantsAttachmentKey] = nil
         }
-        await tidyUp(incoming: plan.subject)
+        await tidyUp(incoming: plan.subject, caughtUp: result.isWholeDelta)
         return content
     }
 
     /// Earlier banners this pass can now complete — reworded, given their
     /// picture, withdrawn — since the phone may have been locked when they came.
     /// Bounded, and skipped once out of time: this push's banner goes out regardless.
-    private func tidyUp(incoming: BannerSubject?) async {
+    private func tidyUp(incoming: BannerSubject?, caughtUp: Bool) async {
         guard !Task.isCancelled else { return }
-        try? await withDeadline(3) { await BannerUpkeep.run(incoming: incoming) }
+        try? await withDeadline(3) { await BannerUpkeep.run(incoming: incoming, caughtUp: caughtUp) }
     }
 
     /// Its own banner beside this push's, as the app would post it; a picture

@@ -46,9 +46,6 @@ settings:
     LOCALIZATION_PREFERS_STRING_CATALOGS: YES
     GENERATE_INFOPLIST_FILE: NO
     ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-    # dSYMs for every archive, so TestFlight and App Store crash reports come
-    # back symbolicated rather than as raw addresses.
-    DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
   # Set per-configuration, NOT in `base`: a base-level override replaces
   # Xcode's built-in Debug value instead of adding to it, which silently
   # strips DEBUG and compiles out every #if DEBUG block — previews included.
@@ -56,8 +53,14 @@ settings:
     Debug:
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
       ONLY_ACTIVE_ARCH: YES
+      # No dSYMs in Debug: the debugger reads the object files, and making
+      # eleven of them every build was pure overhead.
+      DEBUG_INFORMATION_FORMAT: dwarf
     Release:
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: ""
+      # dSYMs for every archive, so TestFlight and App Store crash reports come
+      # back symbolicated rather than as raw addresses.
+      DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
       SWIFT_COMPILATION_MODE: wholemodule
       VALIDATE_PRODUCT: YES
 
@@ -216,6 +219,9 @@ targets:
     platform: iOS
     sources:
       - path: Sources/Shared
+        # Only the accent colour's catalogue, which no test reads.
+        excludes:
+          - "Resources/**"
       - path: Tests/RedStringTests
     settings:
       base:

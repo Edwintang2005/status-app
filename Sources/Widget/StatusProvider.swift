@@ -9,8 +9,8 @@ struct StatusEntry: TimelineEntry {
     var photo: UIImage?
 }
 
-/// Renders from the App Group cache, opportunistically refreshing from
-/// CloudKit as a backstop for dropped silent pushes.
+/// Renders from the App Group cache, refreshing from CloudKit as a backstop
+/// for pushes that never reached the notification service.
 struct StatusProvider: TimelineProvider {
     private static let log = Logger(subsystem: AppConfig.appGroupID, category: "Widget")
 
@@ -44,7 +44,8 @@ struct StatusProvider: TimelineProvider {
                                     lastNudgeIssuedAt: snapshot.lastNudgeIssuedAt,
                                     heldSince: SharedStore.shared.unreadableTally.heldSince,
                                     incomplete: refresh.result?.incomplete ?? false,
-                                    offline: refresh.offline)
+                                    offline: refresh.offline,
+                                    locked: refresh.locked)
             let store = SharedStore.shared
             store.lastWidgetRun = .recorded(after: store.lastWidgetRun, at: Date(), outcome: refresh.outcome,
                                             detail: refresh.detail, nextReload: plan.nextReload)
@@ -64,9 +65,11 @@ struct StatusProvider: TimelineProvider {
     }
 
     /// `offline`: no route or no sign-in, so the next reload backs off (`WidgetReloadPolicy`).
+    /// `locked`: the store can't be read before first unlock, so it comes sooner.
     private struct Refresh: Sendable {
         var result: RefreshResult?
         var offline = false
+        var locked = false
         var outcome: SharedStore.WidgetRun.Outcome
         var detail: String?
     }
@@ -76,7 +79,13 @@ struct StatusProvider: TimelineProvider {
 
     /// Best effort — a failure here just means the cached snapshot is served.
     private static func refreshIfPossible() async -> Refresh {
-        guard await MainActor.run(body: { SharedStore.shared.pairing != nil }) else { return Refresh(outcome: .unpaired) }
+        switch await MainActor.run(body: { SharedStore.shared.pairingState }) {
+        case .paired: break
+        case .unpaired: return Refresh(outcome: .unpaired)
+        // Not "unpaired": a locked phone's run, retried soon (`WidgetReloadPolicy.whileLocked`).
+        case .unreadable: return Refresh(locked: true, outcome: .failed,
+                                         detail: String(localized: "data locked until first unlock"))
+        }
         let store = SharedStore.shared
         guard WidgetReloadPolicy.shouldFetch(lastSyncedAt: store.snapshot.lastSyncedAt,
                                              reloadRequestedAt: store.widgetReloadRequestedAt) else {
@@ -88,7 +97,7 @@ struct StatusProvider: TimelineProvider {
                 let result = try await withDeadline(AppConfig.widgetDeadline) { try await Backend.current.refresh() }
                 // Often the first of ours to run after an unlock: it rewords what a
                 // locked phone's pushes couldn't. Bounded, like everything here.
-                try? await withDeadline(3) { await BannerUpkeep.run() }
+                try? await withDeadline(3) { await BannerUpkeep.run(caughtUp: result.isWholeDelta) }
                 return Refresh(result: result, outcome: .fetched)
             } catch {
                 log.notice("Widget refresh skipped: \(error.localizedDescription)")

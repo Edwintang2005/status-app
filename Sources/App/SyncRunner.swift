@@ -33,7 +33,7 @@ enum SyncRunner {
             case .removed(let count): await NotificationManager.postRemoval(from: name, count: count)
             }
         }
-        await BannerUpkeep.run()
+        await BannerUpkeep.run(caughtUp: result.isWholeDelta)
 
         return AnnouncementPolicy.changed(result, previousStatus: previousStatus)
     }

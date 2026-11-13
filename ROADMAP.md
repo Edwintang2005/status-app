@@ -333,10 +333,9 @@ the slashed heart from `lastNudgeFailedAt`. No schema.
 `StatusHistoryView.byDay` already does the grouping; the moment library is a
 flat grid. Sections by day plus a caption/sender search field.
 
-### Status history: report from the sheet, and live refresh (S) ★
-`StatusHistoryView` loads once (`.task`) and offers no report action; a status
-that lands while it's open doesn't appear, and reporting means backing out to
-the home card. Reload on `pairingDidChange`, add "Report…" to partner rows
+### Status history: report from the sheet (S) ★
+`StatusHistoryView` reloads as statuses land, but offers no report action:
+reporting means backing out to the home card. Add "Report…" to partner rows
 (reuses `reportPartnerStatus` for the current one; older entries need the
 report to carry the entry's `at`).
 
@@ -838,7 +837,7 @@ Ranked by harm: data loss and trust first. Numbers like #5 are the September
 ## Docs and tooling (S each)
 
 - Each invariant: one-line rule + "guarded by: `TestName`" or "unguarded".
-- A CI step checking the `AppConfig` IDs against the five entitlements files,
+- A CI step checking the `AppConfig` IDs against the six entitlements files,
   `project.yml` and `Info.plist` (invariant 12), and a grep for
   `.safeAreaInset(edge: .top)` in `Views/` (invariant 21).
 - `make test`/`make build` regenerate the committed project as a side effect.

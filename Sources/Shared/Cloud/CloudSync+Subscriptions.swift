@@ -12,7 +12,8 @@ extension CloudSync {
         let pairing = try await requirePairing()
         let database = self.database(for: pairing)
 
-        let existing = (try? await database.allSubscriptions()) ?? []
+        // A failed look isn't "none": it would skip deleting the legacy one and save over the rest.
+        let existing = try await database.allSubscriptions()
         let existingIDs = Set(existing.map(\.subscriptionID))
 
         // Status: registered without a sound, which can't change in place; the
@@ -29,10 +30,18 @@ extension CloudSync {
 
         guard !toSave.isEmpty || !toDelete.isEmpty else { return }
 
-        do {
-            _ = try await database.modifySubscriptions(saving: toSave, deleting: toDelete)
-        } catch let error as CKError where error.code == .serverRejectedRequest {
-            log.notice("Subscriptions already registered.")
+        // Only missing ones are saved, so a refusal is a real one (a schema without the type),
+        // never "already there"; each must have landed, or no push comes for that kind.
+        let result = try await database.modifySubscriptions(saving: toSave, deleting: toDelete)
+        guard Self.subscriptionsSaved(result.saveResults, toSave.map(\.subscriptionID)),
+              Self.subscriptionsGone(result.deleteResults) else { throw SyncError.saveUnconfirmed }
+    }
+
+    /// Every subscription asked for came back saved.
+    static func subscriptionsSaved(_ results: [CKSubscription.ID: Result<CKSubscription, Error>],
+                                   _ ids: [CKSubscription.ID]) -> Bool {
+        ids.allSatisfy { id in
+            if case .success? = results[id] { true } else { false }
         }
     }
 

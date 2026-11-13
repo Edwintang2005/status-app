@@ -6,6 +6,9 @@ struct RedStringApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
+    /// Back from the background (or launching), not from Control Centre or the
+    /// notification shade: only then can a widget be on an old timeline.
+    @State private var returningFromBackground = true
 
     init() {
         #if DEBUG
@@ -36,9 +39,14 @@ struct RedStringApp: App {
                         // What's on this phone first: the fetch may be minutes offline, and a
                         // read made while suspended (or before first unlock) can be stale.
                         model.reload()
-                        model.redrawWidgets()
+                        // Cleared only once it asked: the scene can be active a beat
+                        // before the app is, and the next `.active` then tries again.
+                        if returningFromBackground, model.redrawWidgets() {
+                            returningFromBackground = false
+                        }
                         Task { await model.refreshOnForeground() }
                     case .background:
+                        returningFromBackground = true
                         // Receipts wait out a short debounce; leaving sends them now.
                         Task { await model.flushReceiptsForBackground() }
                     default:

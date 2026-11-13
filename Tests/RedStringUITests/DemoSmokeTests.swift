@@ -62,11 +62,14 @@ final class DemoSmokeTests: XCTestCase {
             let palette = self.app.buttons["Colour 1"]
             // Tapped again if nothing came up: a tap while the sheet is still
             // rising can go nowhere (it flaked once in a few runs on each phone).
+            var taps = 0
             for _ in 0..<3 where !palette.exists {
                 self.app.buttons["Draw"].tap()
+                taps += 1
                 _ = palette.waitForExistence(timeout: 10)
             }
             XCTAssertTrue(palette.exists, "the palette never opened")
+            self.noteRetries(taps, opening: "Drawing palette")
         }
     }
 
@@ -95,16 +98,30 @@ final class DemoSmokeTests: XCTestCase {
         let closeButton = app.buttons[close].firstMatch
         // Tapped again if nothing came up: a tap landing while Home settles
         // after launch (the first refresh re-renders it) can go nowhere.
+        var taps = 0
         for _ in 0..<3 where !closeButton.exists {
             opener.tap()
+            taps += 1
             _ = closeButton.waitForExistence(timeout: 10)
         }
         XCTAssertTrue(closeButton.exists, "\(name) never appeared")
+        noteRetries(taps, opening: name)
         try then()
         try audit(name)
         try assertFitsScreen(name)
         closeButton.tap()
         XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 30), "\(name) didn't close back to Home")
+    }
+
+    /// A tap that went nowhere is the launch-time window where sheets have also
+    /// opened blank or under Home's cards: retried so the run goes on, but never
+    /// silently — an expected failure in the report says which screen and how often.
+    private func noteRetries(_ taps: Int, opening name: String) {
+        guard taps > 1 else { return }
+        XCTExpectFailure("\(name) opened only on tap \(taps): a tap during Home's launch settle went nowhere",
+                         strict: false) {
+            XCTFail("\(name) needed \(taps) taps")
+        }
     }
 
     /// Nothing on screen may hang past the window's sides: a row that's wider
@@ -152,16 +169,21 @@ final class DemoSmokeTests: XCTestCase {
         } catch let error as NSError where error.domain == "com.apple.xcode.xctest.accessibilityAudit" && error.code == -56 {
             // XCTest's own time limit, on a loaded simulator. The screen still
             // opened and closed in time — the hang guard — so it isn't a failure.
-            XCTContext.runActivity(named: "\(screen): the audit timed out and judged nothing") { _ in }
+            // Reported, not passed silently: a screen never judged isn't a clean one.
+            XCTExpectFailure("\(screen): the audit timed out and judged nothing", strict: false) {
+                XCTFail("\(screen) wasn't audited")
+            }
         }
     }
 
     /// Home's wrapped notice paragraph, the picker's tile labels, the moment
     /// composer's 11 pt "Camera" (its "Library" and "Draw" neighbours pass), and
     /// Settings' section headers — measured 5.5–6.5:1, and still flagged when
-    /// drawn pure black, so the audit is misreading them.
+    /// drawn pure black, so the audit is misreading them. The gallery's "who ·
+    /// when" line measured 4.98:1 on the simulator, flagged only some runs.
     private static let misreadText: Set<String> = ["home.notice.message", "status.tile.label",
-                                                   "composer.source.Camera", "settings.section.header"]
+                                                   "composer.source.Camera", "settings.section.header",
+                                                   "gallery.attribution"]
 
     private func accepts(_ issue: XCUIAccessibilityAuditIssue) -> Bool {
         let element = issue.element

@@ -232,13 +232,13 @@ extension CloudSync {
         try await downloadMedia(for: moment, pairing: pairing, in: database)
     }
 
-    /// Thumbnails alone, by `desiredKeys` so the full-size asset never leaves
-    /// the server for a tile that only needs the small one.
     func prefetchRecentMedia() async {
         guard let pairing = try? await requirePairing() else { return }
         await prefetchMedia(for: [], pairing: pairing)
     }
 
+    /// Thumbnails alone, by `desiredKeys` so the full-size asset never leaves
+    /// the server for a tile that only needs the small one.
     func fetchThumbnails(for moments: [Moment]) async throws {
         let visual = moments.filter { !$0.isVoice }
         guard !visual.isEmpty else { return }

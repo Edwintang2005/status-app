@@ -21,8 +21,10 @@ enum MemoryArchive {
         let statusCount: Int
         /// Moments whose media couldn't be recovered — listed in the archive, not quietly dropped.
         let unrecovered: Int
-        /// The zone was read and every record in it was readable; anything short
-        /// of that must not be the last copy before a delete.
+        /// Of a kind from a newer build: this one can't save them, so no connection helps.
+        let unsupported: Int
+        /// The zone was read, every record in it was readable and every picture and
+        /// memo was saved; anything short of that must not be the last copy before a delete.
         let isComplete: Bool
         let includesZone: Bool
         let unreadable: Int
@@ -64,38 +66,42 @@ enum MemoryArchive {
         var finished = false
         defer { if !finished { try? fileManager.removeItem(at: stagingRoot) } }
 
-        // Most of a long archive is fetched back from CloudKit rather than copied.
-        let missing = ordered.filter { $0.kind.isSupported && store.mediaURL(for: $0) == nil }
-        await fetchMedia(for: missing, progress: progress)
-        try Task.checkCancellation()
-
-        var entries: [Entry] = []
-        var unrecovered = 0
-
-        for moment in ordered {
-            try Task.checkCancellation()
-            guard let source = store.mediaURL(for: moment) else {
-                unrecovered += 1
-                entries.append(Entry(moment: moment, relativePath: nil))
-                continue
-            }
-
-            let directory = staging.appendingPathComponent(Self.subfolder(for: moment.kind),
-                                                           isDirectory: true)
+        // Each file is copied into staging as soon as it's on the phone: a moment
+        // arriving mid-archive prunes full copies older than five minutes, and a
+        // long archive's first downloads are older than that by the end.
+        var copied: [String: String] = [:]
+        func copy(_ moment: Moment) {
+            guard copied[moment.id] == nil, let source = store.mediaURL(for: moment) else { return }
+            let directory = staging.appendingPathComponent(Self.subfolder(for: moment.kind), isDirectory: true)
             try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-
             let name = Self.fileName(for: moment, names: names, extension: source.pathExtension)
             let destination = Self.unusedURL(in: directory, named: name)
             do {
                 try fileManager.copyItem(at: source, to: destination)
-                entries.append(Entry(moment: moment,
-                                     relativePath: Self.subfolder(for: moment.kind)
-                                        + "/" + destination.lastPathComponent))
+                copied[moment.id] = Self.subfolder(for: moment.kind) + "/" + destination.lastPathComponent
             } catch {
                 log.error("Couldn't copy \(moment.id): \(error.localizedDescription)")
-                unrecovered += 1
-                entries.append(Entry(moment: moment, relativePath: nil))
             }
+        }
+
+        for moment in ordered where moment.kind.isSupported {
+            try Task.checkCancellation()
+            copy(moment)
+        }
+        // Most of a long archive is fetched back from CloudKit rather than copied.
+        let missing = ordered.filter { $0.kind.isSupported && copied[$0.id] == nil }
+        await fetchMedia(for: missing, progress: progress, landed: copy)
+        try Task.checkCancellation()
+
+        var entries: [Entry] = []
+        var unrecovered = 0
+        var unsupported = 0
+        for moment in ordered {
+            let path = copied[moment.id]
+            if path == nil {
+                if moment.kind.isSupported { unrecovered += 1 } else { unsupported += 1 }
+            }
+            entries.append(Entry(moment: moment, relativePath: path))
         }
 
         try Self.html(for: entries, statuses: statuses, contents: contents, names: names)
@@ -115,7 +121,8 @@ enum MemoryArchive {
             finished = true
             return Outcome(folder: staging, destination: .deviceOnly,
                            momentCount: ordered.count, statusCount: statuses.count,
-                           unrecovered: unrecovered, isComplete: contents.isComplete,
+                           unrecovered: unrecovered, unsupported: unsupported,
+                           isComplete: contents.isComplete(unrecovered: unrecovered + unsupported),
                            includesZone: contents.includesZone, unreadable: contents.unreadable)
         }
 
@@ -130,33 +137,74 @@ enum MemoryArchive {
         log.notice("Archived \(ordered.count) moments and \(statuses.count) statuses to iCloud Drive.")
         return Outcome(folder: final, destination: .iCloudDrive,
                        momentCount: ordered.count, statusCount: statuses.count,
-                       unrecovered: unrecovered, isComplete: contents.isComplete,
+                       unrecovered: unrecovered, unsupported: unsupported,
+                           isComplete: contents.isComplete(unrecovered: unrecovered + unsupported),
                        includesZone: contents.includesZone, unreadable: contents.unreadable)
     }
 
-    /// A few at a time, each bounded: one stalled download can't hold the rest,
-    /// and a missing photo is listed as unrecovered rather than costing the archive.
+    /// A few at a time, each bounded: one stalled download can't hold the rest.
+    /// What failed is tried once more after a pause (as long as iCloud asks, when
+    /// it's throttling, up to a minute): a bulk fetch is exactly what trips a
+    /// throttle, and anything still missing blocks a delete after the archive.
     /// Stops starting new ones once cancelled.
     private static func fetchMedia(for moments: [Moment],
-                                   progress: @escaping @Sendable (Double) -> Void) async {
+                                   progress: @escaping @Sendable (Double) -> Void,
+                                   landed: (Moment) -> Void) async {
         guard !moments.isEmpty else { return }
-        let backend = Backend.current
         let total = Double(moments.count)
-        await withTaskGroup(of: Void.self) { group in
+        var done = 0
+        var failed = await fetchPass(moments, landed: landed) {
+            done += 1
+            progress(min(Double(done) / total, 0.95))
+        }
+        guard !failed.moments.isEmpty, !Task.isCancelled else { return }
+        log.notice("\(failed.moments.count) archive downloads failed; trying them once more.")
+        let wait = failed.retryAt.map { min(max($0.timeIntervalSinceNow, 1), 60) } ?? 2
+        try? await Task.sleep(for: .seconds(wait))
+        guard !Task.isCancelled else { return }
+        failed = await fetchPass(failed.moments, landed: landed) {}
+        if !failed.moments.isEmpty {
+            log.error("\(failed.moments.count) archive downloads failed twice.")
+        }
+    }
+
+    private struct Failed {
+        var moments: [Moment] = []
+        /// The latest "try again after" iCloud gave, if it was throttling.
+        var retryAt: Date?
+    }
+
+    private static func fetchPass(_ moments: [Moment], landed: (Moment) -> Void,
+                                  finishedOne: () -> Void) async -> Failed {
+        let backend = Backend.current
+        let store = MomentStore.shared
+        var failed = Failed()
+        await withTaskGroup(of: (Moment, Error?).self) { group in
             var queue = moments[...]
-            var done = 0
             func start(_ moment: Moment) {
                 group.addTask {
-                    try? await withDeadline(AppConfig.archiveItemDeadline) { try await backend.fetchMedia(for: moment) }
+                    do {
+                        try await withDeadline(AppConfig.archiveItemDeadline) { try await backend.fetchMedia(for: moment) }
+                        return (moment, nil)
+                    } catch {
+                        return (moment, error)
+                    }
                 }
             }
             for _ in 0..<AppConfig.archiveFetchConcurrency {
                 guard let next = queue.popFirst() else { break }
                 start(next)
             }
-            for await _ in group {
-                done += 1
-                progress(Double(done) / total)
+            for await (moment, error) in group {
+                finishedOne()
+                if store.mediaURL(for: moment) != nil {
+                    landed(moment)
+                } else {
+                    failed.moments.append(moment)
+                    if let error, case .throttled(let until) = SendFailure(error) {
+                        failed.retryAt = max(failed.retryAt ?? until, until)
+                    }
+                }
                 if Task.isCancelled {
                     queue.removeAll()
                 } else if let next = queue.popFirst() {
@@ -164,6 +212,7 @@ enum MemoryArchive {
                 }
             }
         }
+        return failed
     }
 
     // MARK: - Naming

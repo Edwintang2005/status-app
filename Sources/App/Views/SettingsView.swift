@@ -418,11 +418,9 @@ struct SettingsView: View {
         Int64(bytes).formatted(.byteCount(style: .file))
     }
 
-    /// Owner's invite link, kept reachable here because RootView replaces the
-    /// screen that created it.
-    @ViewBuilder
     /// Per kind, this phone only: a push can be made quieter, never dropped, so
     /// the quietest choice still files it in Notification Centre.
+    @ViewBuilder
     private var notificationsSection: some View {
         @Bindable var model = model
         Section {
@@ -446,6 +444,8 @@ struct SettingsView: View {
         }
     }
 
+    /// Owner's invite link, kept reachable here because RootView replaces the
+    /// screen that created it.
     private var inviteSection: some View {
         Section {
             if model.inviteClosed {
@@ -619,6 +619,9 @@ struct SettingsView: View {
             : String(localized: "\(moments) and \(statuses) saved on this iPhone only.")
         if outcome.unrecovered > 0 {
             text += " " + String(localized: "\(outcome.unrecovered) couldn't be fetched back from iCloud and are listed in Memories.txt without a file.")
+        }
+        if outcome.unsupported > 0 {
+            text += " " + String(localized: "\(outcome.unsupported) need a newer version of \(AppConfig.appName) to be saved — update it from the App Store first.")
         }
         if !outcome.includesZone {
             text += " " + String(localized: "iCloud couldn't be reached, so it holds only what was on this iPhone.")

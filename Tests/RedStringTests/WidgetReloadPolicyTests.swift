@@ -42,6 +42,17 @@ final class WidgetReloadPolicyTests: XCTestCase {
         XCTAssertLessThanOrEqual(reloads, 14)
     }
 
+    /// Before first unlock nothing can be read and the widget draws from nothing:
+    /// back within 15 minutes of the unlock, not an hour — offline or not.
+    func testALockedRunComesBackSoon() {
+        XCTAssertEqual(WidgetReloadPolicy.nextReload(heldSince: nil, incomplete: false, locked: true, now: now)
+                        .timeIntervalSince(now), WidgetReloadPolicy.whileLocked)
+        XCTAssertEqual(WidgetReloadPolicy.nextReload(heldSince: nil, incomplete: false, offline: true,
+                                                     locked: true, now: now).timeIntervalSince(now),
+                       WidgetReloadPolicy.whileLocked)
+        XCTAssertLessThan(WidgetReloadPolicy.whileLocked, WidgetReloadPolicy.settled)
+    }
+
     func testRecentFetchIsShared() {
         XCTAssertTrue(WidgetReloadPolicy.shouldFetch(lastSyncedAt: nil, now: now))
         XCTAssertFalse(WidgetReloadPolicy.shouldFetch(lastSyncedAt: now.addingTimeInterval(-10), now: now))

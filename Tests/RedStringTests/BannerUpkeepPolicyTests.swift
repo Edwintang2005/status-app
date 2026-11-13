@@ -14,12 +14,14 @@ final class BannerUpkeepPolicyTests: XCTestCase {
     private func state(index: [Moment]? = [], held: Set<String> = [], hidden: Set<String> = [],
                        attached: Set<String> = [], statusHeld: Bool = false,
                        partnerStatus: StatusPayload? = Fixtures.status(),
+                       caughtUp: Bool = true,
                        nothingUnannounced: Bool = false,
                        wordings: @escaping (Moment) -> [String] = { _ in [] }) -> BannerUpkeepPolicy.State {
         BannerUpkeepPolicy.State(index: index, heldMomentIDs: held, hidden: hidden,
                                  hasAttachment: { attached.contains($0.id) },
                                  statusHeld: statusHeld, partnerStatus: partnerStatus,
-                                 nothingUnannounced: nothingUnannounced, wordings: wordings)
+                                 caughtUp: caughtUp, nothingUnannounced: nothingUnannounced,
+                                 wordings: wordings)
     }
 
     func testSubjectsSurviveTheirStamp() {
@@ -141,6 +143,16 @@ final class BannerUpkeepPolicyTests: XCTestCase {
                       "something new is still to come: the app's post replaces it")
         XCTAssertEqual(BannerUpkeepPolicy.plan(generic, state: state(nothingUnannounced: true)), [.remove("g")])
         XCTAssertTrue(BannerUpkeepPolicy.plan(generic, state: state(index: nil, nothingUnannounced: true)).isEmpty)
+    }
+
+    /// The index only knows what's been fetched: a failed or partial pass, or a
+    /// photo still held unreadable, leaves the banner — it may be that very moment.
+    func testAGenericMomentBannerStaysUntilCaughtUpWithNothingHeld() {
+        let generic = [banner("g", .newMoments)]
+        XCTAssertTrue(BannerUpkeepPolicy.plan(generic, state: state(caughtUp: false, nothingUnannounced: true)).isEmpty,
+                      "the expanded banner's pre-fetch pass mustn't remove itself")
+        XCTAssertTrue(BannerUpkeepPolicy.plan(generic, state: state(held: ["m1"], nothingUnannounced: true)).isEmpty,
+                      "a held photo is exactly what it may be about")
     }
 
     /// An edit another pass filed: the banner still showing the old caption gets the new one.

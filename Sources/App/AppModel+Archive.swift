@@ -20,12 +20,15 @@ extension AppModel {
         archiveRun += 1
         let run = archiveRun
         archiveProgress = 0
+        // Thousands of downloads: a sleeping screen would stall them before the delete it guards.
+        keepAwake(.archive, true)
         let task = Task { await writeArchive(offeringShare: offeringShare, run: run) }
         archiveTask = task
         let outcome = await task.value
         if archiveRun == run {
             archiveProgress = nil
             archiveTask = nil
+            keepAwake(.archive, false)
         }
         return outcome
     }
@@ -36,6 +39,7 @@ extension AppModel {
         archiveTask = nil
         archiveRun += 1
         archiveProgress = nil
+        keepAwake(.archive, false)
     }
 
     private func writeArchive(offeringShare: Bool, run: Int) async -> MemoryArchive.Outcome? {

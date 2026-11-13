@@ -29,6 +29,18 @@ final class AppModel {
     /// The post-fetch recovery pass (republishes, retries, receipts) — outside
     /// `isRefreshing`, so a stalled send can't hold off the next fetch.
     @ObservationIgnored var recoveryGate = RefreshGate()
+    /// The recovery pass's media top-up, run beside it: a slow download mustn't hold the sends.
+    @ObservationIgnored var mediaTopUp: Task<Void, Never>?
+    /// What's holding the screen awake: one owner, so a recap closing can't let
+    /// a fresh start's clear or an archive sleep under it.
+    enum KeepAwake: Hashable { case freshStartClear, recap, archive }
+    @ObservationIgnored var keepAwake: Set<KeepAwake> = [] {
+        didSet { UIApplication.shared.isIdleTimerDisabled = !keepAwake.isEmpty }
+    }
+
+    func keepAwake(_ reason: KeepAwake, _ on: Bool) {
+        if on { keepAwake.insert(reason) } else { keepAwake.remove(reason) }
+    }
     /// The offline-send loops, over the same store and backend as this model.
     @ObservationIgnored let outbox: Outbox
     @ObservationIgnored private let backendProvider: () -> any SyncBackend
@@ -73,14 +85,23 @@ final class AppModel {
     var readinessMessage: String?
     /// Full moment history, newest first, from `MomentIndex` (the snapshot only carries the newest each way).
     private(set) var history: [Moment] = [] {
-        didSet { owedCaptionIDs = Self.owedCaptions(in: history) }
+        didSet {
+            owedCaptionIDs = Self.owedCaptions(in: history)
+            historyByID = Self.byID(history)
+        }
     }
+    /// `history` by id: the gallery reads it on every page turn, and 5,000 linear scans add up.
+    private(set) var historyByID: [String: Moment] = [:]
     /// Sent moments whose edited caption is still owed: kept with `history`, not
     /// re-scanned on every Home render (`pendingSendCount`).
     @ObservationIgnored private var owedCaptionIDs: Set<String> = []
     @ObservationIgnored private var indexWritesPending = 0
     @ObservationIgnored var shareClaimWake: Task<Void, Never>?
     private static let indexWrites = DispatchQueue(label: "RedString.indexWrites", qos: .userInitiated)
+
+    private static func byID(_ moments: [Moment]) -> [String: Moment] {
+        Dictionary(moments.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
 
     private static func owedCaptions(in history: [Moment]) -> Set<String> {
         Set(history.lazy.filter { $0.fromMe && $0.uploaded && !$0.captionPublished }.map(\.id))
@@ -274,6 +295,7 @@ final class AppModel {
         let history = MomentIndex.shared.load()
         self.history = history
         self.owedCaptionIDs = Self.owedCaptions(in: history)
+        self.historyByID = Self.byID(history)
         self.isPaired = store.pairing != nil
         self.role = store.pairing?.role
         self.inviteClosed = store.inviteClosed
@@ -402,8 +424,11 @@ final class AppModel {
     func markSeen(_ moment: Moment, reloadWidgets: Bool = true) {
         guard !moment.seen, !moment.fromMe else { return }
         if let index = history.firstIndex(where: { $0.id == moment.id }) {
-            history[index].seen = true
-            history[index].seenAt = Date().wholeSeconds
+            // One assignment: each one rebuilds `history`'s derived lookups.
+            var seen = history[index]
+            seen.seen = true
+            seen.seenAt = Date().wholeSeconds
+            history[index] = seen
         }
         let owesReceipt = readReceiptsEnabled && isPaired
         // Owed now, not when the write lands: the gallery can close first. Only a
@@ -562,7 +587,8 @@ final class AppModel {
         // A kind from a newer build: nothing this build could store or draw.
         guard moment.kind.isSupported else { return false }
         do {
-            try await backend.fetchMedia(for: moment)
+            // Bounded: CloudKit's own timeout is a week, and the recovery pass's top-up awaits this.
+            try await bounded(AppConfig.archiveItemDeadline) { try await $0.fetchMedia(for: moment) }
             return MomentStore.shared.hasMedia(for: moment)
         } catch {
             log.error("Couldn't fetch media for \(moment.id): \(error.localizedDescription)")
@@ -570,9 +596,6 @@ final class AppModel {
         }
     }
 
-    /// The home card and photo widget only ever read the thumbnail; the one
-    /// download attempt inside a refresh can fail (a widget deadline, a killed
-    /// extension), and nothing else would fetch it again.
     #if DEBUG
     /// Diagnostics: fill the index toward its cap with local placeholders (`MomentIndex.padding`).
     func padHistory() {
@@ -602,6 +625,9 @@ final class AppModel {
         for moment in missing.prefix(5) where await !ensureMedia(for: moment) { return }
     }
 
+    /// The home card and photo widget only ever read the thumbnail; the one
+    /// download attempt inside a refresh can fail (a widget deadline, a killed
+    /// extension), and nothing else would fetch it again.
     func restoreLatestThumbnailIfMissing() async {
         guard let latest = store.snapshot.latestPartnerVisualMoment,
               !MomentStore.shared.hasThumbnail(for: latest.id) else { return }
