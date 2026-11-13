@@ -17,6 +17,35 @@ final class AnnouncementPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.lastSeenPartnerNudgeCount, 3, "history, not a fresh tap — but still the watermark")
     }
 
+    /// Paired against an existing status, their first rename is a rename, not a new status.
+    func testPairingSeedsTheAnnouncedWordsSoTheFirstRenameIsARename() {
+        var snapshot = Snapshot.empty
+        AnnouncementPolicy.seed(from: Fixtures.status(at: Fixtures.date(100), nudges: 2), in: &snapshot)
+        XCTAssertEqual(snapshot.lastSeenPartnerNudgeCount, 2)
+
+        var renamed = Fixtures.status(at: Fixtures.date(200))
+        renamed.displayName = "Sammy"
+        XCTAssertEqual(AnnouncementPolicy.claimStatusBanner(for: renamed, in: &snapshot),
+                       .rename(previousName: "Sam"))
+
+        var later = Snapshot.empty
+        later.lastAnnouncedPartnerStatusAt = Fixtures.date(300)
+        AnnouncementPolicy.seed(from: Fixtures.status(at: Fixtures.date(100)), in: &later)
+        XCTAssertEqual(later.lastAnnouncedPartnerStatusAt, Fixtures.date(300), "forward only")
+        XCTAssertNil(later.lastAnnouncedPartnerStatus)
+
+        // By server time when both carry it, as the claim orders: their clock went back.
+        var claimed = Snapshot.empty
+        var announced = Fixtures.status(at: Fixtures.date(100))
+        announced.serverSavedAt = Fixtures.date(2_000)
+        claimed.lastAnnouncedPartnerStatusAt = announced.updatedAt
+        claimed.lastAnnouncedPartnerStatus = announced
+        var older = Fixtures.status("😴", "asleep", at: Fixtures.date(500))
+        older.serverSavedAt = Fixtures.date(1_000)
+        AnnouncementPolicy.seed(from: older, in: &claimed)
+        XCTAssertEqual(claimed.lastAnnouncedPartnerStatus, announced, "an older save never replaces a claimed one")
+    }
+
     func testNudgeCountIncreaseAnnouncesExactlyOnce() {
         var snapshot = Snapshot.empty
         snapshot.lastSeenPartnerNudgeCount = 2

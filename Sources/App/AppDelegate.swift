@@ -112,6 +112,17 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
         return [.banner, .sound]
     }
 
+    /// A banner's reply that didn't reach iCloud: it's kept and sent later either way.
+    private static func replyNotSent(_ failure: SendFailure) -> String {
+        switch failure {
+        case .offline: String(localized: "Your reply is saved and sends once you're back online.")
+        case .storageFull: String(localized: "Your reply is saved, but iCloud is full. It sends once there's space.")
+        case .throttled: String(localized: "iCloud is busy. Your reply is saved and sends shortly.")
+        case .rejected: String(localized: "Your reply didn't send. Open \(AppConfig.appName) to try again.")
+        case .transient: String(localized: "Your reply is saved and sends the next time \(AppConfig.appName) syncs.")
+        }
+    }
+
     /// Banner actions. The app may be launched into the background for these,
     /// so the work goes through the model (created in `RedStringApp.init`, ahead
     /// of any delegate callback) and is awaited — returning early would suspend
@@ -123,12 +134,18 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
         let action = response.actionIdentifier
         let text = (response as? UNTextInputNotificationResponse)?.userText
         switch action {
+        // Answered from a banner, the app may never come to the front: a send
+        // that didn't go says so where the tap was, quietly.
         case NotificationCategory.Action.heartBack:
-            await AppModel.current?.sendNudge()
+            if await AppModel.current?.sendNudge() == false {
+                await NotificationManager.postActionFailed(String(localized: "Your heart didn't send. Open \(AppConfig.appName) to try again."))
+            }
         case NotificationCategory.Action.replyStatus:
             let message = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !message.isEmpty else { return }
-            await AppModel.current?.setStatus(emoji: "💬", message: message)
+            if let failure = await AppModel.current?.setStatus(emoji: "💬", message: message) {
+                await NotificationManager.postActionFailed(Self.replyNotSent(failure))
+            }
         case NotificationCategory.Action.replyPhoto:
             if let model = AppModel.current, model.isPaired { model.pendingRoute = .replyWithPhoto }
         case UNNotificationDefaultActionIdentifier:

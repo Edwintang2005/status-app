@@ -377,6 +377,15 @@ extension CloudSync {
         }
     }
 
+    /// The partner's `sentAt` never past when the server took the record (plus
+    /// `momentClockLeeway`); ours, and a record without its dates, as `plausible` allows.
+    static func trustedSentAt(_ sentAt: Date, created: Date?, modified: Date?, fromMe: Bool,
+                              now: Date = Date()) -> Date {
+        let plausible = TrustedTime.plausible(sentAt, serverTime: modified, now: now)
+        guard !fromMe, let created else { return plausible }
+        return min(plausible, created.addingTimeInterval(AppConfig.momentClockLeeway).wholeSeconds)
+    }
+
     static func moment(from record: CKRecord,
                                mineRole: PairRole,
                                theirsRole: PairRole) -> Moment? {
@@ -411,7 +420,8 @@ extension CloudSync {
             // Text caps are for the partner's records; our own devices wrote ours.
             caption: capped(record.encryptedValues[Field.caption] as? String ?? "", AppConfig.captionMaxLength, fromMe),
             senderName: capped(record.encryptedValues[Field.senderName] as? String ?? "", AppConfig.displayNameMaxLength, fromMe),
-            sentAt: TrustedTime.plausible(sentAt, serverTime: record.modificationDate),
+            sentAt: trustedSentAt(sentAt, created: record.creationDate, modified: record.modificationDate,
+                                  fromMe: fromMe),
             fromMe: fromMe,
             // The partner's number: `Int(duration)` in the label traps on non-finite.
             duration: (record[Field.duration] as? Double).flatMap { $0.isFinite && $0 >= 0 ? min($0, 24 * 60 * 60) : nil } ?? 0,

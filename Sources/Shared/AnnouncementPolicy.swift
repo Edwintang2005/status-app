@@ -110,6 +110,21 @@ enum AnnouncementPolicy {
         return .update
     }
 
+    /// Pairing against existing history: what's already there counts as announced,
+    /// words included — or the first rename is judged against nothing and announced
+    /// as a new status. Forward only: an NSE claim can land mid-bootstrap.
+    static func seed(from known: StatusPayload, in snapshot: inout Snapshot) {
+        snapshot.lastSeenPartnerNudgeCount = max(snapshot.lastSeenPartnerNudgeCount, known.nudgeCount)
+        // Ordered as `claimStatusBanner` orders: server time when both carry it.
+        if let saved = known.serverSavedAt, let claimed = snapshot.lastAnnouncedPartnerStatus?.serverSavedAt {
+            guard saved >= claimed else { return }
+        } else {
+            guard known.updatedAt >= snapshot.lastAnnouncedPartnerStatusAt ?? .distantPast else { return }
+        }
+        snapshot.lastAnnouncedPartnerStatusAt = known.updatedAt
+        snapshot.lastAnnouncedPartnerStatus = known
+    }
+
     /// Whether a nudge push may announce: the partner's count moved past the
     /// watermark. `max`, not assignment — concurrent instances land out of order.
     static func claimNudgeBanner(count: Int, in snapshot: inout Snapshot) -> Bool {

@@ -36,12 +36,17 @@ struct LayoutGlitch: Codable, Equatable, Sendable {
 
     static func describe(_ size: CGSize?) -> String {
         guard let size else { return "never laid out" }
-        return "\(Int(size.width.rounded()))×\(Int(size.height.rounded()))"
+        return "\(whole(size.width))×\(whole(size.height))"
     }
 
     static func describe(_ rect: CGRect?) -> String {
         guard let rect else { return "never laid out" }
-        return "\(describe(rect.size)) at \(Int(rect.minX.rounded())),\(Int(rect.minY.rounded()))"
+        return "\(describe(rect.size)) at \(whole(rect.minX)),\(whole(rect.minY))"
+    }
+
+    /// `Int(_:)` traps on infinity or NaN — exactly what a broken layout can report.
+    private static func whole(_ value: CGFloat) -> String {
+        value.isFinite ? "\(Int(value.rounded()))" : "\(value)"
     }
 
     /// Newest first, at most `limit`.

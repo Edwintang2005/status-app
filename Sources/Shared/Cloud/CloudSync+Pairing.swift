@@ -637,11 +637,7 @@ extension CloudSync {
         // refresh (nil) must not reset the count to 0 and re-announce a nudge.
         await MainActor.run {
             _ = self.stores.shared.mutate {
-                if let known = theirs ?? $0.theirs {
-                    $0.lastSeenPartnerNudgeCount = max($0.lastSeenPartnerNudgeCount, known.nudgeCount)
-                    $0.lastAnnouncedPartnerStatusAt = max($0.lastAnnouncedPartnerStatusAt ?? .distantPast,
-                                                          known.updatedAt)
-                }
+                if let known = theirs ?? $0.theirs { AnnouncementPolicy.seed(from: known, in: &$0) }
             }
         }
     }

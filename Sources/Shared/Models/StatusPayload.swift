@@ -89,6 +89,17 @@ struct StatusPayload: Codable, Hashable {
         lastNudgeAt: nil
     )
 
+    /// A new status's (or rename's) `updatedAt`: now in whole seconds, but always
+    /// after `previous` — within `statusStampLeeway`, the window `StatusSavePolicy`
+    /// lets a newer server copy win in (another of our devices, its clock ahead).
+    /// Further ahead is a clock change it would otherwise drag every stamp behind.
+    static func nextStamp(after previous: Date?, now: Date = Date()) -> Date {
+        let stamp = now.wholeSeconds
+        guard let previous, previous >= stamp,
+              previous.timeIntervalSince(stamp) <= AppConfig.statusStampLeeway else { return stamp }
+        return previous.addingTimeInterval(1)
+    }
+
     static func initial(displayName: String) -> StatusPayload {
         StatusPayload(
             emoji: "👋",

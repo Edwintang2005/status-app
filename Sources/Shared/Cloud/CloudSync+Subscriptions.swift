@@ -34,7 +34,7 @@ extension CloudSync {
         // never "already there"; each must have landed, or no push comes for that kind.
         let result = try await database.modifySubscriptions(saving: toSave, deleting: toDelete)
         guard Self.subscriptionsSaved(result.saveResults, toSave.map(\.subscriptionID)),
-              Self.subscriptionsGone(result.deleteResults) else { throw SyncError.saveUnconfirmed }
+              Self.subscriptionsGone(result.deleteResults, asked: toDelete) else { throw SyncError.saveUnconfirmed }
     }
 
     /// Every subscription asked for came back saved.
@@ -72,20 +72,27 @@ extension CloudSync {
         }
         for database in [container.privateCloudDatabase, container.sharedCloudDatabase] {
             let deleted: [CKSubscription.ID: Result<Void, Error>]
+            // A whole answer has a result per subscription; a partial failure lists only the failures.
+            let asked: [CKSubscription.ID]
             do {
                 deleted = try await database.modifySubscriptions(saving: [], deleting: SubscriptionID.all).deleteResults
+                asked = SubscriptionID.all
             } catch let error as CKError where error.code == .partialFailure {
                 deleted = (error.partialErrorsByItemID ?? [:]).reduce(into: [:]) { results, entry in
                     if let id = entry.key as? CKSubscription.ID { results[id] = .failure(entry.value) }
                 }
+                asked = []
             }
-            guard Self.subscriptionsGone(deleted) else { throw SyncError.saveUnconfirmed }
+            guard Self.subscriptionsGone(deleted, asked: asked) else { throw SyncError.saveUnconfirmed }
         }
     }
 
-    /// Every deletion landed or found nothing to delete.
-    static func subscriptionsGone(_ results: [CKSubscription.ID: Result<Void, Error>]) -> Bool {
-        results.values.allSatisfy { result in
+    /// Every deletion landed or found nothing to delete — and, given `asked`, each
+    /// of those has a result: an empty answer to a delete isn't one that landed.
+    static func subscriptionsGone(_ results: [CKSubscription.ID: Result<Void, Error>],
+                                  asked: [CKSubscription.ID] = []) -> Bool {
+        guard asked.allSatisfy({ results[$0] != nil }) else { return false }
+        return results.values.allSatisfy { result in
             switch result {
             case .success: return true
             case .failure(let error): return (error as? CKError)?.code == .unknownItem

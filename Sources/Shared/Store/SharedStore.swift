@@ -582,10 +582,6 @@ final class SharedStore: @unchecked Sendable {
     }
 
     /// Wipes pairing, cached statuses and the whole moment history.
-    func resetPairing() {
-        eraseLocalMedia()
-        clearPairing(keepingName: false)
-    }
 
     // MARK: - Widgets
 
@@ -1008,7 +1004,11 @@ final class SharedStore: @unchecked Sendable {
             log.error("Failed to decode \(String(describing: type)): \(error.localizedDescription)")
             // Preserve the bytes: the caller falls back to an empty value, and the
             // next write would otherwise persist that loss over recoverable data.
+            let firstSighting = store.data(forKey: "\(key).corrupt") != data
             store.setData(data, forKey: "\(key).corrupt")
+            // Like the index and the log: a blank snapshot (both statuses) refills
+            // only from a full fetch — once, not on every read until it's rewritten.
+            if firstSighting, key == Key.snapshot { clearChangeTokens() }
             return nil
         }
     }

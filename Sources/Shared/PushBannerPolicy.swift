@@ -100,62 +100,83 @@ enum PushBannerPolicy {
                        reportedAt: Date?,
                        in snapshot: inout Snapshot,
                        now: Date = Date()) -> Plan {
+        decideRow(push, result: result, reportedAt: reportedAt, in: &snapshot, now: now).plan
+    }
+
+    /// Which row of the table a banner came from, for Diagnostics' banner pass.
+    enum Row: String, Sendable {
+        case momentNews = "new moment", momentHeld = "moment, held", momentRemoved = "moment removed"
+        case captionEdited = "caption edited", momentKnown = "moment already known", cleared = "moments cleared"
+        case heart = "heart", heartOwn = "own heart", heartRepeat = "heart already announced"
+        case statusUpdate = "status", statusRename = "rename", statusHeld = "status, held"
+        case statusKnown = "status already known"
+        case otherDevice = "another of our devices", partnerLeft = "partner left", spaceChanged = "space changed"
+        case unreadable = "couldn't read", other = "other push"
+    }
+
+    /// `decide`, with the row it took.
+    static func decideRow(_ push: Push,
+                          result: RefreshResult,
+                          reportedAt: Date?,
+                          in snapshot: inout Snapshot,
+                          now: Date = Date()) -> (row: Row, plan: Plan) {
         let name = snapshot.moderatedPartnerName
         let couldNotRead = !result.unreadableRecordNames.isEmpty || result.incomplete
         switch push {
         case .moment:
             if let moment = AnnouncementPolicy.takeOwedMoments(in: &snapshot) {
                 // `name` covers records written before the sender set a name.
-                return Plan(title: moment.displaySenderName(fallback: name),
-                            body: moment.displayCaption ?? moment.arrivalSummary,
-                            attachment: moment,
-                            subject: .moment(moment.id))
+                return (.momentNews, Plan(title: moment.displaySenderName(fallback: name),
+                                          body: moment.displayCaption ?? moment.arrivalSummary,
+                                          attachment: moment,
+                                          subject: .moment(moment.id)))
             }
             if let body = AnnouncementPolicy.heldMomentBody(kinds: result.heldPartnerMomentKinds) {
                 var plan = held(body, category: NotificationCategory.moment, name: name)
                 // The newest of a burst: once readable, the banner names it, as a claim would.
                 plan.subject = result.heldPartnerMomentIDs.last.map(BannerSubject.moment)
-                return plan
+                return (.momentHeld, plan)
             }
             // Announced like the moment was: they took back something you may have seen.
             let removed = AnnouncementPolicy.claimRemovals(in: &snapshot)
             if removed > 0 {
-                return Plan(title: name, body: removalBody(count: removed), thread: "moment-removals")
+                return (.momentRemoved, Plan(title: name, body: removalBody(count: removed), thread: "moment-removals"))
             }
             // Quiet: the moment was announced when it came. Its subject replaces
             // the banner still showing the old words (`BannerUpkeep`).
             if let edited = result.editedPartnerMoments.last {
-                return Plan(title: edited.displaySenderName(fallback: name),
-                            body: editedCaptionBody(edited),
-                            volume: .quiet,
-                            subject: .moment(edited.id))
+                return (.captionEdited, Plan(title: edited.displaySenderName(fallback: name),
+                                             body: editedCaptionBody(edited),
+                                             volume: .quiet,
+                                             subject: .moment(edited.id)))
             }
             if result.ownMomentEdited {
-                return own(String(localized: "You edited a caption from another device."))
+                return (.otherDevice, own(String(localized: "You edited a caption from another device.")))
             }
             if result.ownRecordsChanged {
-                return own(String(localized: "You sent something from another device."))
+                return (.otherDevice, own(String(localized: "You sent something from another device.")))
             }
-            if let left = partnerLeft(result, name: name, in: &snapshot) { return left }
+            if let left = partnerLeft(result, name: name, in: &snapshot) { return (.partnerLeft, left) }
             // Deletions fire the moment subscription too (a fresh start, an
             // unlink): with nothing new from the partner in the delta, say so quietly.
             if result.removedMoments > 0, result.newPartnerMoments.isEmpty, !result.heldPartnerStatus {
                 let freshStart = snapshot.freshStart.clearedBefore != nil
-                return Plan(title: AppConfig.appName,
-                            body: freshStart
-                                ? String(localized: "Moments were cleared for your fresh start.")
-                                : String(localized: "Moments were removed from your shared space."),
-                            thread: "fresh-start",
-                            volume: .quiet)
+                return (.cleared, Plan(title: AppConfig.appName,
+                                       body: freshStart
+                                           ? String(localized: "Moments were cleared for your fresh start.")
+                                           : String(localized: "Moments were removed from your shared space."),
+                                       thread: "fresh-start",
+                                       volume: .quiet))
             }
-            return couldNotRead ? .unchanged : momentAlreadyKnown(result, snapshot, name: name, now: now)
+            return couldNotRead ? (.unreadable, .unchanged)
+                : (.momentKnown, momentAlreadyKnown(result, snapshot, name: name, now: now))
 
         case .nudge:
             let count = result.partnerStatus?.nudgeCount ?? snapshot.theirs?.nudgeCount
             let sentAt = result.partnerStatus?.lastNudgeAt ?? snapshot.theirs?.lastNudgeAt
             if let count, AnnouncementPolicy.claimNudgeBanner(count: count, in: &snapshot) {
                 let interruption = AnnouncementPolicy.nudgeInterruption(sentAt: sentAt, in: &snapshot, now: now)
-                return heart(name: name, interruption: interruption)
+                return (.heart, heart(name: name, interruption: interruption))
             }
             // Our tap, never their heart: only our record moved, or nothing new
             // was read (the widget's own refresh took our save before its push
@@ -163,22 +184,22 @@ enum PushBannerPolicy {
             if !result.partnerNudgeArrived,
                let sentAt = result.ownNudgeSentAt ?? (couldNotRead ? nil : ourLatestHeart(in: snapshot)) {
                 return isThisPhones(sentAt, snapshot)
-                    ? own(String(localized: "Your heart was sent to \(name)."))
-                    : own(String(localized: "You sent a heart from another device."))
+                    ? (.heartOwn, own(String(localized: "Your heart was sent to \(name).")))
+                    : (.otherDevice, own(String(localized: "You sent a heart from another device.")))
             }
             if result.ownRecordsChanged {
-                return own(String(localized: "You sent a heart from another device."))
+                return (.otherDevice, own(String(localized: "You sent a heart from another device.")))
             }
-            if let left = partnerLeft(result, name: name, in: &snapshot) { return left }
+            if let left = partnerLeft(result, name: name, in: &snapshot) { return (.partnerLeft, left) }
             // The nudge record wasn't in what this process could read.
-            if couldNotRead { return .unchanged }
+            if couldNotRead { return (.unreadable, .unchanged) }
             // No count is no information — a deletion, not a tap — and never a heart.
-            guard count != nil else { return spaceChanged }
+            guard count != nil else { return (.spaceChanged, spaceChanged) }
             // Already announced by the app or a sibling instance: the words
             // stay, the interruption goes, so it doesn't read as a second tap.
             var plan = heart(name: name, interruption: .init(stale: false, breaksThroughFocus: false))
             plan.volume = .quiet
-            return plan
+            return (.heartRepeat, plan)
 
         case .status:
             var banner: AnnouncementPolicy.StatusBanner?
@@ -192,16 +213,17 @@ enum PushBannerPolicy {
                 let fallback = String(localized: "Your partner")
                 let newName = ContentFilter.displayName(status.displayName, fallback: String(localized: "a new name"))
                 // No subject: it's about a name, not words, so status upkeep leaves it be.
-                return Plan(title: ContentFilter.displayName(previousName, fallback: fallback),
-                            body: String(localized: "is now going by \(newName)"),
-                            thread: "status-updates",
-                            sound: true)
+                return (.statusRename, Plan(title: ContentFilter.displayName(previousName, fallback: fallback),
+                                            body: String(localized: "is now going by \(newName)"),
+                                            thread: "status-updates",
+                                            sound: true))
             case (.update?, let status?):
-                return Plan(title: name,
-                            body: statusBody(status, reportedAt: reportedAt, sealed: snapshot.partnerStatusSealed),
-                            thread: "status-updates",
-                            subject: .status,
-                            sound: true)
+                return (.statusUpdate, Plan(title: name,
+                                            body: statusBody(status, reportedAt: reportedAt,
+                                                             sealed: snapshot.partnerStatusSealed),
+                                            thread: "status-updates",
+                                            subject: .status,
+                                            sound: true))
             default:
                 if result.heldPartnerStatus {
                     var plan = held(String(localized: "updated their status"),
@@ -209,18 +231,19 @@ enum PushBannerPolicy {
                     plan.thread = "status-updates"
                     plan.subject = .status
                     plan.sound = true
-                    return plan
+                    return (.statusHeld, plan)
                 }
                 if result.ownRecordsChanged {
-                    return own(String(localized: "You changed your status from another device."))
+                    return (.otherDevice, own(String(localized: "You changed your status from another device.")))
                 }
-                if let left = partnerLeft(result, name: name, in: &snapshot) { return left }
-                return couldNotRead ? .unchanged : statusAlreadyKnown(snapshot, name: name, reportedAt: reportedAt)
+                if let left = partnerLeft(result, name: name, in: &snapshot) { return (.partnerLeft, left) }
+                return couldNotRead ? (.unreadable, .unchanged)
+                    : (.statusKnown, statusAlreadyKnown(snapshot, name: name, reportedAt: reportedAt))
             }
 
         case .other:
             // Legacy silent push or unknown subscription — the refresh already ran.
-            return .unchanged
+            return (.other, .unchanged)
         }
     }
 

@@ -149,8 +149,10 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         }
 
         let result: RefreshResult
+        // Downloaded only once the banner is worded: it no longer waits on a picture.
+        let media: CloudSync.PendingMedia
         do {
-            result = try await CloudSync.shared.refresh()
+            (result, media) = try await CloudSync.shared.refreshDeferringMedia()
         } catch SyncError.storeUnreadable {
             return unreadableStore(content, push: push)
         } catch SyncError.notPaired {
@@ -178,17 +180,18 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         // Out of time: the expiry fallback is (or is about to be) delivered, and
         // a claim now would mark announced an event whose rich banner never shows.
         if Task.isCancelled { return content }
-        let (plan, carried) = await MainActor.run { () -> (PushBannerPolicy.Plan, Moment?) in
+        let (row, plan, carried) = await MainActor.run { () -> (PushBannerPolicy.Row, PushBannerPolicy.Plan, Moment?) in
             let reportedAt = SharedStore.shared.hiddenPartnerStatusAt
+            var row = PushBannerPolicy.Row.other
             var plan = PushBannerPolicy.Plan.unchanged
             var carried: Moment?
             // Check-and-claim in one `mutate` under the cross-process lock, so
             // concurrent instances and the app never both announce one event.
             _ = SharedStore.shared.mutate(reloadWidgets: false) {
-                plan = PushBannerPolicy.decide(push, result: result, reportedAt: reportedAt, in: &$0)
+                (row, plan) = PushBannerPolicy.decideRow(push, result: result, reportedAt: reportedAt, in: &$0)
                 carried = PushBannerPolicy.carriedMoment(push, in: &$0)
             }
-            return (plan, carried)
+            return (row, plan, carried)
         }
         let level = SharedStore.shared.notificationPreferences
             .level(for: push, momentKinds: result.newPartnerMoments.map(\.kind) + result.heldPartnerMomentKinds
@@ -196,20 +199,26 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         apply(plan.limited(to: level), to: content)
         if plan.title == nil, plan.body == nil {
             Self.markUnworded(content, push: push)
-            note(.unworded, result.incomplete ? "one batch of many"
-                 : result.unreadableRecordNames.isEmpty ? nil
-                 : "\(result.unreadableRecordNames.count) record(s) unreadable")
+            let why = result.incomplete ? "one batch of many"
+                : result.unreadableRecordNames.isEmpty ? nil
+                : "\(result.unreadableRecordNames.count) record(s) unreadable"
+            // Which row of `PushBannerPolicy` decided it, for Diagnostics.
+            note(.unworded, [row.rawValue, why].compactMap { $0 }.joined(separator: ", "))
         } else {
-            note(.worded)
+            note(.worded, row.rawValue)
         }
         // Stamped before the fallback: an expiry mid-fetch still leaves a later pass the picture to add.
         if plan.attachment != nil { content.userInfo[BannerSubject.wantsAttachmentKey] = true }
         // Worded and claimed: from here on expiry delivers these words, not
         // CloudKit's — the claim stands, so nothing would ever re-announce it.
         setFallback(content)
+        // The delta's pictures, now that the words are safe: a carried moment from
+        // this delta is posted with its own. Skipped for want of time, the widget's
+        // next run fetches the one it draws.
+        if await !prefetch(media) { widgetNeedsFetch = true }
         // Claimed too, so posted now — after the fallback, which no wait may precede.
         if let carried { await announce(carried: carried) }
-        // This push's own picture first; then earlier banners (`tidyUp`).
+        // This push's own picture; then earlier banners (`tidyUp`).
         guard let moment = plan.attachment else {
             await tidyUp(incoming: plan.subject, caughtUp: result.isWholeDelta)
             return content
@@ -229,6 +238,17 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         }
         await tidyUp(incoming: plan.subject, caughtUp: result.isWholeDelta)
         return content
+    }
+
+    /// The delta's pictures, once the banner is worded, within what's left of the
+    /// window. - Returns: `false` when skipped, out of time.
+    private func prefetch(_ media: CloudSync.PendingMedia) async -> Bool {
+        guard !Task.isCancelled,
+              let within = PushBannerPolicy.attachmentDeadline(elapsed: Date().timeIntervalSince(receivedAt)) else {
+            return false
+        }
+        await media(within)
+        return true
     }
 
     /// Earlier banners this pass can now complete — reworded, given their

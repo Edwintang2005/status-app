@@ -42,4 +42,10 @@ final class LayoutGlitchTests: XCTestCase {
         store.layoutGlitches = [glitch]
         XCTAssertEqual(store.layoutGlitches, [glitch])
     }
+
+    /// A diagnostic for broken layouts mustn't trap on what a broken layout reports.
+    func testANonFiniteSizeIsDescribedNotTrapped() {
+        XCTAssertEqual(LayoutGlitch.describe(CGSize(width: CGFloat.infinity, height: 10)), "inf×10")
+        XCTAssertEqual(LayoutGlitch.describe(CGRect(x: CGFloat.nan, y: 0, width: 1, height: 1)), "1×1 at nan,0")
+    }
 }

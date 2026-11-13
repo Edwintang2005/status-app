@@ -224,15 +224,17 @@ struct FreshStart: Codable, Hashable, Sendable {
         case mine, pendingIntent, theirs, clearedBefore, finishedBefore, dismissedAsk
     }
 
-    /// Hand-written (invariant 5). An intent this build can't read is dropped:
-    /// the next refresh reads the record back.
+    /// Hand-written (invariant 5), field by field inside the lossy `Snapshot`: one
+    /// bad value costs only itself — never `clearedBefore`, which keeps cleared
+    /// history out. An intent this build can't read is dropped: the next refresh
+    /// reads the record back.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        mine = try container.decodeIfPresent(FreshStartRecord.self, forKey: .mine)
+        mine = try? container.decodeIfPresent(FreshStartRecord.self, forKey: .mine)
         pendingIntent = try? container.decodeIfPresent(FreshStartIntent.self, forKey: .pendingIntent)
-        theirs = try container.decodeIfPresent(FreshStartRecord.self, forKey: .theirs)
-        clearedBefore = try container.decodeIfPresent(Date.self, forKey: .clearedBefore)
-        finishedBefore = try container.decodeIfPresent(Date.self, forKey: .finishedBefore)
-        dismissedAsk = try container.decodeIfPresent(Date.self, forKey: .dismissedAsk)
+        theirs = try? container.decodeIfPresent(FreshStartRecord.self, forKey: .theirs)
+        clearedBefore = try? container.decodeIfPresent(Date.self, forKey: .clearedBefore)
+        finishedBefore = try? container.decodeIfPresent(Date.self, forKey: .finishedBefore)
+        dismissedAsk = try? container.decodeIfPresent(Date.self, forKey: .dismissedAsk)
     }
 }

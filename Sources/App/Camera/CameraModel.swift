@@ -446,13 +446,17 @@ final class CameraModel {
                 }
             }
             do {
+                let shot: CameraShot
                 if isDual, let dualEngine {
-                    onCapture(try await captureBoth(dualEngine))
+                    shot = try await captureBoth(dualEngine)
                 } else {
                     let data = try await engine.capture(flash: flash, rotationAngle: tilt.captureAngle(frontCamera: position == .front))
                     guard let image = UIImage(data: data) else { throw CameraEngine.CaptureError.noData }
-                    onCapture(.photo(image))
+                    shot = .photo(image)
                 }
+                // Closed while it was taken: no shot reaches a composer that moved on.
+                guard !isStopped else { return }
+                onCapture(shot)
             } catch {
                 captureFailed = true
             }

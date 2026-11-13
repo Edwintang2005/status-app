@@ -274,6 +274,21 @@ final class PushBannerPolicyTests: XCTestCase {
 
     // MARK: Nudges
 
+    /// Diagnostics names the row each banner took.
+    func testEachPlanNamesItsRow() {
+        var snapshot = paired(theirs: Fixtures.status(nudges: 2))
+        snapshot.lastSeenPartnerNudgeCount = 2
+        let result = RefreshResult(partnerStatus: Fixtures.status(nudges: 3), newPartnerMoments: [])
+        XCTAssertEqual(PushBannerPolicy.decideRow(.nudge, result: result, reportedAt: nil, in: &snapshot, now: now).row,
+                       .heart)
+        XCTAssertEqual(PushBannerPolicy.decideRow(.nudge, result: result, reportedAt: nil, in: &snapshot, now: now).row,
+                       .heartRepeat)
+        var unread = RefreshResult.empty
+        unread.incomplete = true
+        XCTAssertEqual(PushBannerPolicy.decideRow(.status, result: unread, reportedAt: nil, in: &snapshot, now: now).row,
+                       .unreadable)
+    }
+
     func testANewHeartIsClaimedAndBreaksThroughOnce() {
         var snapshot = paired(theirs: Fixtures.status(nudges: 2))
         snapshot.lastSeenPartnerNudgeCount = 2

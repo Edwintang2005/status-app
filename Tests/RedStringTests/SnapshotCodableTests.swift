@@ -168,6 +168,33 @@ final class SnapshotCodableTests: XCTestCase {
         XCTAssertEqual(try decoder.decode(PairingInfo.self, from: encoder.encode(original)), original)
     }
 
+    /// A fresh start's bad sub-field (a malformed record copy) costs only
+    /// itself: `clearedBefore` survives, or cleared history comes back.
+    func testABadFreshStartFieldKeepsTheEpoch() throws {
+        var freshStart = FreshStart()
+        freshStart.clearedBefore = Fixtures.date(1_000)
+        freshStart.dismissedAsk = Fixtures.date(900)
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder.shared.encode(freshStart)) as? [String: Any])
+        json["theirs"] = ["stage": "not a number"]
+        let decoded = try JSONDecoder.shared.decode(FreshStart.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertNil(decoded.theirs)
+        XCTAssertEqual(decoded.clearedBefore, Fixtures.date(1_000))
+        XCTAssertEqual(decoded.dismissedAsk, Fixtures.date(900))
+    }
+
+    /// Two statuses in one second get two stamps; a stamp far ahead (a clock
+    /// set back since) doesn't drag the next along.
+    func testStatusStampsStrictlyIncrease() {
+        let now = Fixtures.date(1_000)
+        XCTAssertEqual(StatusPayload.nextStamp(after: nil, now: now), now)
+        XCTAssertEqual(StatusPayload.nextStamp(after: Fixtures.date(500), now: now), now)
+        XCTAssertEqual(StatusPayload.nextStamp(after: now, now: now.addingTimeInterval(0.4)), Fixtures.date(1_001))
+        XCTAssertEqual(StatusPayload.nextStamp(after: Fixtures.date(1_001), now: now), Fixtures.date(1_002))
+        XCTAssertEqual(StatusPayload.nextStamp(after: Fixtures.date(1_090), now: now), Fixtures.date(1_091),
+                       "another device 90 s ahead: still after it, or its copy wins the save")
+        XCTAssertEqual(StatusPayload.nextStamp(after: Fixtures.date(5_000), now: now), now, "an hour ahead: a clock change")
+    }
+
     func testPartnerNameFallsBackWhenUnset() {
         // Not `moderatedPartnerName`: it reads `SharedStore.shared`, the real App Group.
         var snapshot = Snapshot.empty

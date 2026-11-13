@@ -2,8 +2,9 @@ import CoreLocation
 import os
 
 /// Where the camera is, for the shot's GPS tags (`PhotoLocation`). Asked for the
-/// first time the camera opens; runs from then until the shot has a fix (or the
-/// composer closes), never through a whole doodle. Only a fix from since the
+/// first time the camera opens; runs from then until the shot has a fix — at most
+/// `shotFixWait` after it — or the camera closes without one, never through a
+/// whole doodle. Only a fix from since the
 /// camera opened counts — an old one may be somewhere else. Declined, or no fix
 /// yet, a shot simply carries no place.
 @MainActor
@@ -19,6 +20,9 @@ final class LocationStamp: NSObject {
     private var running = false
     /// A shot is waiting on a fix: the first good one ends the run.
     private var stopsAtNextFix = false
+    /// How long a shot waits for a good fix (indoors there may never be one).
+    private static let shotFixWait: Duration = .seconds(30)
+    private var giveUp: Task<Void, Never>?
 
     override private init() {
         super.init()
@@ -38,12 +42,19 @@ final class LocationStamp: NSObject {
             return current
         }
         stopsAtNextFix = true
+        giveUp?.cancel()
+        giveUp = Task { [weak self] in
+            try? await Task.sleep(for: Self.shotFixWait)
+            guard !Task.isCancelled, let self, self.stopsAtNextFix else { return }
+            self.stop()
+        }
         return nil
     }
 
     func start() {
         running = true
         stopsAtNextFix = false
+        giveUp?.cancel()
         startedAt = Date()
         switch manager.authorizationStatus {
         case .notDetermined: manager.requestWhenInUseAuthorization()
@@ -55,6 +66,7 @@ final class LocationStamp: NSObject {
     func stop() {
         running = false
         stopsAtNextFix = false
+        giveUp?.cancel()
         manager.stopUpdatingLocation()
     }
 

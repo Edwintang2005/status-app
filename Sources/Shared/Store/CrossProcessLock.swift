@@ -33,8 +33,12 @@ final class CrossProcessLock: @unchecked Sendable {
                 return try body()
             }
             defer { close(descriptor) }
-            if flock(descriptor, LOCK_EX) != 0 {
-                log.error("flock failed on \(url.lastPathComponent): errno \(errno)")
+            // A signal interrupting the wait isn't a failure: wait again.
+            while flock(descriptor, LOCK_EX) != 0 {
+                guard errno == EINTR else {
+                    log.error("flock failed on \(url.lastPathComponent): errno \(errno)")
+                    break
+                }
             }
             defer { flock(descriptor, LOCK_UN) }
             return try body()

@@ -221,4 +221,20 @@ final class GroupStoreTests: XCTestCase {
         let sidecars = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
         XCTAssertTrue(sidecars.contains { $0.hasPrefix("snapshot") && $0.contains("corrupt") }, "\(sidecars)")
     }
+
+    /// The statuses a corrupt snapshot lost come back only from a full fetch:
+    /// the tokens go, once — not on every read until it's rewritten.
+    func testACorruptSnapshotClearsTheTokensOnce() {
+        let (files, _) = makeStore()
+        let store = SharedStore(store: files)
+        store.setChangeToken(Data("t1".utf8), for: "private")
+        files.setData(Data("not json".utf8), forKey: "snapshot")
+        _ = store.snapshot
+        XCTAssertNil(store.changeToken(for: "private"))
+        XCTAssertEqual(store.historyCoverage, HistoryCoverage.owed)
+
+        store.setChangeToken(Data("t2".utf8), for: "private")
+        _ = store.snapshot
+        XCTAssertEqual(store.changeToken(for: "private"), Data("t2".utf8), "the same bytes again: already set aside")
+    }
 }

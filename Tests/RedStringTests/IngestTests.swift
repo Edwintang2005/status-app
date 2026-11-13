@@ -134,6 +134,19 @@ final class IngestTests: XCTestCase {
         XCTAssertTrue(whole.fetchAllChanges)
     }
 
+    /// A partner's clock running ahead can't push their moment past when the
+    /// server took it — it orders the history and judges news. Ours stay as sent.
+    func testAPartnerMomentNeverClaimsToBeNewerThanTheServerSawIt() {
+        let created = Fixtures.date(10_000)
+        let ahead = created.addingTimeInterval(6 * 60 * 60)
+        XCTAssertEqual(CloudSync.trustedSentAt(ahead, created: created, modified: created, fromMe: false),
+                       created.addingTimeInterval(AppConfig.momentClockLeeway))
+        let offline = created.addingTimeInterval(-3_600)
+        XCTAssertEqual(CloudSync.trustedSentAt(offline, created: created, modified: created, fromMe: false), offline,
+                       "sent offline, uploaded later: kept")
+        XCTAssertEqual(CloudSync.trustedSentAt(ahead, created: created, modified: created, fromMe: true), ahead)
+    }
+
     /// Our own records aren't capped: a long name must survive its own echo.
     func testOwnRecordTextIsNotCapped() {
         let longName = String(repeating: "n", count: 60)

@@ -12,6 +12,8 @@ struct CameraView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var model = CameraModel()
     @State private var focusPoint: CGPoint?
+    /// A shot went to the composer, which ends the location run once it has a fix.
+    @State private var delivered = false
 
     static var isAvailable: Bool { CameraEngine.isAvailable }
 
@@ -32,6 +34,7 @@ struct CameraView: View {
         .statusBarHidden()
         .task {
             model.onCapture = { shot in
+                delivered = true
                 onCapture(shot)
                 dismiss()
             }
@@ -41,7 +44,11 @@ struct CameraView: View {
             guard !Task.isCancelled else { return }
             LocationStamp.shared.start()
         }
-        .onDisappear { model.stop() }
+        .onDisappear {
+            model.stop()
+            // Closed without a shot: nothing will carry the place.
+            if !delivered { LocationStamp.shared.stop() }
+        }
         .sensoryFeedback(.impact(weight: .light), trigger: model.countdown) { _, new in new != nil }
         .sensoryFeedback(.impact(weight: .light), trigger: model.insetCountdown) { _, new in new != nil }
         // A dark shot is in: the phone can move.

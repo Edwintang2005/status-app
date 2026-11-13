@@ -14,6 +14,8 @@ final class NotificationUpkeepTests: XCTestCase {
         XCTAssertFalse(CloudSync.subscriptionsGone([
             CloudSync.SubscriptionID.moment: .failure(CKError(.networkUnavailable)),
         ]), "still registered: the ex's writes would keep pushing here")
+        XCTAssertFalse(CloudSync.subscriptionsGone([:], asked: [CloudSync.SubscriptionID.legacySilentStatus]),
+                       "an empty answer to a delete isn't one that landed")
     }
 
     /// A refused or unreported save is no push for that kind: it must not be stamped verified for a day.

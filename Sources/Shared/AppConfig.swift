@@ -46,6 +46,10 @@ enum AppConfig {
     /// clocks ahead on purpose, and a cap that trips on them splits history
     /// entries and receipts that key on the exact stamp. It's for absurd dates.
     static let clockSkewAllowance: TimeInterval = 24 * 60 * 60
+    /// A partner moment's `sentAt` past the server's creation time by more than
+    /// this is their clock running ahead: it orders the history and judges news,
+    /// and no key depends on it (unlike a status's `wordsAt`), so it's held tight.
+    static let momentClockLeeway: TimeInterval = 2 * 60
     /// A nudge older than this on arrival is worded "earlier" and never breaks
     /// through Focus; at most one nudge per interval does. Generous, because the
     /// age is judged on the sender's clock against this phone's.

@@ -165,6 +165,20 @@ enum NotificationManager {
         }
     }
 
+    /// A banner action (a heart back, a reply) that didn't send: quiet, one at a time.
+    static func postActionFailed(_ body: String) async {
+        let content = UNMutableNotificationContent()
+        content.title = AppConfig.appName
+        content.body = body
+        content.interruptionLevel = .passive
+        let request = UNNotificationRequest(identifier: "action-failed", content: content, trigger: nil)
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+        } catch {
+            log.error("Failed to post a failed-action notice: \(error.localizedDescription)")
+        }
+    }
+
     /// The partner unlinked and no push said so: quiet, since nothing can be
     /// done about it from a banner — Home's notice carries what to do next.
     static func postPartnerLeft(name: String) async {

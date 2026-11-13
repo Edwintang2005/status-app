@@ -6,6 +6,24 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 Version 1.7.
 
+- **Banners are worded before any picture downloads.** On a slow connection a
+  banner could run out of time waiting for the widget's picture and show
+  iCloud's generic words; now its words are settled first, then the pictures
+  download in the time left (the widget fetches its own if they don't).
+  Diagnostics now says which rule worded each banner.
+- **Fewer wrong or missing announcements.** Your partner's first new name after
+  linking is announced as a rename, not a new status. A partner whose phone
+  clock runs ahead can't make a photo look newer than it is. A heart or reply
+  sent from a banner that doesn't go through now says so, instead of failing
+  silently.
+- **The camera lets go.** Location stops when the camera closes without a photo,
+  or 30 seconds after one indoors with no fix, and a photo that finishes after
+  the camera closed is dropped rather than turning up in the composer.
+- **Small fixes.** Two statuses set in the same second no longer get mixed up; a
+  damaged value in the fresh start no longer resets what was cleared; a damaged
+  snapshot fetches the statuses again; and the gallery's date line swaps
+  smoothly to the full date instead of blinking.
+
 - **A long history now finishes syncing on a slow connection.** A phone fetching
   its whole history (a reinstall, a new phone) did it as one download that had
   two minutes to finish; on a weak signal a long history ran out of time, kept

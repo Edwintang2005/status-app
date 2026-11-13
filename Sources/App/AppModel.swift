@@ -661,12 +661,15 @@ final class AppModel {
 
     // MARK: - Status
 
-    /// Whole seconds: a fractional stamp never equals its own stored copy (invariant 14).
+    /// Whole seconds (invariant 14), and after the status it replaces: two in one
+    /// second shared a stamp, so the publish flag could settle on the wrong one.
     private func statusTimestamp() -> Date {
-        Date().wholeSeconds
+        StatusPayload.nextStamp(after: store.snapshot.mine?.updatedAt)
     }
 
-    func setStatus(emoji: String, message: String, celebration: CelebrationStyle? = nil) async {
+    /// - Returns: why it didn't reach iCloud now (it's kept and sent later), or `nil` when it did.
+    @discardableResult
+    func setStatus(emoji: String, message: String, celebration: CelebrationStyle? = nil) async -> SendFailure? {
         let payload = StatusPayload(
             emoji: emoji,
             // Capped here too: the banner reply bypasses the composer's field.
@@ -695,7 +698,7 @@ final class AppModel {
         StatusHistoryLog.shared.record(payload, fromMe: true)
         reload()
 
-        guard paired else { return }
+        guard paired else { return nil }
         statusSendsInFlight += 1
         defer { statusSendsInFlight -= 1 }
         do {
@@ -707,10 +710,12 @@ final class AppModel {
             outbox.noteSendSucceeded()
             reload()
             AccessibilityNotification.Announcement(String(localized: "Status sent to \(partnerName)")).post()
+            return nil
         } catch {
             presentSendFailure(error, noun: String(localized: "status update"))
             reload()
             AccessibilityNotification.Announcement(String(localized: "Status saved. It sends once iCloud can be reached.")).post()
+            return SendFailure(error)
         }
     }
 
@@ -761,23 +766,29 @@ final class AppModel {
     // MARK: - Nudge
 
     /// Never queued: a heart is a moment-in-time gesture.
-    func sendNudge() async {
+    /// - Returns: `false` only when it was tried and didn't send (a banner's
+    /// "Send a heart back" says so); held by the cooldown or already sending is `nil`.
+    @discardableResult
+    func sendNudge() async -> Bool? {
         // Claimed before the await: the store's cooldown reaches this model only once the call returns.
-        guard canNudge, !isSendingNudge else { return }
+        guard canNudge, !isSendingNudge else { return nil }
         isSendingNudge = true
         defer { isSendingNudge = false }
         do {
-            if try await backend.sendNudge() {
+            let sent = try await backend.sendNudge()
+            if sent {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
                 AccessibilityNotification.Announcement(String(localized: "Heart sent")).post()
             }
             reload()
+            return sent ? true : nil
         } catch {
             // `CloudSync.sendNudge` stamped `lastNudgeFailedAt`: the heart itself
             // says it didn't send, like the lock-screen one.
             log.error("Nudge failed: \(error.localizedDescription, privacy: .public)")
             AccessibilityNotification.Announcement(String(localized: "Heart didn't send")).post()
             reload()
+            return false
         }
     }
 
@@ -973,7 +984,7 @@ final class AppModel {
     /// Same shape as `setAnniversary`.
     func requestAnniversary() async {
         guard canRequestAnniversary else { return }
-        let now = statusTimestamp()
+        let now = Date().wholeSeconds
         store.mutate(reloadWidgets: false) {
             $0.anniversaryRequestedAt = now
             $0.anniversaryRequestPublished = false

@@ -14,6 +14,23 @@ extension CloudSync {
     /// under a 24–30 MB ceiling: they take one batch and leave the rest to the app.
     @discardableResult
     func refresh() async throws -> RefreshResult {
+        try await refresh(media: .now).result
+    }
+
+    /// The media a refresh brings along: downloaded as part of it, or handed back.
+    enum MediaTiming { case now, later }
+    /// What's left to download, within the bound given (`refreshDeferringMedia`).
+    typealias PendingMedia = @Sendable (_ within: TimeInterval) async -> Void
+
+    /// The notification service's refresh: nothing waits on a download before the
+    /// banner is worded and claimed; `media` downloads the rest within what's left
+    /// of the service's window (`PushBannerPolicy.attachmentDeadline`).
+    func refreshDeferringMedia() async throws -> (result: RefreshResult, media: PendingMedia) {
+        let refreshed = try await refresh(media: .later)
+        return (refreshed.result, refreshed.media ?? { _ in })
+    }
+
+    private func refresh(media timing: MediaTiming) async throws -> (result: RefreshResult, media: PendingMedia?) {
         let started = Date()
         let pairing: PairingInfo
         switch await MainActor.run(body: { self.stores.shared.pairingState }) {
@@ -165,18 +182,22 @@ extension CloudSync {
         // behind a backlog of full-size photos. The app's full downloads run on
         // their own, so announcing and the recovery pass don't wait on them.
         // A test's fake database has nothing to download.
-        guard prefetchesMedia else { return result }
+        guard prefetchesMedia else { return (result, nil) }
+        let filed = arrived
         if Self.prefetchProcess == .app {
-            let arrived = arrived
             let fullResync = sweep.fromNothing && sweep.finished
             Task {
-                await self.prefetchMedia(for: arrived, pairing: pairing)
+                await self.prefetchMedia(for: filed, pairing: pairing)
                 if fullResync { await self.prefetchMissingThumbnails(pairing: pairing) }
             }
+        } else if timing == .later {
+            return (result, { within in
+                try? await withDeadline(within) { await self.prefetchMedia(for: filed, pairing: pairing) }
+            })
         } else {
-            await prefetchMedia(for: arrived, pairing: pairing)
+            await prefetchMedia(for: filed, pairing: pairing)
         }
-        return result
+        return (result, nil)
     }
 
     /// One refresh's batches, added up.
@@ -697,7 +718,13 @@ extension CloudSync {
     func prefetchMedia(for arrived: [Moment], pairing: PairingInfo) async {
         let store = self.stores.media
         let process = Self.prefetchProcess
-        let recent = process == .app ? Array(self.stores.index.load().prefix(MediaPrefetchPlan.appLimit)) : []
+        let recent: [Moment]
+        switch process {
+        case .app: recent = Array(self.stores.index.load().prefix(MediaPrefetchPlan.appLimit))
+        // The picture it draws, though no delta brought it: the service may have run out of time for it.
+        case .widget: recent = await MainActor.run { [self.stores.shared.snapshot.latestPartnerVisualMoment].compactMap { $0 } }
+        case .notificationService: recent = []
+        }
         // A kind from a newer build has no media this build knows to fetch.
         let items = MediaPrefetchPlan.items(for: arrived.filter(\.kind.isSupported),
                                             recent: recent.filter(\.kind.isSupported), in: process,

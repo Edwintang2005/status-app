@@ -356,20 +356,23 @@ struct MomentGalleryView: View {
                     }
                 }
                 Button {
-                    showsFullDate.toggle()
+                    // Animated here, so the lines below glide when it wraps to two.
+                    withAnimation(.smooth(duration: 0.25)) { showsFullDate.toggle() }
                 } label: {
                     Text(showsFullDate ? self.attribution(moment, partnerName: model.partnerName,
                                                           filterOn: filterOn, fullDate: true) : attribution)
                         .font(Theme.rounded(13))
                         .foregroundStyle(Theme.mutedText)
                         .multilineTextAlignment(.center)
-                        .contentTransition(.opacity)
-                        // A 13 pt line is a small target: 44 pt tall to tap.
-                        .frame(minHeight: 44)
+                        // Swapped outright: a cross-fade drew both wordings over each other.
+                        .contentTransition(.identity)
+                        // A 13 pt line is a small target: 44 pt tall to tap. Full width,
+                        // so the new wording doesn't slide as a centred frame resizes.
+                        .frame(maxWidth: .infinity, minHeight: 44)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .animation(.easeOut(duration: 0.15), value: showsFullDate)
+                // No press dimming: with the swap it blinked the line out and back.
+                .buttonStyle(UndimmedButtonStyle())
                 .accessibilityHint(showsFullDate ? "Shows how long ago" : "Shows the full date and time")
                 .accessibilityIdentifier("gallery.attribution")
                 // Here, not in the line: a moment without a place gets no view, so no gap.
@@ -749,6 +752,13 @@ struct HeartBackButton: View {
 
     private var styled: AnyButtonStyle {
         prominent ? AnyButtonStyle(PrimaryButtonStyle()) : AnyButtonStyle(SecondaryButtonStyle())
+    }
+}
+
+/// A tap target that draws its label as is, pressed or not.
+struct UndimmedButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
     }
 }
 
