@@ -105,8 +105,8 @@ struct ShareView: View {
 
     private var title: String {
         switch model.phase {
-        case .blocked, .unreadable, .unsaved: String(localized: "Red String")
-        default: String(localized: "Send to \(model.partnerName)")
+        case .blocked, .unreadable, .unsaved: AppConfig.appName
+        default: String(localized: "Send to \(model.partnerNameInSentence)")
         }
     }
 
@@ -170,7 +170,7 @@ struct ShareView: View {
     @ViewBuilder
     private var status: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("To \(model.partnerName)").eyebrow(size: 12)
+            Text("To \(model.partnerNameInSentence)").eyebrow(size: 12)
             statusLine
         }
         .padding(.horizontal, 4)
@@ -201,7 +201,7 @@ struct ShareView: View {
             VStack(alignment: .leading, spacing: 8) {
                 captionShown
                 ProgressView(value: fraction)
-                Text("Sending… you can close this, it'll keep going in Red String.")
+                Text("Sending… you can close this, it'll keep going in \(AppConfig.appName).")
                     .font(Theme.rounded(13))
                     .foregroundStyle(Theme.mutedText)
             }
@@ -242,8 +242,8 @@ struct ShareView: View {
 
     private func blockedWords(_ reason: ShareIntake.Blocked) -> String {
         switch reason {
-        case .terms: String(localized: "Open Red String first to finish setting up, then share again.")
-        case .unlinked: String(localized: "Link up with your partner in Red String first, then share again.")
+        case .terms: String(localized: "Open \(AppConfig.appName) first to finish setting up, then share again.")
+        case .unlinked: String(localized: "Link up with your partner in \(AppConfig.appName) first, then share again.")
         case .partnerLeft: String(localized: "\(model.partnerName) has left your shared space, so there's no one to send this to.")
         }
     }

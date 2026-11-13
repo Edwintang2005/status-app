@@ -163,11 +163,11 @@ enum PushBannerPolicy {
             if !result.partnerNudgeArrived,
                let sentAt = result.ownNudgeSentAt ?? (couldNotRead ? nil : ourLatestHeart(in: snapshot)) {
                 return isThisPhones(sentAt, snapshot)
-                    ? own(String(localized: "Your nudge was sent to \(name)."))
-                    : own(String(localized: "You sent a nudge from another device."))
+                    ? own(String(localized: "Your heart was sent to \(name)."))
+                    : own(String(localized: "You sent a heart from another device."))
             }
             if result.ownRecordsChanged {
-                return own(String(localized: "You sent a nudge from another device."))
+                return own(String(localized: "You sent a heart from another device."))
             }
             if let left = partnerLeft(result, name: name, in: &snapshot) { return left }
             // The nudge record wasn't in what this process could read.
@@ -368,8 +368,8 @@ enum PushBannerPolicy {
     private static func heart(name: String, interruption: AnnouncementPolicy.NudgeInterruption) -> Plan {
         Plan(title: name,
              body: interruption.stale
-                ? String(localized: "was thinking of you earlier 💭")
-                : String(localized: "is thinking of you 💭"),
+                ? String(localized: "sent you a heart earlier ❤️")
+                : String(localized: "sent you a heart ❤️"),
              thread: NotificationThread.hearts,
              volume: interruption.breaksThroughFocus ? .timeSensitive : .active,
              subject: .hearts)

@@ -19,6 +19,7 @@ final class FakeCloudDatabase: CloudDatabase, @unchecked Sendable {
     /// Called as each fetch is answered, before it returns: something landing mid-fetch.
     var duringFetch: (() -> Void)?
     private(set) var fetchedSince: [Data?] = []
+    private(set) var batchLimits: [Int?] = []
     private(set) var deletedRecords: [CKRecord.ID] = []
     private(set) var deletedZones: [CKRecordZone.ID] = []
     var zoneDeleteResult: (CKRecordZone.ID) -> Result<Void, Error>? = { _ in .success(()) }
@@ -29,10 +30,11 @@ final class FakeCloudDatabase: CloudDatabase, @unchecked Sendable {
 
     static func token(_ name: String) -> Data { Data(name.utf8) }
 
-    func zoneChanges(zone: CKRecordZone.ID, since token: Data?, oneBatch: Bool,
+    func zoneChanges(zone: CKRecordZone.ID, since token: Data?, batchLimit: Int?,
                      desiredKeys: [String]) async throws -> CloudSync.ZoneChanges {
         let next = lock.withLock { () -> Result<Batch, Error>? in
             fetchedSince.append(token)
+            batchLimits.append(batchLimit)
             return script.isEmpty ? nil : script.removeFirst()
         }
         duringFetch?()

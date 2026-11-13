@@ -27,15 +27,17 @@ final class RecapMedia: Sendable {
     var fetching: Int { fetches.count }
 
     /// Waits for its download if it needed one; one that never came falls back
-    /// to the square thumbnail rather than leaving the moment out.
-    func picture(for moment: Moment, store: MomentStore = .shared) async -> UIImage? {
+    /// to the square thumbnail rather than leaving the moment out — `full` false,
+    /// so the recap is shown but not kept as the year's.
+    func picture(for moment: Moment, store: MomentStore = .shared) async -> (image: UIImage?, full: Bool) {
         // Closing the screen mid-wait drops the queued downloads (one under way runs out its deadline).
         await withTaskCancellationHandler {
             await fetches[moment.id]?.value
         } onCancel: {
             cancel()
         }
-        return store.image(for: moment.id) ?? store.thumbnail(for: moment.id)
+        if let image = store.image(for: moment.id) { return (image, true) }
+        return (store.thumbnail(for: moment.id), false)
     }
 
     func cancel() {

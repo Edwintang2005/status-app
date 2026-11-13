@@ -68,8 +68,15 @@ struct RecapView: View {
     @State private var preview: Preview?
     /// Read inside the build, where an `@Environment` value can be stale.
     @State private var inBackground = false
-    /// Shown, not kept: iCloud didn't answer for the year's older moments.
-    @State private var partial = false
+    /// Shown, not kept, and why.
+    @State private var shortfall: Shortfall?
+
+    private enum Shortfall {
+        /// iCloud didn't answer for the year's older moments.
+        case history
+        /// Some pictures fell back to a thumbnail or were left out (`RecapMedia`).
+        case pictures
+    }
 
     var body: some View {
         ZStack {
@@ -211,8 +218,15 @@ struct RecapView: View {
                     .foregroundStyle(Theme.warmText)
                     .multilineTextAlignment(.center)
             }
-            if partial {
-                Text("iCloud didn't answer, so this was made from this iPhone's copy and may miss older moments. It isn't kept — make it again later for the whole year.")
+            if let shortfall {
+                Group {
+                    switch shortfall {
+                    case .history:
+                        Text("iCloud didn't answer, so this was made from this iPhone's copy and may miss older moments. It isn't kept — make it again later for the whole year.")
+                    case .pictures:
+                        Text("Some pictures didn't download, so they're blurry or left out. It isn't kept — make it again later on a better connection.")
+                    }
+                }
                     .font(Theme.rounded(13))
                     .foregroundStyle(Theme.mutedText)
                     .multilineTextAlignment(.center)
@@ -252,18 +266,18 @@ struct RecapView: View {
         await build()
     }
 
-    private func show(_ saved: RecapStore.Saved, partial: Bool = false) {
+    private func show(_ saved: RecapStore.Saved, shortfall: Shortfall? = nil) {
         player = AVPlayer(url: saved.url)
         preview = nil
-        self.partial = partial
+        self.shortfall = shortfall
         phase = .ready(saved)
         // Opened is as good as waved away — unless it couldn't be kept.
-        if !partial, case .year = period, model.recapPeriodOnHome == period { model.dismissRecapNotice() }
+        if shortfall == nil, case .year = period, model.recapPeriodOnHome == period { model.dismissRecapNotice() }
     }
 
     private func recheckShown() {
         guard case .ready(let saved) = phase else { return }
-        let stale = partial
+        let stale = shortfall != nil
             ? staged.map { RecapStore.shared.cleared(since: $0.startedAt) } ?? true
             : !FileManager.default.fileExists(atPath: saved.url.path)
         if stale { run.attempt += 1 }
@@ -304,13 +318,23 @@ struct RecapView: View {
 
         let directory = current.directory
         let url = directory.appendingPathComponent(RecapStore.fileName(for: period))
+        // Beside the slides, so a pause's return still knows what its drawn slides lacked.
+        let missedPicture = directory.appendingPathComponent("missed-picture")
         if case .rendering = phase {} else { phase = .rendering(0) }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             // Nonisolated: draws off the main actor, and stops with this screen's task.
             let count = plan.slides.count
             try await RecapVideo.render(plan, words: current.words, in: directory, to: url,
-                                        picture: { await media.picture(for: $0) },
+                                        picture: { moment in
+                                            let found = await media.picture(for: moment)
+                                            // A pause drops the queued downloads: its fallback is
+                                            // never drawn (the slide is redrawn on the return).
+                                            if !found.full, !Task.isCancelled {
+                                                FileManager.default.createFile(atPath: missedPicture.path, contents: nil)
+                                            }
+                                            return found.image
+                                        },
                                         drawn: { image, index in
                                             let shown = UIImage(cgImage: image)
                                             Task { @MainActor in preview = Preview(image: shown, index: index, count: count) }
@@ -336,9 +360,13 @@ struct RecapView: View {
             await build()
             return
         }
+        // Shown from the staging folder, which goes when the screen closes.
         guard current.complete else {
-            // Shown from the staging folder, which goes when the screen closes.
-            show(RecapStore.Saved(url: url, madeAt: Date()), partial: true)
+            show(RecapStore.Saved(url: url, madeAt: Date()), shortfall: .history)
+            return
+        }
+        guard !FileManager.default.fileExists(atPath: missedPicture.path) else {
+            show(RecapStore.Saved(url: url, madeAt: Date()), shortfall: .pictures)
             return
         }
         do {

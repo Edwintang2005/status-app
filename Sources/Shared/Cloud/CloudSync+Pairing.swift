@@ -77,7 +77,7 @@ extension CloudSync {
         // One batch tells empty from not (more to come is not empty); the share is a record too.
         let changes: ZoneChanges
         do {
-            changes = try await fetchZoneChanges(zone: zoneID, in: database, since: nil, oneBatch: true, desiredKeys: [])
+            changes = try await fetchZoneChanges(zone: zoneID, in: database, since: nil, batchLimit: Self.extensionBatchLimit, desiredKeys: [])
         } catch let error as CKError where Self.isAlreadyGone(error) {
             return nil
         }

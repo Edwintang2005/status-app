@@ -6,6 +6,28 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 Version 1.7.
 
+- **A long history now finishes syncing on a slow connection.** A phone fetching
+  its whole history (a reinstall, a new phone) did it as one download that had
+  two minutes to finish; on a weak signal a long history ran out of time, kept
+  nothing and started again every time. It now comes down 400 records at a time,
+  each saved before the next, so every try gets further — and none of it is
+  announced as new.
+- **The widget no longer looks unlinked after a restart.** Before the phone's
+  first unlock it can't read its data; the widget now says "Unlock to see the
+  latest" instead of "Open to pair".
+- **A year in review with missing pictures isn't kept.** When some pictures
+  didn't download, the video used blurry thumbnails or left them out and was
+  then kept as the year's. It's now shown with a note, not kept, and the Home
+  card stays so it can be made again on a better connection.
+- **The heart is called a heart everywhere.** The Home button, banners
+  ("sent you a heart ❤️"), the widget, Siri and Settings no longer mix in
+  "nudge" and "thinking of you". An invite reads "Send this to your partner"
+  rather than "to Partner" before they've a name, and the app's name comes
+  from one place.
+- **The drawing palette reads its colours.** VoiceOver says "Pink ink" and
+  "Thin brush", not "Colour 2" and "Brush size 4"; and reporting a moment in the
+  gallery moves on to the next one instead of closing it.
+
 - **When the app syncs is now one tested piece.** Launch, coming to the front,
   pushes, the network returning and an account change all go through a sync
   coordinator, out of the app's main model. Opening the app fetches once, not

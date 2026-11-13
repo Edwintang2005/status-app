@@ -281,12 +281,12 @@ final class PushBannerPolicyTests: XCTestCase {
         status.lastNudgeAt = now
         let result = RefreshResult(partnerStatus: status, newPartnerMoments: [])
         let plan = decide(.nudge, result, in: &snapshot)
-        XCTAssertEqual(plan.body, String(localized: "is thinking of you 💭"))
+        XCTAssertEqual(plan.body, String(localized: "sent you a heart ❤️"))
         XCTAssertEqual(plan.volume, .timeSensitive)
         XCTAssertEqual(snapshot.lastSeenPartnerNudgeCount, 3)
 
         let again = decide(.nudge, result, in: &snapshot)
-        XCTAssertEqual(again.body, String(localized: "is thinking of you 💭"), "already announced: the words stay")
+        XCTAssertEqual(again.body, String(localized: "sent you a heart ❤️"), "already announced: the words stay")
         XCTAssertEqual(again.volume, .quiet, "but it mustn't read as a second tap")
         XCTAssertEqual(plan.thread, NotificationThread.hearts, "hearts stack apart")
         XCTAssertEqual(again.thread, NotificationThread.hearts)
@@ -297,7 +297,7 @@ final class PushBannerPolicyTests: XCTestCase {
         var status = Fixtures.status(nudges: 1)
         status.lastNudgeAt = now.addingTimeInterval(-AppConfig.nudgeStaleAfter - 60)
         let plan = decide(.nudge, RefreshResult(partnerStatus: status, newPartnerMoments: []), in: &snapshot)
-        XCTAssertEqual(plan.body, String(localized: "was thinking of you earlier 💭"))
+        XCTAssertEqual(plan.body, String(localized: "sent you a heart earlier ❤️"))
         XCTAssertEqual(plan.volume, .active)
     }
 
@@ -305,7 +305,7 @@ final class PushBannerPolicyTests: XCTestCase {
         var snapshot = paired(theirs: nil)
         let plan = decide(.nudge, in: &snapshot)
         XCTAssertEqual(plan.title, AppConfig.appName)
-        XCTAssertNotEqual(plan.body, String(localized: "is thinking of you 💭"))
+        XCTAssertNotEqual(plan.body, String(localized: "sent you a heart ❤️"))
         XCTAssertEqual(plan.volume, .quiet)
     }
 
@@ -315,7 +315,7 @@ final class PushBannerPolicyTests: XCTestCase {
         var result = RefreshResult(partnerStatus: Fixtures.status(nudges: 1), newPartnerMoments: [])
         result.ownRecordsChanged = true
         let plan = decide(.nudge, result, in: &snapshot)
-        XCTAssertEqual(plan.body, String(localized: "You sent a nudge from another device."))
+        XCTAssertEqual(plan.body, String(localized: "You sent a heart from another device."))
         XCTAssertEqual(plan.volume, .quiet)
     }
 
@@ -327,14 +327,14 @@ final class PushBannerPolicyTests: XCTestCase {
         var result = RefreshResult(partnerStatus: Fixtures.status(nudges: 1), newPartnerMoments: [])
         result.ownNudgeSentAt = Fixtures.date(900)
         let plan = decide(.nudge, result, in: &snapshot)
-        XCTAssertEqual(plan.body, String(localized: "Your nudge was sent to Sam."))
+        XCTAssertEqual(plan.body, String(localized: "Your heart was sent to Sam."))
         XCTAssertEqual(plan.title, AppConfig.appName)
         XCTAssertEqual(plan.volume, .quiet)
         XCTAssertNil(plan.thread, "this phone's own tap isn't one of their hearts")
 
         // The push beat the widget's write of the new count: still this phone's tap.
         result.ownRecordsChanged = true
-        XCTAssertEqual(decide(.nudge, result, in: &snapshot).body, String(localized: "Your nudge was sent to Sam."))
+        XCTAssertEqual(decide(.nudge, result, in: &snapshot).body, String(localized: "Your heart was sent to Sam."))
     }
 
     func testOurOwnHeartFromAnotherDeviceSaysSo() {
@@ -344,7 +344,7 @@ final class PushBannerPolicyTests: XCTestCase {
         var result = RefreshResult(partnerStatus: Fixtures.status(nudges: 1), newPartnerMoments: [])
         result.ownNudgeSentAt = Fixtures.date(900)
         XCTAssertEqual(decide(.nudge, result, in: &snapshot).body,
-                       String(localized: "You sent a nudge from another device."))
+                       String(localized: "You sent a heart from another device."))
     }
 
     /// The widget's own refresh took our save before its push came: an empty
@@ -357,7 +357,7 @@ final class PushBannerPolicyTests: XCTestCase {
         snapshot.lastSeenPartnerNudgeCount = 1
         snapshot.lastNudgeSentAt = Fixtures.date(900)
         let plan = decide(.nudge, RefreshResult(partnerStatus: snapshot.theirs, newPartnerMoments: []), in: &snapshot)
-        XCTAssertEqual(plan.body, String(localized: "Your nudge was sent to Sam."))
+        XCTAssertEqual(plan.body, String(localized: "Your heart was sent to Sam."))
         XCTAssertEqual(plan.volume, .quiet)
     }
 
@@ -380,7 +380,7 @@ final class PushBannerPolicyTests: XCTestCase {
         snapshot.lastNudgeSentAt = Fixtures.date(960)
         var result = RefreshResult(partnerStatus: Fixtures.status(nudges: 1), newPartnerMoments: [])
         result.ownNudgeSentAt = Fixtures.date(900)
-        XCTAssertEqual(decide(.nudge, result, in: &snapshot).body, String(localized: "Your nudge was sent to Sam."))
+        XCTAssertEqual(decide(.nudge, result, in: &snapshot).body, String(localized: "Your heart was sent to Sam."))
     }
 
     /// Both hearts in one delta: theirs is still announced as theirs.

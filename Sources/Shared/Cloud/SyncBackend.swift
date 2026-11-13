@@ -66,6 +66,25 @@ struct RefreshResult: Sendable {
         // Still unreadable: not caught up (`isWholeDelta`).
         unreadableRecordNames += other.unreadableRecordNames
     }
+
+    /// The next batch of the same fetch (the app's sweep): everything adds up,
+    /// later copies win, and it's incomplete only if the last batch was.
+    mutating func append(_ next: RefreshResult) {
+        absorb(next)
+        heldPartnerStatus = next.partnerStatus != nil ? next.heldPartnerStatus : heldPartnerStatus || next.heldPartnerStatus
+        incomplete = next.incomplete
+        ownRecordsChanged = ownRecordsChanged || next.ownRecordsChanged
+        heldPartnerMomentKinds += next.heldPartnerMomentKinds
+        heldPartnerMomentIDs += next.heldPartnerMomentIDs
+        ownMomentEdited = ownMomentEdited || next.ownMomentEdited
+        ownCaptionEditSent = ownCaptionEditSent || next.ownCaptionEditSent
+        removedMoments += next.removedMoments
+        fullResync = fullResync || next.fullResync
+        partnerLeft = partnerLeft || next.partnerLeft
+        ownNudgeSentAt = next.ownNudgeSentAt ?? ownNudgeSentAt
+        partnerNudgeArrived = partnerNudgeArrived || next.partnerNudgeArrived
+        ownMomentSent = ownMomentSent || next.ownMomentSent
+    }
 }
 
 /// Whether the backend can actually do anything right now.

@@ -386,17 +386,97 @@ final class CloudSyncSeamTests: XCTestCase {
         XCTAssertEqual(store.unreadableTally.heldNames, [name])
     }
 
-    /// One batch of many keeps its cursor but isn't a complete sync.
-    func testABatchWithMoreComingKeepsItsCursor() async throws {
+    /// An extension's one batch of many keeps its cursor but isn't a complete sync.
+    func testAnExtensionsBatchWithMoreComingKeepsItsCursor() async throws {
         store.setChangeToken(FakeCloudDatabase.token("t0"), for: tokenKey)
         database.answer(.init(records: [momentRecord(.participant, "p1")],
                               token: FakeCloudDatabase.token("t1"), moreComing: true))
 
-        let result = try await sync.refresh()
+        let result = try await datedSync([:], processLabel: "widget").refresh()
 
+        XCTAssertEqual(database.batchLimits, [CloudSync.extensionBatchLimit], "one batch, then the app's turn")
         XCTAssertTrue(result.incomplete)
         XCTAssertEqual(storedToken, FakeCloudDatabase.token("t1"))
         XCTAssertNil(store.snapshot.lastSyncedAt, "not synced until nothing more is coming")
+    }
+
+    /// The app takes the zone in batches, each filed and its token kept before
+    /// the next; the whole is one resync, so none of it is news.
+    func testTheAppSweepsTheZoneInBatches() async throws {
+        database.answer(.init(records: [momentRecord(.participant, "p1")],
+                              token: FakeCloudDatabase.token("t1"), moreComing: true))
+        database.answer(.init(records: [momentRecord(.participant, "p2")], token: FakeCloudDatabase.token("t2")))
+
+        let result = try await sync.refresh()
+
+        XCTAssertEqual(database.fetchedSince, [nil, FakeCloudDatabase.token("t1")])
+        XCTAssertEqual(database.batchLimits, [CloudSync.appBatchLimit, CloudSync.appBatchLimit])
+        XCTAssertEqual(Set(index.load().map(\.id)), ["p1", "p2"])
+        XCTAssertTrue(result.fullResync)
+        XCTAssertFalse(result.incomplete)
+        XCTAssertTrue(result.newPartnerMoments.isEmpty, "history, not news")
+        XCTAssertTrue(store.snapshot.owedMoments.isEmpty)
+        XCTAssertEqual(storedToken, FakeCloudDatabase.token("t2"))
+        XCTAssertNotNil(store.snapshot.lastSyncedAt)
+        XCTAssertEqual(store.historyCoverage, AppConfig.momentHistoryLimit, "swept whole")
+    }
+
+    /// The mark a complete sweep leaves is the newest any batch read, though its
+    /// last page held nothing.
+    func testASweepMarksNewsAfterFromEveryBatch() async throws {
+        let sync = datedSync([ParticipantMoment.name("p1"): (Fixtures.date(2_000), Fixtures.date(2_000))])
+        database.answer(.init(records: [momentRecord(.participant, "p1")],
+                              token: FakeCloudDatabase.token("t1"), moreComing: true))
+        database.answer(.init(token: FakeCloudDatabase.token("t2")))
+
+        _ = try await sync.refresh()
+
+        XCTAssertEqual(store.snapshot.newsAfter, Fixtures.date(2_000))
+    }
+
+    /// Only a whole sweep says what's missing from the zone, and it adds up every
+    /// batch: a send returned by an earlier batch isn't re-queued.
+    func testASweepRequeuesOnlySendsNoBatchReturned() async throws {
+        index.insert([Fixtures.moment("early", fromMe: true, uploaded: true),
+                      Fixtures.moment("lost", fromMe: true, uploaded: true)])
+        for id in ["early", "lost"] { try stores.media.write(full: Data([1]), thumb: Data([1]), id: id) }
+        database.answer(.init(records: [momentRecord(.owner, "early")],
+                              token: FakeCloudDatabase.token("t1"), moreComing: true))
+        database.answer(.init(records: [momentRecord(.participant, "p2")], token: FakeCloudDatabase.token("t2")))
+
+        _ = try await sync.refresh()
+
+        let byID = Dictionary(uniqueKeysWithValues: index.load().map { ($0.id, $0) })
+        XCTAssertEqual(byID["early"]?.uploaded, true, "returned by the first batch")
+        XCTAssertEqual(byID["lost"]?.uploaded, false, "returned by none: sent again")
+    }
+
+    /// A sweep cut off mid-way keeps what it filed, and the next pass carries on
+    /// from there — still a resync, so the rest of the history isn't news either.
+    func testACutOffSweepKeepsItsProgressAndResumesAsAResync() async throws {
+        database.answer(.init(records: [momentRecord(.participant, "p1")],
+                              token: FakeCloudDatabase.token("t1"), moreComing: true))
+        database.fail(CKError(.networkFailure))
+
+        do {
+            _ = try await sync.refresh()
+            XCTFail("the second batch failed")
+        } catch {}
+
+        XCTAssertEqual(index.load().map(\.id), ["p1"])
+        XCTAssertEqual(storedToken, FakeCloudDatabase.token("t1"), "the first batch's progress is kept")
+        XCTAssertEqual(store.historyCoverage, HistoryCoverage.owed)
+        XCTAssertNil(store.snapshot.lastSyncedAt)
+
+        database.answer(.init(records: [momentRecord(.participant, "p2")], token: FakeCloudDatabase.token("t2")))
+        let result = try await sync.refresh()
+
+        XCTAssertEqual(database.fetchedSince.last, FakeCloudDatabase.token("t1"))
+        XCTAssertTrue(result.fullResync)
+        XCTAssertTrue(result.newPartnerMoments.isEmpty)
+        XCTAssertEqual(index.load().first { $0.id == "p2" }?.seen, true)
+        XCTAssertTrue(store.snapshot.owedMoments.isEmpty)
+        XCTAssertEqual(store.historyCoverage, AppConfig.momentHistoryLimit)
     }
 
     // MARK: Unlink

@@ -42,7 +42,7 @@ struct RootView: View {
         // Presented from the root: creating the invite replaces PairingView,
         // which would tear down anything it presented itself.
         .sheet(item: $model.presentedInvite) { invite in
-            InviteLinkSheet(url: invite.url, partnerName: model.partnerName)
+            InviteLinkSheet(url: invite.url, partnerName: model.partnerNameInSentence)
         }
         // The one question asked of the owner: after creating the link (once the
         // link sheet is out of the way), and again whenever the partner asks for

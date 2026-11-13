@@ -27,7 +27,7 @@ struct StatusProvider: TimelineProvider {
             completion(StatusEntry(date: Date(), content: .preview))
             return
         }
-        completion(entry(at: Date(), from: SharedStore.shared.snapshot, size: context.displaySize))
+        completion(entry(at: Date(), size: context.displaySize))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<StatusEntry>) -> Void) {
@@ -45,21 +45,18 @@ struct StatusProvider: TimelineProvider {
                                     heldSince: SharedStore.shared.unreadableTally.heldSince,
                                     incomplete: refresh.result?.incomplete ?? false,
                                     offline: refresh.offline,
-                                    locked: refresh.locked)
+                                    locked: refresh.locked || SharedStore.shared.isLockedOut)
             let store = SharedStore.shared
             store.lastWidgetRun = .recorded(after: store.lastWidgetRun, at: Date(), outcome: refresh.outcome,
                                             detail: refresh.detail, nextReload: plan.nextReload)
-            let drawn = entry(at: Date(), from: snapshot, size: size)
+            let drawn = entry(at: Date(), size: size)
             let entries = plan.entries.map { StatusEntry(date: $0, content: drawn.content, photo: drawn.photo) }
             completion(Timeline(entries: entries, policy: .after(plan.nextReload)))
         }
     }
 
-    private func entry(at date: Date, from snapshot: Snapshot, size: CGSize) -> StatusEntry {
-        let store = SharedStore.shared
-        let content = WidgetContent(snapshot: snapshot,
-                                    reportedAt: store.hiddenPartnerStatusAt,
-                                    filterEnabled: store.contentFilterEnabled)
+    private func entry(at date: Date, size: CGSize) -> StatusEntry {
+        let content = WidgetContent(store: SharedStore.shared)
         let photo = drawsPhoto ? content.photo.flatMap { WidgetPhoto.image(for: $0, pointSize: size) } : nil
         return StatusEntry(date: date, content: content, photo: photo)
     }

@@ -241,8 +241,8 @@ enum NotificationManager {
         let content = UNMutableNotificationContent()
         content.title = name
         content.body = interruption.stale
-            ? String(localized: "was thinking of you earlier 💭")
-            : String(localized: "is thinking of you 💭")
+            ? String(localized: "sent you a heart earlier ❤️")
+            : String(localized: "sent you a heart ❤️")
         content.sound = .default
         content.categoryIdentifier = NotificationCategory.nudge
         content.userInfo[BannerSubject.key] = BannerSubject.hearts.stamp

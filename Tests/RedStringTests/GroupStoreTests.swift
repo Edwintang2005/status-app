@@ -114,6 +114,26 @@ final class GroupStoreTests: XCTestCase {
         guard case .unreadable = SharedStore(store: cold).pairingState else { return XCTFail("unreadable isn't unpaired") }
     }
 
+    /// Before first unlock the widget draws neither the space nor the unlinked
+    /// look: it says to unlock, until its next reload can read the store.
+    func testALockedStoreDrawsTheLockedLookNotTheUnlinkedOne() throws {
+        let (store, directory) = makeStore()
+        let shared = SharedStore(store: store)
+        shared.pairing = PairingInfo(role: .owner, zoneName: AppConfig.coupleZoneName, zoneOwnerName: "_owner",
+                                     pairedAt: Fixtures.t0)
+        shared.mutate { $0.isPaired = true }
+        XCTAssertFalse(WidgetContent(store: shared).isLocked)
+        XCTAssertTrue(WidgetContent(store: shared).isPaired)
+
+        let file = directory.appendingPathComponent("snapshot")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: file.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path) }
+        let (cold, _) = makeStore(in: directory)
+        let content = WidgetContent(store: SharedStore(store: cold))
+        XCTAssertTrue(content.isLocked)
+        XCTAssertFalse(content.isPaired)
+    }
+
     private func makeStore(legacy: UserDefaults? = nil, isAppExtension: Bool = false,
                            in directory: URL? = nil) -> (GroupFileStore, URL) {
         let directory = directory ?? temporaryDirectory().appendingPathComponent("State", isDirectory: true)

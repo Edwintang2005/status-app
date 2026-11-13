@@ -5,8 +5,8 @@ import CloudKit
 /// `make test`. Change tokens travel as their archived bytes, as `SharedStore`
 /// keeps them.
 protocol CloudDatabase: Sendable {
-    /// One change fetch: everything since `token`, or one batch of it.
-    func zoneChanges(zone: CKRecordZone.ID, since token: Data?, oneBatch: Bool,
+    /// One change fetch: everything since `token`, or one batch of up to `batchLimit` records.
+    func zoneChanges(zone: CKRecordZone.ID, since token: Data?, batchLimit: Int?,
                      desiredKeys: [String]) async throws -> CloudSync.ZoneChanges
     /// Bytes this database can resume a fetch from; anything else starts over.
     func canResume(from token: Data) -> Bool
@@ -66,10 +66,10 @@ extension CKDatabase: CloudDatabase {
         }
     }
 
-    func zoneChanges(zone: CKRecordZone.ID, since token: Data?, oneBatch: Bool,
+    func zoneChanges(zone: CKRecordZone.ID, since token: Data?, batchLimit: Int?,
                      desiredKeys: [String]) async throws -> CloudSync.ZoneChanges {
         let operation = CloudSync.changesOperation(zone: zone, since: CloudSync.decodeToken(token),
-                                                   oneBatch: oneBatch, desiredKeys: desiredKeys)
+                                                   batchLimit: batchLimit, desiredKeys: desiredKeys)
         let changes = CloudSync.ZoneChanges()
         operation.recordWasChangedBlock = { recordID, result in
             switch result {

@@ -144,7 +144,8 @@ struct MomentWidgetView: View {
 
     private var empty: some View {
         VStack(spacing: 6) {
-            Image(systemName: unheardMemos > 0 ? "waveform" : "photo.on.rectangle.angled")
+            Image(systemName: entry.content.isLocked ? "lock.fill"
+                  : unheardMemos > 0 ? "waveform" : "photo.on.rectangle.angled")
                 .font(.system(size: 26))
                 .foregroundStyle(.secondary)
             Text(emptyLabel)
@@ -171,6 +172,7 @@ struct MomentWidgetView: View {
     }
 
     private var emptyLabel: String {
+        if entry.content.isLocked { return String(localized: "Unlock to see the latest") }
         guard entry.content.isPaired else { return String(localized: "Open to pair") }
         if unheardMemos > 0 {
             return unheardMemos == 1

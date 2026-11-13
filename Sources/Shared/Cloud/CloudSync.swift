@@ -362,8 +362,12 @@ actor CloudSync: SyncBackend {
     // MARK: - Helpers
 
     func requirePairing() async throws -> PairingInfo {
-        guard let pairing = await MainActor.run(body: { self.stores.shared.pairing }) else {
-            throw SyncError.notPaired
+        let pairing: PairingInfo
+        switch await MainActor.run(body: { self.stores.shared.pairingState }) {
+        case .paired(let info): pairing = info
+        case .unpaired: throw SyncError.notPaired
+        // Not knowing isn't unlinked (invariant 15).
+        case .unreadable: throw SyncError.storeUnreadable
         }
         // The owner's zone ID names *whoever is signed in*: under another
         // account every write would land in a stranger's zone. Cached lookup,

@@ -59,7 +59,7 @@ final class DemoSmokeTests: XCTestCase {
     func testDrawingPalette() throws {
         launchToHome()
         try openSheet(app.buttons["Moment"], closingWith: "Cancel", name: "Drawing palette") {
-            let palette = self.app.buttons["Colour 1"]
+            let palette = self.app.buttons["Black ink"]
             // Tapped again if nothing came up: a tap while the sheet is still
             // rising can go nowhere (it flaked once in a few runs on each phone).
             var taps = 0

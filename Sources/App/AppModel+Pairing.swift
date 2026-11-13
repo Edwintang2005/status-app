@@ -295,7 +295,7 @@ extension AppModel {
             do {
                 switch try await backend.lockIfPartnerOnShare(pairing) {
                 case .locked:
-                    inviteNotice = String(localized: "The link is closed. Ask \(partnerName) to tap the invite link once more to get back in.")
+                    inviteNotice = String(localized: "The link is closed. Ask \(partnerNameInSentence) to tap the invite link once more to get back in.")
                 case .nobodyJoined:
                     // Nobody *accepted*; a pending private partner survives a close,
                     // which `closeUnusedInvite` would refuse. The full lock handles both.
@@ -318,7 +318,7 @@ extension AppModel {
         await withInviteChange {
             do {
                 try await backend.reopenInvite()
-                inviteNotice = String(localized: "The link is open again. Anyone who has it can join, so send it only to \(partnerName) — if they lost access, they tap it to get back in.")
+                inviteNotice = String(localized: "The link is open again. Anyone who has it can join, so send it only to \(partnerNameInSentence) — if they lost access, they tap it to get back in.")
             } catch {
                 present(error, title: String(localized: "Couldn't change the invite link"))
             }

@@ -14,7 +14,7 @@ fields end-to-end encrypted.
 | | |
 |---|---|
 | **Status** | An emoji plus a short message — `🥰 missing you`, `😴 sleeping`. Two taps from a preset, or type your own. |
-| **Nudge** | A heart on your lock screen. Tapping it makes their phone show *"Sam is thinking of you 💭"*. |
+| **Heart** | A heart on your lock screen. Tapping it makes their phone show *"Sam sent you a heart ❤️"*. |
 | **Photos & doodles** | Snap a photo, draw a doodle, or scribble over a photo, and it lands on their home screen widget. Pick the paper colour for a doodle. Or share one photo from any app's share sheet. A photo carries where it was taken (see "Where a photo was taken"). |
 | **Voice memos** | Up to 4 minutes (`AppConfig.voiceMemoMaxDuration`), with a live waveform while recording. Playable from the expanded notification without opening the app; a badge on the photo widget says one is waiting. Swipe across any playback waveform to scrub. |
 | **History** | Every photo, doodle and memo is kept. Browse the lot in the library — filterable by *from them* / *from me* and by type — save any to Photos, and get it all back on a new phone. |
@@ -209,10 +209,10 @@ folds a delta files its new partner moments as owed a banner
 (`Snapshot.owedMoments`), and whoever announces takes the whole list at once —
 one banner for a burst, the newest to arrive; a moment you've seen in the app,
 reported or that was deleted leaves it. A full resync owes only what the server
-created since the last complete fetch, so re-fetched history is never announced. A nudge found that way can be hours old, and announcing it as *"is thinking
-of you"* during, say, a status update reads as a mislabelled notification. So
+created since the last complete fetch, so re-fetched history is never announced. A heart found that way can be hours old, and announcing it as *"sent you a
+heart"* during, say, a status update reads as a mislabelled notification. So
 the catch-up checks `lastNudgeAt`: a nudge more than fifteen minutes old is worded
-*"was thinking of you earlier 💭"* and loses its time-sensitive priority. The
+*"sent you a heart earlier ❤️"* and loses its time-sensitive priority. The
 same rule runs in the service extension, and on both paths at most one nudge
 per ten minutes breaks through Focus (`AnnouncementPolicy.nudgeInterruption`):
 the rest still alert, just not through Focus, so repeated taps can't keep
@@ -389,7 +389,7 @@ nobody holding a locked phone can post as you. The service extension
 stamps the category; the app registers the actions at launch and handles taps
 in `AppDelegate`, going through `AppModel` so the usual publish path (and its
 offline recovery) runs. The lock-screen heart's intent is also an App
-Shortcut — "Send a nudge with Red String" works from Siri and the Shortcuts
+Shortcut — "Send a heart with Red String" works from Siri and the Shortcuts
 app.
 
 ### How loud each kind arrives

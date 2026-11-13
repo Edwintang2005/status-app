@@ -123,12 +123,12 @@ final class IngestTests: XCTestCase {
     /// CloudKit's default QoS is discretionary: on mobile data iOS held the
     /// notification service's fetch past its deadline.
     func testTheChangeFetchIsNeverDiscretionary() {
-        let batch = CloudSync.changesOperation(zone: Fixtures.zone, since: nil, oneBatch: true,
+        let batch = CloudSync.changesOperation(zone: Fixtures.zone, since: nil, batchLimit: CloudSync.extensionBatchLimit,
                                                desiredKeys: CloudSync.changeFetchKeys)
         XCTAssertEqual(batch.configuration.qualityOfService, .userInitiated)
         XCTAssertFalse(batch.fetchAllChanges)
         XCTAssertEqual(batch.configurationsByRecordZoneID?[Fixtures.zone]?.resultsLimit, CloudSync.extensionBatchLimit)
-        let whole = CloudSync.changesOperation(zone: Fixtures.zone, since: nil, oneBatch: false,
+        let whole = CloudSync.changesOperation(zone: Fixtures.zone, since: nil, batchLimit: nil,
                                                desiredKeys: CloudSync.changeFetchKeys)
         XCTAssertEqual(whole.configuration.qualityOfService, .userInitiated)
         XCTAssertTrue(whole.fetchAllChanges)

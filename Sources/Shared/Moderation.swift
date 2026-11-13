@@ -201,6 +201,12 @@ extension Snapshot {
         ContentFilter.displayName(theirs?.displayName ?? partnerLeftName ?? "",
                                   fallback: String(localized: "Partner"), enabled: filterEnabled)
     }
+
+    /// Mid-sentence, before they've a name to use: "your partner", never "Send this to Partner".
+    func partnerNameInSentence(filterEnabled: Bool) -> String {
+        ContentFilter.displayName(theirs?.displayName ?? partnerLeftName ?? "",
+                                  fallback: String(localized: "your partner"), enabled: filterEnabled)
+    }
 }
 
 /// A report to the developer, as an email the user sends themselves — the one

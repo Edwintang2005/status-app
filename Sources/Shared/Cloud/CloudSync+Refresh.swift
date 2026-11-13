@@ -8,6 +8,10 @@ extension CloudSync {
     /// Pulls everything changed in the shared zone since last time. A change fetch,
     /// not queries: moments have UUID names, and a device with no stored token gets
     /// the entire zone back — which is how a reinstall recovers the full history.
+    /// The app takes it in batches of `appBatchLimit`, each filed and its token kept
+    /// before the next, so a slow link's resync of a long history gains ground on
+    /// every pass rather than losing it all at `refreshDeadline`. Extensions live
+    /// under a 24–30 MB ceiling: they take one batch and leave the rest to the app.
     @discardableResult
     func refresh() async throws -> RefreshResult {
         let started = Date()
@@ -24,61 +28,69 @@ extension CloudSync {
         let database = cloudDatabase(for: pairing)
         let zone = zoneID(for: pairing)
         let tokenKey = SharedStore.changeTokenKey(for: pairing.role)
+        let batchLimit = isExtension ? Self.extensionBatchLimit : Self.appBatchLimit
 
-        // `startedFrom` is the stored bytes this fetch continues: only a fetch that
-        // still continues them when it lands may finish a sweep (`HistoryCoverage`).
-        let start = await MainActor.run {
-            let stored = self.stores.shared.changeToken(for: tokenKey)
-            return (stored: stored, sweeping: self.stores.shared.historyCoverage == HistoryCoverage.owed)
-        }
-        // Bytes that can't resume a fetch are no token: it starts over, as a resync.
-        var previous = start.stored.flatMap { database.canResume(from: $0) ? $0 : nil }
-        var startedFrom = start.stored
-        let sweeping = start.sweeping
+        var sweep = Sweep()
+        while true {
+            // Past the deadline no further batch starts; the ones filed keep their tokens.
+            if sweep.batches > 0 { try Task.checkCancellation() }
+            // `startedFrom` is the stored bytes this batch continues: only a fetch that
+            // still continues them when it lands may finish a sweep (`HistoryCoverage`).
+            let start = await MainActor.run {
+                let stored = self.stores.shared.changeToken(for: tokenKey)
+                return (stored: stored, sweeping: self.stores.shared.historyCoverage == HistoryCoverage.owed)
+            }
+            // Bytes that can't resume a fetch are no token: it starts over, as a resync.
+            var previous = start.stored.flatMap { database.canResume(from: $0) ? $0 : nil }
+            var startedFrom = start.stored
+            // Another process's batch landed between ours: what it read isn't in `delivered`.
+            if sweep.batches > 0, start.stored != sweep.lastKept { sweep.unbroken = false }
 
-        // Extensions live under a 24–30 MB ceiling: they take one batch of a
-        // large delta and leave the rest to the app, which finishes the resync.
-        let oneBatch = isExtension
-        let changes: ZoneChanges
-        do {
-            changes = try await fetchZoneChanges(zone: zone, in: database, since: previous, oneBatch: oneBatch)
-        } catch let error as CKError where Self.isTokenExpired(error) {
-            log.notice("Change token expired, resyncing the whole zone.")
-            previous = nil
-            startedFrom = nil
-            await MainActor.run { self.stores.shared.setChangeToken(nil, for: tokenKey) }
-            changes = try await fetchZoneChanges(zone: zone, in: database, since: nil, oneBatch: oneBatch)
-        } catch let error as CKError where Self.isAlreadyGone(error) {
+            let changes: ZoneChanges
+            do {
+                changes = try await fetchZoneChanges(zone: zone, in: database, since: previous, batchLimit: batchLimit)
+            } catch let error as CKError where Self.isTokenExpired(error) {
+                log.notice("Change token expired, resyncing the whole zone.")
+                previous = nil
+                startedFrom = nil
+                if sweep.batches > 0 { sweep.unbroken = false }
+                await MainActor.run { self.stores.shared.setChangeToken(nil, for: tokenKey) }
+                changes = try await fetchZoneChanges(zone: zone, in: database, since: nil, batchLimit: batchLimit)
+            } catch let error as CKError where Self.isAlreadyGone(error) {
+                guard await sameAccount else { throw SyncError.differentAccount }
+                // The other side unlinked, or the zone is briefly gone mid-handshake.
+                throw try await zoneGoneVerdict(pairing)
+            }
             guard await sameAccount else { throw SyncError.differentAccount }
-            // The other side unlinked, or the zone is briefly gone mid-handshake.
-            throw try await zoneGoneVerdict(pairing)
-        }
-        guard await sameAccount else { throw SyncError.differentAccount }
-        // A deadline landing here (the widget's) must stop before anything is
-        // applied: a half-applied delta must not be followed by its token.
-        try Task.checkCancellation()
-        // The zone answered: any earlier "gone" sighting was transient.
-        await MainActor.run { self.stores.shared.zoneGoneSeenAt = nil }
-        if changes.moreComing {
-            log.notice("Took one batch of \(changes.records.count) records; the app will fetch the rest.")
-        }
+            // A deadline landing here (the widget's) must stop before anything is
+            // applied: a half-applied delta must not be followed by its token.
+            try Task.checkCancellation()
+            // The zone answered: any earlier "gone" sighting was transient.
+            await MainActor.run { self.stores.shared.zoneGoneSeenAt = nil }
+            if changes.moreComing, isExtension {
+                log.notice("Took one batch of \(changes.records.count) records; the app will fetch the rest.")
+            }
 
-        // Apply before the token (invariant 2); re-applying a delta is harmless.
-        // A sweep another process began (its first batch kept a token) is still a
-        // resync to the batches that finish it: old history isn't news.
-        let resync = previous == nil || sweeping
-        let keysAvailable = !isExtension && SharedStore.protectedDataAvailable
-        let tally = await MainActor.run { self.stores.shared.unreadableTally }
-        let hold = ResyncHold(keysAvailable: keysAvailable,
-                              room: AppConfig.owedRecordLimit - tally.owed.count,
-                              heldPasses: tally.heldPasses)
-        let applied = await apply(changes, pairing: pairing, fullResync: resync, hold: hold)
-        var result = applied.result
-        result.incomplete = changes.moreComing
-        if !changes.failedIDs.isEmpty {
-            log.notice("\(changes.failedIDs.count) changed records failed to arrive; owed, to fetch again by ID.")
-            result.unreadableRecordNames += changes.failedIDs.map(\.recordName)
+            if sweep.batches == 0 { sweep.fromNothing = previous == nil }
+            // A sweep another process began (its first batch kept a token) is still a
+            // resync to the batches that finish it: old history isn't news.
+            sweep.resync = sweep.resync || previous == nil || start.sweeping
+            let batch = await file(changes, pairing: pairing, tokenKey: tokenKey, hadToken: previous != nil,
+                                   startedFrom: startedFrom, resync: sweep.resync,
+                                   missedEarlier: !sweep.result.unreadableRecordNames.isEmpty,
+                                   readEarlier: sweep.newestRead)
+            sweep.batches += 1
+            sweep.result.append(batch.result)
+            sweep.arrived += batch.arrived
+            sweep.newestRead = [sweep.newestRead, batch.newestRead].compactMap { $0 }.max()
+            sweep.delivered += changes.records.map(\.recordID) + changes.failedIDs
+            sweep.finished = !changes.moreComing
+            sweep.lastKept = batch.kept
+            // Held or refused, the token stayed: the next batch would be this one again.
+            guard !isExtension, changes.moreComing, batch.kept != nil else { break }
         }
+        if sweep.batches > 1 { log.notice("Fetched the zone in \(sweep.batches) batches.") }
+        var result = sweep.result
 
         // A complete fetch of the whole zone is the one moment "not returned"
         // means "not on the server": own sends marked delivered that it didn't
@@ -90,11 +102,9 @@ extension CloudSync {
         let freshStartNames = [pairing.role.freshStartRecordName, pairing.role.other.freshStartRecordName]
         let stillOwed = await MainActor.run { self.stores.shared.unreadableTally.heldNames }
         let freshStartHeld = (result.unreadableRecordNames + stillOwed).contains(where: freshStartNames.contains)
-        if previous == nil, !changes.moreComing, !isExtension, !freshStartHeld {
+        if sweep.isWholeZone, !isExtension, !freshStartHeld {
             // A record that failed to arrive is still on the server.
-            let delivered = Set((changes.records.map(\.recordID) + changes.failedIDs).compactMap {
-                pairing.role.momentID(fromRecordName: $0.recordName)
-            })
+            let delivered = Set(sweep.delivered.compactMap { pairing.role.momentID(fromRecordName: $0.recordName) })
             // After a fresh start "not returned" is mostly "cleared": those stay
             // out of the queue, or a second device's old index re-sends them all.
             let clearedBefore = await MainActor.run { self.stores.shared.snapshot.freshStart.clearedBefore }
@@ -105,7 +115,83 @@ extension CloudSync {
             }
         }
 
-        // What this pass missed is owed and fetched again by ID; what it read or
+        // Owed from earlier passes, fetched by ID — by a pass that missed nothing
+        // itself: the app only with the phone unlocked; the widget and expanded
+        // banner on any pass with budget left (they're what catch up after an
+        // unlock; a blind miss backs them off, `claimOwedRetry`); never the
+        // notification service, whose time is the banner's.
+        var arrived = sweep.arrived
+        let processLabel = processLabel
+        if result.unreadableRecordNames.isEmpty, isExtension || SharedStore.protectedDataAvailable,
+           processLabel != "notification service",
+           !isExtension || Date().timeIntervalSince(started) < AppConfig.owedRetryExtensionBudget,
+           let retried = await retryOwedRecords(pairing: pairing, database: database) {
+            result.absorb(retried.result)
+            arrived += retried.arrived
+        }
+
+        // Media last, after the token: the records are filed, so a kill here
+        // loses nothing, and the notification service's banner no longer waits
+        // behind a backlog of full-size photos. The app's full downloads run on
+        // their own, so announcing and the recovery pass don't wait on them.
+        // A test's fake database has nothing to download.
+        guard prefetchesMedia else { return result }
+        if Self.prefetchProcess == .app {
+            let arrived = arrived
+            let fullResync = sweep.fromNothing && sweep.finished
+            Task {
+                await self.prefetchMedia(for: arrived, pairing: pairing)
+                if fullResync { await self.prefetchMissingThumbnails(pairing: pairing) }
+            }
+        } else {
+            await prefetchMedia(for: arrived, pairing: pairing)
+        }
+        return result
+    }
+
+    /// One refresh's batches, added up.
+    struct Sweep {
+        var batches = 0
+        var result = RefreshResult.empty
+        var arrived: [Moment] = []
+        /// Every record name the batches returned, unreadable ones included.
+        var delivered: [CKRecord.ID] = []
+        /// The first batch had no token to continue: the whole zone, if it finishes.
+        var fromNothing = false
+        var resync = false
+        /// Each batch continued the token the one before kept.
+        var unbroken = true
+        var finished = false
+        var lastKept: Data?
+        /// The newest server save any batch read, for `newsAfter` once the sweep completes.
+        var newestRead: Date?
+
+        var isWholeZone: Bool { fromNothing && unbroken && finished }
+    }
+
+    /// One batch filed (invariant 2): applied, what it missed owed — or, a resync
+    /// that can't owe it, held — and only then its token kept.
+    /// - Returns: also the token kept, `nil` when it wasn't.
+    private func file(_ changes: ZoneChanges, pairing: PairingInfo, tokenKey: String, hadToken: Bool,
+                      startedFrom: Data?, resync: Bool,
+                      missedEarlier: Bool,
+                      readEarlier: Date?) async -> (result: RefreshResult, arrived: [Moment], kept: Data?, newestRead: Date?) {
+        let keysAvailable = !isExtension && SharedStore.protectedDataAvailable
+        let tally = await MainActor.run { self.stores.shared.unreadableTally }
+        let hold = ResyncHold(keysAvailable: keysAvailable,
+                              room: AppConfig.owedRecordLimit - tally.owed.count,
+                              heldPasses: tally.heldPasses)
+        // Apply before the token (invariant 2); re-applying a delta is harmless.
+        let applied = await apply(changes, pairing: pairing, fullResync: resync, hold: hold,
+                                  missedEarlier: missedEarlier, readEarlier: readEarlier)
+        var result = applied.result
+        result.incomplete = changes.moreComing
+        if !changes.failedIDs.isEmpty {
+            log.notice("\(changes.failedIDs.count) changed records failed to arrive; owed, to fetch again by ID.")
+            result.unreadableRecordNames += changes.failedIDs.map(\.recordName)
+        }
+
+        // What this batch missed is owed and fetched again by ID; what it read or
         // saw deleted is settled; the token moves on (invariant 2). Except a resync
         // a process without the keys couldn't read (a locked phone's, an
         // extension's): owing a whole zone's history would overflow the list and
@@ -135,60 +221,28 @@ extension CloudSync {
                               holding: holdsResync ? (worthHolding, missed.count, keysAvailable) : nil,
                               process: processLabel)
         }
-        if let encoded = changes.token, !holdsResync {
-            let hadToken = previous != nil
-            let finished = !changes.moreComing
-            let startedFrom = startedFrom
-            await MainActor.run {
-                let store = self.stores.shared
-                let persists = TokenAdvancePolicy.persists(samePairing: store.pairing?.sameZone(as: pairing) == true,
-                                                           hadToken: hadToken,
-                                                           tokenStillStored: store.changeToken(for: tokenKey) != nil)
-                guard persists else {
-                    log.notice("Not advancing the change token: the pairing or the stored token changed during apply.")
-                    return
-                }
-                // Batches taken since the tokens were cleared add up to the whole zone,
-                // as long as this one continued the stored lineage, not an older one.
-                let sameLineage = store.changeToken(for: tokenKey) == startedFrom
-                store.setChangeToken(encoded, for: tokenKey)
-                store.noteFetched(missed: [], settled: [], tokenKept: true)
-                store.historyCoverage = HistoryCoverage.after(store.historyCoverage,
-                                                              finished: finished && sameLineage)
+        guard let encoded = changes.token, !holdsResync else { return (result, applied.arrived, nil, applied.newestRead) }
+        let finished = !changes.moreComing
+        let kept = await MainActor.run { () -> Bool in
+            let store = self.stores.shared
+            let persists = TokenAdvancePolicy.persists(samePairing: store.pairing?.sameZone(as: pairing) == true,
+                                                       hadToken: hadToken,
+                                                       tokenStillStored: store.changeToken(for: tokenKey) != nil)
+            guard persists else {
+                log.notice("Not advancing the change token: the pairing or the stored token changed during apply.")
+                return false
             }
+            // Batches taken since the tokens were cleared add up to the whole zone,
+            // as long as this one continued the stored lineage, not an older one.
+            let sameLineage = store.changeToken(for: tokenKey) == startedFrom
+            store.setChangeToken(encoded, for: tokenKey)
+            store.noteFetched(missed: [], settled: [], tokenKept: true)
+            // A sweep from no token is owed until a batch ends it, whichever process that is.
+            let coverage = hadToken ? store.historyCoverage : HistoryCoverage.owed
+            store.historyCoverage = HistoryCoverage.after(coverage, finished: finished && sameLineage)
+            return true
         }
-
-        // Owed from earlier passes, fetched by ID — by a pass that missed nothing
-        // itself: the app only with the phone unlocked; the widget and expanded
-        // banner on any pass with budget left (they're what catch up after an
-        // unlock; a blind miss backs them off, `claimOwedRetry`); never the
-        // notification service, whose time is the banner's.
-        var arrived = applied.arrived
-        if missed.isEmpty, isExtension || SharedStore.protectedDataAvailable,
-           processLabel != "notification service",
-           !isExtension || Date().timeIntervalSince(started) < AppConfig.owedRetryExtensionBudget,
-           let retried = await retryOwedRecords(pairing: pairing, database: database) {
-            result.absorb(retried.result)
-            arrived += retried.arrived
-        }
-
-        // Media last, after the token: the records are filed, so a kill here
-        // loses nothing, and the notification service's banner no longer waits
-        // behind a backlog of full-size photos. The app's full downloads run on
-        // their own, so announcing and the recovery pass don't wait on them.
-        // A test's fake database has nothing to download.
-        guard prefetchesMedia else { return result }
-        if Self.prefetchProcess == .app {
-            let arrived = arrived
-            let fullResync = previous == nil && !changes.moreComing
-            Task {
-                await self.prefetchMedia(for: arrived, pairing: pairing)
-                if fullResync { await self.prefetchMissingThumbnails(pairing: pairing) }
-            }
-        } else {
-            await prefetchMedia(for: arrived, pairing: pairing)
-        }
-        return result
+        return (result, applied.arrived, kept ? encoded : nil, applied.newestRead)
     }
 
     /// Owed records (`SharedStore.UnreadableTally`), fetched again by ID — claimed
@@ -296,7 +350,7 @@ extension CloudSync {
         var deletedIDs: [CKRecord.ID] = []
         /// The archived server change token (`CloudSync.encodeToken`).
         var token: Data?
-        /// `oneBatch` stopped short; `token` continues from where it stopped.
+        /// A batch stopped short; `token` continues from where it stopped.
         var moreComing = false
         /// The zone's own failure. It can arrive only here, with the operation
         /// "succeeding" — an empty delta that looked complete.
@@ -319,21 +373,24 @@ extension CloudSync {
 
     /// Records an extension takes per refresh before handing over to the app.
     static let extensionBatchLimit = 150
+    /// Records per batch of the app's fetch: each is filed and its token kept
+    /// before the next, so a slow link's resync of a long history converges.
+    static let appBatchLimit = 400
 
     /// Whether this process is the widget or the notification service.
     static var isAppExtension: Bool { SharedStore.processLabel != "app" }
 
     /// Assets are excluded via `desiredKeys` — a first sync would otherwise pull
     /// every photo and recording ever sent. Media is fetched separately, on demand.
-    /// `oneBatch` returns after the first page with `moreComing` set; the page's
+    /// A `batchLimit` returns after the first page with `moreComing` set; the page's
     /// token is a valid cursor, so applying it before persisting stays safe.
     /// A caller that needs only names and system fields passes fewer `desiredKeys`.
     func fetchZoneChanges(zone: CKRecordZone.ID,
                           in database: any CloudDatabase,
                           since previous: Data?,
-                          oneBatch: Bool = false,
+                          batchLimit: Int? = nil,
                           desiredKeys: [String] = CloudSync.changeFetchKeys) async throws -> ZoneChanges {
-        try await database.zoneChanges(zone: zone, since: previous, oneBatch: oneBatch, desiredKeys: desiredKeys)
+        try await database.zoneChanges(zone: zone, since: previous, batchLimit: batchLimit, desiredKeys: desiredKeys)
     }
 
     /// Someone is always waiting on a fetch — a banner, a widget, the open app —
@@ -341,18 +398,18 @@ extension CloudSync {
     /// iOS held it past the notification service's deadline.
     static func changesOperation(zone: CKRecordZone.ID,
                                  since previous: CKServerChangeToken?,
-                                 oneBatch: Bool,
+                                 batchLimit: Int? = nil,
                                  desiredKeys: [String]) -> CKFetchRecordZoneChangesOperation {
         let configuration = CKFetchRecordZoneChangesOperation.ZoneConfiguration(
             previousServerChangeToken: previous,
-            resultsLimit: oneBatch ? Self.extensionBatchLimit : nil,
+            resultsLimit: batchLimit,
             desiredKeys: desiredKeys
         )
         let operation = CKFetchRecordZoneChangesOperation(
             recordZoneIDs: [zone],
             configurationsByRecordZoneID: [zone: configuration]
         )
-        operation.fetchAllChanges = !oneBatch
+        operation.fetchAllChanges = batchLimit == nil
         operation.configuration.qualityOfService = .userInitiated
         return operation
     }
@@ -387,7 +444,10 @@ extension CloudSync {
                pairing: PairingInfo,
                fullResync: Bool = false,
                hold: ResyncHold = ResyncHold(),
-               newsMark: NewsMark = .current) async -> (result: RefreshResult, arrived: [Moment], judgedNewsAfter: Date?) {
+               newsMark: NewsMark = .current,
+               missedEarlier: Bool = false,
+               readEarlier: Date? = nil) async
+        -> (result: RefreshResult, arrived: [Moment], judgedNewsAfter: Date?, newestRead: Date?) {
         let store = self.stores.shared
         // One decode for every judgement below; the fold itself re-reads under the lock.
         // Reported, or deleted here and not yet gone from iCloud: neither comes back.
@@ -468,14 +528,17 @@ extension CloudSync {
         // Collages show captions: a partner's edit makes a kept recap stale.
         if outcome.result.editedPartnerMoments.contains(where: \.isPicture) { self.stores.recaps.removeAll() }
         // Bound to `let`s before crossing actors.
-        // Only a complete fetch that missed nothing has read everything up to its
-        // newest record: a missed one may be older, and still news when read.
-        let missedAny = !parsed.unreadable.isEmpty || !changes.failedIDs.isEmpty
+        // Only a complete fetch that missed nothing — in any of its batches — has
+        // read everything up to its newest record: a missed one may be older, and
+        // still news when read.
+        let missedAny = missedEarlier || !parsed.unreadable.isEmpty || !changes.failedIDs.isEmpty
         let complete = !changes.moreComing
             && !hold.holds(fullResync: fullResync, missed: parsed.unreadable.count + changes.failedIDs.count)
         let fold = {
             var fold = outcome.fold
-            fold.readUpTo = complete && !missedAny ? parsed.newestReadSavedAt : nil
+            // The newest any batch read: a sweep's last page can hold nothing readable.
+            let newest = [readEarlier, parsed.newestReadSavedAt].compactMap { $0 }.max()
+            fold.readUpTo = complete && !missedAny ? newest : nil
             return fold
         }()
 
@@ -499,7 +562,9 @@ extension CloudSync {
 
         // An unlink can land mid-refresh (the status write above checks under the
         // lock); past this point nothing from the ex's zone may be filed either.
-        guard await MainActor.run(body: { store.pairing?.sameZone(as: pairing) == true }) else { return (.empty, [], judgedNewsAfter) }
+        guard await MainActor.run(body: { store.pairing?.sameZone(as: pairing) == true }) else {
+            return (.empty, [], judgedNewsAfter, nil)
+        }
 
         if let theirs = outcome.partnerStatusToLog { self.stores.statusLog.record(theirs, fromMe: false) }
         if let mine = outcome.myStatusToLog { self.stores.statusLog.record(mine, fromMe: true) }
@@ -539,7 +604,7 @@ extension CloudSync {
         if let receipts = parsed.theirReceipts {
             self.stores.index.applyPartnerReceipts(Self.receiptMap(from: receipts))
         }
-        return (outcome.result, arrived, judgedNewsAfter)
+        return (outcome.result, arrived, judgedNewsAfter, parsed.newestReadSavedAt)
     }
 
     /// Each moment's and status log's server creation time, for the fresh

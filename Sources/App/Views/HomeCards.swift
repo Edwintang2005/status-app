@@ -151,7 +151,7 @@ struct PartnerCard: View, Equatable {
         let words = status.message.text.isEmpty ? "" : " \(status.message.text)"
         var summary = "\(partnerName): \(status.emoji)\(words), \(wordsAt.relativeWording(asOf: now))"
         if let heartAt {
-            summary += String(localized: ". Thinking of you, \(heartAt.relativeWording(asOf: now))")
+            summary += String(localized: ". Sent you a heart \(heartAt.relativeWording(asOf: now))")
         }
         return summary
     }
@@ -183,7 +183,7 @@ struct PartnerCard: View, Equatable {
                         .foregroundStyle(Theme.mutedText)
                     if let heartAt {
                         RelativeTime(heartAt) { when in
-                            Label("thinking of you · \(when)", systemImage: "heart.fill")
+                            Label("sent you a heart · \(when)", systemImage: "heart.fill")
                         }
                         .font(Theme.rounded(13, .semibold))
                         .foregroundStyle(Theme.accentText)

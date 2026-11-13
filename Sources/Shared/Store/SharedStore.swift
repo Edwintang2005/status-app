@@ -127,6 +127,13 @@ final class SharedStore: @unchecked Sendable {
         return pairing.map(PairingState.paired) ?? .unpaired
     }
 
+    /// The pairing or the snapshot can't be read (before first unlock): what's
+    /// drawn from them would be the empty, unlinked look.
+    var isLockedOut: Bool {
+        if case .unreadable = pairingState { return true }
+        return store.storedValue(forKey: Key.snapshot) == .unreadable
+    }
+
     /// Whether this device sends (and shows) read receipts. On by default —
     /// an absent key reads `true`, so the value is stored as explicit bytes
     /// rather than through `bool(forKey:)`, where unset and `false` collapse.

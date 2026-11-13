@@ -101,7 +101,7 @@ struct HomeNoticeView: View, Equatable {
         case .widgetTip:
             HomeNoticeCard(systemImage: "lock.iphone",
                            title: "Put \(partnerName) on your Lock Screen",
-                           message: "Touch and hold your Lock Screen, tap Customize, then the Lock Screen, and add \(AppConfig.appName) to the widget row: their status, and the heart that sends a nudge, without unlocking.",
+                           message: "Touch and hold your Lock Screen, tap Customize, then the Lock Screen, and add \(AppConfig.appName) to the widget row: their status, and a heart to send them, without unlocking.",
                            actionTitle: "Got it",
                            action: onAction)
         case .recap(let period):

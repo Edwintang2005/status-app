@@ -6,6 +6,8 @@ import Foundation
 /// read of the store is a file read and a decode.
 struct WidgetContent: Hashable {
     var isPaired: Bool
+    /// The store can't be read yet (before first unlock): neither paired nor unlinked.
+    var isLocked = false
     var mine: StatusPayload?
     /// Reported → no words; a message the filter hides → a stand-in that fits a tile.
     var partner: StatusPayload?
@@ -37,6 +39,14 @@ struct WidgetContent: Hashable {
         lastNudgeSentAt = snapshot.lastNudgeSentAt
         lastNudgeFailedAt = snapshot.lastNudgeFailedAt
         lastNudgeIssuedAt = snapshot.lastNudgeIssuedAt
+    }
+
+    /// What the store holds now; locked, the empty snapshot's look is never the unlinked one.
+    init(store: SharedStore) {
+        self.init(snapshot: store.snapshot, reportedAt: store.hiddenPartnerStatusAt,
+                  filterEnabled: store.contentFilterEnabled)
+        isLocked = store.isLockedOut
+        if isLocked { isPaired = false }
     }
 
     /// The gallery's sample: our own fixed text, so no store read and no filter.

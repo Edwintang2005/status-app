@@ -11,14 +11,16 @@ final class DrawingController {
     @ObservationIgnored private let sheetDragBlocker = SheetDragBlocker()
     @ObservationIgnored private let fillTap = FillTap()
 
-    static let palette: [Color] = [
-        .black,
-        Color(red: 0.96, green: 0.44, blue: 0.56),
-        Color(red: 0.44, green: 0.38, blue: 0.92),
-        Color(red: 0.30, green: 0.80, blue: 0.70),
-        Color(red: 1.00, green: 0.78, blue: 0.25),
-        .white,
+    /// Each pen, with the name VoiceOver reads for it.
+    static let pens: [(colour: Color, name: LocalizedStringResource)] = [
+        (.black, "Black ink"),
+        (Color(red: 0.96, green: 0.44, blue: 0.56), "Pink ink"),
+        (Color(red: 0.44, green: 0.38, blue: 0.92), "Purple ink"),
+        (Color(red: 0.30, green: 0.80, blue: 0.70), "Teal ink"),
+        (Color(red: 1.00, green: 0.78, blue: 0.25), "Yellow ink"),
+        (.white, "White ink"),
     ]
+    static var palette: [Color] { pens.map(\.colour) }
     static let widths: [CGFloat] = [4, 10, 22]
 
     /// Backdrops for photo-less doodles. `isDark` drives the automatic ink
@@ -325,6 +327,14 @@ struct DrawingPalette: View {
 
     @State private var confirmingClear = false
 
+    private static func brushName(_ width: CGFloat) -> String {
+        switch DrawingController.widths.firstIndex(of: width) {
+        case 0: String(localized: "Thin brush")
+        case 1: String(localized: "Medium brush")
+        default: String(localized: "Thick brush")
+        }
+    }
+
     /// One per entry of `DrawingController.backdrops`, in order.
     private static var backdropNames: [String] {
         [String(localized: "White background"),
@@ -341,7 +351,8 @@ struct DrawingPalette: View {
         // narrow screen; each slot keeps room for its selection ring.
         VStack(spacing: 14) {
             HStack(spacing: 0) {
-                ForEach(Array(DrawingController.palette.enumerated()), id: \.offset) { index, colour in
+                ForEach(Array(DrawingController.pens.enumerated()), id: \.offset) { _, pen in
+                    let colour = pen.colour
                     Button {
                         controller.color = colour
                     } label: {
@@ -357,7 +368,7 @@ struct DrawingPalette: View {
                             )
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(String(localized: "Colour \(index + 1)"))
+                    .accessibilityLabel(Text(pen.name))
                     .accessibilityAddTraits(isSelected(colour) ? .isSelected : [])
                     .frame(minWidth: 38, maxWidth: .infinity)
                 }
@@ -411,7 +422,7 @@ struct DrawingPalette: View {
                             .toolHitArea()
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(String(localized: "Brush size \(Int(width))"))
+                    .accessibilityLabel(Self.brushName(width))
                     .accessibilityAddTraits(controller.width == width && controller.tool == .pen ? .isSelected : [])
                     .frame(minWidth: 34, maxWidth: .infinity)
                 }

@@ -59,7 +59,7 @@ struct SettingsView: View {
                             .submitLabel(.done)
                             .onSubmit { commitName() }
                     }
-                    LabeledContent("Nudges and moments") {
+                    LabeledContent("Hearts and moments") {
                         Text(notificationLabel)
                             .foregroundStyle(Theme.mutedText)
                     }
@@ -497,14 +497,14 @@ struct SettingsView: View {
     /// so the copy says what actually happens in each state.
     private var inviteFooter: String {
         if model.inviteClosed {
-            return String(localized: "Closed. Nobody new can use the link you sent, even if it was forwarded or screenshotted. If \(model.partnerName) is already in, it still re-admits them on a new phone.")
+            return String(localized: "Closed. Nobody new can use the link you sent, even if it was forwarded or screenshotted. If \(model.partnerNameInSentence) is already in, it still re-admits them on a new phone.")
         }
         // `theirs` is only a hint that they're in (they may have joined and not
         // posted yet), so neither branch claims to know for certain.
         if model.snapshot.theirs != nil {
             return String(localized: "\(model.partnerName) is in, and the link still admits anyone holding it. Closing it re-seats them privately — have them ready to tap the link once more.")
         }
-        return String(localized: "Anyone holding the link can join. If \(model.partnerName) hasn't joined yet, closing it simply shuts it; once they're in, closing asks them to tap the link once more.")
+        return String(localized: "Anyone holding the link can join. If \(model.partnerNameInSentence) hasn't joined yet, closing it simply shuts it; once they're in, closing asks them to tap the link once more.")
     }
 
     private var safetyFooter: String {
@@ -712,7 +712,7 @@ private struct InviteDialogs: ViewModifier {
                 Button("Reopen") { Task { await model.reopenInvite() } }
                 Button("Not now", role: .cancel) {}
             } message: {
-                Text("Anyone who has the link will be able to join again. Reopen it if \(model.partnerName) can't get back in.")
+                Text("Anyone who has the link will be able to join again. Reopen it if \(model.partnerNameInSentence) can't get back in.")
             }
             .alert("Invite link", isPresented: $model.inviteNotice.isPresent()) {
                 Button("OK", role: .cancel) { model.inviteNotice = nil }
@@ -788,7 +788,7 @@ private struct LockScreenWidgetHelp: View {
                     step(1, "Touch and hold your Lock Screen.")
                     step(2, "Tap Customize, then the Lock Screen.")
                     step(3, "Tap the widget row and add \(AppConfig.appName).")
-                    Text("\(partnerName)'s status, and the heart that sends a nudge, without unlocking.")
+                    Text("\(partnerName)'s status, and a heart to send them, without unlocking.")
                         .font(Theme.rounded(15))
                         .foregroundStyle(Theme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)

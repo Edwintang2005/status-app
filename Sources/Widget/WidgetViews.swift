@@ -12,6 +12,7 @@ struct StatusWidgetView: View {
     private var status: StatusPayload? { entry.content.partner }
     private var mine: StatusPayload? { entry.content.mine }
     private var isPaired: Bool { entry.content.isPaired }
+    private var isLocked: Bool { entry.content.isLocked }
     private var knownName: String? { entry.content.partnerName }
 
     /// What to call them before they've said anything.
@@ -44,7 +45,7 @@ struct StatusWidgetView: View {
     /// Emoji and names only — inline gets a single line and truncates, so no message.
     private var inline: some View {
         guard isPaired else {
-            return Text("\(AppConfig.appName): not paired")
+            return isLocked ? Text("\(AppConfig.appName): unlock to see") : Text("\(AppConfig.appName): not paired")
         }
         let theirs = status.map { "\($0.emoji) \(name)" } ?? String(localized: "💭 nothing yet")
         guard let mine else {
@@ -67,7 +68,7 @@ struct StatusWidgetView: View {
                     .font(.system(size: 26))
                     .opacity(0.6)
             } else {
-                Image(systemName: "link.badge.plus")
+                Image(systemName: isLocked ? "lock.fill" : "link.badge.plus")
                     .font(.system(size: 20))
             }
         }
@@ -76,6 +77,7 @@ struct StatusWidgetView: View {
 
     private var circularSummary: String {
         if let status { return "\(name): \(status.emoji) \(personMessage(for: status))" }
+        if isLocked { return String(localized: "Unlock to see the latest") }
         return isWaiting ? String(localized: "Nothing from them yet") : String(localized: "Open to pair")
     }
 
@@ -185,7 +187,7 @@ struct StatusWidgetView: View {
                     .background(Theme.accent, in: Circle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Send a nudge")
+            .accessibilityLabel("Send a heart")
         }
     }
 
@@ -200,7 +202,7 @@ struct StatusWidgetView: View {
             Text(AppConfig.appName)
                 .font(homeScreen ? .system(.footnote, design: .rounded, weight: .semibold)
                                  : .system(size: 13, weight: .semibold, design: .rounded))
-            Text("Open to pair")
+            Text(isLocked ? "Unlock to see the latest" : "Open to pair")
                 .font(homeScreen ? .system(.caption, design: .rounded)
                                  : .system(size: 12, design: .rounded))
                 .foregroundStyle(.secondary)
@@ -237,9 +239,9 @@ struct NudgeWidgetView: View {
     }
 
     private var accessibilityLabel: String {
-        if recentlySent { return String(localized: "Nudge sent") }
-        if recentlyFailed { return String(localized: "Nudge didn't send. Tap to retry") }
-        return String(localized: "Send a nudge")
+        if recentlySent { return String(localized: "Heart sent") }
+        if recentlyFailed { return String(localized: "Heart didn't send. Tap to retry") }
+        return String(localized: "Send a heart")
     }
 
     var body: some View {
@@ -254,7 +256,7 @@ struct NudgeWidgetView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(accessibilityLabel)
             } else {
-                Image(systemName: "link.badge.plus")
+                Image(systemName: entry.content.isLocked ? "lock.fill" : "link.badge.plus")
                     .font(.system(size: 20))
             }
         }

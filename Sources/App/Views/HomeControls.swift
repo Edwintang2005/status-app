@@ -9,7 +9,7 @@ struct OfflineBanner: View {
     let storageFull: Bool
 
     private var title: String {
-        mobileDataDenied ? String(localized: "Mobile data is off for Red String") : String(localized: "You're offline")
+        mobileDataDenied ? String(localized: "Mobile data is off for \(AppConfig.appName)") : String(localized: "You're offline")
     }
 
     private var detail: String {
@@ -185,7 +185,7 @@ struct NudgeButton: View {
             } else if failed {
                 Label("Didn't send · tap to retry", systemImage: "heart.slash.fill")
             } else {
-                Label("Thinking of you", systemImage: "heart.fill")
+                Label("Send a heart", systemImage: "heart.fill")
             }
         }
         // Accent, not warm: the heart wears the red string's crimson. In flight
@@ -193,8 +193,8 @@ struct NudgeButton: View {
         .buttonStyle(NudgeButtonStyle(calm: sending || !ready,
                                       tint: failed ? Theme.warmDeep : Theme.accent))
         .disabled(sending || !ready)
-        .accessibilityLabel(sending ? "Sending a nudge" : !ready ? "Nudge sent"
-                            : failed ? "Nudge didn't send. Send again" : "Send a nudge")
+        .accessibilityLabel(sending ? "Sending a heart" : !ready ? "Heart sent"
+                            : failed ? "Heart didn't send. Send again" : "Send a heart")
         .animation(.smooth, value: ready)
         .animation(.smooth, value: failed)
         .animation(.smooth, value: sending)

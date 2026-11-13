@@ -311,6 +311,8 @@ final class AppModel {
 
     /// The partner's name as shown everywhere — filtered like any of their text.
     var partnerName: String { snapshot.partnerName(filterEnabled: contentFilterEnabled) }
+    /// `partnerName` for mid-sentence: "your partner" until they've a name.
+    var partnerNameInSentence: String { snapshot.partnerNameInSentence(filterEnabled: contentFilterEnabled) }
 
     /// When the two of them began, as the owner set it — `nil` until they do.
     var anniversary: Anniversary? { snapshot.anniversary }
@@ -767,14 +769,14 @@ final class AppModel {
         do {
             if try await backend.sendNudge() {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
-                AccessibilityNotification.Announcement(String(localized: "Nudge sent")).post()
+                AccessibilityNotification.Announcement(String(localized: "Heart sent")).post()
             }
             reload()
         } catch {
             // `CloudSync.sendNudge` stamped `lastNudgeFailedAt`: the heart itself
             // says it didn't send, like the lock-screen one.
             log.error("Nudge failed: \(error.localizedDescription, privacy: .public)")
-            AccessibilityNotification.Announcement(String(localized: "Nudge didn't send")).post()
+            AccessibilityNotification.Announcement(String(localized: "Heart didn't send")).post()
             reload()
         }
     }

@@ -29,6 +29,8 @@ final class ShareModel {
     private(set) var image: UIImage?
     var caption = ""
     let partnerName: String
+    /// Mid-sentence: "your partner" until they've a name.
+    let partnerNameInSentence: String
 
     @ObservationIgnored private var location: PhotoLocation?
     /// The moment this sheet filed and may still be sending.
@@ -53,6 +55,7 @@ final class ShareModel {
 
     init() {
         partnerName = store.snapshot.partnerName(filterEnabled: store.contentFilterEnabled)
+        partnerNameInSentence = store.snapshot.partnerNameInSentence(filterEnabled: store.contentFilterEnabled)
         if let blocked { phase = .blocked(blocked) }
     }
 
@@ -160,7 +163,7 @@ final class ShareModel {
             release(moment.id)
             // Returning isn't landing: a pairing that moved mid-send files nothing as sent.
             let sent = MomentIndex.shared.load().first { $0.id == moment.id }?.uploaded == true
-            phase = sent ? .sent : .queued(String(localized: "It's saved and will send next time Red String opens."))
+            phase = sent ? .sent : .queued(String(localized: "It's saved and will send next time \(AppConfig.appName) opens."))
         } catch {
             log.error("Shared photo didn't send yet: \(error.localizedDescription, privacy: .public)")
             if ShareIntake.releasesClaim(after: error) {
@@ -173,8 +176,8 @@ final class ShareModel {
                 if !left { watchForLanding(moment.id) }
             }
             phase = .queued(SendFailure(error) == .offline
-                ? String(localized: "You're offline. It's saved and will send once Red String is back online.")
-                : String(localized: "It's saved and will send next time Red String opens."))
+                ? String(localized: "You're offline. It's saved and will send once \(AppConfig.appName) is back online.")
+                : String(localized: "It's saved and will send next time \(AppConfig.appName) opens."))
         }
     }
 

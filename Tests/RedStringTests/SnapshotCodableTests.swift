@@ -176,6 +176,10 @@ final class SnapshotCodableTests: XCTestCase {
         XCTAssertEqual(snapshot.partnerName(filterEnabled: true), "Sam")
         snapshot.theirs?.displayName = "  "
         XCTAssertEqual(snapshot.partnerName(filterEnabled: true), "Partner")
+        XCTAssertEqual(snapshot.partnerNameInSentence(filterEnabled: true), "your partner",
+                       "never \"Send this to Partner\"")
+        snapshot.theirs?.displayName = "Sam"
+        XCTAssertEqual(snapshot.partnerNameInSentence(filterEnabled: true), "Sam")
     }
 
     /// Upgrading: a published status was already logged (or was a rename the

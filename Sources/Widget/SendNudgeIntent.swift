@@ -4,7 +4,7 @@ import AppIntents
 /// lock-screen heart; WidgetKit reloads the timeline once `perform()` returns)
 /// and the app (Siri and Shortcuts via `RedStringShortcuts`).
 struct SendNudgeIntent: AppIntent {
-    static let title: LocalizedStringResource = "Send a nudge"
+    static let title: LocalizedStringResource = "Send a heart"
     static let description = IntentDescription("Let them know you're thinking of them.")
     static let openAppWhenRun = false
 

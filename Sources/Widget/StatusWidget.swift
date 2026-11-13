@@ -25,8 +25,8 @@ struct NudgeWidget: Widget {
         StaticConfiguration(kind: AppConfig.nudgeWidgetKind, provider: StatusProvider()) { entry in
             NudgeWidgetView(entry: entry)
         }
-        .configurationDisplayName("Nudge")
-        .description("Tap to send a 'thinking of you'.")
+        .configurationDisplayName("Heart")
+        .description("Tap to send a heart.")
         .supportedFamilies([.accessoryCircular])
     }
 }

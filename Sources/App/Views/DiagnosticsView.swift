@@ -182,7 +182,7 @@ struct DiagnosticsView: View {
                      empty: "None yet. iOS hands these over about once a day, and a crash usually on the next launch; they stay on this phone.")
 
                 list("Share sheet launches", diagnostics.shareLaunches,
-                     empty: "Not opened yet. Each time Red String is picked in a share sheet, its start, when it was on screen and how it ended are kept here; \"never on screen\" is one that flashed and closed.")
+                     empty: "Not opened yet. Each time \(AppConfig.appName) is picked in a share sheet, its start, when it was on screen and how it ended are kept here; \"never on screen\" is one that flashed and closed.")
 
                 if !diagnostics.problems.isEmpty {
                     Section("Problems") {

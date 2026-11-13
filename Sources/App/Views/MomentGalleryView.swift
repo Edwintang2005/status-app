@@ -24,6 +24,8 @@ struct MomentGalleryView: View {
     /// Filter-hidden captions the user chose to see.
     @State private var revealedCaptions: Set<String> = []
     @State private var reporting: Moment?
+    /// Reported here: gone at once, even when the history it leaves is empty.
+    @State private var reported: Set<String> = []
     /// A reply's composer, over the gallery: sending returns here.
     @State private var replying: ReplyKind?
     /// An own moment whose caption is being edited, and the words so far.
@@ -56,7 +58,8 @@ struct MomentGalleryView: View {
     /// read is empty, which isn't everything deleted.
     private var moments: [Moment] {
         let here = model.historyByID
-        return here.isEmpty ? opened : opened.filter { here[$0.id] != nil }
+        let shown = opened.filter { !reported.contains($0.id) }
+        return here.isEmpty ? shown : shown.filter { here[$0.id] != nil }
     }
 
     /// The page after a removed one, else the one before; none left closes the gallery.
@@ -203,9 +206,12 @@ struct MomentGalleryView: View {
                                 isPresented: $reporting.isPresent(),
                                 titleVisibility: .visible) {
                 Button("Report", role: .destructive) {
-                    if let reporting { model.report(reporting) }
+                    // Gone from the history, so the pager moves on (`settle`), as after a delete.
+                    if let reporting {
+                        model.report(reporting)
+                        reported.insert(reporting.id)
+                    }
                     reporting = nil
-                    dismiss()
                 }
                 Button("Cancel", role: .cancel) { reporting = nil }
             } message: {
