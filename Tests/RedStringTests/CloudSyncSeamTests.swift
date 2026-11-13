@@ -89,6 +89,56 @@ final class CloudSyncSeamTests: XCTestCase {
         XCTAssertEqual(storedToken, FakeCloudDatabase.token("t1"))
     }
 
+    /// Another process moving the token on mid-pass wins: ours may be behind it
+    /// (an extension's batch cursor over the app's complete token).
+    func testATokenAnotherProcessMovedOnIsNotOverwritten() async throws {
+        store.setChangeToken(FakeCloudDatabase.token("t0"), for: tokenKey)
+        database.answer(.init(records: [momentRecord(.participant, "p1")], token: FakeCloudDatabase.token("t1")))
+        let store = store!, key = tokenKey
+        database.duringFetch = { store.setChangeToken(FakeCloudDatabase.token("theirs"), for: key) }
+
+        _ = try await sync.refresh()
+
+        XCTAssertEqual(index.load().map(\.id), ["p1"], "still filed; re-reading it is harmless")
+        XCTAssertEqual(storedToken, FakeCloudDatabase.token("theirs"))
+    }
+
+    /// The zone gone on the fetch an expired token started over is judged like
+    /// any other "gone": a first sighting, never a raw error.
+    func testAZoneGoneAfterAnExpiredTokenGoesToTheVerdict() async throws {
+        store.setChangeToken(FakeCloudDatabase.token("t0"), for: tokenKey)
+        database.fail(CKError(.changeTokenExpired))
+        database.fail(CKError(.zoneNotFound))
+
+        do {
+            _ = try await sync.refresh()
+            XCTFail("the zone was gone")
+        } catch SyncError.zoneUnreachable {
+        } catch {
+            XCTFail("expected the first sighting, got \(error)")
+        }
+        XCTAssertNotNil(store.zoneGoneSeenAt)
+        XCTAssertNotNil(store.pairing, "one sighting never unlinks")
+    }
+
+    /// A throttled fetch tells every process to wait (`fetchThrottledUntil`); a
+    /// stamp further ahead than any throttle is a clock change, not iCloud.
+    func testAThrottledFetchStampsTheWaitForEveryProcess() async throws {
+        database.fail(CKError(.requestRateLimited))
+
+        do {
+            _ = try await sync.refresh()
+            XCTFail("throttled")
+        } catch {}
+
+        let until = try XCTUnwrap(store.fetchThrottledUntil)
+        XCTAssertGreaterThan(until, Date())
+        XCTAssertTrue(store.fetchWaitsOutThrottle())
+        XCTAssertFalse(store.fetchWaitsOutThrottle(now: until), "over once it's reached")
+        store.fetchThrottledUntil = Date().addingTimeInterval(AppConfig.throttleMaxDelay * 2)
+        XCTAssertFalse(store.fetchWaitsOutThrottle())
+    }
+
     /// A record this pass couldn't read doesn't hold the token (invariant 2): it's
     /// owed, nothing of it is filed, and the delta behind it isn't fetched again.
     func testAnUnreadableRecordIsOwedAndTheTokenMovesOn() async throws {
@@ -419,6 +469,27 @@ final class CloudSyncSeamTests: XCTestCase {
         XCTAssertEqual(storedToken, FakeCloudDatabase.token("t2"))
         XCTAssertNotNil(store.snapshot.lastSyncedAt)
         XCTAssertEqual(store.historyCoverage, AppConfig.momentHistoryLimit, "swept whole")
+        XCTAssertTrue(result.checkedWholeZone, "what's missing was checked")
+    }
+
+    /// A send confirmed while the sweep ran landed after the batch that would have
+    /// returned it: missing from the sweep isn't missing from the zone.
+    func testASendConfirmedMidSweepIsNotRequeued() async throws {
+        index.insert([Fixtures.moment("late", fromMe: true, uploaded: false)])
+        try stores.media.write(full: Data([1]), thumb: Data([1]), id: "late")
+        database.answer(.init(records: [momentRecord(.participant, "p1")],
+                              token: FakeCloudDatabase.token("t1"), moreComing: true))
+        database.answer(.init(token: FakeCloudDatabase.token("t2")))
+        let index = index!
+        var fetches = 0
+        database.duringFetch = {
+            fetches += 1
+            if fetches == 2 { _ = index.markUploaded(ids: ["late"]) }
+        }
+
+        _ = try await sync.refresh()
+
+        XCTAssertEqual(index.load().first { $0.id == "late" }?.uploaded, true)
     }
 
     /// The mark a complete sweep leaves is the newest any batch read, though its
@@ -432,6 +503,23 @@ final class CloudSyncSeamTests: XCTestCase {
         _ = try await sync.refresh()
 
         XCTAssertEqual(store.snapshot.newsAfter, Fixtures.date(2_000))
+    }
+
+    /// Past its budget the sweep starts no batch: it hands back what it filed,
+    /// incomplete — not interrupted, so the runner carries straight on.
+    func testASweepStopsAtItsBudget() async throws {
+        let sync = CloudSync(stores: stores, database: database, prefetchesMedia: false, sweepBudget: 0)
+        database.answer(.init(records: [momentRecord(.participant, "p1")],
+                              token: FakeCloudDatabase.token("t1"), moreComing: true))
+        database.answer(.init(records: [momentRecord(.participant, "p2")], token: FakeCloudDatabase.token("t2")))
+
+        let result = try await sync.refresh()
+
+        XCTAssertEqual(database.fetchedSince.count, 1)
+        XCTAssertTrue(result.incomplete)
+        XCTAssertFalse(result.interrupted)
+        XCTAssertFalse(result.checkedWholeZone, "Diagnostics can't say nothing's missing")
+        XCTAssertEqual(storedToken, FakeCloudDatabase.token("t1"))
     }
 
     /// Only a whole sweep says what's missing from the zone, and it adds up every
@@ -454,14 +542,15 @@ final class CloudSyncSeamTests: XCTestCase {
     /// A sweep cut off mid-way keeps what it filed, and the next pass carries on
     /// from there — still a resync, so the rest of the history isn't news either.
     func testACutOffSweepKeepsItsProgressAndResumesAsAResync() async throws {
-        database.answer(.init(records: [momentRecord(.participant, "p1")],
+        database.answer(.init(records: [momentRecord(.participant, "p1"), Fixtures.statusRecord(name: "Sam", at: Fixtures.t0)],
                               token: FakeCloudDatabase.token("t1"), moreComing: true))
         database.fail(CKError(.networkFailure))
 
-        do {
-            _ = try await sync.refresh()
-            XCTFail("the second batch failed")
-        } catch {}
+        // The failed batch costs only itself: what the first filed goes back, to be announced.
+        let partial = try await sync.refresh()
+        XCTAssertTrue(partial.incomplete)
+        XCTAssertTrue(partial.interrupted)
+        XCTAssertEqual(partial.partnerStatus?.displayName, "Sam")
 
         XCTAssertEqual(index.load().map(\.id), ["p1"])
         XCTAssertEqual(storedToken, FakeCloudDatabase.token("t1"), "the first batch's progress is kept")

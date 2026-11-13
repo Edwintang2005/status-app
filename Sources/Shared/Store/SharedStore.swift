@@ -36,6 +36,7 @@ final class SharedStore: @unchecked Sendable {
         static let anniversaryPrompt = "anniversaryPromptPending"
         static let unreadable = "unreadableRecords"
         static let zoneGone = "zoneGoneSeenAt"
+        static let fetchThrottledUntil = "fetchThrottledUntil"
         static let lastPairing = "lastPairing"
         static let closeLinkPromptDismissed = "closeLinkPromptDismissed"
         static let widgetTipDismissed = "widgetTipDismissed"
@@ -195,6 +196,20 @@ final class SharedStore: @unchecked Sendable {
     var zoneGoneSeenAt: Date? {
         get { decode(Date.self, forKey: Key.zoneGone) }
         set { encodeOptional(newValue, forKey: Key.zoneGone) }
+    }
+
+    /// iCloud asked every process to slow its change fetches until then
+    /// (`SendFailure.throttled`): the app's automatic fetches and the widget's wait
+    /// it out; pull-to-refresh and the notification service's fetch don't.
+    var fetchThrottledUntil: Date? {
+        get { decode(Date.self, forKey: Key.fetchThrottledUntil) }
+        set { encodeOptional(newValue, forKey: Key.fetchThrottledUntil) }
+    }
+
+    /// Whether automatic fetches wait now; a stamp over `throttleMaxDelay` ahead is a clock change, not iCloud.
+    func fetchWaitsOutThrottle(now: Date = Date()) -> Bool {
+        guard let until = fetchThrottledUntil else { return false }
+        return now < until && until.timeIntervalSince(now) <= AppConfig.throttleMaxDelay
     }
 
     /// The pairing this device was last cut loose from (`clearPairing(keepingName:)`),
@@ -897,6 +912,18 @@ final class SharedStore: @unchecked Sendable {
 
     func setChangeToken(_ data: Data?, for key: String) {
         store.setData(data, forKey: "changeToken-\(key)")
+    }
+
+    private static let tokenLock = CrossProcessLock(name: "token.lock")
+
+    /// Writes `data` only if `allowed` says so of the token stored now, both under
+    /// one cross-process lock: a refresh's compare-and-swap (`TokenAdvancePolicy`).
+    func setChangeToken(_ data: Data, for key: String, if allowed: (Data?) -> Bool) -> Bool {
+        Self.tokenLock.withLock {
+            guard allowed(changeToken(for: key)) else { return false }
+            setChangeToken(data, for: key)
+            return true
+        }
     }
 
     /// One token per database: the owner's zone lives in `private`, the participant's in `shared`.

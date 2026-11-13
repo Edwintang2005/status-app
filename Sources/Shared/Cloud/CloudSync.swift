@@ -38,6 +38,9 @@ enum SyncError: LocalizedError {
     /// `AppConfig.zoneGoneConfirmation` — the invite-close handshake makes it
     /// vanish for a few seconds — so this is transient, not a verdict.
     case zoneUnreachable
+    /// The app's sweep filed some batches, then one failed: what it filed was
+    /// announced, but the fetch didn't finish (`RefreshResult.interrupted`).
+    case sweepInterrupted
     /// A save returned without a result for the record it was asked to save.
     /// Treated as a failure: a send marked delivered on a guess is lost for good.
     case saveUnconfirmed
@@ -95,6 +98,8 @@ enum SyncError: LocalizedError {
             return String(localized: "Only the person who joined the link can ask for this.")
         case .zoneUnreachable:
             return String(localized: "Couldn't reach your shared space just now. Try again in a moment.")
+        case .sweepInterrupted:
+            return String(localized: "Only part of your shared space came through. The rest follows next time.")
         case .saveUnconfirmed:
             return String(localized: "iCloud didn't confirm the save. It will be retried.")
         case .existingPairing:
@@ -151,6 +156,8 @@ actor CloudSync: SyncBackend {
     let recordMetadata: RecordMetadata
     /// A test's bound on the by-ID retry, in place of `owedRetryDeadline`.
     let retryDeadlineOverride: TimeInterval?
+    /// `AppConfig.sweepBudget`, or a test's.
+    let sweepBudget: TimeInterval
     /// The signed-in account, cached so `requirePairing` can verify it on every
     /// call without a network round trip each time. Dropped when the system
     /// reports an account change (`noteAccountChanged`), else after the lifetime.
@@ -267,7 +274,8 @@ actor CloudSync: SyncBackend {
          prefetchesMedia: Bool = true,
          processLabel: String = SharedStore.processLabel,
          recordMetadata: RecordMetadata = .server,
-         owedRetryDeadline: TimeInterval? = nil) {
+         owedRetryDeadline: TimeInterval? = nil,
+         sweepBudget: TimeInterval = AppConfig.sweepBudget) {
         // Not built for a test: `CKContainer(identifier:)` traps without the entitlement.
         self.optionalContainer = container ?? (database == nil ? CKContainer(identifier: AppConfig.cloudContainerID) : nil)
         self.stores = stores
@@ -276,6 +284,7 @@ actor CloudSync: SyncBackend {
         self.processLabel = processLabel
         self.recordMetadata = recordMetadata
         self.retryDeadlineOverride = owedRetryDeadline
+        self.sweepBudget = sweepBudget
     }
 
     // MARK: - Account
@@ -340,7 +349,9 @@ actor CloudSync: SyncBackend {
         }
         // A test's fake iCloud has no account to look up: unknown, which counts as a match.
         guard let container = optionalContainer,
-              let name = try? await container.userRecordID().recordName else { return nil }
+              let name = try? await container.configuredWith(configuration: .waited, body: {
+                  try await $0.userRecordID().recordName
+              }) else { return nil }
         cachedUserRecordName = (name, now)
         await MainActor.run { self.stores.shared.verifiedAccount = .init(name: name, verifiedAt: now) }
         return name
@@ -391,7 +402,7 @@ actor CloudSync: SyncBackend {
 
     func fetchRecord(_ id: CKRecord.ID, in database: CKDatabase) async throws -> CKRecord? {
         do {
-            return try await database.record(for: id)
+            return try await database.waited { try await $0.record(for: id) }
         } catch let error as CKError where error.code == .unknownItem {
             return nil
         }

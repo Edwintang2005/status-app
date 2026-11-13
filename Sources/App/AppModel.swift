@@ -901,8 +901,14 @@ final class AppModel {
             guard let self else { return false }
             self.store.clearChangeTokens()
             do {
-                try await SyncRunner(store: self.store, backend: { [backendProvider] in backendProvider() },
-                                     notifier: AppNotifier()).refresh(announce: false)
+                let pass = try await SyncRunner(store: self.store, backend: { [backendProvider] in backendProvider() },
+                                                notifier: AppNotifier()).refreshResult(announce: false)
+                // The zone didn't come back whole in one go (its budget, a fresh start held):
+                // nothing was checked, so nothing can be said to be missing.
+                guard pass.result.checkedWholeZone else {
+                    self.log.notice("History resync didn't cover the whole zone in one go.")
+                    return false
+                }
                 return true
             } catch {
                 self.log.error("History resync failed: \(error.localizedDescription, privacy: .public)")

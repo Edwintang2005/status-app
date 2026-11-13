@@ -36,6 +36,7 @@ final class SyncCoordinatorTests: XCTestCase {
         var latch: Latch?
         var foreground: AppFetchPolicy.Foreground?
         var wholePushID: String?
+        var fetchThrottled = false
 
         var readinessLatch: Latch?
         func readinessProblem() async -> String? {
@@ -104,6 +105,20 @@ final class SyncCoordinatorTests: XCTestCase {
     }
 
     // MARK: Fetching
+
+    /// iCloud asked us to slow down: automatic fetches wait it out, without
+    /// counting as failures; pull-to-refresh still goes.
+    func testAThrottleHoldsAutomaticFetchesButNotAnAskedOne() async {
+        host.fetchThrottled = true
+        let automatic = await sync.refresh()
+        XCTAssertFalse(automatic)
+        XCTAssertEqual(host.fetches, 0)
+        XCTAssertFalse(sync.fetchFailing)
+
+        let asked = await sync.refresh(asked: true)
+        XCTAssertTrue(asked)
+        XCTAssertEqual(host.fetches, 1)
+    }
 
     /// Launch and the scene turning active fire together: one fetch, one readiness look.
     func testLaunchAndForegroundShareOneFetch() async {
@@ -204,6 +219,51 @@ final class SyncCoordinatorTests: XCTestCase {
     }
 
     // MARK: SyncRunner
+
+    /// A sweep a failed batch cut short: what it filed is announced, then it
+    /// throws — the fetch didn't finish, so nobody reads it as one that did.
+    func testAnInterruptedSweepAnnouncesThenFails() async throws {
+        final class Notifier: SyncNotifier {
+            var moments: [String] = []
+            func postPartnerLeft(name: String) async {}
+            func postNudge(from name: String, sentAt: Date?) async {}
+            func postMoment(_ moment: Moment, from name: String) async { moments.append(moment.id) }
+            func postRemoval(from name: String, count: Int) async {}
+        }
+        let store = SharedStore(defaults: temporaryDefaults())
+        store.mutate { $0.owe([Fixtures.moment("p1")]) }
+        let backend = FakeBackend()
+        var cut = RefreshResult.empty
+        cut.incomplete = true
+        cut.interrupted = true
+        backend.refreshResult = cut
+        let notifier = Notifier()
+        let runner = SyncRunner(store: store, backend: { backend }, notifier: notifier, upkeep: { _ in })
+
+        do {
+            try await runner.refresh()
+            XCTFail("an interrupted sweep isn't a finished fetch")
+        } catch SyncError.sweepInterrupted {}
+        XCTAssertEqual(notifier.moments, ["p1"], "announced all the same")
+        XCTAssertEqual(backend.refreshes, 1, "one pass: the rest waits for the next refresh")
+    }
+
+    /// A pull-to-refresh queued behind a fetch iCloud throttled still runs, though
+    /// an automatic caller queued after it replaces the rerun.
+    func testAnAskedFetchSurvivesALaterAutomaticRerun() async {
+        let latch = Latch()
+        host.latch = latch
+        let first = Task { await sync.refresh() }
+        await waitUntil { latch.waiting == 1 }
+        host.fetchThrottled = true
+        let asked = Task { await sync.refresh(asked: true) }
+        await waitUntil { sync.fetchGate.isRerunQueued }
+        let automatic = Task { await sync.refresh() }
+        host.latch = nil
+        latch.release()
+        _ = await (first.value, asked.value, automatic.value)
+        XCTAssertEqual(host.fetches, 2, "the asked rerun went despite the throttle")
+    }
 
     /// A refresh announces what's owed — once — and only when asked to.
     func testARefreshAnnouncesTheOwedMomentOnce() async throws {

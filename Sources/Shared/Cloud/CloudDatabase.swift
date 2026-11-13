@@ -52,6 +52,23 @@ struct CloudStores: Sendable {
     }
 }
 
+extension CKOperation.Configuration {
+    /// Someone is waiting — a banner, a tap, the open app — so never CloudKit's
+    /// default QoS, which is discretionary (see `CloudSync.changesOperation`).
+    static var waited: CKOperation.Configuration {
+        let configuration = CKOperation.Configuration()
+        configuration.qualityOfService = .userInitiated
+        return configuration
+    }
+}
+
+extension CKDatabase {
+    /// This database's calls in `body` at `.userInitiated` (`Configuration.waited`).
+    func waited<R>(_ body: @Sendable (CKDatabase) async throws -> R) async throws -> R {
+        try await configuredWith(configuration: .waited, body: body)
+    }
+}
+
 extension CKDatabase: CloudDatabase {
     func canResume(from token: Data) -> Bool {
         CloudSync.decodeToken(token) != nil
@@ -59,11 +76,7 @@ extension CKDatabase: CloudDatabase {
 
     func fetchRecords(_ ids: [CKRecord.ID],
                       desiredKeys: [CKRecord.FieldKey]?) async throws -> [CKRecord.ID: Result<CKRecord, Error>] {
-        let configuration = CKOperation.Configuration()
-        configuration.qualityOfService = .userInitiated
-        return try await configuredWith(configuration: configuration) { configured in
-            try await configured.records(for: ids, desiredKeys: desiredKeys)
-        }
+        try await waited { try await $0.records(for: ids, desiredKeys: desiredKeys) }
     }
 
     func zoneChanges(zone: CKRecordZone.ID, since token: Data?, batchLimit: Int?,

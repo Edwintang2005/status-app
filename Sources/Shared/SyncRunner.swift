@@ -29,6 +29,14 @@ struct SyncRunner {
     /// - Returns: `true` if anything the user would notice changed.
     @discardableResult
     func refresh(announce: Bool = true) async throws -> Bool {
+        try await refreshResult(announce: announce).changed
+    }
+
+    /// `refresh`, with what the fetch reported. A sweep a failed batch cut short
+    /// announces what it filed, then throws `SyncError.sweepInterrupted`: the fetch
+    /// didn't finish, so nobody reads it as one that did (the offline card, the
+    /// reconnect catch-up, Diagnostics' re-check).
+    func refreshResult(announce: Bool = true) async throws -> (changed: Bool, result: RefreshResult) {
         let previousStatus = store.snapshot.theirs
         let backend = backend()
         let result = try await withDeadline(AppConfig.refreshDeadline) { try await backend.refresh() }
@@ -49,8 +57,9 @@ struct SyncRunner {
             }
         }
         await upkeep(result.isWholeDelta)
+        if result.interrupted { throw SyncError.sweepInterrupted }
 
-        return AnnouncementPolicy.changed(result, previousStatus: previousStatus)
+        return (AnnouncementPolicy.changed(result, previousStatus: previousStatus), result)
     }
 
     /// Best-effort variant for a background wake with no model to run it: the

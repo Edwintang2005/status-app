@@ -71,9 +71,15 @@ final class FakeBackend: SyncBackend, @unchecked Sendable {
     }
     /// What a refresh reports (`SyncRunner`'s announcements read it).
     var refreshResult = RefreshResult.empty
+    /// Answered one per refresh, in order, before `refreshResult`.
+    var refreshQueue: [RefreshResult] = []
+    private(set) var refreshes = 0
     @discardableResult func refresh() async throws -> RefreshResult {
         try check("refresh")
-        return refreshResult
+        return lock.withLock {
+            refreshes += 1
+            return refreshQueue.isEmpty ? refreshResult : refreshQueue.removeFirst()
+        }
     }
     @discardableResult func sendNudge() async throws -> Bool { true }
     func send(_ moment: Moment, progress: @escaping @Sendable (Double) -> Void) async throws {

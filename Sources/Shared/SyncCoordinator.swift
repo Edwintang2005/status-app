@@ -10,6 +10,8 @@ protocol SyncHost: AnyObject {
     var isPaired: Bool { get }
     /// Sends still queued: the reconnect catch-up isn't done while there are any.
     var pendingSendCount: Int { get }
+    /// iCloud asked us to slow down (`SharedStore.fetchWaitsOutThrottle`): only an asked-for fetch goes.
+    var fetchThrottled: Bool { get }
     /// PairingView's iCloud warning, or `nil` when the backend can work.
     func readinessProblem() async -> String?
     /// The system said the iCloud account changed.
@@ -54,6 +56,8 @@ final class SyncCoordinator {
     @ObservationIgnored private(set) var lastFetchSucceededAt: Date?
     /// The last fetch failed: the next to succeed redraws the widgets.
     @ObservationIgnored private(set) var fetchFailing = false
+    /// Someone asked for a fetch (pull-to-refresh) that hasn't run yet.
+    @ObservationIgnored private var askedPending = false
 
     /// No network path — display only (Home's card, the gallery's wording). Sends
     /// never gate on it: it goes stale while suspended, and a banner action wakes
@@ -105,10 +109,13 @@ final class SyncCoordinator {
     /// One fetch, then the recovery pass on its own (pull-to-refresh doesn't wait
     /// on uploads). Returns once a fetch that covers this call has landed —
     /// `.joinAndRerun` by default: whatever prompted it may postdate the one in flight.
+    /// `asked`: pull-to-refresh, which goes even while iCloud asked us to slow down.
     /// - Returns: whether a fetch worked.
     @discardableResult
-    func refresh(_ arrival: RunGate.Arrival = .joinAndRerun) async -> Bool {
-        await fetchGate.run(arrival) { [weak self] in await self?.fetchOnce() ?? false } ?? false
+    func refresh(_ arrival: RunGate.Arrival = .joinAndRerun, asked: Bool = false) async -> Bool {
+        // Held here, not in the pass: a later caller's queued rerun replaces an asked one's.
+        if asked { askedPending = true }
+        return await fetchGate.run(arrival) { [weak self] in await self?.fetchOnce() ?? false } ?? false
     }
 
     /// A fetch of the caller's own (Diagnostics' resync), only if none is running.
@@ -119,11 +126,18 @@ final class SyncCoordinator {
 
     private func fetchOnce() async -> Bool {
         guard let host else { return false }
+        let asked = askedPending
+        askedPending = false
         // Re-checked when paired too: this is what notices an iCloud account
         // switch (which drops the reused answer). One just asked is reused.
         await checkReadinessIfStale()
         guard host.isPaired else {
             await host.unpairedPass()
+            return false
+        }
+        // Retrying sooner can extend the throttle; nothing fails, so nothing is redrawn as failing.
+        guard asked || !host.fetchThrottled else {
+            log.notice("iCloud asked us to slow down; skipping this automatic fetch.")
             return false
         }
         do {

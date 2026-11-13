@@ -34,9 +34,9 @@ extension CloudSync {
         record.encryptedValues[Field.statusSeenAt] = statusSeen?.seenAt
         record.encryptedValues[Field.statusSeenFor] = statusSeen?.statusUpdatedAt
         record[Field.updatedAt] = Date() as CKRecordValue
-        let result = try await database.modifyRecords(saving: [record],
+        let result = try await database.waited { try await $0.modifyRecords(saving: [record],
                                                       deleting: [],
-                                                      savePolicy: .changedKeys)
+                                                      savePolicy: .changedKeys) }
         try Self.confirmSaved(result, recordID)
     }
 

@@ -5,17 +5,17 @@ import Foundation
 /// pass couldn't read is owed and fetched again by ID (`SharedStore.UnreadableTally`),
 /// so the token moves on regardless.
 enum TokenAdvancePolicy {
-    /// Whether a fetched token is written.
+    /// Whether a fetched token is written: only over the bytes its fetch began
+    /// from, a compare-and-swap across processes.
     /// - Parameters:
     ///   - samePairing: the pairing is still the one fetched (an unlink, or an
     ///     unlink and re-pair, can land mid-refresh).
-    ///   - hadToken: the fetch started from a token...
-    ///   - tokenStillStored: ...and that token is still stored. One cleared during
-    ///     `apply` (a corrupt index rebuilding) must not be written back.
-    static func persists(samePairing: Bool,
-                         hadToken: Bool,
-                         tokenStillStored: Bool) -> Bool {
-        guard samePairing else { return false }
-        return !(hadToken && !tokenStillStored)
+    ///   - startedFrom: the stored token when the fetch began (`nil`: none).
+    ///   - storedNow: the stored token now. Cleared during `apply` (a corrupt index
+    ///     rebuilding), it must not be written back; moved by another process's
+    ///     fetch, ours may be behind it — an extension's batch cursor over the
+    ///     app's complete token re-downloads the zone.
+    static func persists(samePairing: Bool, startedFrom: Data?, storedNow: Data?) -> Bool {
+        samePairing && storedNow == startedFrom
     }
 }

@@ -63,15 +63,17 @@ extension CloudSync {
             try await retryingConflicts("Caption") {
                 let record: CKRecord
                 do {
-                    guard let fetched = try await database.records(for: [recordID],
-                                                                   desiredKeys: [Field.caption])[recordID] else { return }
+                    guard let fetched = try await database.waited({
+                        try await $0.records(for: [recordID], desiredKeys: [Field.caption])
+                    })[recordID] else { return }
                     record = try fetched.get()
                 } catch let error as CKError where error.code == .unknownItem {
                     return
                 }
                 record.encryptedValues[Field.caption] = moment.caption
-                let result = try await database.modifyRecords(saving: [record], deleting: [],
-                                                              savePolicy: .ifServerRecordUnchanged)
+                let result = try await database.waited {
+                    try await $0.modifyRecords(saving: [record], deleting: [], savePolicy: .ifServerRecordUnchanged)
+                }
                 _ = try Self.confirmSaved(result, recordID)
             }
         }
@@ -331,8 +333,10 @@ extension CloudSync {
                            in database: CKDatabase) async throws {
         let byRecord = recordIDs(for: moments, pairing: pairing)
         guard !byRecord.isEmpty else { return }
-        let results = try await database.records(for: Array(byRecord.keys),
-                                                 desiredKeys: [Field.image, Field.thumb, Field.audio])
+        let ids = Array(byRecord.keys)
+        let results = try await database.waited {
+            try await $0.records(for: ids, desiredKeys: [Field.image, Field.thumb, Field.audio])
+        }
         // Abandoned at a deadline: nothing lands after the caller moved on.
         try Task.checkCancellation()
         for (recordID, result) in results {

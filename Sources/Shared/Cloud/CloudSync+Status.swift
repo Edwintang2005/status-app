@@ -83,10 +83,10 @@ extension CloudSync {
         record[Field.updatedAt] = payload.wordsAt as CKRecordValue
         // Non-atomic once deletions ride along: a pre-cloud entry's unknownItem
         // must not fail the log.
-        let result = try await database.modifyRecords(saving: [record],
+        let result = try await database.waited { try await $0.modifyRecords(saving: [record],
                                                       deleting: stale.map(\.id),
                                                       savePolicy: .allKeys,
-                                                      atomically: stale.isEmpty)
+                                                      atomically: stale.isEmpty) }
         try Self.confirmSaved(result, recordID)
         return Self.confirmedPrunes(result, stale)
     }
@@ -198,9 +198,9 @@ extension CloudSync {
         record[Field.updatedAt] = payload.updatedAt as CKRecordValue
         // Change-tag checked, so a write that raced ours surfaces as
         // `serverRecordChanged` and `publish` retries on the fresh copy.
-        let result = try await database.modifyRecords(saving: [record],
+        let result = try await database.waited { try await $0.modifyRecords(saving: [record],
                                                       deleting: [],
-                                                      savePolicy: .ifServerRecordUnchanged)
+                                                      savePolicy: .ifServerRecordUnchanged) }
         let saved = try Self.confirmSaved(result, record.recordID)
         await cacheStatusRecord(saved, payload: payload)
         return .saved(saved.modificationDate)

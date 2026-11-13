@@ -323,9 +323,12 @@ final class MomentIndex: @unchecked Sendable {
     /// pending entry without media is dropped by the retry as a ghost, and the
     /// local copy is all that's left of these. Sends from before a fresh
     /// start's epoch (`clearedBefore`) were cleared, not lost, and stay out.
-    /// Returns what was re-queued.
+    /// Returns what was re-queued. `sentBefore`: own sends already confirmed when
+    /// the fetch began; one confirmed since landed after the batch that would have
+    /// returned it. `nil`: all.
     @discardableResult
     func requeueMissingUploads(delivered: Set<String>,
+                               sentBefore: Set<String>? = nil,
                                hasMedia: (Moment) -> Bool,
                                clearedBefore: Date? = nil) -> [Moment] {
         lock.lock()
@@ -337,6 +340,7 @@ final class MomentIndex: @unchecked Sendable {
             for index in all.indices
             where all[index].fromMe && all[index].uploaded
                 && !delivered.contains(all[index].id)
+                && sentBefore?.contains(all[index].id) != false
                 && all[index].sentAt >= (clearedBefore ?? .distantPast)
                 && hasMedia(all[index]) {
                 all[index].uploaded = false

@@ -18,6 +18,11 @@ struct RefreshResult: Sendable {
     /// An extension took one batch of a larger delta and left the rest for the
     /// app (`CloudSync.fetchZoneChanges`); the pushed record may not be in it.
     var incomplete = false
+    /// The app's sweep stopped at a failed batch, not its budget: the next pass
+    /// waits for the next refresh rather than running straight on (`SyncRunner`).
+    var interrupted = false
+    /// A whole-zone sweep ran `requeueMissingUploads`: "nothing missing" was checked.
+    var checkedWholeZone = false
     /// New partner moments this pass couldn't decrypt, oldest first. Only the
     /// kind travels unencrypted — all a locked phone's banner may say.
     var heldPartnerMomentKinds: [Moment.Kind] = []
@@ -73,6 +78,7 @@ struct RefreshResult: Sendable {
         absorb(next)
         heldPartnerStatus = next.partnerStatus != nil ? next.heldPartnerStatus : heldPartnerStatus || next.heldPartnerStatus
         incomplete = next.incomplete
+        interrupted = next.interrupted
         ownRecordsChanged = ownRecordsChanged || next.ownRecordsChanged
         heldPartnerMomentKinds += next.heldPartnerMomentKinds
         heldPartnerMomentIDs += next.heldPartnerMomentIDs

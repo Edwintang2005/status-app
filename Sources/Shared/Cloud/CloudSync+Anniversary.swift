@@ -17,7 +17,7 @@ extension CloudSync {
         try await withZoneRecovery(pairing) {
             guard let anniversary else {
                 do {
-                    let result = try await database.modifyRecords(saving: [], deleting: [recordID])
+                    let result = try await database.waited { try await $0.modifyRecords(saving: [], deleting: [recordID]) }
                     try Self.confirmDeleted(result, recordID)
                 } catch let error as CKError where Self.isUnknownItem(error) {
                     // Never set, or already cleared: the outcome is the same.
@@ -39,9 +39,9 @@ extension CloudSync {
         record.encryptedValues[Field.timeZone] = anniversary.timeZoneID
         record[Field.updatedAt] = Date() as CKRecordValue
         // Change-tag checked, so the conflict retry in `publishAnniversary` can fire.
-        let result = try await database.modifyRecords(saving: [record],
+        let result = try await database.waited { try await $0.modifyRecords(saving: [record],
                                                       deleting: [],
-                                                      savePolicy: .ifServerRecordUnchanged)
+                                                      savePolicy: .ifServerRecordUnchanged) }
         try Self.confirmSaved(result, recordID)
     }
 
@@ -58,9 +58,9 @@ extension CloudSync {
             let record = CKRecord(recordType: RecordType.anniversaryRequest, recordID: recordID)
             record.encryptedValues[Field.requestedAt] = date
             record[Field.updatedAt] = Date() as CKRecordValue
-            let result = try await database.modifyRecords(saving: [record],
+            let result = try await database.waited { try await $0.modifyRecords(saving: [record],
                                                           deleting: [],
-                                                          savePolicy: .allKeys)
+                                                          savePolicy: .allKeys) }
             try Self.confirmSaved(result, recordID)
         }
     }

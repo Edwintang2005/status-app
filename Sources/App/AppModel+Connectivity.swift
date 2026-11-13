@@ -9,7 +9,7 @@ extension AppModel: SyncHost {
 
     /// One fetch and the recovery pass after it; returns once a fetch covering
     /// this call has landed (one already running is waited for, then run again).
-    func refresh() async { await sync.refresh() }
+    func refresh() async { await sync.refresh(asked: true) }
     func refreshOnForeground() async { await sync.foreground() }
     func refreshAfterPush(_ identifier: String) async { await sync.afterPush(identifier) }
     func accountDidChange() async { await sync.accountChanged() }
@@ -68,6 +68,7 @@ extension AppModel: SyncHost {
     }
 
     var wholePushID: String? { store.wholePushID }
+    var fetchThrottled: Bool { store.fetchWaitsOutThrottle() }
 
     func prefetchRecentMedia() async { await backend.prefetchRecentMedia() }
 

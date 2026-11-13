@@ -88,6 +88,10 @@ struct StatusProvider: TimelineProvider {
                                              reloadRequestedAt: store.widgetReloadRequestedAt) else {
             return Refresh(outcome: .skipped)
         }
+        // iCloud asked us to slow down: retrying sooner can extend it.
+        guard !store.fetchWaitsOutThrottle() else {
+            return Refresh(outcome: .skipped, detail: String(localized: "iCloud asked to wait"))
+        }
         return await refreshFlight.run {
             do {
                 // WidgetKit gives the provider a limited budget; give up well before it.

@@ -172,6 +172,10 @@ enum AppConfig {
     static let shareClosedHold: TimeInterval = 90
     static let uploadTickInterval: TimeInterval = 5
     static let refreshDeadline: TimeInterval = 120
+    /// The app's sweep starts no batch past this (`CloudSync.refresh`): it returns
+    /// what it filed, incomplete, to be announced, rather than be cancelled at
+    /// `refreshDeadline` with its announcements lost; the next refresh carries on.
+    static let sweepBudget: TimeInterval = 90
     /// Status, receipt, anniversary and subscription writes: small records, so
     /// anything slower is a stall. Abandoning one is safe — the published flags
     /// stay down and the next refresh republishes.

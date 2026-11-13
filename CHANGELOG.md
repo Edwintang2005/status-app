@@ -11,7 +11,17 @@ Version 1.7.
   two minutes to finish; on a weak signal a long history ran out of time, kept
   nothing and started again every time. It now comes down 400 records at a time,
   each saved before the next, so every try gets further — and none of it is
-  announced as new.
+  announced as new. A batch that fails no longer throws away what the earlier
+  ones brought, and a long sync hands over what it has after 90 seconds, so a
+  heart or photo in it is announced without waiting for the rest.
+- **Syncing is gentler and quicker to answer.** When iCloud asks the app to slow
+  down, the app's automatic syncs and the widget now wait rather than retrying
+  straight away (pulling to refresh still goes). Banner pictures, voice memos,
+  replies sent from a banner, statuses, receipts and caption edits now ask iCloud
+  for an answer straight away instead of whenever it gets round to it. Two
+  processes syncing at once can no longer set each other's place back, a photo
+  confirmed sent during a full sync isn't uploaded a second time, and a shared
+  space that vanished during a restarted sync is checked twice like any other.
 - **The widget no longer looks unlinked after a restart.** Before the phone's
   first unlock it can't read its data; the widget now says "Unlock to see the
   latest" instead of "Open to pair".
