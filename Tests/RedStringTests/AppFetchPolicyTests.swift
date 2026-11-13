@@ -23,6 +23,14 @@ final class AppFetchPolicyTests: XCTestCase {
         XCTAssertTrue(AppFetchPolicy.fetchesOnForeground(held, now: now))
     }
 
+    /// A record nobody can read is owed for a month: past a day it stops making
+    /// every foregrounding fetch.
+    func testALongOwedRecordNoLongerForcesAFetch() {
+        var held = state()
+        held.heldSince = now.addingTimeInterval(-AppFetchPolicy.owedRecentlyWindow - 1)
+        XCTAssertFalse(AppFetchPolicy.fetchesOnForeground(held, now: now))
+    }
+
     func testAFutureSyncStampIsNoReason() {
         XCTAssertTrue(AppFetchPolicy.fetchesOnForeground(state(syncedAgo: -3600), now: now))
     }

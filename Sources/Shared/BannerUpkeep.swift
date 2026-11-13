@@ -44,6 +44,8 @@ enum BannerUpkeep {
         let snapshot = store.snapshot
         let theirs = pairing.role.other
         let heldNames = store.unreadableTally.heldNames
+        // Caught up means nothing still owed, whichever pass's result said so.
+        let caughtUp = caughtUp && heldNames.isEmpty
         let index = MomentIndex.shared.loadReadable()
         let state = BannerUpkeepPolicy.State(
             index: index,
@@ -56,10 +58,7 @@ enum BannerUpkeep {
             statusHeld: heldNames.contains(theirs.statusRecordName),
             partnerStatus: snapshot.theirs,
             caughtUp: caughtUp,
-            nothingUnannounced: index.map {
-                AnnouncementPolicy.bannerCandidates($0, floor: snapshot.lastAnnouncedMomentSentAt)
-                    .allSatisfy { snapshot.hasAnnounced($0.id) }
-            } ?? false,
+            nothingUnannounced: snapshot.owedMoments.isEmpty,
             wordings: { [Self.words(for: $0), PushBannerPolicy.editedCaptionBody($0)] })
         let actions = BannerUpkeepPolicy.plan(banners, state: state, incoming: incoming)
         guard !actions.isEmpty else { return }

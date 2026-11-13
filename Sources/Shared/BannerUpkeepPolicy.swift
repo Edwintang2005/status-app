@@ -121,12 +121,17 @@ enum BannerUpkeepPolicy {
         return push.unwordedSubject
     }
 
-    /// A reworded banner is its moment's announcement (invariant 10): claimed
-    /// inside the caller's `mutate`, or withdrawn when another banner — or the
-    /// open app — announced it first, so nothing alerts for it twice.
+    /// A reworded banner is its moment's announcement (invariant 10), claimed
+    /// inside the caller's `mutate`: still owed, it's taken, so nothing else
+    /// announces it; taken silently with a burst, it keeps its own (already
+    /// alerted) banner, now worded; the subject of another banner, it's withdrawn
+    /// — nothing says one moment twice.
     static func claimReword(_ moment: Moment, in snapshot: inout Snapshot) -> Bool {
-        guard !snapshot.hasAnnounced(moment.id) else { return false }
-        snapshot.recordAnnounced(moment)
-        return true
+        if snapshot.owedMoments.contains(where: { $0.id == moment.id }) {
+            snapshot.settleOwed([moment.id])
+            snapshot.recordTaken([moment.id])
+            return true
+        }
+        return snapshot.lastNotifiedMomentID != moment.id
     }
 }

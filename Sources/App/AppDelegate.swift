@@ -68,7 +68,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             return
         }
         Task { @MainActor in
-            let changed = await SyncRunner.refreshQuietly()
+            // Through the model's coordinator when there is one: one fetch at a time,
+            // joining any running — and answered within iOS's ~30 s for a background push.
+            if let model = AppModel.current {
+                let fetched = (try? await withDeadline(25) { await model.sync.refresh(.join) }) ?? false
+                completionHandler(fetched ? .newData : .noData)
+                return
+            }
+            let changed = await SyncRunner(notifier: AppNotifier()).refreshQuietly()
             completionHandler(changed ? .newData : .noData)
         }
     }

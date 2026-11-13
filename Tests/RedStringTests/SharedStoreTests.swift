@@ -19,71 +19,69 @@ final class SharedStoreTests: XCTestCase {
         XCTAssertEqual(store.unreadableTally.summary, "none")
     }
 
-    // MARK: Unreadable-record hold (CLAUDE.md invariant 2)
+    // MARK: Owed records (CLAUDE.md invariant 2)
 
-    /// The test bundle has no `NSExtension` entry, so it counts as the app —
-    /// the only process allowed to give up on a record.
-    func testUnreadableHoldGivesUpAfterSeparateAppRefreshes() {
+    /// Missed records are owed once each, by the time first missed; read or
+    /// deleted, they're settled; every miss still counts for Diagnostics.
+    func testMissedRecordsAreOwedUntilReadOrDeleted() {
         let (store, _) = makeStore()
         let t0 = Fixtures.t0
-        let gap = AppConfig.unreadableHoldSpacing
-        XCTAssertFalse(store.noteUnreadableRecords(["moment-owner-a"], now: t0))
-        // A burst of refreshes (launch + foreground) counts once.
-        XCTAssertFalse(store.noteUnreadableRecords(["moment-owner-a"], now: t0.addingTimeInterval(5)))
-        XCTAssertFalse(store.noteUnreadableRecords(["moment-owner-a"], now: t0.addingTimeInterval(gap)))
-        XCTAssertEqual(store.unreadableTally.heldStreak, 2)
-        XCTAssertTrue(store.noteUnreadableRecords(["moment-owner-a"], now: t0.addingTimeInterval(2 * gap)),
-                      "the third separate look gives up")
-        let tally = store.unreadableTally
+        store.noteFetched(missed: ["a"], settled: [], now: t0)
+        store.noteFetched(missed: ["a", "b"], settled: [], now: t0.addingTimeInterval(60),
+                          process: "notification service")
+        var tally = store.unreadableTally
+        XCTAssertEqual(tally.heldNames, ["a", "b"])
+        XCTAssertEqual(tally.heldSince, t0.addingTimeInterval(60), "the latest miss: a fresh one isn't hidden by an old one")
+        XCTAssertEqual(tally.counts, ["app": 1, "notification service": 2])
+
+        store.noteFetched(missed: [], settled: ["a"], now: t0.addingTimeInterval(120))
+        tally = store.unreadableTally
+        XCTAssertEqual(tally.heldNames, ["b"])
+        store.noteFetched(missed: [], settled: ["b"], now: t0.addingTimeInterval(180))
+        XCTAssertNil(store.unreadableTally.heldSince)
+        XCTAssertEqual(store.unreadableTally.counts["app"], 1, "settling keeps the evidence")
+    }
+
+    /// A record nobody can ever read isn't owed forever, and a zone can't grow the list without end.
+    func testOwedRecordsAgeOutAndStayBounded() {
+        var tally = SharedStore.UnreadableTally()
+        tally.update(missed: ["old"], settled: [], now: Fixtures.t0)
+        tally.update(missed: ["new"], settled: [], now: Fixtures.t0.addingTimeInterval(AppConfig.owedRecordLifetime + 1))
+        XCTAssertEqual(tally.heldNames, ["new"])
         XCTAssertEqual(tally.abandoned, 1)
-        XCTAssertEqual(tally.heldStreak, 0)
-        XCTAssertEqual(tally.heldNames, [])
-        XCTAssertEqual(tally.counts["app"], 4, "every skip is still counted")
+
+        tally.update(missed: (0..<(AppConfig.owedRecordLimit + 3)).map { "r\($0)" }, settled: [],
+                     now: Fixtures.t0.addingTimeInterval(AppConfig.owedRecordLifetime + 2))
+        XCTAssertEqual(tally.owed.count, AppConfig.owedRecordLimit)
+        XCTAssertEqual(tally.heldNames.last, "r\(AppConfig.owedRecordLimit + 2)", "the newest kept")
     }
 
-    func testUnreadableHoldRestartsWhenTheRecordsChange() {
+    /// One fetch by ID at a time across processes, newest first, an extension's share capped.
+    func testARetryIsClaimedOncePerSpacingAcrossProcesses() {
         let (store, _) = makeStore()
-        let t0 = Fixtures.t0
-        let gap = AppConfig.unreadableHoldSpacing
-        XCTAssertFalse(store.noteUnreadableRecords(["a"], now: t0))
-        XCTAssertFalse(store.noteUnreadableRecords(["a"], now: t0.addingTimeInterval(gap)))
-        // A new unreadable record joins: not the same stuck set any more.
-        XCTAssertFalse(store.noteUnreadableRecords(["a", "b"], now: t0.addingTimeInterval(2 * gap)))
-        XCTAssertEqual(store.unreadableTally.heldStreak, 1)
-        // A subset of what was held still counts as the same records.
-        XCTAssertFalse(store.noteUnreadableRecords(["b"], now: t0.addingTimeInterval(3 * gap)))
-        XCTAssertEqual(store.unreadableTally.heldStreak, 2)
-
-        store.clearUnreadableHold()
-        XCTAssertEqual(store.unreadableTally.heldStreak, 0)
-        XCTAssertEqual(store.unreadableTally.heldNames, [])
-        XCTAssertEqual(store.unreadableTally.counts["app"], 5, "clearing the hold keeps the evidence")
+        XCTAssertNil(store.claimOwedRetry(now: Fixtures.t0), "nothing owed")
+        store.noteFetched(missed: ["a", "b", "c"], settled: [], now: Fixtures.t0)
+        XCTAssertEqual(store.claimOwedRetry(now: Fixtures.t0, limit: 2)?.map(\.name), ["c", "b"])
+        XCTAssertNil(store.claimOwedRetry(now: Fixtures.t0.addingTimeInterval(30)), "within the spacing")
+        XCTAssertNotNil(store.claimOwedRetry(now: Fixtures.t0.addingTimeInterval(AppConfig.owedRetrySpacing + 1)))
     }
 
-    /// `heldSince` drives the widget's retry backoff: it marks the start of a
-    /// hold, survives later sightings, and goes with the hold however it ends.
-    func testHeldSinceSpansTheWholeHold() {
+    /// After a retry that read nothing, an extension waits longer; the app doesn't.
+    func testAnExtensionBacksOffAfterABlindRetry() {
         let (store, _) = makeStore()
-        let t0 = Fixtures.t0
-        let gap = AppConfig.unreadableHoldSpacing
-        XCTAssertNil(store.unreadableTally.heldSince)
-        store.noteUnreadableRecords(["a"], now: t0)
-        store.noteUnreadableRecords(["a", "b"], now: t0.addingTimeInterval(gap))
-        XCTAssertEqual(store.unreadableTally.heldSince, t0, "a changed set is still the same stale stretch")
-
-        store.clearUnreadableHold()
-        XCTAssertNil(store.unreadableTally.heldSince)
-
-        store.noteUnreadableRecords(["c"], now: t0.addingTimeInterval(10 * gap))
-        store.noteUnreadableRecords(["c"], now: t0.addingTimeInterval(11 * gap))
-        XCTAssertTrue(store.noteUnreadableRecords(["c"], now: t0.addingTimeInterval(12 * gap)))
-        XCTAssertNil(store.unreadableTally.heldSince, "giving up ends the hold too")
+        store.noteFetched(missed: ["a"], settled: [], now: Fixtures.t0)
+        XCTAssertNotNil(store.claimOwedRetry(now: Fixtures.t0, isExtension: true))
+        store.noteOwedRetry(fetched: true, readAny: false)
+        let later = Fixtures.t0.addingTimeInterval(AppConfig.owedRetrySpacing + 1)
+        XCTAssertNil(store.claimOwedRetry(now: later, isExtension: true))
+        XCTAssertNotNil(store.claimOwedRetry(now: later, isExtension: false), "the app with its keys tries")
     }
 
     func testLegacyTallyDecodes() throws {
-        let tally = try decode(SharedStore.UnreadableTally.self, #"{"counts":{"widget":3}}"#)
+        let tally = try decode(SharedStore.UnreadableTally.self,
+                               #"{"counts":{"widget":3},"heldNames":["x"],"heldStreak":2}"#)
         XCTAssertEqual(tally.counts["widget"], 3)
-        XCTAssertEqual(tally.heldStreak, 0)
+        XCTAssertTrue(tally.owed.isEmpty, "the old hold's records come back with the delta it pinned")
         XCTAssertEqual(tally.abandoned, 0)
         XCTAssertNil(tally.heldSince)
     }

@@ -1,153 +1,75 @@
 import Foundation
-import Network
 import os
 import UIKit
 
-// Readiness, the network path, and the refresh with its recovery pass.
-extension AppModel {
-    // MARK: - Sync
+// The app's side of `SyncCoordinator`: what a fetch and the recovery pass do
+// here. When they run — launch, foreground, pushes, the network — is the coordinator's.
+extension AppModel: SyncHost {
+    // MARK: - Entry points (the coordinator's, under the names callers use)
 
-    /// PairingView's iCloud warning. Re-checked on every foregrounding, not just
-    /// launch — the fix happens in the Settings app, so the user returns expecting it noticed.
-    func refreshReadiness() async {
-        if case .unavailable(let message) = await backend.readiness() {
-            readinessMessage = message
-        } else {
-            readinessMessage = nil
-        }
-        readinessCheckedAt = Date()
+    /// One fetch and the recovery pass after it; returns once a fetch covering
+    /// this call has landed (one already running is waited for, then run again).
+    func refresh() async { await sync.refresh() }
+    func refreshOnForeground() async { await sync.foreground() }
+    func refreshAfterPush(_ identifier: String) async { await sync.afterPush(identifier) }
+    func accountDidChange() async { await sync.accountChanged() }
+    func recoverAfterRefresh() async { await sync.recover() }
+
+    // MARK: - SyncHost
+
+    func readinessProblem() async -> String? {
+        if case .unavailable(let message) = await backend.readiness() { return message }
+        return nil
     }
 
-    /// Refreshes on the offline→online edge — `refresh()` already handles
-    /// offline calls and re-entrancy; the job here is ignoring path churn while up.
-    /// Delivered on the main queue so updates apply in the order they happened.
-    func startNetworkMonitoring() {
-        pathMonitor.pathUpdateHandler = { [weak self] path in
-            MainActor.assumeIsolated { self?.networkPathChanged(path) }
-        }
-        pathMonitor.start(queue: .main)
+    func noteAccountChanged() async { await backend.noteAccountChanged() }
+
+    func fetch() async throws {
+        try await SyncRunner(store: store, backend: { self.backend }, notifier: AppNotifier()).refresh()
     }
 
-    /// Only `.unsatisfied` is down: `.requiresConnection` (an on-demand VPN, a
-    /// dormant radio) comes up as soon as something uses it.
-    private func networkPathChanged(_ path: NWPath) {
-        let down = path.status == .unsatisfied
-        let cameBackOnline = !down && !networkWasSatisfied
-        networkWasSatisfied = !down
-        offlineShowTask?.cancel()
-        if down {
-            mobileDataDenied = path.unsatisfiedReason == .cellularDenied
-            // Shown after a moment: a Wi-Fi↔cellular handoff blips for under a second.
-            offlineShowTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(AppConfig.offlineCardDelay))
-                guard !Task.isCancelled, let self, !self.networkWasSatisfied else { return }
-                self.setOffline(true)
-            }
-        } else {
-            setOffline(false)
-        }
-        if cameBackOnline {
-            log.notice("Network is back; refreshing.")
-            catchUpTask?.cancel()
-            catchUpTask = Task { [weak self] in await self?.catchUpAfterReconnect() }
-        }
+    func fetchLanded() {
+        recentStatusesKey = nil
+        reload()
     }
 
-    private func setOffline(_ offline: Bool) {
-        #if DEBUG
-        // Demo mode's backend never touches the network.
-        if DemoMode.isActive { return }
-        #endif
-        if isOffline != offline { isOffline = offline }
-    }
-
-    /// The first refresh after the path returns often beats DNS or a VPN; one
-    /// failure must not leave queued sends waiting for the next foreground.
-    /// Done once a fetch since the edge worked (whoever ran it — a request that
-    /// joined a running refresh still retries if that one failed) and nothing is
-    /// left queued: a send pass can still hit the flap after a good fetch.
-    private func catchUpAfterReconnect() async {
-        let since = Date()
-        for delay in AppConfig.reconnectRetryDelays {
-            if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
-            guard !Task.isCancelled, networkWasSatisfied, isPaired else { return }
-            await refresh()
-            if let fetched = lastFetchSucceededAt, fetched >= since, pendingSendCount == 0 { return }
+    func fetchFailed(_ error: Error) {
+        // The backend may have unlinked us (a vanished zone means the other
+        // person ended things), so re-read local state either way.
+        reload()
+        if let sync = error as? SyncError, case .linkEnded = sync {
+            // The one refresh failure that is really a message from another person.
+            errorTitle = String(localized: "Link ended")
+            errorMessage = sync.errorDescription
         }
+        // Other refresh failures are routine; the "Synced …" footer already shows staleness.
+        log.error("Refresh failed: \(error.localizedDescription)")
     }
 
-    /// The system reported an iCloud account change: make the next readiness
-    /// check look the account up for real, then refresh.
-    func accountDidChange() async {
-        await backend.noteAccountChanged()
-        readinessCheckedAt = nil
-        await refresh()
+    func unpairedPass() async { await cleanUpSubscriptionsIfNeeded() }
+
+    func recoveryPass() async {
+        await sendQueued(automatic: true)
+        await outbox.flushReceipts(automatic: true)
+        topUpMedia()
+        await checkShareMembers(throttled: true)
+        await checkInstalledWidgets()
     }
 
-    /// Returns once the fetch lands — or at once when one is already running
-    /// (it then runs again after); the recovery pass it unlocks runs on after,
-    /// so pull-to-refresh doesn't wait on uploads.
-    func refresh(noteIfBusy: Bool = true) async {
-        guard refreshGate.begin(noteIfBusy: noteIfBusy) else { return }
-        var fetched = false
-        repeat {
-            if await fetchOnce() { fetched = true }
-        } while refreshGate.takeRequest()
-        refreshGate.end()
-        // A working refresh is the recovery moment for sends that died offline.
-        if fetched {
-            Task { await recoverAfterRefresh() }
-        }
-    }
-
-    /// The scene came to the foreground. A complete fetch by any process moments
-    /// ago is reused (`AppFetchPolicy`); readiness and the queued sends still run.
-    func refreshOnForeground() async {
-        guard let pairing = store.pairing else {
-            await refresh()
-            return
-        }
-        let state = AppFetchPolicy.Foreground(
+    func foregroundState() async -> AppFetchPolicy.Foreground? {
+        guard let pairing = store.pairing else { return nil }
+        return AppFetchPolicy.Foreground(
             lastSyncedAt: store.snapshot.lastSyncedAt,
             heldSince: store.unreadableTally.heldSince,
             pushesArrive: await NotificationManager.servicePushesArrive(),
             hasChangeToken: store.changeToken(for: SharedStore.changeTokenKey(for: pairing.role)) != nil,
             lastPushID: store.lastPushID,
             wholePushID: store.wholePushID)
-        guard !AppFetchPolicy.fetchesOnForeground(state) else {
-            await refresh()
-            return
-        }
-        if Date().timeIntervalSince(readinessCheckedAt ?? .distantPast) >= AppConfig.readinessReuseWindow {
-            await refreshReadiness()
-        }
-        await recoverAfterRefresh()
     }
 
-    /// A push shown over the open app. The service extension may have taken one
-    /// batch of it: fetch the rest — unless it took the whole delta, when what
-    /// a fetch brings along still runs: the recovery pass and full-size media.
-    func refreshAfterPush(_ identifier: String) async {
-        guard isPaired, !AppFetchPolicy.fetchesAfterPush(identifier, wholePushID: store.wholePushID) else {
-            await refresh()
-            return
-        }
-        Task { await recoverAfterRefresh() }
-        await backend.prefetchRecentMedia()
-    }
+    var wholePushID: String? { store.wholePushID }
 
-    /// Coalesced like the fetch: a pass asked for mid-pass runs once more.
-    func recoverAfterRefresh() async {
-        guard isPaired, recoveryGate.begin() else { return }
-        repeat {
-            await sendQueued(automatic: true)
-            await outbox.flushReceipts(automatic: true)
-            topUpMedia()
-            await checkShareMembers(throttled: true)
-            await checkInstalledWidgets()
-        } while recoveryGate.takeRequest()
-        recoveryGate.end()
-    }
+    func prefetchRecentMedia() async { await backend.prefetchRecentMedia() }
 
     /// Downloads, not sends: off the recovery gate, one run at a time.
     private func topUpMedia() {
@@ -201,45 +123,5 @@ extension AppModel {
         guard UIApplication.shared.applicationState == .active else { return false }
         SharedStore.reloadWidgets()
         return true
-    }
-
-    /// One fetch and reload; `false` when it failed or there was nothing to fetch for.
-    private func fetchOnce() async -> Bool {
-        // Re-checked when paired too: this is what notices an iCloud account
-        // switch (which drops the reused answer). One just asked is reused.
-        if Date().timeIntervalSince(readinessCheckedAt ?? .distantPast) >= AppConfig.readinessReuseWindow {
-            await refreshReadiness()
-        }
-        guard isPaired else {
-            await cleanUpSubscriptionsIfNeeded()
-            return false
-        }
-        do {
-            try await SyncRunner.refresh()
-            recentStatusesKey = nil
-            reload()
-            lastFetchSucceededAt = Date()
-            if fetchFailing {
-                fetchFailing = false
-                redrawWidgets()
-            }
-            // A fetch that worked is proof the monitor's "down" is stale.
-            offlineShowTask?.cancel()
-            setOffline(false)
-            return true
-        } catch {
-            fetchFailing = true
-            // The backend may have unlinked us (a vanished zone means the other
-            // person ended things), so re-read local state either way.
-            reload()
-            if let sync = error as? SyncError, case .linkEnded = sync {
-                // The one refresh failure that is really a message from another person.
-                errorTitle = String(localized: "Link ended")
-                errorMessage = sync.errorDescription
-            }
-            // Other refresh failures are routine; the "Synced …" footer already shows staleness.
-            log.error("Refresh failed: \(error.localizedDescription)")
-            return false
-        }
     }
 }

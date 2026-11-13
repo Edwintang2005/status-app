@@ -1,6 +1,5 @@
 import CloudKit
 import Foundation
-import Network
 import Observation
 import SwiftUI
 import UserNotifications
@@ -23,12 +22,16 @@ final class AppModel {
     /// Owner side: invite revoked from Settings or Diagnostics.
     var inviteClosed: Bool
     var isBusy = false
-    /// The fetch only (`RefreshGate`): a request mid-fetch runs it once more.
-    var refreshGate = RefreshGate()
-    var isRefreshing: Bool { refreshGate.isRunning }
-    /// The post-fetch recovery pass (republishes, retries, receipts) — outside
-    /// `isRefreshing`, so a stalled send can't hold off the next fetch.
-    @ObservationIgnored var recoveryGate = RefreshGate()
+    /// When to fetch and what runs after — launch, foreground, pushes, the
+    /// network (`SyncCoordinator`); this model is its host.
+    @ObservationIgnored let sync: SyncCoordinator
+    var isRefreshing: Bool { sync.isRefreshing }
+    /// No network path — display only (Home's card, the gallery's wording).
+    var isOffline: Bool { sync.isOffline }
+    /// The path is down because mobile data is off for this app — the one cause the user can fix.
+    var mobileDataDenied: Bool { sync.mobileDataDenied }
+    /// Non-nil when the backend can't work — no iCloud account, and so on.
+    var readinessMessage: String? { sync.readinessMessage }
     /// The recovery pass's media top-up, run beside it: a slow download mustn't hold the sends.
     @ObservationIgnored var mediaTopUp: Task<Void, Never>?
     /// What's holding the screen awake: one owner, so a recap closing can't let
@@ -52,22 +55,6 @@ final class AppModel {
     /// When a send last failed on a full iCloud (`SendFailure.storageFull`).
     var storageFullAt: Date? { outbox.storageFullAt }
 
-    /// Fires a refresh on the offline→online edge — the only trigger that watches the network itself.
-    @ObservationIgnored let pathMonitor = NWPathMonitor()
-    /// Starts `true` so the monitor's immediate first callback doesn't double up with `onLaunch`'s refresh.
-    @ObservationIgnored var networkWasSatisfied = true
-    /// No network path — display only (Home's card, the gallery's wording). Sends
-    /// never gate on it: it goes stale while suspended, and a banner action wakes
-    /// the app before the monitor catches up. They try, and fail quietly offline.
-    var isOffline = false
-    /// The path is down because mobile data is off for this app — the one cause the user can fix.
-    var mobileDataDenied = false
-    @ObservationIgnored var offlineShowTask: Task<Void, Never>?
-    @ObservationIgnored var catchUpTask: Task<Void, Never>?
-    /// Whichever refresh last fetched — the reconnect catch-up judges by it, not by who ran it.
-    @ObservationIgnored var lastFetchSucceededAt: Date?
-    /// The last fetch failed: the next to succeed redraws the widgets (`redrawWidgets`).
-    @ObservationIgnored var fetchFailing = false
     /// Status publishes this model has in flight — not yet "waiting to send".
     private var statusSendsInFlight = 0
     /// The footer's tap-to-retry is running.
@@ -81,8 +68,6 @@ final class AppModel {
     var rejoinablePairing: (role: PairRole, zoneID: CKRecordZone.ID)?
     /// The server has no share at all (vs. one that was closed) — keeps Settings from spinning forever.
     var inviteLinkUnavailable = false
-    /// Non-nil when the backend can't work — no iCloud account, and so on.
-    var readinessMessage: String?
     /// Full moment history, newest first, from `MomentIndex` (the snapshot only carries the newest each way).
     private(set) var history: [Moment] = [] {
         didSet {
@@ -228,8 +213,6 @@ final class AppModel {
             SharedStore.reloadWidgets()
         }
     }
-    /// When readiness was last asked; `nil` forces the next fetch to ask again.
-    @ObservationIgnored var readinessCheckedAt: Date?
 
     /// The old space the replace dialog would delete has someone on it.
     var replacingSpaceHasPartner = false
@@ -267,6 +250,11 @@ final class AppModel {
     /// media store and `SyncRunner` stay process-wide, the real App Group even in a preview.
     init(store: SharedStore = .shared, backend: (any SyncBackend)? = nil) {
         self.store = store
+        #if DEBUG
+        self.sync = SyncCoordinator(ignoresNetwork: DemoMode.isActive)
+        #else
+        self.sync = SyncCoordinator()
+        #endif
         let backendProvider: () -> any SyncBackend = backend.map { fixed in { fixed } } ?? { Backend.current }
         self.backendProvider = backendProvider
         self.outbox = Outbox(store: store,
@@ -316,6 +304,7 @@ final class AppModel {
         // Includes a clear that stood aside for the upload.
         outbox.linkFreed = { [weak self] in Task { await self?.sendQueued(automatic: true) } }
         refreshRecentStatusesIfNeeded()
+        sync.host = self
     }
 
     // MARK: - Derived
@@ -442,6 +431,8 @@ final class AppModel {
             let refreshed = store.refreshDerived(reloadWidgets: reloadWidgets) { snapshot in
                 // A write landing after an unlink owes the new pairing nothing.
                 if owesReceipt, store.pairing != nil { snapshot.receiptsDirty = true }
+                // Seen in the app before any banner said so: none is owed now.
+                snapshot.settleOwed([id])
             }
             Task { @MainActor in
                 guard let model = self else { return }
@@ -486,7 +477,7 @@ final class AppModel {
     // MARK: - Lifecycle
 
     func onLaunch() async {
-        startNetworkMonitoring()
+        sync.startMonitoring()
         // Cold-start link taps land here: the scene delegate ran before any view could listen.
         if let invite = InviteInbox.shared.take() {
             receiveInvite(invite)
@@ -496,11 +487,13 @@ final class AppModel {
         // await: the scene's own refresh may run its recovery pass first.
         if isPaired { store.mutate(reloadWidgets: false) { $0.rearmUnsettledReceipts() } }
         // An index filled under a smaller cap is swept once to the new one. Every
-        // fetch until it ends is a resync: news only past the floor seeded at
-        // pairing (invariant 10), and older history filed seen.
+        // fetch until it ends is a resync: news only what the server created
+        // since the last complete fetch (`Snapshot.newsAfter`), older history filed seen.
         if HistoryCoverage.needsSweep(store.historyCoverage) { store.clearChangeTokens() }
-        await refreshReadiness()
-        guard isPaired else { return }
+        guard isPaired else {
+            await sync.checkReadiness()
+            return
+        }
         // Easy to lose across reinstalls, but re-asserted daily rather than on
         // every launch, and never ahead of the fetch.
         if Date().timeIntervalSince(store.subscriptionsVerifiedAt ?? .distantPast) >= AppConfig.subscriptionCheckInterval {
@@ -513,14 +506,9 @@ final class AppModel {
                 }
             }
         }
-        // The scene turning active refreshes too: one fetch between them, and
+        // The scene turning active fetches too: one fetch between them, and
         // the recovery pass (the receipts above) either way.
-        if let fetched = lastFetchSucceededAt,
-           Date().timeIntervalSince(fetched) < AppConfig.launchRefreshCoalesceWindow {
-            Task { await recoverAfterRefresh() }
-        } else {
-            await refresh(noteIfBusy: false)
-        }
+        await sync.launch()
     }
 
     /// `.pairingDidChange`: the store moved outside this model's calls (the Siri
@@ -905,26 +893,25 @@ final class AppModel {
     /// sends them. Returns how many were found missing, or `nil` when the
     /// fetch itself failed — "nothing missing" must never be a guess.
     func resyncHistory() async -> Int? {
-        guard isPaired, refreshGate.begin(noteIfBusy: false) else { return nil }
-        store.clearChangeTokens()
-        do {
-            try await SyncRunner.refresh(announce: false)
-        } catch {
-            // A refresh asked for meanwhile still runs.
-            let pending = refreshGate.takeRequest()
-            refreshGate.end()
-            if pending { Task { await refresh() } }
-            reload()
-            log.error("History resync failed: \(error.localizedDescription, privacy: .public)")
-            return nil
+        guard isPaired else { return nil }
+        // Its own fetch, only if none is running; one asked for meanwhile runs after it.
+        let fetched = await sync.exclusiveFetch { [weak self] in
+            guard let self else { return false }
+            self.store.clearChangeTokens()
+            do {
+                try await SyncRunner(store: self.store, backend: { [backendProvider] in backendProvider() },
+                                     notifier: AppNotifier()).refresh(announce: false)
+                return true
+            } catch {
+                self.log.error("History resync failed: \(error.localizedDescription, privacy: .public)")
+                return false
+            }
         }
         recentStatusesKey = nil
         reload()
+        guard fetched == true else { return nil }
         let found = pendingUploadCount
-        // Outside the gate: sending isn't fetching, and refreshes needn't wait on it.
-        let pending = refreshGate.takeRequest()
-        refreshGate.end()
-        if pending { Task { await refresh() } }
+        // After the fetch: sending isn't fetching, and refreshes needn't wait on it.
         await outbox.retryPendingUploads(automatic: false)
         reload()
         return found

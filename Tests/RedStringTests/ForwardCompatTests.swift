@@ -167,7 +167,8 @@ final class ForwardCompatTests: XCTestCase {
     /// One field no decoder reads back costs that field, never the watermarks beside it.
     func testABadNestedFieldCostsOnlyItself() throws {
         let json = #"""
-        {"isPaired":true,"lastSeenPartnerNudgeCount":12,"lastAnnouncedMomentSentAt":"2025-09-01T10:00:00Z",
+        {"isPaired":true,"lastSeenPartnerNudgeCount":12,"newsAfter":"2025-09-01T10:00:00Z",
+         "owedMoments":[{"nonsense":true}],
          "partnerStatusSeen":{"statusUpdatedAt":"-4712-01-01T12:00:00Z","seenAt":"2025-09-01T10:00:00Z"},
          "anniversary":{"startsAt":"nonsense"},
          "freshStart":{"clearedBefore":"2025-08-01T10:00:00Z"}}
@@ -175,7 +176,8 @@ final class ForwardCompatTests: XCTestCase {
         let snapshot = try decode(Snapshot.self, json)
         XCTAssertTrue(snapshot.isPaired)
         XCTAssertEqual(snapshot.lastSeenPartnerNudgeCount, 12)
-        XCTAssertNotNil(snapshot.lastAnnouncedMomentSentAt)
+        XCTAssertNotNil(snapshot.newsAfter)
+        XCTAssertTrue(snapshot.owedMoments.isEmpty, "an unreadable owed entry costs only itself")
         XCTAssertNotNil(snapshot.freshStart.clearedBefore, "the fresh start's mark survives (invariant 24)")
         XCTAssertNil(snapshot.partnerStatusSeen)
         XCTAssertNil(snapshot.anniversary)

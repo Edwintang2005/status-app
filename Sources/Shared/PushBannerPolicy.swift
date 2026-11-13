@@ -97,7 +97,6 @@ enum PushBannerPolicy {
     /// CloudKit's words at full volume.
     static func decide(_ push: Push,
                        result: RefreshResult,
-                       index: [Moment],
                        reportedAt: Date?,
                        in snapshot: inout Snapshot,
                        now: Date = Date()) -> Plan {
@@ -105,8 +104,7 @@ enum PushBannerPolicy {
         let couldNotRead = !result.unreadableRecordNames.isEmpty || result.incomplete
         switch push {
         case .moment:
-            if let moment = AnnouncementPolicy.claimMomentBanner(delta: result.newPartnerMoments, index: index,
-                                                                 in: &snapshot, now: now) {
+            if let moment = AnnouncementPolicy.takeOwedMoments(in: &snapshot) {
                 // `name` covers records written before the sender set a name.
                 return Plan(title: moment.displaySenderName(fallback: name),
                             body: moment.displayCaption ?? moment.arrivalSummary,
@@ -228,19 +226,11 @@ enum PushBannerPolicy {
 
     /// A heart or status push whose pass also filed partner moments: their own
     /// push may never come (APNs keeps one notification per app for an offline
-    /// phone), so the newest is claimed here — in the same `mutate` as `decide`
-    /// — for the service to announce beside this push's own banner. The app's
-    /// rule for a delta's news, so a burst is one banner.
-    static func carriedMoment(_ push: Push, result: RefreshResult,
-                              in snapshot: inout Snapshot, now: Date = Date()) -> Moment? {
+    /// phone), so what's owed is taken here — in the same `mutate` as `decide` —
+    /// for the service to announce beside this push's own banner.
+    static func carriedMoment(_ push: Push, in snapshot: inout Snapshot) -> Moment? {
         guard push == .nudge || push == .status else { return nil }
-        let floor = snapshot.lastAnnouncedMomentSentAt
-        let news = result.newPartnerMoments.filter {
-            AnnouncementPolicy.isNews($0, fullResync: result.fullResync, floor: floor, now: now)
-        }
-        let chosen = news.last { !snapshot.hasAnnounced($0.id) }
-        for moment in news { snapshot.recordAnnounced(moment) }
-        return chosen
+        return AnnouncementPolicy.takeOwedMoments(in: &snapshot)
     }
 
     /// Same rule as every screen: a reported or filtered status shows no words,
@@ -305,7 +295,8 @@ enum PushBannerPolicy {
            now.timeIntervalSince(ours.sentAt) <= AppConfig.nudgeEchoWindow {
             return sent
         }
-        guard let theirs, snapshot.hasAnnounced(theirs.id) else { return spaceChanged }
+        // Taken by an announcer — its own banner, a burst's, or a reworded held one.
+        guard let theirs, snapshot.hasTaken(theirs.id) else { return spaceChanged }
         // With its picture: by subject it replaces the banner that showed it.
         return Plan(title: theirs.displaySenderName(fallback: name),
                     body: theirs.displayCaption ?? theirs.arrivalSummary,

@@ -19,8 +19,8 @@ struct CloudDiagnostics: Sendable {
     /// The invite link's real state ("open" = anyone with the URL can join),
     /// or `nil` when there is no share to ask.
     var sharePublicPermission: String?
-    /// Records whose encrypted fields arrived empty, per process — see
-    /// `SharedStore.noteUnreadableRecords`.
+    /// Records whose encrypted fields arrived empty, per process, and those still
+    /// owed a fetch by ID — see `SharedStore.UnreadableTally`.
     var unreadableRecords: String
     /// Both `FreshStart` records as last folded here, and this device's marks.
     var freshStart: String

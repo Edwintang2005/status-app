@@ -16,12 +16,19 @@ final class ResyncNewsTests: XCTestCase {
         return record
     }
 
+    /// Test records carry no server dates: each moment's creation time comes from
+    /// its id here (`created`), as `metadata.createdAt` reads it off a real record.
     private func outcome(_ records: [CKRecord], known: Set<String> = [], oldestRetained: Date? = nil,
-                         fullResync: Bool, floor: Date? = nil) -> ParsedDelta.Outcome {
-        ParsedDelta.parse(records: records, deletedIDs: [], mineRole: .owner, hidden: [])
+                         fullResync: Bool, newsAfter: Date? = nil,
+                         created: [String: Date] = [:]) -> ParsedDelta.Outcome {
+        let metadata = RecordMetadata(createdAt: { record in
+                                          (record[CloudSync.Field.momentID] as? String).flatMap { created[$0] }
+                                      },
+                                      savedAt: { _ in nil }, isForeign: { _ in false })
+        return ParsedDelta.parse(records: records, deletedIDs: [], mineRole: .owner, hidden: [], metadata: metadata)
             .outcome(mineRole: .owner, previousMine: nil, previousTheirs: nil, minePublished: true,
                      alreadyKnown: known, hidden: [], oldestRetained: oldestRetained,
-                     fullResync: fullResync, announcedFloor: floor, now: Fixtures.date(100_000))
+                     fullResync: fullResync, newsAfter: newsAfter, now: Fixtures.date(100_000))
     }
 
     /// The index is full down to t0: a months-old photo from before it is history.
@@ -34,59 +41,56 @@ final class ResyncNewsTests: XCTestCase {
         XCTAssertFalse(result.result.ownRecordsChanged, "not another device's send either")
     }
 
-    func testAFullResyncAnnouncesOnlyPastTheFloor() {
-        let rebuilt = momentRecord(.participant, "rebuilt", at: Fixtures.date(500))
-        let fresh = momentRecord(.participant, "fresh", at: Fixtures.date(2_000))
-        let result = outcome([rebuilt, fresh], fullResync: true, floor: Fixtures.date(1_000))
-        XCTAssertEqual(result.arrived.map(\.id), ["rebuilt", "fresh"], "both are filed")
+    /// News on a full resync is what the *server* created since the last complete
+    /// fetch — the partner's `sentAt` doesn't come into it, so a skewed clock can't
+    /// make old history new or bury a fresh moment.
+    func testAFullResyncAnnouncesOnlyWhatTheServerCreatedSinceTheLastCompleteFetch() {
+        let rebuilt = momentRecord(.participant, "rebuilt", at: Fixtures.date(5_000))
+        let fresh = momentRecord(.participant, "fresh", at: Fixtures.date(-5_000))
+        let result = outcome([rebuilt, fresh], fullResync: true, newsAfter: Fixtures.date(1_000),
+                             created: ["rebuilt": Fixtures.date(500), "fresh": Fixtures.date(2_000)])
+        XCTAssertEqual(Set(result.arrived.map(\.id)), ["rebuilt", "fresh"], "both are filed")
         XCTAssertEqual(result.result.newPartnerMoments.map(\.id), ["fresh"])
+        XCTAssertEqual(result.fold.owedMoments.map(\.id), ["fresh"], "and only it is owed a banner")
         XCTAssertTrue(result.result.fullResync)
     }
 
-    /// What the resync re-delivers from before the floor is history, already looked at:
+    /// What the resync re-delivers from before the mark is history, already looked at:
     /// filed seen, so Home, the widget's memo badge and the library's dots don't count it as new.
     func testResyncedHistoryIsFiledSeen() throws {
+        let created = ["old": Fixtures.date(500), "fresh": Fixtures.date(2_000), "mine": Fixtures.date(400)]
         let old = momentRecord(.participant, "old", at: Fixtures.date(500))
         let fresh = momentRecord(.participant, "fresh", at: Fixtures.date(2_000))
         let mine = momentRecord(.owner, "mine", at: Fixtures.date(400))
-        let result = outcome([old, fresh, mine], fullResync: true, floor: Fixtures.date(1_000))
+        let result = outcome([old, fresh, mine], fullResync: true, newsAfter: Fixtures.date(1_000), created: created)
         let byID = Dictionary(uniqueKeysWithValues: result.arrived.map { ($0.id, $0) })
         XCTAssertTrue(try XCTUnwrap(byID["old"]).seen)
-        XCTAssertFalse(try XCTUnwrap(byID["fresh"]).seen, "past the floor: news, and unseen")
+        XCTAssertFalse(try XCTUnwrap(byID["fresh"]).seen, "created since: news, and unseen")
         XCTAssertTrue(try XCTUnwrap(byID["mine"]).seen, "own sends are seen anyway")
 
-        let incremental = outcome([old], fullResync: false, floor: Fixtures.date(1_000))
+        let incremental = outcome([old], fullResync: false, newsAfter: Fixtures.date(1_000), created: created)
         XCTAssertFalse(try XCTUnwrap(incremental.arrived.first).seen, "a late offline send is still new")
-        let noFloor = outcome([old], fullResync: true)
-        XCTAssertFalse(try XCTUnwrap(noFloor.arrived.first).seen, "nothing announced yet: nothing to call old")
+        let noMark = outcome([old], fullResync: true, created: created)
+        XCTAssertTrue(try XCTUnwrap(noMark.arrived.first).seen,
+                      "no complete fetch yet (a new pairing, a reinstall): it's all history")
+        XCTAssertTrue(noMark.fold.owedMoments.isEmpty)
     }
 
     /// An incremental delta's unknown moment is news whatever its date: a send
     /// that waited offline arrives with an older stamp.
     func testALateOfflineSendIsStillNews() {
         let late = momentRecord(.participant, "late", at: Fixtures.date(500))
-        let result = outcome([late], fullResync: false, floor: Fixtures.date(1_000))
+        let result = outcome([late], fullResync: false, newsAfter: Fixtures.date(1_000),
+                             created: ["late": Fixtures.date(500)])
         XCTAssertEqual(result.result.newPartnerMoments.map(\.id), ["late"])
+        XCTAssertEqual(result.fold.owedMoments.map(\.id), ["late"])
     }
 
-    func testTheRefreshClaimAppliesTheFloorOnAFullResync() {
-        var snapshot = Snapshot.empty
-        snapshot.lastAnnouncedMomentSentAt = Fixtures.date(1_000)
-        var resync = RefreshResult(partnerStatus: nil,
-                                   newPartnerMoments: [Fixtures.moment("old", at: Fixtures.date(10))])
-        resync.fullResync = true
-        XCTAssertNil(AnnouncementPolicy.claim(resync, previousStatus: nil, in: &snapshot).moment)
-
-        resync.newPartnerMoments.append(Fixtures.moment("new", at: Fixtures.date(2_000)))
-        XCTAssertEqual(AnnouncementPolicy.claim(resync, previousStatus: nil, in: &snapshot).moment?.id, "new")
-    }
-
-    func testAFutureFloorReadsAsNow() {
-        let now = Fixtures.date(100_000)
-        let ahead = now.addingTimeInterval(3 * AppConfig.clockSkewAllowance)
-        XCTAssertFalse(AnnouncementPolicy.isNews(Fixtures.moment("m", at: now.addingTimeInterval(-60)),
-                                                 fullResync: true, floor: ahead, now: now))
-        XCTAssertTrue(AnnouncementPolicy.isNews(Fixtures.moment("m", at: now.addingTimeInterval(60)),
-                                                fullResync: true, floor: ahead, now: now))
+    func testNewsNeedsAServerTimeOnAFullResync() {
+        XCTAssertTrue(AnnouncementPolicy.isNews(createdAt: nil, fullResync: false, newsAfter: nil))
+        XCTAssertFalse(AnnouncementPolicy.isNews(createdAt: nil, fullResync: true, newsAfter: Fixtures.date(1)))
+        XCTAssertFalse(AnnouncementPolicy.isNews(createdAt: Fixtures.date(5), fullResync: true, newsAfter: nil))
+        XCTAssertTrue(AnnouncementPolicy.isNews(createdAt: Fixtures.date(5), fullResync: true, newsAfter: Fixtures.date(1)))
+        XCTAssertFalse(AnnouncementPolicy.isNews(createdAt: Fixtures.date(1), fullResync: true, newsAfter: Fixtures.date(1)))
     }
 }

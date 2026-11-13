@@ -9,13 +9,13 @@ extension CloudSync {
     /// everything for both people. Participant: our own records must be deleted
     /// *before* leaving the share, or they'd sit in the ex's iCloud after we'd gone.
     func unpair() async throws {
-        guard let pairing = await MainActor.run(body: { SharedStore.shared.pairing }) else {
+        guard let pairing = await MainActor.run(body: { self.stores.shared.pairing }) else {
             return
         }
         // Under another account the owner's zone ID resolves to *their* CoupleZone —
         // deleting it would end a stranger's pairing.
         guard await isPairingAccount(pairing) else { throw SyncError.differentAccount }
-        let database = self.database(for: pairing)
+        let database = cloudDatabase(for: pairing)
         let zone = zoneID(for: pairing)
 
         // Best effort: failing the unlink over a stale subscription would be perverse.
@@ -44,8 +44,8 @@ extension CloudSync {
     /// Deletes every record belonging to our own role, via a full change fetch —
     /// moment records have UUID names, so there's nothing to query by name.
     func deleteOwnRecords(role: PairRole,
-                                  in zone: CKRecordZone.ID,
-                                  database: CKDatabase) async throws {
+                          in zone: CKRecordZone.ID,
+                          database: any CloudDatabase) async throws {
         // Names are all it judges: no fields.
         let changes = try await fetchZoneChanges(zone: zone, in: database, since: nil, desiredKeys: [])
         let mine = changes.records.map(\.recordID).filter {
@@ -55,7 +55,8 @@ extension CloudSync {
 
         // Batched: hundreds of deletions in one modify is a `limitExceeded`.
         for batch in mine.chunked(into: 200) {
-            let result = try await database.modifyRecords(saving: [], deleting: batch)
+            let result = try await database.modifyRecords(saving: [], deleting: batch,
+                                                          savePolicy: .ifServerRecordUnchanged, atomically: true)
             // Leaving one behind sits in the ex's iCloud; "already gone" is fine.
             for id in batch {
                 do { try Self.confirmDeleted(result, id) }
@@ -67,7 +68,7 @@ extension CloudSync {
 
     /// Removes this account from the share, which is what makes the zone
     /// disappear from our shared database.
-    func leaveShare(zone: CKRecordZone.ID, database: CKDatabase) async throws {
+    func leaveShare(zone: CKRecordZone.ID, database: any CloudDatabase) async throws {
         let zones = try await database.recordZones(for: [zone])
         guard case .success(let record)? = zones[zone],
               let shareID = record.share?.recordID else {
@@ -76,7 +77,9 @@ extension CloudSync {
             try Self.confirmZoneDeleted(result.deleteResults, zone)
             return
         }
-        try Self.confirmDeleted(try await database.modifyRecords(saving: [], deleting: [shareID]), shareID)
+        try Self.confirmDeleted(try await database.modifyRecords(saving: [], deleting: [shareID],
+                                                                 savePolicy: .ifServerRecordUnchanged,
+                                                                 atomically: true), shareID)
     }
 
     /// Whether an error means "it isn't there any more", bare or for every item

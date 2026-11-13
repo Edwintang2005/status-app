@@ -55,6 +55,17 @@ struct RefreshResult: Sendable {
 
     /// Every change up to now filed and readable: another fetch would find nothing.
     var isWholeDelta: Bool { !incomplete && unreadableRecordNames.isEmpty }
+
+    /// Another batch filed in the same pass (owed records fetched by ID): its
+    /// news, edits and status join this pass's, for the announcements after it.
+    mutating func absorb(_ other: RefreshResult) {
+        if let status = other.partnerStatus { partnerStatus = status }
+        newPartnerMoments += other.newPartnerMoments
+        editedPartnerMoments += other.editedPartnerMoments
+        momentsArrived = momentsArrived || other.momentsArrived
+        // Still unreadable: not caught up (`isWholeDelta`).
+        unreadableRecordNames += other.unreadableRecordNames
+    }
 }
 
 /// Whether the backend can actually do anything right now.

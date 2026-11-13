@@ -43,13 +43,13 @@ extension CloudSync {
             // A new pairing starts clean: nothing from a previous partner (an
             // unlink already wiped, but a refresh in flight at the time could
             // have refiled some of it since), and no cursor into the old zone.
-            SharedStore.shared.clearChangeTokens()
-            SharedStore.shared.eraseLocalMedia()
-            SharedStore.shared.lastPairing = nil
-            SharedStore.shared.pairing = info
+            self.stores.shared.clearChangeTokens()
+            self.stores.eraseLocalMedia()
+            self.stores.shared.lastPairing = nil
+            self.stores.shared.pairing = info
             // A fresh invite is open until closed by hand.
-            SharedStore.shared.inviteClosed = false
-            SharedStore.shared.closeLinkPromptDismissed = false
+            self.stores.shared.inviteClosed = false
+            self.stores.shared.closeLinkPromptDismissed = false
         }
         try await bootstrapAfterPairing(displayName: displayName)
         return url
@@ -185,7 +185,7 @@ extension CloudSync {
     /// Refuses under another iCloud account: the owner's zone ID names whoever is
     /// signed in, so it would reach a stranger's share (invariant 9).
     func ownerPairing() async throws -> PairingInfo? {
-        guard let pairing = await MainActor.run(body: { SharedStore.shared.pairing }),
+        guard let pairing = await MainActor.run(body: { self.stores.shared.pairing }),
               pairing.role == .owner else { return nil }
         try await requireAvailableAccount()
         guard await isPairingAccount(pairing) else { throw SyncError.differentAccount }
@@ -240,7 +240,7 @@ extension CloudSync {
                 }
             }
         }
-        await MainActor.run { SharedStore.shared.inviteClosed = true }
+        await MainActor.run { self.stores.shared.inviteClosed = true }
     }
 
     /// The re-add half of the close handshake. Throws unless the partner is
@@ -316,7 +316,7 @@ extension CloudSync {
             share.publicPermission = .readWrite
             try Self.confirmSaved(try await database.modifyRecords(saving: [share], deleting: []), share.recordID)
         }
-        await MainActor.run { SharedStore.shared.inviteClosed = false }
+        await MainActor.run { self.stores.shared.inviteClosed = false }
     }
 
     /// Owner side, from Settings behind a confirmation.
@@ -380,7 +380,7 @@ extension CloudSync {
     /// record name for a participant, the share's participants for an owner.
     /// Their invites are refused from then on (`acceptShare`). Returns the names.
     func recordBlockedPartner() async -> [String] {
-        guard let pairing = await MainActor.run(body: { SharedStore.shared.pairing }) else { return [] }
+        guard let pairing = await MainActor.run(body: { self.stores.shared.pairing }) else { return [] }
         var names: [String] = []
         switch pairing.role {
         case .participant:
@@ -395,9 +395,9 @@ extension CloudSync {
         guard !names.isEmpty else { return [] }
         let toBlock = names
         await MainActor.run {
-            var blocked = SharedStore.shared.blockedOwnerRecordNames
+            var blocked = self.stores.shared.blockedOwnerRecordNames
             blocked.formUnion(toBlock)
-            SharedStore.shared.blockedOwnerRecordNames = blocked
+            self.stores.shared.blockedOwnerRecordNames = blocked
         }
         return names
     }
@@ -418,7 +418,7 @@ extension CloudSync {
             share.publicPermission = .none
             try Self.confirmSaved(try await database.modifyRecords(saving: [share], deleting: []), share.recordID)
         }
-        await MainActor.run { SharedStore.shared.inviteClosed = true }
+        await MainActor.run { self.stores.shared.inviteClosed = true }
     }
 
     /// What an explicit close attempt found.
@@ -474,7 +474,7 @@ extension CloudSync {
             }
             closed.publicPermission = .readWrite
             try Self.confirmSaved(try await database.modifyRecords(saving: [closed], deleting: []), closed.recordID)
-            await MainActor.run { SharedStore.shared.inviteClosed = false }
+            await MainActor.run { self.stores.shared.inviteClosed = false }
             return "Swept \(publicCount) public joiner(s); link reopened. "
                 + "Participants now: \(closed.participants.count)."
         } catch {
@@ -486,9 +486,9 @@ extension CloudSync {
     /// Diagnostics' trigger for the promote-and-close behind Settings' confirmed
     /// close (`AppModel.closeInviteReseatingPartner`). Returns a report line on failure; `nil` means it worked or there was nothing to do.
     func secureInviteIfPartnerJoined() async -> String? {
-        guard let pairing = await MainActor.run(body: { SharedStore.shared.pairing }),
+        guard let pairing = await MainActor.run(body: { self.stores.shared.pairing }),
               pairing.role == .owner,
-              await MainActor.run(body: { !SharedStore.shared.inviteClosed }) else { return nil }
+              await MainActor.run(body: { !self.stores.shared.inviteClosed }) else { return nil }
         do {
             if try await lockIfPartnerOnShare(pairing) == .nobodyJoined {
                 return "Nobody has joined through the link yet, so it was left open."
@@ -506,7 +506,7 @@ extension CloudSync {
         try await requireAvailableAccount()
         // A blocked person's invite is refused before anything is accepted.
         if let owner = metadata.share.owner.userIdentity.userRecordID?.recordName,
-           await MainActor.run(body: { SharedStore.shared.blockedOwnerRecordNames.contains(owner) }) {
+           await MainActor.run(body: { self.stores.shared.blockedOwnerRecordNames.contains(owner) }) {
             throw SyncError.blocked
         }
         _ = try await container.accept(metadata)
@@ -527,8 +527,8 @@ extension CloudSync {
             // would fail every refresh from the first; leftover media to a
             // previous partner — unless this is the same zone we were cut loose
             // from, whose unsent media is about to be re-sent.
-            SharedStore.shared.clearChangeTokens()
-            Self.adoptPairing(info)
+            self.stores.shared.clearChangeTokens()
+            Self.adoptPairing(info, in: self.stores)
         }
         try await bootstrapAfterPairing(displayName: displayName)
     }
@@ -536,10 +536,10 @@ extension CloudSync {
     /// Commits a participant-side pairing, keeping local media only when it is
     /// the zone this device last left (`SharedStore.lastPairing`).
     @MainActor
-    static func adoptPairing(_ info: PairingInfo) {
-        let store = SharedStore.shared
+    static func adoptPairing(_ info: PairingInfo, in stores: CloudStores) {
+        let store = stores.shared
         if store.lastPairing?.sameZone(as: info) != true {
-            store.eraseLocalMedia()
+            stores.eraseLocalMedia()
         }
         store.lastPairing = nil
         store.pairing = info
@@ -551,10 +551,10 @@ extension CloudSync {
     /// (owner side) only counts with a share attached, since a bare leftover
     /// zone isn't a pairing. `nil` means an invite link is genuinely needed.
     func discoverExistingPairing() async -> (role: PairRole, zoneID: CKRecordZone.ID)? {
-        guard await MainActor.run(body: { SharedStore.shared.pairing == nil }) else { return nil }
+        guard await MainActor.run(body: { self.stores.shared.pairing == nil }) else { return nil }
         guard (try? await accountStatus()) == .available else { return nil }
 
-        let blocked = await MainActor.run { SharedStore.shared.blockedOwnerRecordNames }
+        let blocked = await MainActor.run { self.stores.shared.blockedOwnerRecordNames }
         if let zone = try? await container.sharedCloudDatabase.allRecordZones()
             .first(where: { $0.zoneID.zoneName == AppConfig.coupleZoneName
                             && !blocked.contains($0.zoneID.ownerName) }) {
@@ -591,7 +591,7 @@ extension CloudSync {
             try await waitForSharedZone(zoneID)
         } else {
             // Checked again here, not just at discovery: the tap can come much later.
-            let blocked = await MainActor.run { SharedStore.shared.blockedOwnerRecordNames }
+            let blocked = await MainActor.run { self.stores.shared.blockedOwnerRecordNames }
             guard await ownerShareIsRejoinable(zoneID, blocked: blocked) else { throw SyncError.blocked }
         }
 
@@ -601,8 +601,8 @@ extension CloudSync {
                                pairedAt: Date(),
                                userRecordName: await currentUserRecordName())
         await MainActor.run {
-            SharedStore.shared.clearChangeTokens()
-            Self.adoptPairing(info)
+            self.stores.shared.clearChangeTokens()
+            Self.adoptPairing(info, in: self.stores)
         }
         try await bootstrapAfterPairing(displayName: displayName, rejoining: true)
     }
@@ -616,7 +616,7 @@ extension CloudSync {
         var existing: StatusPayload?
         if rejoining {
             _ = try? await refresh()
-            existing = await MainActor.run { SharedStore.shared.snapshot.mine }
+            existing = await MainActor.run { self.stores.shared.snapshot.mine }
             if existing?.updatedAt == .distantPast { existing = nil }
         }
         if var renamed = existing {
@@ -631,19 +631,16 @@ extension CloudSync {
         }
         let theirs = (try? await refresh())?.partnerStatus
         // Seed watermarks from the server so pairing against existing history
-        // doesn't fire stale nudge notifications or mislabel the first push —
-        // nor describe the newest of hundreds of re-fetched moments as new.
+        // doesn't fire stale nudge notifications or mislabel the first push. (Its
+        // moments need nothing: with no complete fetch before, none is news.)
         // Forward only: an NSE claim can land mid-bootstrap, and a failed
         // refresh (nil) must not reset the count to 0 and re-announce a nudge.
         await MainActor.run {
-            _ = SharedStore.shared.mutate {
+            _ = self.stores.shared.mutate {
                 if let known = theirs ?? $0.theirs {
                     $0.lastSeenPartnerNudgeCount = max($0.lastSeenPartnerNudgeCount, known.nudgeCount)
                     $0.lastAnnouncedPartnerStatusAt = max($0.lastAnnouncedPartnerStatusAt ?? .distantPast,
                                                           known.updatedAt)
-                }
-                if let newest = $0.latestPartnerMoment?.sentAt {
-                    $0.lastAnnouncedMomentSentAt = max($0.lastAnnouncedMomentSentAt ?? .distantPast, newest)
                 }
             }
         }
@@ -674,7 +671,7 @@ extension CloudSync {
         } catch let error as CKError where Self.isAlreadyGone(error) {
             // Unlinked or re-paired since the call began (an upload can outlive
             // its caller): the old zone being gone says nothing of the current one.
-            guard await MainActor.run(body: { SharedStore.shared.pairing?.sameZone(as: pairing) }) == true else {
+            guard await MainActor.run(body: { self.stores.shared.pairing?.sameZone(as: pairing) }) == true else {
                 throw error
             }
             throw try await zoneGoneVerdict(pairing)
@@ -695,7 +692,7 @@ extension CloudSync {
         }
         let now = Date()
         let decision = await MainActor.run { () -> ZoneGonePolicy.Decision in
-            let store = SharedStore.shared
+            let store = self.stores.shared
             let decision = ZoneGonePolicy.decide(firstSeen: store.zoneGoneSeenAt, now: now)
             if decision == .firstSighting { store.zoneGoneSeenAt = now }
             return decision
@@ -708,11 +705,11 @@ extension CloudSync {
         await MainActor.run {
             // Unsent media survives: if this was the close handshake after all,
             // tapping the link again rejoins the same zone and re-sends it.
-            SharedStore.shared.eraseLocalMedia(keepingPendingUploads: true)
+            self.stores.eraseLocalMedia(keepingPendingUploads: true)
             // The subscriptions outlive the zone: until they're gone, every
             // write anyone makes under them still pushes here.
-            SharedStore.shared.subscriptionCleanup = .init(userRecordName: pairing.userRecordName, since: now)
-            SharedStore.shared.clearPairing(keepingName: true)
+            self.stores.shared.subscriptionCleanup = .init(userRecordName: pairing.userRecordName, since: now)
+            self.stores.shared.clearPairing(keepingName: true)
         }
         return .linkEnded
     }

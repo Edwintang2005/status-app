@@ -4,7 +4,34 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 ## Unreleased
 
-Version 1.6.3.
+Version 1.7.
+
+- **When the app syncs is now one tested piece.** Launch, coming to the front,
+  pushes, the network returning and an account change all go through a sync
+  coordinator, out of the app's main model. Opening the app fetches once, not
+  twice; reconnecting with something queued fetches once and then only re-sends,
+  instead of fetching three times; and pull-to-refresh, joining, and the fresh
+  start's checks now wait for a sync already running rather than returning at
+  once on stale state.
+- **Records a locked phone couldn't read are fetched again, not given up on.**
+  They used to hold the sync position back — every push re-downloaded the whole
+  backlog — and after three tries the app gave up on them for good. Now they go
+  on a list of records still owed and the sync moves on; the next sync that can
+  read fetches just those by ID and files them, so a photo sent while the phone
+  was locked is still announced once it's unlocked — the widget catches up too,
+  without the app being opened. A re-download a locked phone can't read waits
+  for one that can rather than owing a whole history. Only a record unreadable
+  for 30 days is given up on.
+- **Moment banners rebuilt on one list.** Whichever process syncs a new photo,
+  doodle or memo files it as owed a banner, and whoever announces takes the
+  whole list — one banner for a burst, the newest to arrive. It replaces an
+  eight-moment memory, a time floor read off your partner's clock and four
+  separate claim paths. A phone whose clock runs ahead can no longer bury or
+  resurrect a moment; after a reinstall or reset only what iCloud received since
+  your last complete sync can be announced; and a push no longer reads the
+  5,000-moment history to word its banner. A held banner whose moment was
+  announced as part of a later burst keeps its place, now worded, rather than
+  being withdrawn.
 
 - **Whole-codebase review fixes.**
   - *Save memories, then unlink or fresh start* no longer goes ahead when

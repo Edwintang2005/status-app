@@ -203,9 +203,13 @@ it (statuses aside: the app posts none, the card shows them). A photo can also
 arrive on another push's pass — APNs keeps one notification per app for an
 offline phone, so a heart may be all that comes: that push's service posts the
 photo's own banner beside the heart's (`PushBannerPolicy.carriedMoment`), and a
-photo the widget filed without any push is announced by the app's next refresh
-(`AnnouncementPolicy.claim` over `bannerCandidates`), unless it's already been
-seen. A nudge found that way can be hours old, and announcing it as *"is thinking
+photo the widget filed without any push is announced by the app's next refresh,
+unless it's already been seen. All of these take from one list: whichever process
+folds a delta files its new partner moments as owed a banner
+(`Snapshot.owedMoments`), and whoever announces takes the whole list at once —
+one banner for a burst, the newest to arrive; a moment you've seen in the app,
+reported or that was deleted leaves it. A full resync owes only what the server
+created since the last complete fetch, so re-fetched history is never announced. A nudge found that way can be hours old, and announcing it as *"is thinking
 of you"* during, say, a status update reads as a mislabelled notification. So
 the catch-up checks `lastNudgeAt`: a nudge more than fifteen minutes old is worded
 *"was thinking of you earlier 💭"* and loses its time-sensitive priority. The
@@ -285,7 +289,7 @@ delivery path. The widget and the open app still rely on:
    complete fetch any process made in the last 30 s (`AppFetchPolicy`). Only
    while notifications reach the service and the last push it started on
    (`SharedStore.lastPushID`, stamped on arrival) finished whole; never while
-   records are held unreadable or with no change token. Readiness and the
+   records are owed (unreadable) or with no change token. Readiness and the
    recovery pass still run.
 3. **The widget's own fetch**, on its timeline refresh, with an 8s
    timeout and the cached snapshot as fallback. This is the only battery cost
@@ -309,11 +313,12 @@ delivery path. The widget and the open app still rely on:
    widget's daily budget; only timer reloads (and a batch left incomplete)
    fetch. iOS never reloads a widget on unlock, so this is what catches it up
    after one.
-4. **An `NWPathMonitor` in `AppModel`**, which refreshes on the
+4. **An `NWPathMonitor` in `SyncCoordinator`**, which refreshes on the
    offline→online edge — so a phone that regains signal recovers without
-   waiting to be re-opened. Until a fetch since the edge has worked and
-   nothing is left queued (DNS or a VPN still coming up, a send hitting the
-   flap), it goes again after 5 and 20 seconds (`AppConfig.reconnectRetryDelays`).
+   waiting to be re-opened. Until a fetch since the edge has worked (DNS or a
+   VPN still coming up) it fetches again after 5 and 20 seconds
+   (`AppConfig.reconnectRetryDelays`); after that, while anything is still
+   queued (a send hitting the flap), it only re-sends.
    It reacts only to that edge, never to path churn while the network stays
    up — and only while the app is running: a suspended app catches up the
    next time it comes to the front.
@@ -914,12 +919,16 @@ feasibility, then ranked correctness, privacy and polish backlogs. Read its
   them silently. And a Debug build (Development environment) never sees a
   TestFlight build's data at all; both must be on the same side to share
   anything — Settings → Diagnostics shows which.
-- **A record that can never be decrypted is eventually skipped.** Unreadable
-  records normally hold the change token so they come round again (the
-  extensions have no keys on a locked phone). If the foreground app itself
-  fails to read the same records on three separate refreshes, it gives up on
-  them and moves on; Diagnostics counts these under "gave up on". A full
-  resync (reinstall, or a token expiry) fetches them again.
+- **A record that can't be read yet is owed, not lost.** A locked phone's
+  extensions have no keys, so a record they can't decrypt is put on a list of
+  ones still owed and the sync moves on past it. A later sync (the unlocked
+  app, the widget or the expanded banner — at most once a minute between
+  them, every ten minutes for an extension that found nothing readable)
+  fetches just those records by ID and files them — a photo that waited is
+  still announced. During a full resync (reinstall, a token expiry) a locked
+  phone instead keeps its place, so a whole history is never owed. One that
+  stays unreadable for 30 days is given up on; Diagnostics shows what's owed
+  and what was given up.
 
 ## Shipping it
 

@@ -70,7 +70,7 @@ final class NotificationPreferencesTests: XCTestCase {
         snapshot.theirs = Fixtures.status()
         let status = Fixtures.status("☕️", "coffee", at: Fixtures.date(20))
         let plan = PushBannerPolicy.decide(.status, result: RefreshResult(partnerStatus: status, newPartnerMoments: []),
-                                           index: [], reportedAt: nil, in: &snapshot, now: Fixtures.date(1_000))
+                                           reportedAt: nil, in: &snapshot, now: Fixtures.date(1_000))
         XCTAssertTrue(plan.sound)
         XCTAssertFalse(plan.limited(to: preferences(statuses: .silent).level(for: .status)).sound)
     }

@@ -80,18 +80,34 @@ final class SnapshotCodableTests: XCTestCase {
         }
     }
 
-    func testAnnouncedWatermarkIsBoundedAndSticky() {
+    func testTheTakenListIsBoundedAndSticky() {
         var snapshot = Snapshot.empty
-        for index in 0..<12 { snapshot.recordAnnounced("m\(index)") }
-        XCTAssertEqual(snapshot.notifiedMomentIDs.count, 8)
-        XCTAssertEqual(snapshot.lastNotifiedMomentID, "m11")
-        XCTAssertTrue(snapshot.hasAnnounced("m11"))
-        XCTAssertTrue(snapshot.hasAnnounced("m4"))
-        XCTAssertFalse(snapshot.hasAnnounced("m3"))
+        let limit = Snapshot.owedMomentLimit
+        snapshot.recordTaken((0..<(limit + 5)).map { "m\($0)" })
+        XCTAssertEqual(snapshot.notifiedMomentIDs.count, limit)
+        XCTAssertTrue(snapshot.hasTaken("m\(limit + 4)"))
+        XCTAssertFalse(snapshot.hasTaken("m0"), "the oldest age out")
 
-        snapshot.recordAnnounced("m11")
-        XCTAssertEqual(snapshot.notifiedMomentIDs.count, 8, "re-announcing must not duplicate")
-        XCTAssertEqual(snapshot.notifiedMomentIDs.first, "m11")
+        snapshot.recordTaken(["m\(limit + 4)"])
+        XCTAssertEqual(snapshot.notifiedMomentIDs.count, limit, "taking again must not duplicate")
+        snapshot.owe([Fixtures.moment("m\(limit + 4)")])
+        XCTAssertTrue(snapshot.owedMoments.isEmpty, "a re-fold never owes what was taken")
+    }
+
+    /// No mark yet is written as such, so it isn't re-seeded from the last sync on every read.
+    func testAnUnsetNewsMarkRoundTripsAsUnset() throws {
+        var snapshot = Snapshot.empty
+        snapshot.lastSyncedAt = Fixtures.t0
+        let data = try JSONEncoder.shared.encode(snapshot)
+        XCTAssertNil(try JSONDecoder.shared.decode(Snapshot.self, from: data).newsAfter)
+    }
+
+    /// A snapshot from before the field: the last complete sync stands in for the mark.
+    func testALegacySnapshotTakesItsNewsMarkFromTheLastSync() throws {
+        let json = #"{"isPaired":true,"lastSyncedAt":"2025-09-01T10:00:00Z"}"#
+        let snapshot = try JSONDecoder.shared.decode(Snapshot.self, from: Data(json.utf8))
+        XCTAssertEqual(snapshot.newsAfter, snapshot.lastSyncedAt)
+        XCTAssertNotNil(snapshot.newsAfter)
     }
 
     func testStatusReceiptCountsOnlyForCurrentStatus() {
@@ -207,7 +223,8 @@ final class SnapshotCodableTests: XCTestCase {
         snapshot.latestOwnMoment = own
         snapshot.lastNotifiedMomentID = moment.id
         snapshot.notifiedMomentIDs = [moment.id]
-        snapshot.lastAnnouncedMomentSentAt = Fixtures.date(6)
+        snapshot.owedMoments = [moment]
+        snapshot.newsAfter = Fixtures.date(6)
         snapshot.latestPartnerVisualMoment = moment
         snapshot.unheardVoiceMemoCount = 2
         snapshot.lastCelebratedAt = Fixtures.date(7)

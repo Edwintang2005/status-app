@@ -108,7 +108,7 @@ extension CloudSync {
         var failure: Error?
         for batch in ids.chunked(into: 200) {
             // An unlink landed mid-clear: what's left is the unlink's to delete.
-            guard await MainActor.run(body: { SharedStore.shared.pairing?.sameZone(as: pairing) == true }) else {
+            guard await MainActor.run(body: { self.stores.shared.pairing?.sameZone(as: pairing) == true }) else {
                 throw SyncError.notPaired
             }
             let result = try await withZoneRecovery(pairing) {

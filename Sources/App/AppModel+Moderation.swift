@@ -38,9 +38,9 @@ extension AppModel {
         store.hiddenMomentIDs = hidden
         MomentIndex.shared.remove(id: moment.id)
         MomentStore.shared.delete(id: moment.id)
-        // Reported is gone from every surface, a kept recap included.
+        // Reported is gone from every surface, a kept recap included — and no banner says it.
         RecapStore.shared.removeAll()
-        store.refreshDerived()
+        store.refreshDerived { $0.settleOwed([moment.id]) }
         reload()
         sendReport(Report.Details(kind: moment.noun,
                                   identifier: moment.id,

@@ -653,6 +653,8 @@ final class Outbox {
                 store.mutate {
                     $0.freshStart.finished(epoch)
                     $0.receiptsDirty = true
+                    // Cleared before anyone said so: there's nothing left to announce.
+                    $0.settleOwed(Set(purge.momentIDs))
                 }
                 freshStartFailure = nil
                 cleared = true

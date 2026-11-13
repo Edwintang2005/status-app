@@ -9,7 +9,7 @@ extension CloudSync {
         let changes = try await fetchZoneChanges(zone: zoneID(for: pairing),
                                                  in: database(for: pairing),
                                                  since: nil)
-        let hidden = await MainActor.run { SharedStore.shared.hiddenMomentIDs }
+        let hidden = await MainActor.run { self.stores.shared.hiddenMomentIDs }
         let parsed = ParsedDelta.parse(records: changes.records, deletedIDs: [],
                                        mineRole: pairing.role, hidden: hidden)
         return ArchiveContents.Zone(moments: parsed.moments,

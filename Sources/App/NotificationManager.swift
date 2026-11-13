@@ -261,3 +261,11 @@ enum NotificationManager {
         }
     }
 }
+
+/// The app's posts after a refresh, for `SyncRunner`.
+struct AppNotifier: SyncNotifier {
+    func postPartnerLeft(name: String) async { await NotificationManager.postPartnerLeft(name: name) }
+    func postNudge(from name: String, sentAt: Date?) async { await NotificationManager.postNudge(from: name, sentAt: sentAt) }
+    func postMoment(_ moment: Moment, from name: String) async { await NotificationManager.postMoment(moment, from: name) }
+    func postRemoval(from name: String, count: Int) async { await NotificationManager.postRemoval(from: name, count: count) }
+}

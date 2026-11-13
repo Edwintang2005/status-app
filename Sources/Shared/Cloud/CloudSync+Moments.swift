@@ -21,7 +21,7 @@ extension CloudSync {
         record.encryptedValues[Field.caption] = moment.caption
         record.encryptedValues[Field.senderName] = moment.senderName
 
-        let store = MomentStore.shared
+        let store = self.stores.media
         if moment.isVoice {
             guard let audioURL = store.audioURL(for: moment.id),
                   FileManager.default.fileExists(atPath: audioURL.path) else {
@@ -268,7 +268,7 @@ extension CloudSync {
             for (recordID, result) in results {
                 guard case .success(let record) = result, let moment = byRecord[recordID] else { continue }
                 do {
-                    try Self.copyAsset(record[Field.thumb] as? CKAsset, to: MomentStore.shared.thumbURL(for: moment.id))
+                    try Self.copyAsset(record[Field.thumb] as? CKAsset, to: self.stores.media.thumbURL(for: moment.id))
                 } catch {
                     log.error("Couldn't store the thumbnail for \(moment.id): \(error.localizedDescription)")
                 }
@@ -281,12 +281,12 @@ extension CloudSync {
     /// filled, on Wi-Fi. Stops at the first failure — tiles still fetch on demand — and,
     /// like `prefetchMedia`, when the pairing changes underneath.
     func prefetchMissingThumbnails(pairing: PairingInfo) async {
-        let store = MomentStore.shared
-        let drawn = await MainActor.run { SharedStore.shared.snapshot.latestPartnerVisualMoment?.id }
-        let missing = MediaPrefetchPlan.missingThumbnails(in: MomentIndex.shared.load(), drawn: drawn,
+        let store = self.stores.media
+        let drawn = await MainActor.run { self.stores.shared.snapshot.latestPartnerVisualMoment?.id }
+        let missing = MediaPrefetchPlan.missingThumbnails(in: self.stores.index.load(), drawn: drawn,
                                                           hasThumbnail: { store.hasThumbnail(for: $0.id) })
         guard !missing.isEmpty else { return }
-        let samePairing = { await MainActor.run { SharedStore.shared.pairing?.sameZone(as: pairing) == true } }
+        let samePairing = { await MainActor.run { self.stores.shared.pairing?.sameZone(as: pairing) == true } }
         for batch in missing.chunked(into: ThumbnailBatchQueue.batchLimit) {
             guard !Task.isCancelled, await samePairing() else { return }
             do {
@@ -338,7 +338,7 @@ extension CloudSync {
         for (recordID, result) in results {
             guard case .success(let record) = result, let moment = byRecord[recordID] else { continue }
             do {
-                try Self.copyMedia(from: record, for: moment)
+                try Self.copyMedia(from: record, for: moment, into: stores.media)
             } catch {
                 log.error("Couldn't store the media for \(moment.id): \(error.localizedDescription)")
             }
@@ -351,7 +351,7 @@ extension CloudSync {
                        in database: CKDatabase) async throws {
         guard let recordID = recordIDs(for: [moment], pairing: pairing).keys.first,
               let record = try await fetchRecord(recordID, in: database) else { return }
-        try Self.copyMedia(from: record, for: moment)
+        try Self.copyMedia(from: record, for: moment, into: stores.media)
     }
 
     func recordIDs(for moments: [Moment], pairing: PairingInfo) -> [CKRecord.ID: Moment] {
@@ -364,8 +364,7 @@ extension CloudSync {
         return byRecord
     }
 
-    static func copyMedia(from record: CKRecord, for moment: Moment) throws {
-        let store = MomentStore.shared
+    static func copyMedia(from record: CKRecord, for moment: Moment, into store: MomentStore) throws {
         if moment.isVoice {
             try copyAsset(record[Field.audio] as? CKAsset, to: store.audioURL(for: moment.id))
         } else {

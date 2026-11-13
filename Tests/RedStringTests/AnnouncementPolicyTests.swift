@@ -29,65 +29,101 @@ final class AnnouncementPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.lastSeenPartnerNudgeCount, 3)
     }
 
-    func testOnlyNewestMomentIsAnnouncedButTheWholeBurstIsClaimed() {
+    func testOnlyNewestMomentIsAnnouncedButTheWholeBurstIsTaken() {
         var snapshot = Snapshot.empty
-        let older = Fixtures.moment("m1", at: Fixtures.date(10))
-        let newer = Fixtures.moment("m2", at: Fixtures.date(20))
-        let first = AnnouncementPolicy.claim(result(moments: [older, newer]), previousStatus: nil, in: &snapshot)
+        snapshot.owe([Fixtures.moment("m1", at: Fixtures.date(10)), Fixtures.moment("m2", at: Fixtures.date(20))])
+        let first = AnnouncementPolicy.claim(result(), previousStatus: nil, in: &snapshot)
         XCTAssertEqual(first.moment?.id, "m2")
-        XCTAssertTrue(snapshot.hasAnnounced("m2"))
-        XCTAssertTrue(snapshot.hasAnnounced("m1"), "claimed too, or a later push banner would call it new")
-        XCTAssertEqual(snapshot.lastAnnouncedMomentSentAt, Fixtures.date(20))
-        let again = AnnouncementPolicy.claim(result(moments: [older, newer]), previousStatus: nil, in: &snapshot)
-        XCTAssertNil(again.moment)
+        XCTAssertEqual(snapshot.lastNotifiedMomentID, "m2")
+        XCTAssertTrue(snapshot.owedMoments.isEmpty, "m1 taken too, or a later push banner would call it new")
+        XCTAssertNil(AnnouncementPolicy.claim(result(), previousStatus: nil, in: &snapshot).moment,
+                     "a second process seeing the same delta must not announce again")
     }
 
     /// A photo another pass filed (a heart's push carried it; the widget fetched
-    /// it and its own push never came) is caught up by the app's next refresh,
-    /// once — never one behind the floor, ours, or one already seen in the app.
+    /// it and its own push never came) is still owed: the app's next refresh
+    /// announces it, once.
     func testTheAppCatchesUpMomentsAnotherPassFiled() {
         var snapshot = Snapshot.empty
-        snapshot.lastAnnouncedMomentSentAt = Fixtures.date(100)
-        let old = Fixtures.moment("old", at: Fixtures.date(50))
-        let ours = Fixtures.moment("ours", at: Fixtures.date(160), fromMe: true)
-        let filed = Fixtures.moment("filed", at: Fixtures.date(150))
-        let index = [ours, filed, old]
-        let claims = AnnouncementPolicy.claim(result(), previousStatus: nil, index: index, in: &snapshot)
-        XCTAssertEqual(claims.moment?.id, "filed")
-        XCTAssertEqual(snapshot.lastAnnouncedMomentSentAt, Fixtures.date(150))
-        XCTAssertNil(AnnouncementPolicy.claim(result(), previousStatus: nil, index: index, in: &snapshot).moment,
-                     "announced once")
-
-        let seen = Fixtures.moment("seen", at: Fixtures.date(200), seen: true)
-        XCTAssertNil(AnnouncementPolicy.claim(result(), previousStatus: nil, index: [seen], in: &snapshot).moment,
-                     "already looked at in the app: nothing to tell")
-        XCTAssertTrue(snapshot.hasAnnounced("seen"), "but marked, so no push fallback calls it new later")
+        snapshot.owe([Fixtures.moment("filed", at: Fixtures.date(150))])
+        XCTAssertEqual(AnnouncementPolicy.claim(result(), previousStatus: nil, in: &snapshot).moment?.id, "filed")
+        XCTAssertNil(AnnouncementPolicy.claim(result(), previousStatus: nil, in: &snapshot).moment, "announced once")
     }
 
-    /// The delta's own news wins over the catch-up, as before.
-    func testTheDeltaComesBeforeTheCatchUp() {
+    /// Nothing owed, nothing said: a re-fetched history (reinstall, token
+    /// expiry) is never owed, so no banner can describe an old moment as new.
+    func testNothingOwedAnnouncesNothing() {
         var snapshot = Snapshot.empty
-        let filed = Fixtures.moment("filed", at: Fixtures.date(150))
-        let arrived = Fixtures.moment("arrived", at: Fixtures.date(120))
-        let claims = AnnouncementPolicy.claim(result(moments: [arrived]), previousStatus: nil,
-                                              index: [filed], in: &snapshot)
-        XCTAssertEqual(claims.moment?.id, "arrived")
+        XCTAssertNil(AnnouncementPolicy.takeOwedMoments(in: &snapshot))
+        XCTAssertNil(snapshot.lastNotifiedMomentID)
     }
 
-    /// A re-fetched history (reinstall, token expiry) fills the index with
-    /// hundreds of never-announced moments; the banner fallback must not pick one.
-    func testMomentBannerIndexFallbackNeverReachesBehindTheFloor() {
+    /// The newest to *arrive*, not the newest `sentAt`: that's the partner's clock,
+    /// and a phone hours ahead must not make its moment outrank later ones.
+    func testTheBannerIsTheLastToArriveWhateverItsClock() {
         var snapshot = Snapshot.empty
-        snapshot.lastAnnouncedMomentSentAt = Fixtures.date(100)
-        let old = Fixtures.moment("old", at: Fixtures.date(50))
-        let fresh = Fixtures.moment("fresh", at: Fixtures.date(150))
-        XCTAssertNil(AnnouncementPolicy.claimMomentBanner(delta: [], index: [old], in: &snapshot))
-        XCTAssertEqual(AnnouncementPolicy.claimMomentBanner(delta: [], index: [fresh, old], in: &snapshot)?.id, "fresh")
-        XCTAssertEqual(snapshot.lastAnnouncedMomentSentAt, Fixtures.date(150))
-        // The delta is always trusted: it is this refresh's own news.
-        snapshot = Snapshot.empty
-        snapshot.lastAnnouncedMomentSentAt = Fixtures.date(100)
-        XCTAssertEqual(AnnouncementPolicy.claimMomentBanner(delta: [old], index: [], in: &snapshot)?.id, "old")
+        snapshot.owe([Fixtures.moment("skewed", at: Date().addingTimeInterval(3 * 86_400))])
+        snapshot.owe([Fixtures.moment("later", at: Date())])
+        XCTAssertEqual(AnnouncementPolicy.takeOwedMoments(in: &snapshot)?.id, "later")
+    }
+
+    /// Filed once, words kept current, settled when there's nothing left to say, bounded.
+    func testTheOwedListFilesOnceRefreshesWordsAndSettles() {
+        var snapshot = Snapshot.empty
+        var moment = Fixtures.moment("m1")
+        snapshot.owe([moment])
+        snapshot.owe([moment])
+        XCTAssertEqual(snapshot.owedMoments.count, 1, "a re-delivery isn't a second owing")
+
+        moment.caption = "edited before anyone announced it"
+        snapshot.owe([], refreshing: [moment])
+        XCTAssertEqual(snapshot.owedMoments.first?.caption, "edited before anyone announced it")
+        snapshot.owe([], refreshing: [Fixtures.moment("other")])
+        XCTAssertEqual(snapshot.owedMoments.map(\.id), ["m1"], "a delivered copy isn't owed by itself")
+
+        snapshot.settleOwed(["m1"])
+        XCTAssertTrue(snapshot.owedMoments.isEmpty)
+
+        snapshot.owe((0..<(Snapshot.owedMomentLimit + 5)).map { Fixtures.moment("b\($0)") })
+        XCTAssertEqual(snapshot.owedMoments.count, Snapshot.owedMomentLimit)
+        XCTAssertEqual(snapshot.owedMoments.last?.id, "b\(Snapshot.owedMomentLimit + 4)", "the newest kept")
+    }
+
+    /// The fold is where moments become owed: news, refreshed words, deletions.
+    func testTheFoldOwesNewsAndSettlesDeletions() {
+        var snapshot = Snapshot.empty
+        snapshot.owe([Fixtures.moment("gone")])
+        var fold = RefreshDelta()
+        fold.owedMoments = [Fixtures.moment("new")]
+        fold.settledMomentIDs = ["gone"]
+        fold.readUpTo = Fixtures.date(500)
+        fold.fold(into: &snapshot)
+        XCTAssertEqual(snapshot.owedMoments.map(\.id), ["new"])
+        XCTAssertEqual(snapshot.newsAfter, Fixtures.date(500))
+
+        var older = RefreshDelta()
+        older.readUpTo = Fixtures.date(100)
+        older.fold(into: &snapshot)
+        XCTAssertEqual(snapshot.newsAfter, Fixtures.date(500), "the mark only rises")
+
+        // …unless it's over a day ahead: a seed from a fast clock is stale, not kept.
+        let now = Date()
+        snapshot.newsAfter = now.addingTimeInterval(3 * AppConfig.clockSkewAllowance)
+        var read = RefreshDelta()
+        read.readUpTo = now.addingTimeInterval(-60)
+        read.fold(into: &snapshot, now: now)
+        XCTAssertEqual(snapshot.newsAfter, now.addingTimeInterval(-60))
+    }
+
+    /// A fresh start committed between a delta's parse and its fold: what it cleared is owed nothing.
+    func testAMomentClearedByAFreshStartIsOwedNothing() {
+        var snapshot = Snapshot.empty
+        snapshot.freshStart.clearedBefore = Fixtures.date(1_000)
+        var fold = RefreshDelta()
+        fold.owedMoments = [Fixtures.moment("cleared"), Fixtures.moment("kept")]
+        fold.owedCreatedAt = ["cleared": Fixtures.date(500), "kept": Fixtures.date(2_000)]
+        fold.fold(into: &snapshot)
+        XCTAssertEqual(snapshot.owedMoments.map(\.id), ["kept"])
     }
 
     func testChangedReflectsStatusOrMoments() {
@@ -145,25 +181,12 @@ final class AnnouncementPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.lastSeenPartnerNudgeCount, 3)
     }
 
-    func testMomentBannerPrefersUnannouncedFromDeltaThenIndex() {
+    /// Rapid pushes run as concurrent service instances: only one gets the moment.
+    func testConcurrentPushesNeverTakeTheSameMoment() {
         var snapshot = Snapshot.empty
-        // Newer than anything the delta announces — an indexed moment *older*
-        // than the last announced one is history, not news (see the floor test).
-        let indexed = Fixtures.moment("i1", at: Fixtures.date(30))
-        let mine = Fixtures.moment("own", at: Fixtures.date(50), fromMe: true)
-        let a = Fixtures.moment("a", at: Fixtures.date(10))
-        let b = Fixtures.moment("b", at: Fixtures.date(20))
-
-        // Newest un-announced from the delta, regardless of the delta's order.
-        XCTAssertEqual(AnnouncementPolicy.claimMomentBanner(delta: [a, b], index: [mine, indexed], in: &snapshot)?.id, "b")
-        // Same delta again (the widget consumed it first): falls to the next un-announced.
-        XCTAssertEqual(AnnouncementPolicy.claimMomentBanner(delta: [a, b], index: [mine, indexed], in: &snapshot)?.id, "a")
-        // Delta empty: the index's newest un-announced partner moment, never an own send.
-        XCTAssertEqual(AnnouncementPolicy.claimMomentBanner(delta: [], index: [mine, indexed], in: &snapshot)?.id, "i1")
-        // Everything announced: nothing — a push about an own send from another
-        // device must not re-describe an old partner moment as new.
-        XCTAssertNil(AnnouncementPolicy.claimMomentBanner(delta: [], index: [mine, indexed], in: &snapshot))
-        XCTAssertNil(AnnouncementPolicy.claimMomentBanner(delta: [], index: [mine], in: &snapshot))
+        snapshot.owe([Fixtures.moment("a")])
+        XCTAssertEqual(AnnouncementPolicy.takeOwedMoments(in: &snapshot)?.id, "a")
+        XCTAssertNil(AnnouncementPolicy.takeOwedMoments(in: &snapshot))
     }
 
     // MARK: Locked-phone wording (invariant 10's unreadable exception)
@@ -205,18 +228,5 @@ final class AnnouncementPolicyTests: XCTestCase {
         snapshot.lastAnnouncedPartnerStatusAt = Date().addingTimeInterval(3 * 86_400)
         let status = Fixtures.status("☕️", "coffee?", at: Date().addingTimeInterval(-60))
         XCTAssertEqual(AnnouncementPolicy.claimStatusBanner(for: status, in: &snapshot), .update)
-    }
-
-    /// A moment floor stuck in the future reads as *now*: the index fallback
-    /// still never re-describes an old moment as new.
-    func testFutureMomentFloorStillBlocksOldMoments() {
-        var snapshot = Snapshot.empty
-        snapshot.lastAnnouncedMomentSentAt = Date().addingTimeInterval(3 * 86_400)
-        let old = Fixtures.moment("old", at: Date().addingTimeInterval(-3600))
-        XCTAssertNil(AnnouncementPolicy.claimMomentBanner(delta: [], index: [old], in: &snapshot))
-        let fresh = Fixtures.moment("fresh", at: Date().addingTimeInterval(-10))
-        XCTAssertEqual(AnnouncementPolicy.claimMomentBanner(delta: [fresh], index: [], in: &snapshot)?.id, "fresh")
-        XCTAssertFalse(TrustedTime.isFuture(snapshot.lastAnnouncedMomentSentAt ?? .distantPast),
-                       "recording the fresh one replaces the stuck floor")
     }
 }

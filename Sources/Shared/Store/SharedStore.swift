@@ -555,13 +555,8 @@ final class SharedStore: @unchecked Sendable {
     /// `keepingPendingUploads`, own sends that never reached CloudKit survive —
     /// they exist nowhere else, and a re-pairing to the same zone re-sends them.
     func eraseLocalMedia(keepingPendingUploads: Bool = false) {
-        let kept = keepingPendingUploads ? MomentIndex.shared.retainPendingUploads() : []
-        if !keepingPendingUploads { MomentIndex.shared.clear() }
-        StatusHistoryLog.shared.clear()
-        // No grace window: an unlink erases everything, even seconds-old recordings.
-        MomentStore.shared.prune(keeping: kept.map(\.id), graceInterval: 0)
-        MomentStore.clearThumbnailCache()
-        RecapStore.shared.removeAll()
+        CloudStores(shared: self, index: .shared, media: .shared, statusLog: .shared, recaps: .shared)
+            .eraseLocalMedia(keepingPendingUploads: keepingPendingUploads)
     }
 
     /// Wipes pairing, cached statuses and the whole moment history.
@@ -584,18 +579,19 @@ final class SharedStore: @unchecked Sendable {
 
     /// Files moments in the history index, refreshes derived snapshot fields,
     /// and trims cached media.
-    func record(_ moments: [Moment], cleared: (() -> (Moment) -> Bool)? = nil) {
+    func record(_ moments: [Moment], cleared: (() -> (Moment) -> Bool)? = nil,
+                index: MomentIndex = .shared, media: MomentStore = .shared) {
         guard !moments.isEmpty else { return }
         // `nil` for an unreadable index: pruning against just this delta would
         // delete the media of everything else.
-        guard let all = MomentIndex.shared.insertReadable(moments, cleared: cleared) else { return }
-        refreshDerived(reloadWidgets: false)
+        guard let all = index.insertReadable(moments, cleared: cleared) else { return }
+        refreshDerived(reloadWidgets: false, index: index)
 
         // Only recent files stay on disk (`MediaRetention`); older media is
         // re-fetched from CloudKit when it's looked at.
         let drawn = snapshot.latestPartnerVisualMoment?.id
-        MomentStore.shared.prune(keeping: MediaRetention.fullCopies(of: all, drawn: drawn),
-                                 thumbnailsFor: MediaRetention.thumbnails(of: all, drawn: drawn))
+        media.prune(keeping: MediaRetention.fullCopies(of: all, drawn: drawn),
+                    thumbnailsFor: MediaRetention.thumbnails(of: all, drawn: drawn))
         requestWidgetReload()
     }
 
@@ -667,47 +663,120 @@ final class SharedStore: @unchecked Sendable {
     // MARK: - Unreadable records (Diagnostics)
 
     /// Per-process count of records whose encrypted fields came back empty —
-    /// the evidence for whether background processes lose decryption — plus the
-    /// hold the app keeps over them (see `noteUnreadableRecords`).
+    /// the evidence for whether background processes lose decryption — and the
+    /// records still owed: missed by a fetch (unreadable, or reported but not
+    /// handed over) while the change token moved on past them, fetched again by
+    /// ID until read (`CloudSync.retryOwedRecords`).
     struct UnreadableTally: Codable, Equatable {
         var counts: [String: Int] = [:]
         var lastAt: Date?
-        /// Record names the change token is currently being held for.
-        var heldNames: [String] = []
-        /// Separate app refreshes that found the same names unreadable.
-        var heldStreak = 0
-        var heldAt: Date?
-        /// When the current hold began, by any process — how long the widget has
-        /// been showing a stale snapshot (`WidgetReloadPolicy`).
-        var heldSince: Date?
-        /// Records the app gave up on and advanced past — gone until a full resync.
+        var owed: [OwedRecord] = []
+        /// Owed records that aged out unread (`owedRecordLifetime`): gone until a full resync.
         var abandoned = 0
+        /// The last fetch of owed records by ID, by any process (`owedRetrySpacing`).
+        var lastRetryAt: Date?
+        /// That fetch read nothing: an extension waits longer before trying blind again.
+        var lastRetryReadNothing = false
+        /// A resync batch a process without the keys held (its token kept, nothing
+        /// owed): never retried — the batch comes round again — but still held,
+        /// for the banners and the widget's schedule. Replaced by each held pass,
+        /// cleared by any that keeps a token.
+        /// The partner's moments, their status and the fresh-start records only —
+        /// what the held banners and the clear read — the newest `owedRecordLimit`;
+        /// `heldCount` is the whole batch's misses, for Diagnostics.
+        var held: [String] = []
+        var heldCount = 0
+        var heldAt: Date?
+        /// Spaced looks at a held batch by the app with its keys (`ResyncHold`).
+        var heldPasses = 0
+        var heldPassAt: Date?
+
+        struct OwedRecord: Codable, Equatable {
+            var name: String
+            var firstMissedAt: Date
+            /// Missed by a full resync: judged as one when it's finally read, against
+            /// the mark in force when it was missed (`Snapshot.newsAfter` may have
+            /// moved since) — re-fetched history isn't news, a new moment still is.
+            var resync = false
+            var newsAfter: Date?
+
+            init(name: String, firstMissedAt: Date, resync: Bool = false, newsAfter: Date? = nil) {
+                self.name = name
+                self.firstMissedAt = firstMissedAt
+                self.resync = resync
+                self.newsAfter = newsAfter
+            }
+
+            private enum CodingKeys: String, CodingKey { case name, firstMissedAt, resync, newsAfter }
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                name = try container.decode(String.self, forKey: .name)
+                firstMissedAt = try container.decode(Date.self, forKey: .firstMissedAt)
+                resync = try container.decodeIfPresent(Bool.self, forKey: .resync) ?? false
+                newsAfter = try container.decodeIfPresent(Date.self, forKey: .newsAfter)
+            }
+        }
+
+        /// What every reader of the old hold asks: which records are still owed or held…
+        var heldNames: [String] { owed.map(\.name) + held }
+        /// …and since the latest miss — the stale stretch the widget's schedule
+        /// and the app's foreground fetch care about; one record stuck for weeks
+        /// mustn't stand in for a fresh one.
+        var heldSince: Date? { (owed.map(\.firstMissedAt) + [heldAt].compactMap { $0 }).max() }
 
         init() {}
 
         private enum CodingKeys: String, CodingKey {
-            case counts, lastAt, heldNames, heldStreak, heldAt, heldSince, abandoned
+            case counts, lastAt, owed, abandoned, lastRetryAt, lastRetryReadNothing, held, heldCount, heldAt
+            case heldPasses, heldPassAt
         }
 
         /// Hand-written: fields added after the first release fall back (invariant 5).
+        /// The pre-list hold's fields are dropped: its records are re-fetched with the delta it pinned.
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             counts = try container.decodeIfPresent([String: Int].self, forKey: .counts) ?? [:]
             lastAt = try container.decodeIfPresent(Date.self, forKey: .lastAt)
-            heldNames = try container.decodeIfPresent([String].self, forKey: .heldNames) ?? []
-            heldStreak = try container.decodeIfPresent(Int.self, forKey: .heldStreak) ?? 0
-            heldAt = try container.decodeIfPresent(Date.self, forKey: .heldAt)
-            heldSince = try container.decodeIfPresent(Date.self, forKey: .heldSince)
+            owed = (try? container.decodeIfPresent(LossyArray<OwedRecord>.self, forKey: .owed))?.elements ?? []
             abandoned = try container.decodeIfPresent(Int.self, forKey: .abandoned) ?? 0
+            lastRetryAt = try? container.decodeIfPresent(Date.self, forKey: .lastRetryAt)
+            lastRetryReadNothing = (try? container.decodeIfPresent(Bool.self, forKey: .lastRetryReadNothing)) ?? false
+            // The old hold's `heldNames` is dropped: its records come back with the delta it pinned.
+            held = (try? container.decodeIfPresent([String].self, forKey: .held)) ?? []
+            heldAt = try? container.decodeIfPresent(Date.self, forKey: .heldAt)
+            heldCount = (try? container.decodeIfPresent(Int.self, forKey: .heldCount)) ?? held.count
+            heldPasses = (try? container.decodeIfPresent(Int.self, forKey: .heldPasses)) ?? 0
+            heldPassAt = try? container.decodeIfPresent(Date.self, forKey: .heldPassAt)
         }
 
         var summary: String {
-            guard !counts.isEmpty else { return "none" }
+            guard !counts.isEmpty || !owed.isEmpty else { return "none" }
             var parts = counts.keys.sorted().map { "\($0) \(counts[$0] ?? 0)" }
-            if !heldNames.isEmpty { parts.append("holding \(heldNames.count) (\(heldStreak) app refresh\(heldStreak == 1 ? "" : "es"))") }
-            if abandoned > 0 { parts.append("gave up on \(abandoned)") }
+            if let oldest = owed.map(\.firstMissedAt).min() {
+                parts.append("\(owed.count) still owed, the oldest since \(oldest.formatted(date: .abbreviated, time: .shortened))")
+            }
+            if heldCount > 0 { parts.append("a resync batch of \(heldCount) held") }
+            if abandoned > 0 { parts.append("gave up on \(abandoned) after \(Int(AppConfig.owedRecordLifetime / 86_400)) days") }
             let last = lastAt.map { " (last \($0.formatted(date: .abbreviated, time: .shortened)))" } ?? ""
             return parts.joined(separator: ", ") + last
+        }
+
+        /// Files missed records (new ones only), settles ones read or deleted,
+        /// ages out the long-unreadable and keeps the list bounded — pure, for tests.
+        mutating func update(missed: [String], resync: Bool = false, newsAfter: Date? = nil,
+                             settled: Set<String>, now: Date) {
+            owed.removeAll { settled.contains($0.name) }
+            for name in missed where !settled.contains(name) && !owed.contains(where: { $0.name == name }) {
+                owed.append(OwedRecord(name: name, firstMissedAt: now, resync: resync, newsAfter: resync ? newsAfter : nil))
+            }
+            let expired = owed.filter { now.timeIntervalSince($0.firstMissedAt) > AppConfig.owedRecordLifetime }
+            abandoned += expired.count
+            owed.removeAll { now.timeIntervalSince($0.firstMissedAt) > AppConfig.owedRecordLifetime }
+            if owed.count > AppConfig.owedRecordLimit {
+                abandoned += owed.count - AppConfig.owedRecordLimit
+                owed.removeFirst(owed.count - AppConfig.owedRecordLimit)
+            }
         }
     }
 
@@ -717,68 +786,73 @@ final class SharedStore: @unchecked Sendable {
         decode(UnreadableTally.self, forKey: Key.unreadable) ?? UnreadableTally()
     }
 
-    /// Records that a refresh skipped these records, and decides whether the
-    /// change token should advance past them anyway. Holding is right while
-    /// the process simply lacks the keys (a locked device's extensions), but a
-    /// record nobody can ever read would pin the token — and the whole delta
-    /// behind it — forever. So only the *app with the phone unlocked*, which has
-    /// the keys, counts; after `AppConfig.unreadableHoldLimit` separate looks at
-    /// the same names it gives up on them. Returns `true` to advance.
-    /// `process` and `protectedData` are injectable for tests.
-    @discardableResult
-    func noteUnreadableRecords(_ names: [String],
-                               now: Date = Date(),
-                               process: String = SharedStore.processLabel,
-                               protectedData: Bool = SharedStore.protectedDataAvailable) -> Bool {
-        guard !names.isEmpty else { return false }
-        return Self.tallyLock.withLock {
+    /// A fetch's outcome for the owed list, in one locked write: what it missed
+    /// (counted against `process`, for Diagnostics; `resync` when the fetch was
+    /// one) and what it read or saw deleted.
+    /// `holding`: a resync batch held rather than owed — `names` as `held` keeps
+    /// them, `count` its whole size, `look` whether it was the app with its keys
+    /// (a spaced one counts toward giving up); `tokenKept`: this pass kept a
+    /// token, so no batch is held any more.
+    func noteFetched(missed: [String], resync: Bool = false, newsAfter: Date? = nil, settled: Set<String>,
+                     holding: (names: [String], count: Int, look: Bool)? = nil, tokenKept: Bool = false,
+                     now: Date = Date(), process: String = SharedStore.processLabel) {
+        guard !missed.isEmpty || !settled.isEmpty || holding != nil || tokenKept else { return }
+        Self.tallyLock.withLock {
             var tally = unreadableTally
-            tally.counts[process, default: 0] += names.count
-            tally.lastAt = now
-
-            var advance = false
-            if process == "app", protectedData {
-                let sameRecords = Set(names).isSubset(of: tally.heldNames)
-                // The app's first counting look starts the streak even when an
-                // extension (or a locked phone) noted these names first.
-                if !sameRecords || tally.heldAt == nil {
-                    tally.heldStreak = 1
-                    tally.heldAt = now
-                } else if let held = tally.heldAt,
-                          now.timeIntervalSince(held) >= AppConfig.unreadableHoldSpacing {
-                    tally.heldStreak += 1
-                    tally.heldAt = now
-                }
-                if tally.heldStreak >= AppConfig.unreadableHoldLimit {
-                    advance = true
-                    tally.abandoned += names.count
-                    tally.heldStreak = 0
-                    tally.heldAt = nil
-                    tally.heldSince = nil
-                    tally.heldNames = []
-                    log.error("Giving up on \(names.count) record(s) that stayed unreadable across \(AppConfig.unreadableHoldLimit) refreshes; advancing the change token.")
-                }
+            let before = tally
+            let seen = missed.count + (holding?.count ?? 0)
+            if seen > 0 {
+                tally.counts[process, default: 0] += seen
+                tally.lastAt = now
             }
-            if !advance {
-                // Every process notes what it saw; a superset from an extension
-                // keeps the app's next (smaller) set counting as the same records.
-                tally.heldNames = names
-                if tally.heldSince == nil { tally.heldSince = now }
+            tally.update(missed: missed, resync: resync, newsAfter: newsAfter, settled: settled, now: now)
+            if let holding {
+                if tally.held.isEmpty { tally.heldAt = now }
+                tally.held = Array(holding.names.suffix(AppConfig.owedRecordLimit))
+                tally.heldCount = holding.count
+                if holding.look,
+                   now.timeIntervalSince(tally.heldPassAt ?? .distantPast) >= AppConfig.owedRetrySpacing {
+                    tally.heldPasses += 1
+                    tally.heldPassAt = now
+                }
+            } else if tokenKept {
+                tally.held = []
+                tally.heldCount = 0
+                tally.heldAt = nil
+                tally.heldPasses = 0
+                tally.heldPassAt = nil
             }
+            guard tally != before else { return }
             encode(tally, forKey: Key.unreadable)
-            return advance
         }
     }
 
-    /// A refresh read everything: whatever was being held has resolved.
-    func clearUnreadableHold() {
+    /// Claims a fetch of owed records by ID for this process — `nil` when there's
+    /// nothing owed or any process did one within `owedRetrySpacing` — handing back
+    /// what to fetch, newest first, at most `limit` (an extension's budget).
+    /// An extension after a retry that read nothing waits `owedRetryBlindSpacing`:
+    /// it can't know the keys are there, and the widget runs every few minutes while held.
+    func claimOwedRetry(now: Date = Date(), limit: Int = AppConfig.owedRecordLimit,
+                        isExtension: Bool = false) -> [UnreadableTally.OwedRecord]? {
         Self.tallyLock.withLock {
             var tally = unreadableTally
-            guard !tally.heldNames.isEmpty || tally.heldStreak > 0 else { return }
-            tally.heldNames = []
-            tally.heldStreak = 0
-            tally.heldAt = nil
-            tally.heldSince = nil
+            let spacing = isExtension && tally.lastRetryReadNothing ? AppConfig.owedRetryBlindSpacing
+                                                                    : AppConfig.owedRetrySpacing
+            guard !tally.owed.isEmpty,
+                  now.timeIntervalSince(tally.lastRetryAt ?? .distantPast) >= spacing
+                    || (tally.lastRetryAt ?? .distantPast) > now else { return nil }
+            tally.lastRetryAt = now
+            encode(tally, forKey: Key.unreadable)
+            return Array(tally.owed.suffix(limit).reversed())
+        }
+    }
+
+    /// A claimed retry that fetched nothing (failed, timed out, cancelled): the
+    /// next pass may try at once. Otherwise, whether it read anything.
+    func noteOwedRetry(fetched: Bool, readAny: Bool = false) {
+        Self.tallyLock.withLock {
+            var tally = unreadableTally
+            if fetched { tally.lastRetryReadNothing = !readAny } else { tally.lastRetryAt = nil }
             encode(tally, forKey: Key.unreadable)
         }
     }

@@ -18,49 +18,34 @@ enum AnnouncementPolicy {
 
     /// What a refresh should announce. A first sight of the partner's status
     /// adopts any standing nudge count silently: it's history, not a fresh tap.
-    /// `index` (`bannerCandidates`) catches up moments another pass filed but
-    /// never announced — a heart or status push carried them, or the widget
-    /// fetched them and their own push never came (APNs keeps one per app).
+    /// The moment is whatever is owed (`Snapshot.owedMoments`) — this delta's
+    /// news, or moments another pass filed and never announced (a heart or
+    /// status push carried them, or the widget fetched them and their own push
+    /// never came: APNs keeps one per app).
     static func claim(_ result: RefreshResult,
                       previousStatus: StatusPayload?,
-                      index: [Moment] = [],
-                      in snapshot: inout Snapshot,
-                      now: Date = Date()) -> Claims {
+                      in snapshot: inout Snapshot) -> Claims {
         var claims = Claims()
         if let theirs = result.partnerStatus,
            theirs.nudgeCount > snapshot.lastSeenPartnerNudgeCount {
             snapshot.lastSeenPartnerNudgeCount = theirs.nudgeCount
             claims.nudge = previousStatus != nil
         }
-        // One notification for the newest, but every moment in the burst is
-        // marked announced — otherwise the push banner's index fallback would
-        // later describe an older one from this batch as new.
-        let floor = snapshot.lastAnnouncedMomentSentAt
-        let news = result.newPartnerMoments.filter { isNews($0, fullResync: result.fullResync, floor: floor) }
-        if let moment = news.last, !snapshot.hasAnnounced(moment.id) {
-            claims.moment = moment
-        }
-        for moment in news { snapshot.recordAnnounced(moment) }
-        if claims.moment == nil, let filed = claimFiled(index, in: &snapshot, now: now) {
-            claims.moment = filed
-        }
+        claims.moment = takeOwedMoments(in: &snapshot)
         claims.partnerLeft = result.partnerLeft && claimPartnerLeft(in: &snapshot)
         claims.removals = claimRemovals(in: &snapshot)
         return claims
     }
 
-    /// The newest partner moment past the announced floor that nobody has
-    /// announced, every one of them marked so (a burst is one banner) — so the
-    /// push fallback never describes one later as new. One already seen in the
-    /// app is marked but not returned: there's nothing left to tell.
-    static func claimFiled(_ moments: [Moment], in snapshot: inout Snapshot, now: Date = Date()) -> Moment? {
-        let floor = snapshot.lastAnnouncedMomentSentAt
-            .map { TrustedTime.isFuture($0, now: now) ? now : $0 } ?? .distantPast
-        let unannounced = moments
-            .filter { !$0.fromMe && $0.sentAt > floor && !snapshot.hasAnnounced($0.id) }
-            .sorted { $0.sentAt < $1.sentAt }
-        for moment in unannounced { snapshot.recordAnnounced(moment) }
-        return unannounced.last { !$0.seen }
+    /// Every owed moment, taken: one banner for the newest to arrive — a burst
+    /// is one banner, and the rest are never described later as new. Arrival
+    /// order, not `sentAt`: that's the partner's clock.
+    static func takeOwedMoments(in snapshot: inout Snapshot) -> Moment? {
+        guard let newest = snapshot.owedMoments.last else { return nil }
+        snapshot.recordTaken(snapshot.owedMoments.map(\.id))
+        snapshot.owedMoments = []
+        snapshot.lastNotifiedMomentID = newest.id
+        return newest
     }
 
     /// The partner's deletions owed a notice (`Snapshot.removalNotices`), taken
@@ -81,12 +66,13 @@ enum AnnouncementPolicy {
 
     /// Whether an unknown moment is news. A full resync returns everything the
     /// index doesn't hold — past its cap, after a rebuild — so there only what
-    /// is newer than the last announced moment counts. An incremental delta's
-    /// unknown moment always does: a send that waited offline arrives late.
-    static func isNews(_ moment: Moment, fullResync: Bool, floor: Date?, now: Date = Date()) -> Bool {
-        guard fullResync, let floor else { return true }
-        // A floor stuck in the future is read as now, like `claimMomentBanner`'s.
-        return moment.sentAt > (TrustedTime.isFuture(floor, now: now) ? now : floor)
+    /// the server created after the last complete fetch counts (`Snapshot.newsAfter`;
+    /// none, after a new pairing or a reinstall). An incremental delta's unknown
+    /// moment always does: a send that waited offline arrives late.
+    static func isNews(createdAt: Date?, fullResync: Bool, newsAfter: Date?) -> Bool {
+        guard fullResync else { return true }
+        guard let createdAt, let newsAfter else { return false }
+        return createdAt > newsAfter
     }
 
     /// What a status push banner should say, or `nil` when this status has
@@ -130,28 +116,6 @@ enum AnnouncementPolicy {
         guard count > snapshot.lastSeenPartnerNudgeCount else { return false }
         snapshot.lastSeenPartnerNudgeCount = count
         return true
-    }
-
-    /// The moment a push banner should describe: the newest un-announced one from
-    /// this refresh's delta, then from the index — but only newer than anything
-    /// already announced, so a history re-fetched wholesale (the ids list holds
-    /// eight) is never mistaken for news. `nil` when there is nothing: the
-    /// generic wording beats re-describing an old moment. Rapid pushes run as
-    /// concurrent extension instances and must not claim the same one.
-    static func claimMomentBanner(delta: [Moment],
-                                  index: [Moment],
-                                  in snapshot: inout Snapshot,
-                                  now: Date = Date()) -> Moment? {
-        // A floor stuck in the future is read as *now*, not as no floor: the
-        // index fallback must still never re-describe an old moment as new.
-        let floor = snapshot.lastAnnouncedMomentSentAt
-            .map { TrustedTime.isFuture($0, now: now) ? now : $0 } ?? .distantPast
-        let fromDelta = delta.sorted { $0.sentAt > $1.sentAt }
-        let fromIndex = index.filter { !$0.fromMe && $0.sentAt > floor }
-        let chosen = fromDelta.first { !snapshot.hasAnnounced($0.id) }
-            ?? fromIndex.first { !snapshot.hasAnnounced($0.id) }
-        if let chosen { snapshot.recordAnnounced(chosen) }
-        return chosen
     }
 
     /// How loudly a nudge may interrupt. Fresh (sent within

@@ -9,7 +9,7 @@ extension CloudSync {
     /// subscription can carry a real alert. Returns `false` if the cooldown hasn't elapsed.
     @discardableResult
     func sendNudge() async throws -> Bool {
-        let store = SharedStore.shared
+        let store = self.stores.shared
         // Whole seconds: `now` is read back from the snapshot (ISO-8601, no
         // fraction) in the failure path and compared for equality.
         let now = Date().wholeSeconds
@@ -81,7 +81,7 @@ extension CloudSync {
                    at now: Date) async throws -> Int {
         var record: CKRecord
         var fromCache = false
-        if let cached = await MainActor.run(body: { SharedStore.shared.nudgeRecordCache }),
+        if let cached = await MainActor.run(body: { self.stores.shared.nudgeRecordCache }),
            let copy = Self.record(fromSystemFields: cached.systemFields), copy.recordID == recordID {
             copy[Field.count] = cached.count as CKRecordValue
             record = copy
@@ -102,11 +102,11 @@ extension CloudSync {
             do {
                 // Stamped before the hand-off, so a deadline after it never reads as a failure.
                 await MainActor.run {
-                    _ = SharedStore.shared.mutate(reloadWidgets: false) { $0.lastNudgeIssuedAt = Date().wholeSeconds }
+                    _ = self.stores.shared.mutate(reloadWidgets: false) { $0.lastNudgeIssuedAt = Date().wholeSeconds }
                 }
                 let saved = try await Self.saveNudgeRecord(record, in: database)
                 await MainActor.run {
-                    SharedStore.shared.nudgeRecordCache = .init(systemFields: Self.systemFields(of: saved), count: next)
+                    self.stores.shared.nudgeRecordCache = .init(systemFields: Self.systemFields(of: saved), count: next)
                 }
                 return next
             } catch let error as CKError where attempt < 3 && Self.isServerRecordChanged(error) {
@@ -183,7 +183,7 @@ extension CloudSync {
     func cacheNudgeRecord(_ record: CKRecord) async {
         let count = min(max(record[Field.count] as? Int ?? 0, 0), AppConfig.nudgeCountCeiling)
         await MainActor.run {
-            SharedStore.shared.nudgeRecordCache = .init(systemFields: Self.systemFields(of: record), count: count)
+            self.stores.shared.nudgeRecordCache = .init(systemFields: Self.systemFields(of: record), count: count)
         }
     }
 

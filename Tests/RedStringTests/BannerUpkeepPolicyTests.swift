@@ -63,14 +63,22 @@ final class BannerUpkeepPolicyTests: XCTestCase {
         XCTAssertEqual(actions, [.remove("b1")])
     }
 
-    /// A rewrite is the announcement: once, and never over one already made.
-    func testARewordClaimsTheMomentOnce() {
+    /// A rewrite is the announcement: an owed moment is taken, so nothing else
+    /// announces it; never over a banner already made about it.
+    func testARewordTakesAnOwedMomentAndNeverDoublesABanner() {
         var snapshot = Snapshot.empty
         let moment = Fixtures.moment("m1", at: Fixtures.date(30))
+        snapshot.owe([moment])
         XCTAssertTrue(BannerUpkeepPolicy.claimReword(moment, in: &snapshot))
-        XCTAssertTrue(snapshot.hasAnnounced("m1"))
-        XCTAssertEqual(snapshot.lastAnnouncedMomentSentAt, moment.sentAt, "the index fallback won't re-announce it")
-        XCTAssertFalse(BannerUpkeepPolicy.claimReword(moment, in: &snapshot), "a second pass withdraws instead")
+        XCTAssertTrue(snapshot.owedMoments.isEmpty, "the app won't post it again")
+        XCTAssertTrue(snapshot.hasTaken("m1"))
+
+        // Taken silently with a burst whose newest got the banner: its own,
+        // already alerted, banner keeps its place, now worded.
+        XCTAssertTrue(BannerUpkeepPolicy.claimReword(moment, in: &snapshot))
+        // The subject of another banner: withdrawn, never two for one moment.
+        snapshot.lastNotifiedMomentID = "m1"
+        XCTAssertFalse(BannerUpkeepPolicy.claimReword(moment, in: &snapshot))
     }
 
     func testAMissingPictureIsAddedOnceItLands() {

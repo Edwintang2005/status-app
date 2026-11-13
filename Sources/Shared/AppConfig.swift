@@ -123,13 +123,25 @@ enum AppConfig {
     static let nudgeCountCeiling = 1_000_000_000
     static let captionMaxLength = 140
 
-    /// How many foreground-app refreshes may hold the change token over the
-    /// same unreadable records before the app gives up on them and moves on.
-    /// Only the app counts — a locked device's extensions never have the keys.
-    static let unreadableHoldLimit = 3
-    /// Refreshes closer together than this count once (launch and foreground
-    /// fire back to back), so the limit means three separate looks.
-    static let unreadableHoldSpacing: TimeInterval = 60
+    /// Records missed by a fetch are owed (`SharedStore.UnreadableTally`) and
+    /// fetched again by ID — at most this often per process — until read, deleted,
+    /// or this old; never more than the limit, so a zone can't grow it without end.
+    static let owedRetrySpacing: TimeInterval = 60
+    static let owedRecordLifetime: TimeInterval = 30 * 24 * 60 * 60
+    static let owedRecordLimit = 500
+    /// An extension's share of a retry: its process has megabytes and seconds, not minutes.
+    static let owedRetryExtensionLimit = 50
+    /// An extension's wait after a retry that read nothing (a locked phone).
+    static let owedRetryBlindSpacing: TimeInterval = 10 * 60
+    /// A retry has its own bound: a stall mustn't fail the fetch it follows. An
+    /// extension's is shorter, and it skips the retry once its pass has used the
+    /// budget: the widget's whole refresh has `widgetDeadline` (8 s).
+    static let owedRetryDeadline: TimeInterval = 5
+    static let owedRetryExtensionDeadline: TimeInterval = 2.5
+    static let owedRetryExtensionBudget: TimeInterval = 3
+    /// Spaced looks (`owedRetrySpacing` apart) by the app, with its keys, at a held
+    /// resync too big for the owed list before it moves on and owes what fits.
+    static let heldResyncGiveUpPasses = 3
 
     /// "The shared zone is gone" must be seen twice, this far apart, before a
     /// device unlinks itself and wipes: the invite-close handshake takes the

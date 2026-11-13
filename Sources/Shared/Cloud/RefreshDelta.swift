@@ -35,6 +35,19 @@ struct RefreshDelta: Sendable, Equatable {
     var removedPartnerMomentIDs: [String] = []
     static let removalNoticeLimit = 20
 
+    /// The partner moments this delta made news: owed a banner (`Snapshot.owedMoments`).
+    var owedMoments: [Moment] = []
+    /// Their server creation times: a fresh start committed between the parse and
+    /// this fold clears them, so they're owed nothing (re-judged in the lock, as the stores do).
+    var owedCreatedAt: [String: Date] = [:]
+    /// Every readable partner moment delivered: refreshes an owed copy's words.
+    var deliveredPartnerMoments: [Moment] = []
+    /// Deleted moments: no banner owed for them any more.
+    var settledMomentIDs: Set<String> = []
+    /// A complete fetch's newest server save time read (`Snapshot.newsAfter`);
+    /// `nil` for one batch of many, which hasn't read everything up to it.
+    var readUpTo: Date?
+
     func fold(into snapshot: inout Snapshot, now: Date = Date()) {
         if let mine {
             // A status set offline is newer than the server copy; adopting the
@@ -107,6 +120,19 @@ struct RefreshDelta: Sendable, Equatable {
 
         if !freshStart.isEmpty {
             snapshot.freshStart.fold(freshStart)
+        }
+
+        snapshot.settleOwed(settledMomentIDs)
+        let epoch = snapshot.freshStart.clearedBefore
+        let owed = owedMoments.filter { moment in
+            guard let epoch, let created = owedCreatedAt[moment.id] else { return true }
+            return created >= epoch
+        }
+        snapshot.owe(owed, refreshing: deliveredPartnerMoments)
+        if let readUpTo {
+            // A mark over a day ahead (a seed from a fast clock) is stale, not kept by `max`.
+            let held = snapshot.newsAfter.flatMap { TrustedTime.isFuture($0, now: now) ? nil : $0 }
+            snapshot.newsAfter = max(held ?? readUpTo, readUpTo)
         }
 
         let removals = removedPartnerMomentIDs.filter { !snapshot.removalNotices.contains($0) }

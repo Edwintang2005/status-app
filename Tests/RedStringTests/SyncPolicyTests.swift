@@ -17,28 +17,6 @@ final class SyncPolicyTests: XCTestCase {
         XCTAssertEqual(ZoneGonePolicy.decide(firstSeen: Fixtures.date(3_600), now: Fixtures.t0), .firstSighting)
     }
 
-    // MARK: RefreshGate
-
-    func testGateNotesARequestMidFetchAndRunsItOnce() {
-        var gate = RefreshGate()
-        XCTAssertTrue(gate.begin())
-        XCTAssertTrue(gate.isRunning)
-        XCTAssertFalse(gate.begin(), "one fetch at a time")
-        XCTAssertFalse(gate.begin())
-        XCTAssertTrue(gate.takeRequest(), "the fetch runs again")
-        XCTAssertFalse(gate.takeRequest(), "once, however many asked")
-        gate.end()
-        XCTAssertFalse(gate.isRunning)
-        XCTAssertTrue(gate.begin())
-    }
-
-    func testDiagnosticsResyncIsNobodysRequest() {
-        var gate = RefreshGate()
-        XCTAssertTrue(gate.begin())
-        XCTAssertFalse(gate.begin(noteIfBusy: false))
-        XCTAssertFalse(gate.takeRequest())
-    }
-
     // MARK: Snapshot flag rules
 
     func testStatusIsMarkedPublishedOnlyWhileStillCurrent() {

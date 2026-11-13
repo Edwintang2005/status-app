@@ -282,16 +282,23 @@ struct Snapshot: Codable, Hashable {
     /// so widget renders stay small.
     var latestPartnerMoment: Moment?
     var latestOwnMoment: Moment?
-    /// Partner moment id most recently announced by a notification (not the same
-    /// as `Moment.seen`). Kept for older builds that only read this field.
+    /// The partner moment the last moment banner was about (not the same as
+    /// `Moment.seen`): a push that brings nothing new repeats it quietly.
     var lastNotifiedMomentID: String?
-    /// The last few announced moment ids, newest first — a single watermark
-    /// can't dedup several moments arriving in quick succession.
+    /// Moments an announcer took (`owedMoments`), newest first, bounded: two
+    /// passes can fold one delta at once, and the second must not owe again
+    /// what the first already announced.
     var notifiedMomentIDs: [String] = []
-    /// `sentAt` of the newest partner moment ever announced here. The banner
-    /// fallback that searches the index only looks *past* this, so a re-fetched
-    /// history (reinstall, token expiry) can't be described as new.
-    var lastAnnouncedMomentSentAt: Date?
+    /// Partner moments that are news and no banner has announced yet, oldest
+    /// first: filed by whichever process folds the delta (`RefreshDelta`), taken
+    /// whole by whoever announces (`AnnouncementPolicy.takeOwedMoments`) — a
+    /// burst is one banner. The copies carry the words a banner needs, so no
+    /// announcer reads the index. Seen in the app, reported or deleted: dropped.
+    var owedMoments: [Moment] = []
+    /// The newest server save time a complete fetch has read: on a fetch without
+    /// a token, only a moment the server created after it is news. The server's
+    /// clock, never the partner's. `nil` (a new pairing, a reinstall): nothing is.
+    var newsAfter: Date?
 
     /// Newest partner photo/doodle, ignoring voice memos. The widget draws this
     /// rather than `latestPartnerMoment` so a memo doesn't blank out the picture.
@@ -380,7 +387,7 @@ struct Snapshot: Codable, Hashable {
         case mine, theirs, isPaired, lastSyncedAt, lastSeenPartnerNudgeCount
         case lastNudgeSentAt, latestPartnerMoment, latestOwnMoment
         case lastNotifiedMomentID, latestPartnerVisualMoment, unheardVoiceMemoCount
-        case lastCelebratedAt, notifiedMomentIDs
+        case lastCelebratedAt, notifiedMomentIDs, owedMoments
         case lastNudgeFailedAt, lastNudgeIssuedAt, myStatusPublished
         case lastAnnouncedPartnerStatusAt
         case receiptsDirty, receiptsUnsettled
@@ -388,7 +395,7 @@ struct Snapshot: Codable, Hashable {
         case anniversary, anniversaryPublished
         case lastAnnouncedPartnerStatus
         case anniversaryRequestedAt, anniversaryRequestPublished, anniversaryRequestDismissedAt
-        case lastAnnouncedMomentSentAt
+        case newsAfter
         case myStatusLoggedAt, lastBreakthroughNudgeAt
         case freshStart
         case partnerNudgeCreatedAt
@@ -426,6 +433,7 @@ struct Snapshot: Codable, Hashable {
         unheardVoiceMemoCount = value(Int.self, .unheardVoiceMemoCount) ?? 0
         lastCelebratedAt = value(Date.self, .lastCelebratedAt)
         notifiedMomentIDs = value([String].self, .notifiedMomentIDs) ?? []
+        owedMoments = value(LossyArray<Moment>.self, .owedMoments)?.elements ?? []
         lastNudgeFailedAt = value(Date.self, .lastNudgeFailedAt)
         lastNudgeIssuedAt = value(Date.self, .lastNudgeIssuedAt)
         // Assume published for pre-field snapshots to avoid re-pushing an old status.
@@ -450,7 +458,9 @@ struct Snapshot: Codable, Hashable {
         anniversaryRequestedAt = value(Date.self, .anniversaryRequestedAt)
         anniversaryRequestPublished = value(Bool.self, .anniversaryRequestPublished) ?? true
         anniversaryRequestDismissedAt = value(Date.self, .anniversaryRequestDismissedAt)
-        lastAnnouncedMomentSentAt = value(Date.self, .lastAnnouncedMomentSentAt)
+        // Pre-field: the last complete sync, on this phone's clock — close enough
+        // for the one full resync that might come before the next complete fetch.
+        newsAfter = container.contains(.newsAfter) ? value(Date.self, .newsAfter) : lastSyncedAt
         freshStart = value(FreshStart.self, .freshStart) ?? FreshStart()
         partnerNudgeCreatedAt = value(Date.self, .partnerNudgeCreatedAt)
         partnerLeftAt = value(Date.self, .partnerLeftAt)
@@ -481,6 +491,7 @@ struct Snapshot: Codable, Hashable {
         try container.encode(unheardVoiceMemoCount, forKey: .unheardVoiceMemoCount)
         try container.encodeIfPresent(lastCelebratedAt, forKey: .lastCelebratedAt)
         try container.encode(notifiedMomentIDs, forKey: .notifiedMomentIDs)
+        try container.encode(owedMoments, forKey: .owedMoments)
         try container.encodeIfPresent(lastNudgeFailedAt, forKey: .lastNudgeFailedAt)
         try container.encodeIfPresent(lastNudgeIssuedAt, forKey: .lastNudgeIssuedAt)
         try container.encode(myStatusPublished, forKey: .myStatusPublished)
@@ -496,7 +507,8 @@ struct Snapshot: Codable, Hashable {
         try container.encodeIfPresent(anniversaryRequestedAt, forKey: .anniversaryRequestedAt)
         try container.encode(anniversaryRequestPublished, forKey: .anniversaryRequestPublished)
         try container.encodeIfPresent(anniversaryRequestDismissedAt, forKey: .anniversaryRequestDismissedAt)
-        try container.encodeIfPresent(lastAnnouncedMomentSentAt, forKey: .lastAnnouncedMomentSentAt)
+        // Always written, null included: an absent key is the pre-field upgrade, seeded at decode.
+        try container.encode(newsAfter, forKey: .newsAfter)
         // Always written, null included: only a missing key is the pre-field upgrade.
         if let myStatusLoggedAt {
             try container.encode(myStatusLoggedAt, forKey: .myStatusLoggedAt)
@@ -513,29 +525,41 @@ struct Snapshot: Codable, Hashable {
         try container.encode(removalNotices, forKey: .removalNotices)
     }
 
-    /// Whether a notification for this moment has already been shown on this
-    /// device, by either the app or the service extension.
-    func hasAnnounced(_ momentID: String) -> Bool {
-        lastNotifiedMomentID == momentID || notifiedMomentIDs.contains(momentID)
-    }
+    /// Most owed moments kept: a burst is one banner, and a tampered zone can't grow it.
+    static let owedMomentLimit = 50
 
-    /// Records that a notification for this moment is being shown. Bounded: only
-    /// needs to cover pushes arriving faster than they can be announced.
-    mutating func recordAnnounced(_ momentID: String) {
-        lastNotifiedMomentID = momentID
-        guard !notifiedMomentIDs.contains(momentID) else { return }
-        notifiedMomentIDs.insert(momentID, at: 0)
-        if notifiedMomentIDs.count > 8 {
-            notifiedMomentIDs.removeLast(notifiedMomentIDs.count - 8)
+    /// Files moments as owed a banner, and refreshes the words of any already
+    /// owed (a caption edited before it was announced).
+    mutating func owe(_ news: [Moment], refreshing delivered: [Moment] = []) {
+        for moment in delivered {
+            if let index = owedMoments.firstIndex(where: { $0.id == moment.id }) { owedMoments[index] = moment }
+        }
+        for moment in news where !owedMoments.contains(where: { $0.id == moment.id })
+                                 && !hasTaken(moment.id) {
+            owedMoments.append(moment)
+        }
+        if owedMoments.count > Self.owedMomentLimit {
+            owedMoments.removeFirst(owedMoments.count - Self.owedMomentLimit)
         }
     }
 
-    /// Same, and moves the time floor the index fallback searches past.
-    mutating func recordAnnounced(_ moment: Moment) {
-        recordAnnounced(moment.id)
-        // A floor stuck in the future (a skewed clock) is replaced, not kept by `max`.
-        let floor = lastAnnouncedMomentSentAt.flatMap { TrustedTime.isFuture($0) ? nil : $0 }
-        lastAnnouncedMomentSentAt = max(floor ?? .distantPast, moment.sentAt)
+    /// An announcer took it already: a concurrent pass re-folding the same delta owes nothing.
+    func hasTaken(_ momentID: String) -> Bool {
+        lastNotifiedMomentID == momentID || notifiedMomentIDs.contains(momentID)
+    }
+
+    /// Records moments as taken, newest first, bounded like the owed list.
+    mutating func recordTaken(_ ids: [String]) {
+        for id in ids where !notifiedMomentIDs.contains(id) { notifiedMomentIDs.insert(id, at: 0) }
+        if notifiedMomentIDs.count > Self.owedMomentLimit {
+            notifiedMomentIDs.removeLast(notifiedMomentIDs.count - Self.owedMomentLimit)
+        }
+    }
+
+    /// No banner is owed for these any more: seen in the app, reported, deleted.
+    mutating func settleOwed(_ ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+        owedMoments.removeAll { ids.contains($0.id) }
     }
 
     /// When the partner saw the status currently in `mine`, or `nil` if the

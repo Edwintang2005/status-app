@@ -165,15 +165,19 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
             Self.markUnworded(content, push: push)
             return content
         }
-        widgetNeedsFetch = result.incomplete
+        // Records owed recently (this service never retries them) leave the widget
+        // and the open app something to fetch, like the rest of a batch.
+        let owesRecords = await MainActor.run {
+            SharedStore.shared.unreadableTally.heldSince
+                .map { Date().timeIntervalSince($0) < AppFetchPolicy.owedRecentlyWindow } ?? false
+        }
+        widgetNeedsFetch = result.incomplete || owesRecords
         // Filed whether or not the banner gets worded in time.
-        if result.isWholeDelta { await MainActor.run { SharedStore.shared.wholePushID = id } }
+        if result.isWholeDelta, !owesRecords { await MainActor.run { SharedStore.shared.wholePushID = id } }
 
         // Out of time: the expiry fallback is (or is about to be) delivered, and
         // a claim now would mark announced an event whose rich banner never shows.
         if Task.isCancelled { return content }
-        // The banner's fallback only looks past the announced floor.
-        let index = push == .moment ? momentCandidates() : []
         let (plan, carried) = await MainActor.run { () -> (PushBannerPolicy.Plan, Moment?) in
             let reportedAt = SharedStore.shared.hiddenPartnerStatusAt
             var plan = PushBannerPolicy.Plan.unchanged
@@ -181,13 +185,11 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
             // Check-and-claim in one `mutate` under the cross-process lock, so
             // concurrent instances and the app never both announce one event.
             _ = SharedStore.shared.mutate(reloadWidgets: false) {
-                plan = PushBannerPolicy.decide(push, result: result, index: index, reportedAt: reportedAt, in: &$0)
-                carried = PushBannerPolicy.carriedMoment(push, result: result, in: &$0)
+                plan = PushBannerPolicy.decide(push, result: result, reportedAt: reportedAt, in: &$0)
+                carried = PushBannerPolicy.carriedMoment(push, in: &$0)
             }
             return (plan, carried)
         }
-        // Claimed, so posted now: an expiry later must not bury it.
-        if let carried { await announce(carried: carried) }
         let level = SharedStore.shared.notificationPreferences
             .level(for: push, momentKinds: result.newPartnerMoments.map(\.kind) + result.heldPartnerMomentKinds
                    + [plan.attachment?.kind].compactMap { $0 })
@@ -205,6 +207,8 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         // Worded and claimed: from here on expiry delivers these words, not
         // CloudKit's — the claim stands, so nothing would ever re-announce it.
         setFallback(content)
+        // Claimed too, so posted now — after the fallback, which no wait may precede.
+        if let carried { await announce(carried: carried) }
         // This push's own picture first; then earlier banners (`tidyUp`).
         guard let moment = plan.attachment else {
             await tidyUp(incoming: plan.subject, caughtUp: result.isWholeDelta)
@@ -249,11 +253,6 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         let request = UNNotificationRequest(identifier: MomentBanner.identifier(for: moment.id),
                                             content: content, trigger: nil)
         try? await UNUserNotificationCenter.current().add(request)
-    }
-
-    private func momentCandidates() -> [Moment] {
-        let floor = SharedStore.shared.snapshot.lastAnnouncedMomentSentAt
-        return AnnouncementPolicy.bannerCandidates(MomentIndex.shared.load(), floor: floor)
     }
 
     private func apply(_ plan: PushBannerPolicy.Plan, to content: UNMutableNotificationContent) {

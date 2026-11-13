@@ -1,6 +1,6 @@
-/// Concurrent callers share one run instead of each starting their own. Unlike
-/// `RefreshGate` nothing is re-run: a caller joining mid-flight takes that
-/// run's answer. The widget's kinds all ask for a timeline at once after a
+/// Concurrent callers share one run instead of each starting their own —
+/// `RunGate`'s `.join`, for an actor's callers off the main actor: a caller
+/// joining mid-flight takes that run's answer. The widget's kinds all ask for a timeline at once after a
 /// reload, and three identical fetches in a 30 MB process helped no one.
 actor SingleFlight<Value: Sendable> {
     private var running: Task<Value, Never>?

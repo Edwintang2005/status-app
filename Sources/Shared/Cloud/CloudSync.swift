@@ -135,7 +135,22 @@ actor CloudSync: SyncBackend {
     static let shared = CloudSync()
 
     /// Not `private`: `CloudDiagnostics.swift` extends this actor from another file.
-    let container: CKContainer
+    /// A test passing its own database has none: reaching it there is a test's mistake.
+    nonisolated var container: CKContainer { optionalContainer! }
+    private let optionalContainer: CKContainer?
+    /// Where everything is filed: the App Group's stores, or a test's.
+    let stores: CloudStores
+    /// A test's stand-in for iCloud (`cloudDatabase(for:)`); `nil` is the container's.
+    let databaseOverride: (any CloudDatabase)?
+    /// Off in tests: media downloads go through operations a fake can't run.
+    let prefetchesMedia: Bool
+    /// Which process this is (`SharedStore.processLabel`): a test can be the widget.
+    let processLabel: String
+    var isExtension: Bool { processLabel != "app" }
+    /// The server's dates on a record; a test's records carry none, so it passes its own.
+    let recordMetadata: RecordMetadata
+    /// A test's bound on the by-ID retry, in place of `owedRetryDeadline`.
+    let retryDeadlineOverride: TimeInterval?
     /// The signed-in account, cached so `requirePairing` can verify it on every
     /// call without a network round trip each time. Dropped when the system
     /// reports an account change (`noteAccountChanged`), else after the lifetime.
@@ -246,8 +261,21 @@ actor CloudSync: SyncBackend {
 
     /// `CKContainer(identifier:)` traps when the identifier isn't in the
     /// binary's entitlements — fail here rather than limp on. Injectable for tests.
-    init(container: CKContainer? = nil) {
-        self.container = container ?? CKContainer(identifier: AppConfig.cloudContainerID)
+    init(container: CKContainer? = nil,
+         stores: CloudStores = .live,
+         database: (any CloudDatabase)? = nil,
+         prefetchesMedia: Bool = true,
+         processLabel: String = SharedStore.processLabel,
+         recordMetadata: RecordMetadata = .server,
+         owedRetryDeadline: TimeInterval? = nil) {
+        // Not built for a test: `CKContainer(identifier:)` traps without the entitlement.
+        self.optionalContainer = container ?? (database == nil ? CKContainer(identifier: AppConfig.cloudContainerID) : nil)
+        self.stores = stores
+        self.databaseOverride = database
+        self.prefetchesMedia = prefetchesMedia
+        self.processLabel = processLabel
+        self.recordMetadata = recordMetadata
+        self.retryDeadlineOverride = owedRetryDeadline
     }
 
     // MARK: - Account
@@ -259,7 +287,7 @@ actor CloudSync: SyncBackend {
     func noteAccountChanged() async {
         accountCheckPending = true
         // Extensions trust the shared copy for a few minutes; not past a switch.
-        await MainActor.run { SharedStore.shared.verifiedAccount = nil }
+        await MainActor.run { self.stores.shared.verifiedAccount = nil }
     }
 
     func readiness() async -> BackendReadiness {
@@ -268,7 +296,7 @@ actor CloudSync: SyncBackend {
         // the cache aged out — see `currentUserRecordName`).
         if accountCheckPending {
             cachedUserRecordName = nil
-            await MainActor.run { SharedStore.shared.verifiedAccount = nil }
+            await MainActor.run { self.stores.shared.verifiedAccount = nil }
             accountCheckPending = false
         }
         do {
@@ -278,7 +306,7 @@ actor CloudSync: SyncBackend {
             }
             // A *different* account also reports available; zone operations
             // then fail in ways that look like the partner unlinking.
-            if let pairing = await MainActor.run(body: { SharedStore.shared.pairing }),
+            if let pairing = await MainActor.run(body: { self.stores.shared.pairing }),
                await !isPairingAccount(pairing) {
                 return .unavailable(SyncError.differentAccount.errorDescription ?? "")
             }
@@ -305,14 +333,16 @@ actor CloudSync: SyncBackend {
             return cached.name
         }
         if !accountCheckPending,
-           let shared = await MainActor.run(body: { SharedStore.shared.verifiedAccount }),
+           let shared = await MainActor.run(body: { self.stores.shared.verifiedAccount }),
            Self.isFresh(shared.verifiedAt, now: now) {
             cachedUserRecordName = (shared.name, shared.verifiedAt)
             return shared.name
         }
-        guard let name = try? await container.userRecordID().recordName else { return nil }
+        // A test's fake iCloud has no account to look up: unknown, which counts as a match.
+        guard let container = optionalContainer,
+              let name = try? await container.userRecordID().recordName else { return nil }
         cachedUserRecordName = (name, now)
-        await MainActor.run { SharedStore.shared.verifiedAccount = .init(name: name, verifiedAt: now) }
+        await MainActor.run { self.stores.shared.verifiedAccount = .init(name: name, verifiedAt: now) }
         return name
     }
 
@@ -332,7 +362,7 @@ actor CloudSync: SyncBackend {
     // MARK: - Helpers
 
     func requirePairing() async throws -> PairingInfo {
-        guard let pairing = await MainActor.run(body: { SharedStore.shared.pairing }) else {
+        guard let pairing = await MainActor.run(body: { self.stores.shared.pairing }) else {
             throw SyncError.notPaired
         }
         // The owner's zone ID names *whoever is signed in*: under another
@@ -344,6 +374,11 @@ actor CloudSync: SyncBackend {
 
     func database(for pairing: PairingInfo) -> CKDatabase {
         pairing.role == .owner ? container.privateCloudDatabase : container.sharedCloudDatabase
+    }
+
+    /// The database syncing and unlinking go through: the pairing's, or a test's fake.
+    func cloudDatabase(for pairing: PairingInfo) -> any CloudDatabase {
+        databaseOverride ?? database(for: pairing)
     }
 
     func zoneID(for pairing: PairingInfo) -> CKRecordZone.ID {

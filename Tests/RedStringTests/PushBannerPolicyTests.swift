@@ -7,12 +7,13 @@ import XCTest
 final class PushBannerPolicyTests: XCTestCase {
     private let now = Fixtures.date(1_000)
 
+    /// The pass's fold first, as `CloudSync.apply` does: its news becomes owed.
     private func decide(_ push: PushBannerPolicy.Push,
                         _ result: RefreshResult = .empty,
-                        index: [Moment] = [],
                         reportedAt: Date? = nil,
                         in snapshot: inout Snapshot) -> PushBannerPolicy.Plan {
-        PushBannerPolicy.decide(push, result: result, index: index, reportedAt: reportedAt, in: &snapshot, now: now)
+        snapshot.owe(result.newPartnerMoments)
+        return PushBannerPolicy.decide(push, result: result, reportedAt: reportedAt, in: &snapshot, now: now)
     }
 
     private func paired(theirs: StatusPayload? = Fixtures.status()) -> Snapshot {
@@ -72,8 +73,9 @@ final class PushBannerPolicyTests: XCTestCase {
         XCTAssertEqual(plan.attachment?.id, "m1")
         XCTAssertEqual(plan.subject, .moment("m1"), "found again by a later pass")
         XCTAssertEqual(plan.volume, .asSent)
-        XCTAssertTrue(snapshot.hasAnnounced("m1"))
+        XCTAssertTrue(snapshot.hasTaken("m1"))
 
+        // A sibling instance that fetched the same delta folds it again: nothing is owed twice.
         let again = decide(.moment, result, in: &snapshot)
         XCTAssertNil(again.attachment, "a sibling instance with the same delta must not re-describe it")
         XCTAssertEqual(again.volume, .quiet)
@@ -84,7 +86,7 @@ final class PushBannerPolicyTests: XCTestCase {
     func testOurOwnMomentComingBackSaysSo() {
         var snapshot = paired()
         snapshot.latestPartnerMoment = Fixtures.moment("theirs", at: Fixtures.date(990))
-        snapshot.recordAnnounced(snapshot.latestPartnerMoment!)
+        snapshot.lastNotifiedMomentID = "theirs"
         var result = RefreshResult.empty
         result.ownMomentSent = true
         result.momentsArrived = true
@@ -131,13 +133,14 @@ final class PushBannerPolicyTests: XCTestCase {
         result.partnerNudgeArrived = true
         let plan = decide(.nudge, result, in: &snapshot)
         XCTAssertEqual(plan.thread, NotificationThread.hearts, "the heart's own banner is unchanged")
-        let carried = PushBannerPolicy.carriedMoment(.nudge, result: result, in: &snapshot, now: now)
+        let carried = PushBannerPolicy.carriedMoment(.nudge, in: &snapshot)
         XCTAssertEqual(carried?.id, "p2", "one banner for the burst, the newest")
-        XCTAssertTrue(snapshot.hasAnnounced("p1"))
-        XCTAssertNil(PushBannerPolicy.carriedMoment(.status, result: result, in: &snapshot, now: now),
+        XCTAssertTrue(snapshot.hasTaken("p1"))
+        XCTAssertNil(PushBannerPolicy.carriedMoment(.status, in: &snapshot),
                      "claimed once, across pushes and processes")
         var fresh = paired()
-        XCTAssertNil(PushBannerPolicy.carriedMoment(.moment, result: result, in: &fresh, now: now),
+        fresh.owe(result.newPartnerMoments)
+        XCTAssertNil(PushBannerPolicy.carriedMoment(.moment, in: &fresh),
                      "a moment push announces it through its own banner")
     }
 
@@ -157,13 +160,25 @@ final class PushBannerPolicyTests: XCTestCase {
         let theirs = Fixtures.moment("theirs", kind: .voice, at: Fixtures.date(20))
         snapshot.latestPartnerMoment = theirs
         snapshot.latestOwnMoment = Fixtures.moment("ours", at: Fixtures.date(10), fromMe: true)
-        snapshot.recordAnnounced(theirs)
+        snapshot.lastNotifiedMomentID = theirs.id
         let plan = decide(.moment, in: &snapshot)
         XCTAssertEqual(plan.title, "Sam")
         XCTAssertEqual(plan.body, Moment.Kind.voice.arrivalSummary)
         XCTAssertEqual(plan.volume, .quiet)
         XCTAssertEqual(plan.attachment?.id, "theirs")
         XCTAssertEqual(plan.subject, .moment("theirs"))
+    }
+
+    /// Taken silently with a burst (or reworded from a held banner) is announced
+    /// too: a repeat push for it repeats its words, quietly.
+    func testABurstsOlderMomentIsWordedQuietlyToo() {
+        var snapshot = paired()
+        let theirs = Fixtures.moment("older", at: Fixtures.date(20))
+        snapshot.latestPartnerMoment = theirs
+        snapshot.recordTaken([theirs.id])
+        let plan = decide(.moment, in: &snapshot)
+        XCTAssertEqual(plan.subject, .moment("older"))
+        XCTAssertEqual(plan.volume, .quiet)
     }
 
     func testAnUnknownMomentChangeIsNeverCreditedToThePartner() {

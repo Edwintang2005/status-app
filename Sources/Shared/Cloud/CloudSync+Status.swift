@@ -23,7 +23,7 @@ extension CloudSync {
             // Never marked sent: that would show a status the partner never
             // gets. The newer one is adopted in its place.
             await MainActor.run {
-                _ = SharedStore.shared.mutate { $0.adoptSupersedingStatus(server, over: payload) }
+                _ = self.stores.shared.mutate { $0.adoptSupersedingStatus(server, over: payload) }
             }
             return
         }
@@ -31,7 +31,7 @@ extension CloudSync {
         // The record is there: the status counts as sent from here, whatever
         // its log does — a failed log is retried alone (`Outbox.republishStatus`).
         await MainActor.run {
-            _ = SharedStore.shared.mutate { $0.recordPublished(payload, savedAt: outcome.savedAt) }
+            _ = self.stores.shared.mutate { $0.recordPublished(payload, savedAt: outcome.savedAt) }
         }
         // Never the current status's own log, which can't be saved and deleted at once anyway.
         let logName = pairing.role.statusLogRecordName(at: payload.wordsAt)
@@ -46,7 +46,7 @@ extension CloudSync {
                                         pruning: folded, in: database)
             }
             await MainActor.run {
-                _ = SharedStore.shared.mutate(reloadWidgets: false) { $0.recordLogged(payload) }
+                _ = self.stores.shared.mutate(reloadWidgets: false) { $0.recordLogged(payload) }
             }
             noteStatusLogsPruned(removed)
             let foldedNames = Set(folded.map(\.id.recordName))
@@ -104,7 +104,7 @@ extension CloudSync {
     /// Record names derive from the local log's own entries, so no query (and
     /// no index) is needed.
     func staleStatusLogs(_ pairing: PairingInfo) -> [StaleStatusLog] {
-        let own = StatusHistoryLog.shared.load().filter(\.fromMe)
+        let own = self.stores.statusLog.load().filter(\.fromMe)
         guard own.count > AppConfig.statusLogLimit else { return [] }
         let zone = zoneID(for: pairing)
         return own[AppConfig.statusLogLimit...].map {
@@ -144,7 +144,7 @@ extension CloudSync {
 
     func noteStatusLogsPruned(_ removed: [Date]) {
         guard !removed.isEmpty else { return }
-        StatusHistoryLog.shared.remove(fromMe: true, at: removed)
+        self.stores.statusLog.remove(fromMe: true, at: removed)
         log.notice("Pruned \(removed.count) status log record(s).")
     }
 
@@ -154,14 +154,14 @@ extension CloudSync {
         // One round trip from the cached record when it says "save": the change tag
         // proves it current, and a stale one falls back to the fetch below. Any
         // other verdict is re-judged on a fetched copy.
-        if let cached = await MainActor.run(body: { SharedStore.shared.statusRecordCache }),
+        if let cached = await MainActor.run(body: { self.stores.shared.statusRecordCache }),
            let record = Self.record(fromSystemFields: cached.systemFields), record.recordID == recordID,
            StatusSavePolicy.decide(server: cached.payload, payload: payload, now: Date()) == .save {
             do {
                 return try await writeStatus(payload, onto: record, in: database)
             } catch let error as CKError where Self.isServerRecordChanged(error) || Self.isUnknownItem(error) {
                 log.notice("Cached status record was stale; fetching.")
-                await MainActor.run { SharedStore.shared.statusRecordCache = nil }
+                await MainActor.run { self.stores.shared.statusRecordCache = nil }
             }
         }
         let existing = try await fetchRecord(recordID, in: database)
@@ -210,7 +210,7 @@ extension CloudSync {
     /// ours, or our own echo). Readable copies only: the cache's verdict needs the words.
     func cacheStatusRecord(_ record: CKRecord, payload: StatusPayload) async {
         let cache = SharedStore.StatusRecordCache(systemFields: Self.systemFields(of: record), payload: payload)
-        await MainActor.run { SharedStore.shared.statusRecordCache = cache }
+        await MainActor.run { self.stores.shared.statusRecordCache = cache }
     }
 }
 

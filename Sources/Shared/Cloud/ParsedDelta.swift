@@ -61,6 +61,10 @@ struct ParsedDelta {
     var foreignFreshStart = false
     /// Moments and log records created before the committed epoch: doomed, so never filed.
     var beforeEpoch = 0
+    /// Each moment's server creation time, readable or held: what a full resync judges news by.
+    var momentCreatedAt: [String: Date] = [:]
+    /// The newest server save among the records this delta could read (`Snapshot.newsAfter`).
+    var newestReadSavedAt: Date?
 
     /// `freshStart` is what's held before this delta: its committed epoch, moved
     /// by any `FreshStart` record in the delta itself, keeps older history out —
@@ -118,8 +122,12 @@ struct ParsedDelta {
                    let moment = CloudSync.moment(from: record, mineRole: mineRole, theirsRole: theirsRole),
                    !moment.fromMe {
                     delta.heldMoments.append(moment)
+                    delta.momentCreatedAt[moment.id] = metadata.createdAt(record)
                 }
                 continue
+            }
+            if let saved = metadata.savedAt(record) {
+                delta.newestReadSavedAt = max(delta.newestReadSavedAt ?? saved, saved)
             }
             switch record.recordType {
             case CloudSync.RecordType.status:
@@ -149,6 +157,7 @@ struct ParsedDelta {
                 if let moment = CloudSync.moment(from: record, mineRole: mineRole, theirsRole: theirsRole),
                    !hidden.contains(moment.id) {
                     delta.moments.append(moment)
+                    delta.momentCreatedAt[moment.id] = metadata.createdAt(record)
                 }
             case CloudSync.RecordType.statusLog:
                 if let entry = CloudSync.logEntry(from: record, mineRole: mineRole, theirsRole: theirsRole) {
@@ -183,6 +192,14 @@ struct ParsedDelta {
         return delta
     }
 
+    /// How a moment this phone already owes a fetch (`SharedStore.UnreadableTally.owed`)
+    /// is judged when a resync reads it: one missed incrementally was news then and
+    /// still is; one missed in a resync against the mark it kept.
+    enum OwedNews: Equatable, Sendable {
+        case waited
+        case resync(newsAfter: Date?)
+    }
+
     /// What the delta means against what this device held before it.
     struct Outcome {
         /// Folded into `Snapshot` inside the locked mutate.
@@ -211,8 +228,9 @@ struct ParsedDelta {
     /// - `oldestRetained`: the index's oldest kept `sentAt`, once it's full. An
     ///   unknown moment older than that is history past the cap: not news, and
     ///   the cap would trim it straight back out.
-    /// - `fullResync`, `announcedFloor`: on a fetch without a token, only
-    ///   moments past the floor count as news.
+    /// - `fullResync`, `newsAfter`: on a fetch without a token, only moments
+    ///   the server created after the last complete fetch count as news
+    ///   (`Snapshot.newsAfter`).
     /// - `ownEdits`: own moments whose coming back is this phone's caption edit,
     ///   not a send (`ownEditEchoes`).
     /// - `knownPartnerSentAt`: the index's partner moments; one deleted within
@@ -231,7 +249,8 @@ struct ParsedDelta {
                  hidden: Set<String>,
                  oldestRetained: Date? = nil,
                  fullResync: Bool = false,
-                 announcedFloor: Date? = nil,
+                 newsAfter: Date? = nil,
+                 owedNews: [String: OwedNews] = [:],
                  now: Date = Date()) -> Outcome {
         // A status record and its nudge counter arrive independently; fold
         // each into what was already known.
@@ -290,21 +309,34 @@ struct ParsedDelta {
             myToLog = mine
         }
 
+        let createdAt = momentCreatedAt
+        let newsByTime = { (moment: Moment) in
+            switch owedNews[moment.id] {
+            case .waited?: return true
+            case .resync(let kept)?:
+                return AnnouncementPolicy.isNews(createdAt: createdAt[moment.id], fullResync: true, newsAfter: kept)
+            case nil:
+                return AnnouncementPolicy.isNews(createdAt: createdAt[moment.id], fullResync: fullResync, newsAfter: newsAfter)
+            }
+        }
         // A resync re-delivering the partner's history from before the last
-        // announced moment files it seen, or a reinstall (or the cap's sweep)
+        // complete fetch files it seen, or a reinstall (or the cap's sweep)
         // reads it all as new: Home's count, the widget's memo badge, the dots.
         let arrived = moments.filter { !pastCap($0) }.map { moment -> Moment in
             guard fullResync, !moment.fromMe, !moment.seen, !alreadyKnown.contains(moment.id),
-                  !AnnouncementPolicy.isNews(moment, fullResync: true, floor: announcedFloor, now: now) else { return moment }
+                  !newsByTime(moment) else { return moment }
             var seen = moment
             seen.seen = true
             return seen
         }.sorted { $0.sentAt < $1.sentAt }
         let isNews = { (moment: Moment) in
-            !alreadyKnown.contains(moment.id) && !pastCap(moment)
-                && AnnouncementPolicy.isNews(moment, fullResync: fullResync, floor: announcedFloor, now: now)
+            !alreadyKnown.contains(moment.id) && !pastCap(moment) && newsByTime(moment)
         }
         let newFromPartner = arrived.filter { !$0.fromMe && isNews($0) }
+        fold.owedMoments = newFromPartner
+        fold.owedCreatedAt = momentCreatedAt.filter { id, _ in newFromPartner.contains { $0.id == id } }
+        fold.deliveredPartnerMoments = moments.filter { !$0.fromMe }
+        fold.settledMomentIDs = Set(removedMomentIDs)
         // Same "new" test: a resync re-delivering history unreadable is not news.
         let held = heldMoments
             .filter { isNews($0) && !hidden.contains($0.id) }

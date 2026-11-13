@@ -69,7 +69,12 @@ final class FakeBackend: SyncBackend, @unchecked Sendable {
         try check("publish")
         lock.withLock { _published.append((payload, logged)) }
     }
-    @discardableResult func refresh() async throws -> RefreshResult { .empty }
+    /// What a refresh reports (`SyncRunner`'s announcements read it).
+    var refreshResult = RefreshResult.empty
+    @discardableResult func refresh() async throws -> RefreshResult {
+        try check("refresh")
+        return refreshResult
+    }
     @discardableResult func sendNudge() async throws -> Bool { true }
     func send(_ moment: Moment, progress: @escaping @Sendable (Double) -> Void) async throws {
         await duringSend?(moment.id)
