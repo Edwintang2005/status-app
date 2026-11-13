@@ -56,6 +56,12 @@ final class SyncCoordinator {
     @ObservationIgnored private(set) var lastFetchSucceededAt: Date?
     /// The last fetch failed: the next to succeed redraws the widgets.
     @ObservationIgnored private(set) var fetchFailing = false
+    /// Fetches failed in a row (not skipped for a throttle); Home says so past
+    /// `AppConfig.fetchFailuresShown`, rather than "Synced hours ago" alone.
+    private(set) var failedFetches = 0
+    /// When the last of them failed: a fetch another process made since
+    /// (`lastSyncedAt` past it) means syncing works after all.
+    @ObservationIgnored private(set) var lastFetchFailedAt: Date?
     /// Someone asked for a fetch (pull-to-refresh) that hasn't run yet.
     @ObservationIgnored private var askedPending = false
 
@@ -143,6 +149,7 @@ final class SyncCoordinator {
         do {
             try await host.fetch()
             lastFetchSucceededAt = now()
+            failedFetches = 0
             host.fetchLanded()
             if fetchFailing {
                 fetchFailing = false
@@ -156,6 +163,8 @@ final class SyncCoordinator {
             return true
         } catch {
             fetchFailing = true
+            failedFetches += 1
+            lastFetchFailedAt = now()
             host.fetchFailed(error)
             return false
         }

@@ -157,7 +157,10 @@ struct HomeView: View {
                        onlyStatusPending: model.myStatusWaitingToSend,
                        storageFull: model.storageFullAt != nil,
                        isParticipant: model.role == .participant,
-                       onRetry: { Task { await model.retryPendingNow() } })
+                       isRestoring: model.isRestoringHistory,
+                       syncFailing: model.syncKeepsFailing,
+                       onRetry: { Task { await model.retryPendingNow() } },
+                       onSync: { Task { await model.refresh() } })
                 .equatable()
         }
         .animation(reduceMotion ? nil : .smooth(duration: 0.4), value: unseen.first?.id)

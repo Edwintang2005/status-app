@@ -1,3 +1,4 @@
+import CloudKit
 import XCTest
 
 /// When the app fetches and what runs after (`SyncCoordinator`, `RunGate`,
@@ -105,6 +106,21 @@ final class SyncCoordinatorTests: XCTestCase {
     }
 
     // MARK: Fetching
+
+    /// Failures in a row are counted for Home's footer; a throttle skip isn't one,
+    /// and a fetch that works clears them.
+    func testFailedFetchesCountUntilOneWorks() async {
+        host.fetchError = CKError(.serverResponseLost)
+        for _ in 0..<3 { await sync.refresh() }
+        XCTAssertEqual(sync.failedFetches, 3)
+        host.fetchThrottled = true
+        await sync.refresh()
+        XCTAssertEqual(sync.failedFetches, 3, "a skipped fetch didn't fail")
+        host.fetchThrottled = false
+        host.fetchError = nil
+        await sync.refresh()
+        XCTAssertEqual(sync.failedFetches, 0)
+    }
 
     /// iCloud asked us to slow down: automatic fetches wait it out, without
     /// counting as failures; pull-to-refresh still goes.

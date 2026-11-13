@@ -180,6 +180,12 @@ enum AppConfig {
     /// what it filed, incomplete, to be announced, rather than be cancelled at
     /// `refreshDeadline` with its announcements lost; the next refresh carries on.
     static let sweepBudget: TimeInterval = 90
+    /// Fetches failed in a row before Home's footer says it couldn't sync: one is
+    /// routine (a blip, a backgrounded app), three is something to know about.
+    static let fetchFailuresShown = 3
+    /// A favourite whose full copy didn't download waits this long before a
+    /// recovery pass asks again (opening it still fetches at once).
+    static let favouriteRetryInterval: TimeInterval = 60 * 60
     /// Status, receipt, anniversary and subscription writes: small records, so
     /// anything slower is a stall. Abandoning one is safe — the published flags
     /// stay down and the next refresh republishes.
@@ -239,6 +245,9 @@ enum AppConfig {
     /// How often the owner's refresh pass re-counts who is on the share —
     /// one share fetch, for the "someone else joined" warning.
     static let shareMemberCheckInterval: TimeInterval = 60 * 60
+    /// The same once the link is closed: nobody new can join, so daily, and a
+    /// cold launch doesn't repeat it (`SharedStore.shareCheckedAt`).
+    static let closedShareCheckInterval: TimeInterval = 24 * 60 * 60
 
     /// How long a copied invite link, report or diagnostics report stays on
     /// the clipboard — long enough to paste, not to linger for any app to read.

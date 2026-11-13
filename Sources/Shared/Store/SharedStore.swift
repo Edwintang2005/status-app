@@ -37,6 +37,7 @@ final class SharedStore: @unchecked Sendable {
         static let unreadable = "unreadableRecords"
         static let zoneGone = "zoneGoneSeenAt"
         static let fetchThrottledUntil = "fetchThrottledUntil"
+        static let shareCheckedAt = "shareCheckedAt"
         static let lastPairing = "lastPairing"
         static let closeLinkPromptDismissed = "closeLinkPromptDismissed"
         static let widgetTipDismissed = "widgetTipDismissed"
@@ -232,6 +233,13 @@ final class SharedStore: @unchecked Sendable {
     var inviteClosed: Bool {
         get { store.bool(forKey: Key.inviteClosed) }
         set { store.setBool(newValue, forKey: Key.inviteClosed) }
+    }
+
+    /// The owner's last look at who is on the share, kept across launches so a
+    /// closed link isn't re-checked on every cold launch.
+    var shareCheckedAt: Date? {
+        get { decode(Date.self, forKey: Key.shareCheckedAt) }
+        set { encodeOptional(newValue, forKey: Key.shareCheckedAt) }
     }
 
     /// Owner side: cached invite link so Settings can show it instantly and
@@ -555,6 +563,7 @@ final class SharedStore: @unchecked Sendable {
             hiddenPartnerStatusAt = nil
             anniversaryPromptPending = false
             zoneGoneSeenAt = nil
+            shareCheckedAt = nil
             subscriptionsVerifiedAt = nil
             nudgeRecordCache = nil
             statusRecordCache = nil

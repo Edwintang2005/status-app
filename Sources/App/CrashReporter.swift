@@ -9,8 +9,11 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber, Sendable {
     /// MetricKit holds subscribers weakly; `shared` keeps this one alive.
     func start() {
         MXMetricManager.shared.add(self)
-        // Reports delivered while no build of ours was listening.
-        file(MXMetricManager.shared.pastDiagnosticPayloads)
+        // Reports delivered while no build of ours was listening — parsed off the
+        // main thread: launch is waiting on it.
+        Task.detached(priority: .utility) {
+            self.file(MXMetricManager.shared.pastDiagnosticPayloads)
+        }
     }
 
     /// Arrives on a background queue: turned into plain values before the hop.

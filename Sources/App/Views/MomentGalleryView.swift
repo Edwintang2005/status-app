@@ -356,20 +356,19 @@ struct MomentGalleryView: View {
                     }
                 }
                 Button {
-                    // Animated here, so the lines below glide when it wraps to two.
-                    withAnimation(.smooth(duration: 0.25)) { showsFullDate.toggle() }
+                    showsFullDate.toggle()
                 } label: {
                     Text(showsFullDate ? self.attribution(moment, partnerName: model.partnerName,
                                                           filterOn: filterOn, fullDate: true) : attribution)
                         .font(Theme.rounded(13))
                         .foregroundStyle(Theme.mutedText)
                         .multilineTextAlignment(.center)
-                        // Swapped outright: a cross-fade drew both wordings over each other.
-                        .contentTransition(.identity)
-                        // A 13 pt line is a small target: 44 pt tall to tap. Full width,
-                        // so the new wording doesn't slide as a centred frame resizes.
+                        // A 13 pt line is a small target: 44 pt tall to tap.
                         .frame(maxWidth: .infinity, minHeight: 44)
                         .contentShape(Rectangle())
+                        // Swapped outright, never animated: a cross-fade drew both
+                        // wordings at once, and an eased frame slid the new one in.
+                        .transaction { $0.animation = nil }
                 }
                 // No press dimming: with the swap it blinked the line out and back.
                 .buttonStyle(UndimmedButtonStyle())

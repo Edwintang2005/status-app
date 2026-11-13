@@ -6,7 +6,9 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
 
-    @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
+    /// `nil` until asked: read as allowed meanwhile, so opening Settings doesn't
+    /// flash the "off" rows at someone who allowed them.
+    @State private var notificationStatus: UNAuthorizationStatus?
     /// Edited locally, committed once on submit or dismiss: bound to the model,
     /// clearing the field mid-edit swapped the screen under this sheet for onboarding.
     @State private var draftName = ""
@@ -58,26 +60,6 @@ struct SettingsView: View {
                             .textInputAutocapitalization(.words)
                             .submitLabel(.done)
                             .onSubmit { commitName() }
-                    }
-                    LabeledContent("Hearts and moments") {
-                        Text(notificationLabel)
-                            .foregroundStyle(Theme.mutedText)
-                    }
-                    if notificationStatus == .denied {
-                        Button("Open Settings") {
-                            if let url = URL(string: UIApplication.openSettingsURLString) {
-                                UIApplication.shared.open(url)
-                            }
-                        }
-                    } else if notificationStatus == .notDetermined {
-                        // The system prompt was never shown (or was dismissed
-                        // by a relaunch); "Not set" alone was a dead end.
-                        Button("Turn on") {
-                            Task {
-                                await NotificationManager.requestAuthorizationIfNeeded()
-                                notificationStatus = await NotificationManager.authorizationStatus()
-                            }
-                        }
                     }
                 } header: {
                     SettingsHeader("You")
@@ -424,14 +406,42 @@ struct SettingsView: View {
     private var notificationsSection: some View {
         @Bindable var model = model
         Section {
-            levelPicker("Statuses", level: $model.notificationPreferences.statuses)
-            levelPicker("Hearts", level: $model.notificationPreferences.hearts)
-            levelPicker("Photos and doodles", level: $model.notificationPreferences.pictures)
-            levelPicker("Voice memos", level: $model.notificationPreferences.voiceMemos)
+            // Permission first, the per-kind levels under it: they mean nothing while it's off.
+            LabeledContent("Allowed") {
+                Text(notificationLabel)
+                    .foregroundStyle(Theme.mutedText)
+            }
+            if notificationStatus == .denied {
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+            } else if notificationStatus == .notDetermined {
+                // The system prompt was never shown (or was dismissed
+                // by a relaunch); "Not set" alone was a dead end.
+                Button("Turn on") {
+                    Task {
+                        await NotificationManager.requestAuthorizationIfNeeded()
+                        notificationStatus = await NotificationManager.authorizationStatus()
+                    }
+                }
+            }
+            Group {
+                levelPicker("Statuses", level: $model.notificationPreferences.statuses)
+                levelPicker("Hearts", level: $model.notificationPreferences.hearts)
+                levelPicker("Photos and doodles", level: $model.notificationPreferences.pictures)
+                levelPicker("Voice memos", level: $model.notificationPreferences.voiceMemos)
+            }
+            .disabled(!notificationsAllowed)
         } header: {
             SettingsHeader("Notifications")
         } footer: {
-            SettingsFooter("Silent shows the banner without a sound. List only goes straight to Notification Centre without lighting up the screen. Only this iPhone changes — \(model.partnerName) isn't told.")
+            if notificationsAllowed {
+                SettingsFooter("Silent shows the banner without a sound. List only goes straight to Notification Centre without lighting up the screen. Only this iPhone changes — \(model.partnerName) isn't told.")
+            } else {
+                SettingsFooter("Turn notifications on to choose how each kind arrives.")
+            }
         }
     }
 
@@ -677,8 +687,14 @@ struct SettingsView: View {
         }
     }
 
+    private var notificationsAllowed: Bool {
+        guard let notificationStatus else { return true }
+        return [.authorized, .provisional, .ephemeral].contains(notificationStatus)
+    }
+
     private var notificationLabel: String {
         switch notificationStatus {
+        case nil: return ""
         case .authorized, .provisional, .ephemeral: return String(localized: "On")
         case .denied: return String(localized: "Off")
         default: return String(localized: "Not set")

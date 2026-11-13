@@ -80,9 +80,24 @@ extension AppModel {
 
     /// Looks for a pairing the server still holds for this account — a fresh
     /// install on a new phone can rejoin it without a new invite link.
-    func checkForRejoinablePairing() async {
-        guard !isPaired, pendingInvite == nil else { return }
-        rejoinablePairing = await backend.discoverExistingPairing()
+    /// A look that couldn't tell is tried again a few times while the pairing
+    /// screen is up (its `.task` cancels the waits): never read as "nothing there".
+    func checkForRejoinablePairing(retrying: Bool = true) async {
+        // One look when the caller is waiting on it (the invite button).
+        for delay in retrying ? [0, 3, 10, 30] : [0] {
+            if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
+            guard !Task.isCancelled, !isPaired, pendingInvite == nil else { return }
+            switch await backend.discoverExistingPairing() {
+            case .found(let role, let zoneID):
+                rejoinablePairing = (role, zoneID)
+                return
+            case .none:
+                rejoinablePairing = nil
+                return
+            case .unknown:
+                log.notice("Couldn't tell whether a shared space exists; trying again.")
+            }
+        }
     }
 
     /// Recommits the discovered pairing under the name from the pairing screen.
@@ -120,7 +135,7 @@ extension AppModel {
         } catch SyncError.existingPairing(let someoneOnIt) {
             // Nothing written: offer Rejoin, or the confirmed replace — asked
             // only once discovery says whether Rejoin is there to offer.
-            await checkForRejoinablePairing()
+            await checkForRejoinablePairing(retrying: false)
             replacingSpaceHasPartner = someoneOnIt
             confirmingReplacePairing = true
         } catch {
@@ -169,8 +184,12 @@ extension AppModel {
     @discardableResult
     func checkShareMembers(throttled: Bool) async -> InviteState? {
         guard usesLiveShare, isPaired, role == .owner else { return nil }
-        if throttled, let last = shareMembersCheckedAt,
-           Date().timeIntervalSince(last) < AppConfig.shareMemberCheckInterval { return nil }
+        // Open, Home's prompt needs this launch's own look; closed, nobody new can
+        // join, so a look from an earlier launch counts, and daily is enough.
+        let closed = store.inviteClosed
+        let interval = closed ? AppConfig.closedShareCheckInterval : AppConfig.shareMemberCheckInterval
+        if throttled, let last = shareMembersCheckedAt ?? (closed ? store.shareCheckedAt : nil),
+           Date().timeIntervalSince(last) < interval { return nil }
         let changesBefore = inviteChanges
         let check: ShareCheck
         do {
@@ -181,6 +200,7 @@ extension AppModel {
         }
         shareMemberCount = check.memberCount
         shareMembersCheckedAt = Date()
+        store.shareCheckedAt = shareMembersCheckedAt
         let state = check.invite
         // A close or reopen landed meanwhile: its answer is newer than ours.
         guard inviteChanges == changesBefore, !isChangingInviteLink else { return nil }

@@ -26,6 +26,17 @@ final class AppModel {
     /// network (`SyncCoordinator`); this model is its host.
     @ObservationIgnored let sync: SyncCoordinator
     var isRefreshing: Bool { sync.isRefreshing }
+    /// Syncs keep failing (`SyncCoordinator.failedFetches`); the offline card covers no network.
+    /// Not once another process's fetch landed since (a reused foreground fetch, the NSE's push).
+    var syncKeepsFailing: Bool {
+        guard sync.failedFetches >= AppConfig.fetchFailuresShown, let failed = sync.lastFetchFailedAt else { return false }
+        return (snapshot.lastSyncedAt ?? .distantPast) < failed
+    }
+    /// A sync from nothing under way on a phone that has never synced (a reinstall,
+    /// a new pairing) — not a re-sweep of a history already here.
+    var isRestoringHistory: Bool {
+        isRefreshing && snapshot.lastSyncedAt == nil && store.historyCoverage == HistoryCoverage.owed
+    }
     /// No network path — display only (Home's card, the gallery's wording).
     var isOffline: Bool { sync.isOffline }
     /// The path is down because mobile data is off for this app — the one cause the user can fix.
@@ -34,6 +45,9 @@ final class AppModel {
     var readinessMessage: String? { sync.readinessMessage }
     /// The recovery pass's media top-up, run beside it: a slow download mustn't hold the sends.
     @ObservationIgnored var mediaTopUp: Task<Void, Never>?
+    /// Favourites whose download failed, when: a recovery pass doesn't ask again
+    /// for `AppConfig.favouriteRetryInterval` (in memory: each launch tries once).
+    @ObservationIgnored var favouriteFetchFailedAt: [String: Date] = [:]
     /// What's holding the screen awake: one owner, so a recap closing can't let
     /// a fresh start's clear or an archive sleep under it.
     enum KeepAwake: Hashable { case freshStartClear, recap, archive }
@@ -513,8 +527,8 @@ final class AppModel {
         await sync.launch()
     }
 
-    /// `.pairingDidChange`: the store moved outside this model's calls (the Siri
-    /// heart, a background refresh that found the link ended). Re-read, then fetch.
+    /// `.pairingDidChange`: the store moved outside this model's calls (a
+    /// background refresh that found the link ended). Re-read, then fetch.
     func reloadFromStore() async {
         reload()
         // A pairing may have just appeared — the first moment the prompt makes sense.
@@ -610,9 +624,20 @@ final class AppModel {
 
     /// A favourite starred offline, or whose copy was fetched and lost: its full
     /// copy, a few per pass, so it opens offline as promised.
-    func fetchMissingFavourites() async {
-        let missing = history.filter { $0.isFavourite && $0.kind.isSupported && !MomentStore.shared.hasMedia(for: $0) }
-        for moment in missing.prefix(5) where await !ensureMedia(for: moment) { return }
+    func fetchMissingFavourites(now: Date = Date()) async {
+        let missing = history.filter { moment in
+            guard moment.isFavourite, moment.kind.isSupported, !MomentStore.shared.hasMedia(for: moment) else { return false }
+            guard let failed = favouriteFetchFailedAt[moment.id] else { return true }
+            return now.timeIntervalSince(failed) >= AppConfig.favouriteRetryInterval
+        }
+        for moment in missing.prefix(5) {
+            guard await ensureMedia(for: moment) else {
+                // Offline isn't the favourite's fault: the next pass back online tries it.
+                if !isOffline { favouriteFetchFailedAt[moment.id] = now }
+                return
+            }
+            favouriteFetchFailedAt[moment.id] = nil
+        }
     }
 
     /// The home card and photo widget only ever read the thumbnail; the one
@@ -877,13 +902,21 @@ final class AppModel {
         // Pending only when paired — an unpaired send has nothing to retry.
         var moment = moment
         moment.uploaded = !isPaired
-        store.record(moment)
+        // Off the main actor, as the composer closes: an index rewrite, a snapshot
+        // write and a media prune (all thread-safe) hitched the dismissal.
+        let filed = moment
+        let store = store
+        let paired = isPaired
+        // Claimed before it's filed: a retry pass running in the gap would take it,
+        // and this send's failure alert would never show.
+        if paired { outbox.reserveUpload(moment.id) }
+        await Task.detached(priority: .userInitiated) { store.record(filed) }.value
         reload()
         UINotificationFeedbackGenerator().notificationOccurred(.success)
 
-        guard isPaired else { return }
+        guard paired else { return }
         do {
-            try await outbox.upload(moment, taskName: taskName)
+            try await outbox.upload(moment, taskName: taskName, reserved: true)
         } catch {
             presentSendFailure(error, noun: moment.noun)
         }

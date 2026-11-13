@@ -42,6 +42,9 @@ final class Outbox {
     /// Sends iCloud refused outright, when: automatic passes skip them a while.
     /// This process only, so each launch tries once more.
     @ObservationIgnored private var uploadRejectedAt: [String: Date] = [:]
+    /// The same for caption edits: refused outright, an automatic pass skips the
+    /// moment for `rejectedUploadRetryInterval` rather than re-asking every refresh.
+    @ObservationIgnored private var captionRejectedAt: [String: Date] = [:]
     /// Background uploads from before a relaunch: adopted once, ahead of the
     /// first retry pass or clear, every caller awaiting the same look.
     @ObservationIgnored private var adoptedBackgroundUploads = false
@@ -271,7 +274,11 @@ final class Outbox {
     func republishCaptions(automatic: Bool = false, now: Date = Date()) async -> Bool {
         guard store.pairing != nil, !isRepublishingCaptions else { return false }
         if automatic, !automaticRetryAllowed(now: now) { return false }
-        let owed = index.load().filter { $0.fromMe && $0.uploaded && !$0.captionPublished }
+        let owed = index.load().filter { moment in
+            guard moment.fromMe, moment.uploaded, !moment.captionPublished else { return false }
+            guard automatic, let refused = captionRejectedAt[moment.id] else { return true }
+            return now.timeIntervalSince(refused) >= AppConfig.rejectedUploadRetryInterval
+        }
         guard !owed.isEmpty else { return false }
         isRepublishingCaptions = true
         defer { isRepublishingCaptions = false }
@@ -286,9 +293,13 @@ final class Outbox {
                 log.error("Caption publish failed: \(error.localizedDescription, privacy: .public)")
                 switch noteSendFailed(error, now: now) {
                 case .storageFull, .offline, .throttled: return changed
-                case .rejected, .transient: continue
+                case .rejected:
+                    captionRejectedAt[moment.id] = now
+                    continue
+                case .transient: continue
                 }
             }
+            captionRejectedAt[moment.id] = nil
             // Only the words that went: an edit made meanwhile stays owed.
             index.markCaptionPublished(id: moment.id, caption: moment.caption)
             noteSendSucceeded()
@@ -356,9 +367,16 @@ final class Outbox {
     /// The caller waits at most `wait`; the upload runs on while it moves,
     /// stays in flight until it ends, confirms itself if it lands, and notes
     /// its own failure if nobody is waiting for it any more.
+    /// Held before a new send is filed, so no retry pass takes it in between;
+    /// its `upload(reserved: true)` follows.
+    func reserveUpload(_ id: String) {
+        uploadsInFlight.insert(id)
+    }
+
     func upload(_ moment: Moment, taskName: String = "moment-upload",
-                waitAtMost wait: TimeInterval = AppConfig.uploadDeadline) async throws {
-        guard uploadsInFlight.insert(moment.id).inserted else { return }
+                waitAtMost wait: TimeInterval = AppConfig.uploadDeadline,
+                reserved: Bool = false) async throws {
+        guard reserved || uploadsInFlight.insert(moment.id).inserted else { return }
         let backend = backend()
         let pairing = store.pairing
         let caller = CallerWaiting()
@@ -722,9 +740,11 @@ final class Outbox {
                     try await backend.publishReceipts(map, statusSeen: statusSeen)
                 }
             } catch {
-                noteSendFailed(error)
+                // Only a write that may have reached iCloud (a timeout, an unknown
+                // failure) can land late over a newer one; offline, refused, full
+                // or throttled, it never went.
+                if noteSendFailed(error) == .transient { receiptWriteAbandoned = true }
                 log.error("Receipt publish failed: \(error.localizedDescription, privacy: .public)")
-                receiptWriteAbandoned = true
                 store.mutate(reloadWidgets: false) { $0.receiptsDirty = true }
                 return
             }

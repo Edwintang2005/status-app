@@ -549,23 +549,40 @@ extension CloudSync {
     /// local pairing — a fresh install on a new phone. A shared-database hit
     /// means this account already accepted the share; a private-database hit
     /// (owner side) only counts with a share attached, since a bare leftover
-    /// zone isn't a pairing. `nil` means an invite link is genuinely needed.
-    func discoverExistingPairing() async -> (role: PairRole, zoneID: CKRecordZone.ID)? {
-        guard await MainActor.run(body: { self.stores.shared.pairing == nil }) else { return nil }
-        guard (try? await accountStatus()) == .available else { return nil }
+    /// zone isn't a pairing. `.none` means an invite link is genuinely needed.
+    func discoverExistingPairing() async -> PairingDiscovery {
+        guard await MainActor.run(body: { self.stores.shared.pairing == nil }) else { return .none }
+        let status: CKAccountStatus
+        do { status = try await accountStatus() } catch { return .unknown }
+        switch status {
+        case .available: break
+        // Common on a phone just set up: not yet, rather than no.
+        case .temporarilyUnavailable, .couldNotDetermine: return .unknown
+        default: return .none
+        }
 
         let blocked = await MainActor.run { self.stores.shared.blockedOwnerRecordNames }
-        if let zone = try? await container.sharedCloudDatabase.allRecordZones()
-            .first(where: { $0.zoneID.zoneName == AppConfig.coupleZoneName
-                            && !blocked.contains($0.zoneID.ownerName) }) {
-            return (.participant, zone.zoneID)
+        // Either database failing to answer leaves it unknown, unless the other found one.
+        var looked = true
+        do {
+            if let zone = try await container.sharedCloudDatabase.allRecordZones()
+                .first(where: { $0.zoneID.zoneName == AppConfig.coupleZoneName
+                                && !blocked.contains($0.zoneID.ownerName) }) {
+                return .found(role: .participant, zoneID: zone.zoneID)
+            }
+        } catch {
+            looked = false
         }
-        if let zone = try? await container.privateCloudDatabase.allRecordZones()
-            .first(where: { $0.zoneID.zoneName == AppConfig.coupleZoneName && $0.share != nil }),
-           await ownerShareIsRejoinable(zone.zoneID, blocked: blocked) {
-            return (.owner, zone.zoneID)
+        do {
+            if let zone = try await container.privateCloudDatabase.allRecordZones()
+                .first(where: { $0.zoneID.zoneName == AppConfig.coupleZoneName && $0.share != nil }),
+               await ownerShareIsRejoinable(zone.zoneID, blocked: blocked) {
+                return .found(role: .owner, zoneID: zone.zoneID)
+            }
+        } catch {
+            looked = false
         }
-        return nil
+        return looked ? .none : .unknown
     }
 
     /// A block whose cloud unlink failed leaves the share up, and Rejoin must not
@@ -682,7 +699,9 @@ extension CloudSync {
     /// their unsent media. A second sighting `AppConfig.zoneGoneConfirmation`
     /// later is the verdict — this device unlinks itself (`linkEnded`).
     func zoneGoneVerdict(_ pairing: PairingInfo) async throws -> SyncError {
-        guard await isPairingAccount(pairing) else {
+        // A real lookup, not a cached one: an account switched while the app wasn't
+        // running reads as "zone gone", and a wipe needs proof it's the same account.
+        guard await isPairingAccount(pairing, fresh: true) else {
             log.notice("Zone unreachable, but this is a different iCloud account; keeping local state.")
             throw SyncError.differentAccount
         }

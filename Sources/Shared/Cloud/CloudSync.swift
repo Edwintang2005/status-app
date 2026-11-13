@@ -161,9 +161,14 @@ actor CloudSync: SyncBackend {
     /// The signed-in account, cached so `requirePairing` can verify it on every
     /// call without a network round trip each time. Dropped when the system
     /// reports an account change (`noteAccountChanged`), else after the lifetime.
-    var cachedUserRecordName: (name: String, fetchedAt: Date)?
+    /// `own`: this process looked it up (it hears account changes, if it's the
+    /// app); a copy of another's lookup is judged by `accountCacheLifetime` only.
+    var cachedUserRecordName: (name: String, fetchedAt: Date, own: Bool)?
     var accountCheckPending = false
     static let accountCacheLifetime: TimeInterval = 5 * 60
+    /// The app's own lookup lasts longer: it hears `CKAccountChanged` and drops
+    /// it then (`noteAccountChanged`); an extension hears nothing, so it doesn't.
+    static let appAccountCacheLifetime: TimeInterval = 60 * 60
     let log = Logger(subsystem: AppConfig.appGroupID, category: "CloudSync")
     /// Uploads this process started: `resumeUploads` lists every long-lived
     /// operation, running ones included, and must leave these to their sender.
@@ -295,6 +300,7 @@ actor CloudSync: SyncBackend {
 
     func noteAccountChanged() async {
         accountCheckPending = true
+        cachedUserRecordName = nil
         // Extensions trust the shared copy for a few minutes; not past a switch.
         await MainActor.run { self.stores.shared.verifiedAccount = nil }
     }
@@ -335,38 +341,46 @@ actor CloudSync: SyncBackend {
     /// fetched (offline, no account). A process without a lookup of its own first
     /// uses one another process made within the cache lifetime
     /// (`SharedStore.verifiedAccount`). That's safe: a failed lookup counts as a match anyway.
-    func currentUserRecordName() async -> String? {
+    /// `fresh`: a real lookup first (before anything is wiped), the caches only if it fails.
+    func currentUserRecordName(fresh: Bool = false) async -> String? {
         let now = Date()
+        if fresh, let name = await lookUpUserRecordName(now: now) { return name }
         if let cached = cachedUserRecordName,
-           Self.isFresh(cached.fetchedAt, now: now) {
+           Self.isFresh(cached.fetchedAt, now: now,
+                        lifetime: cached.own && !isExtension ? Self.appAccountCacheLifetime : Self.accountCacheLifetime) {
             return cached.name
         }
         if !accountCheckPending,
            let shared = await MainActor.run(body: { self.stores.shared.verifiedAccount }),
            Self.isFresh(shared.verifiedAt, now: now) {
-            cachedUserRecordName = (shared.name, shared.verifiedAt)
+            // Another process's lookup: it may predate a switch this one never heard of.
+            cachedUserRecordName = (shared.name, shared.verifiedAt, false)
             return shared.name
         }
+        return fresh ? nil : await lookUpUserRecordName(now: now)
+    }
+
+    private func lookUpUserRecordName(now: Date) async -> String? {
         // A test's fake iCloud has no account to look up: unknown, which counts as a match.
         guard let container = optionalContainer,
               let name = try? await container.configuredWith(configuration: .waited, body: {
                   try await $0.userRecordID().recordName
               }) else { return nil }
-        cachedUserRecordName = (name, now)
+        cachedUserRecordName = (name, now, true)
         await MainActor.run { self.stores.shared.verifiedAccount = .init(name: name, verifiedAt: now) }
         return name
     }
 
     /// A lookup no older than the lifetime, and not stamped in the future.
-    static func isFresh(_ verifiedAt: Date, now: Date) -> Bool {
-        verifiedAt <= now && now.timeIntervalSince(verifiedAt) < accountCacheLifetime
+    static func isFresh(_ verifiedAt: Date, now: Date, lifetime: TimeInterval = accountCacheLifetime) -> Bool {
+        verifiedAt <= now && now.timeIntervalSince(verifiedAt) < lifetime
     }
 
     /// `false` only on positive proof of a different account. Errors and legacy
     /// pairings count as a match — destroying local state needs proof, not a network hiccup.
-    func isPairingAccount(_ pairing: PairingInfo) async -> Bool {
+    func isPairingAccount(_ pairing: PairingInfo, fresh: Bool = false) async -> Bool {
         guard let expected = pairing.userRecordName,
-              let current = await currentUserRecordName() else { return true }
+              let current = await currentUserRecordName(fresh: fresh) else { return true }
         return current == expected
     }
 

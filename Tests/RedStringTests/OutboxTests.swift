@@ -300,6 +300,17 @@ final class OutboxTests: XCTestCase {
         XCTAssertTrue(store.snapshot.receiptsDirty)
     }
 
+    /// Offline, a write never left the phone: it can't land late, so the next
+    /// confirmed write settles the receipts.
+    func testAnOfflineReceiptWriteIsntAbandoned() async {
+        store.mutate { $0.receiptsDirty = true }
+        backend.fail("receipts", with: CKError(.networkUnavailable))
+        await outbox.flushReceipts()
+        await outbox.flushReceipts()
+        XCTAssertEqual(backend.receipts.count, 1)
+        XCTAssertFalse(store.snapshot.receiptsUnsettled)
+    }
+
     func testAMarkSeenLandingMidFlightIsPublishedToo() async {
         let store = store!
         let backend = backend!
@@ -722,6 +733,22 @@ final class OutboxTests: XCTestCase {
         XCTAssertEqual(index.load().first?.captionPublished, true)
         let again = await outbox.republishCaptions()
         XCTAssertFalse(again, "nothing left owed")
+    }
+
+    /// A caption edit iCloud refuses isn't re-asked every refresh: automatic passes
+    /// skip it a while, still owed; a later one tries again.
+    func testARefusedCaptionEditIsSkippedForAWhile() async {
+        index.insert([Fixtures.moment("mine", fromMe: true)])
+        outbox.editCaption(of: "mine", to: "new words")
+        backend.fail("caption", with: CKError(.serverRejectedRequest))
+        _ = await outbox.republishCaptions(automatic: true)
+        _ = await outbox.republishCaptions(automatic: true)
+        XCTAssertTrue(backend.captions.isEmpty, "not asked again straight away")
+        XCTAssertEqual(index.load().first?.captionPublished, false, "still owed")
+
+        let later = Date().addingTimeInterval(AppConfig.rejectedUploadRetryInterval + 1)
+        _ = await outbox.republishCaptions(automatic: true, now: later)
+        XCTAssertEqual(backend.captions.map(\.caption), ["new words"])
     }
 
     func testOfflineTheEditStaysOwed() async {

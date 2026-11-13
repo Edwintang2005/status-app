@@ -6,6 +6,23 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 Version 1.7.
 
+- **You can tell when syncing isn't working.** After three failed syncs in a
+  row, Home's footer says it couldn't sync, with when it last did, and a tap
+  tries again; a first sync on a new phone says "Restoring your history…"
+  rather than "Syncing…" for minutes. A new phone on a bad connection keeps
+  looking for the space to rejoin instead of quietly offering only a new one.
+- **Notification settings in one place.** Whether notifications are allowed now
+  sits at the top of Notifications, above the per-kind choices, which are
+  greyed out while they're off.
+- **Fewer iCloud calls.** A status and its history entry save in one request
+  instead of two; a caption edit iCloud refuses isn't re-sent on every sync;
+  a favourite that won't download is tried hourly, not constantly; a closed
+  invite link is checked daily rather than at every launch; the app re-checks
+  your iCloud account hourly instead of every five minutes (it still notices a
+  switch at once); a heart sent from Siri no longer sets off a full sync.
+  Sending a photo no longer writes the history on the main thread as the
+  composer closes, and crash reports are read off it at launch.
+
 - **Banners are worded before any picture downloads.** On a slow connection a
   banner could run out of time waiting for the widget's picture and show
   iCloud's generic words; now its words are settled first, then the pictures
@@ -22,7 +39,7 @@ Version 1.7.
 - **Small fixes.** Two statuses set in the same second no longer get mixed up; a
   damaged value in the fresh start no longer resets what was cleared; a damaged
   snapshot fetches the statuses again; and the gallery's date line swaps
-  smoothly to the full date instead of blinking.
+  straight to the full date, with no blink or slide.
 
 - **A long history now finishes syncing on a slow connection.** A phone fetching
   its whole history (a reinstall, a new phone) did it as one download that had

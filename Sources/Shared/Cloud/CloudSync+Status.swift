@@ -12,10 +12,16 @@ extension CloudSync {
         let recordID = CKRecord.ID(recordName: pairing.role.statusRecordName,
                                    zoneID: zoneID(for: pairing))
 
+        // Never the current status's own log, which can't be saved and deleted at once anyway.
+        let logName = pairing.role.statusLogRecordName(at: payload.wordsAt)
+        var stale = staleStatusLogs(pairing).filter { $0.id.recordName != logName }
+        // The log, and the prune's first batch, ride the status's own save: one round trip.
+        let folded = Array(stale.prefix(Self.statusLogPruneBatch))
+        let riding = logged ? LogRide(role: pairing.role, pruning: folded) : nil
         let outcome = try await withZoneRecovery(pairing) {
             // Another device of ours, or an overlapping publish, may write first.
             try await retryingConflicts("Status") {
-                try await saveStatus(payload, to: recordID, in: database)
+                try await saveStatus(payload, to: recordID, in: database, logging: riding)
             }
         }
 
@@ -33,17 +39,17 @@ extension CloudSync {
         await MainActor.run {
             _ = self.stores.shared.mutate { $0.recordPublished(payload, savedAt: outcome.savedAt) }
         }
-        // Never the current status's own log, which can't be saved and deleted at once anyway.
-        let logName = pairing.role.statusLogRecordName(at: payload.wordsAt)
-        var stale = staleStatusLogs(pairing).filter { $0.id.recordName != logName }
         if logged {
-            // Separate save: the log wants overwrite semantics (`allKeys`), the
-            // status a conflict check. A failure still fails the publish. The
-            // prune's first batch rides along.
-            let folded = Array(stale.prefix(Self.statusLogPruneBatch))
-            let removed = try await withZoneRecovery(pairing) {
-                try await saveStatusLog(payload, role: pairing.role, zone: recordID.zoneID,
-                                        pruning: folded, in: database)
+            let removed: [Date]
+            if let rode = outcome.logged {
+                removed = rode
+            } else {
+                // No write rode it (the status was already there), or its log didn't
+                // land: a save of its own, overwriting. A failure still fails the publish.
+                removed = try await withZoneRecovery(pairing) {
+                    try await saveStatusLog(payload, role: pairing.role, zone: recordID.zoneID,
+                                            pruning: folded, in: database)
+                }
             }
             await MainActor.run {
                 _ = self.stores.shared.mutate(reloadWidgets: false) { $0.recordLogged(payload) }
@@ -55,15 +61,38 @@ extension CloudSync {
         await pruneStatusLog(stale, in: database)
     }
 
+    /// The log record and prune batch a status write carries along.
+    struct LogRide: Sendable {
+        var role: PairRole
+        var pruning: [StaleStatusLog]
+    }
+
     enum StatusSaveOutcome: Sendable {
-        /// Written now, or already there: the server's save time.
-        case saved(Date?)
+        /// Written now, or already there: the server's save time; and, when a log
+        /// rode the write and landed, the prunes confirmed gone (`nil`: it didn't).
+        case saved(Date?, logged: [Date]? = nil)
         case superseded(StatusPayload)
 
         var savedAt: Date? {
-            if case .saved(let date) = self { return date }
+            if case .saved(let date, _) = self { return date }
             return nil
         }
+
+        var logged: [Date]? {
+            if case .saved(_, let logged) = self { return logged }
+            return nil
+        }
+    }
+
+    /// A log record for `payload`, fresh each attempt (a conflict retry rebuilds it).
+    static func statusLogRecord(_ payload: StatusPayload, role: PairRole, zone: CKRecordZone.ID) -> CKRecord {
+        let recordID = CKRecord.ID(recordName: role.statusLogRecordName(at: payload.wordsAt), zoneID: zone)
+        let record = CKRecord(recordType: RecordType.statusLog, recordID: recordID)
+        record.encryptedValues[Field.emoji] = payload.emoji
+        record.encryptedValues[Field.message] = payload.message
+        record.encryptedValues[Field.isCelebration] = payload.isCelebration ? 1 : 0
+        record[Field.updatedAt] = payload.wordsAt as CKRecordValue
+        return record
     }
 
     /// The per-change history record. Named by when the words were set (not a
@@ -74,13 +103,8 @@ extension CloudSync {
                        zone: CKRecordZone.ID,
                        pruning stale: [StaleStatusLog] = [],
                        in database: CKDatabase) async throws -> [Date] {
-        let recordID = CKRecord.ID(recordName: role.statusLogRecordName(at: payload.wordsAt),
-                                   zoneID: zone)
-        let record = CKRecord(recordType: RecordType.statusLog, recordID: recordID)
-        record.encryptedValues[Field.emoji] = payload.emoji
-        record.encryptedValues[Field.message] = payload.message
-        record.encryptedValues[Field.isCelebration] = payload.isCelebration ? 1 : 0
-        record[Field.updatedAt] = payload.wordsAt as CKRecordValue
+        let record = Self.statusLogRecord(payload, role: role, zone: zone)
+        let recordID = record.recordID
         // Non-atomic once deletions ride along: a pre-cloud entry's unknownItem
         // must not fail the log.
         let result = try await database.waited { try await $0.modifyRecords(saving: [record],
@@ -150,7 +174,8 @@ extension CloudSync {
 
     func saveStatus(_ payload: StatusPayload,
                     to recordID: CKRecord.ID,
-                    in database: CKDatabase) async throws -> StatusSaveOutcome {
+                    in database: CKDatabase,
+                    logging ride: LogRide? = nil) async throws -> StatusSaveOutcome {
         // One round trip from the cached record when it says "save": the change tag
         // proves it current, and a stale one falls back to the fetch below. Any
         // other verdict is re-judged on a fetched copy.
@@ -158,7 +183,7 @@ extension CloudSync {
            let record = Self.record(fromSystemFields: cached.systemFields), record.recordID == recordID,
            StatusSavePolicy.decide(server: cached.payload, payload: payload, now: Date()) == .save {
             do {
-                return try await writeStatus(payload, onto: record, in: database)
+                return try await writeStatus(payload, onto: record, in: database, logging: ride)
             } catch let error as CKError where Self.isServerRecordChanged(error) || Self.isUnknownItem(error) {
                 log.notice("Cached status record was stale; fetching.")
                 await MainActor.run { self.stores.shared.statusRecordCache = nil }
@@ -184,12 +209,13 @@ extension CloudSync {
         }
         return try await writeStatus(payload,
                                      onto: existing ?? CKRecord(recordType: RecordType.status, recordID: recordID),
-                                     in: database)
+                                     in: database, logging: ride)
     }
 
     private func writeStatus(_ payload: StatusPayload,
                              onto record: CKRecord,
-                             in database: CKDatabase) async throws -> StatusSaveOutcome {
+                             in database: CKDatabase,
+                             logging ride: LogRide? = nil) async throws -> StatusSaveOutcome {
         record.encryptedValues[Field.emoji] = payload.emoji
         record.encryptedValues[Field.message] = payload.message
         record.encryptedValues[Field.displayName] = payload.displayName
@@ -197,13 +223,26 @@ extension CloudSync {
         record.encryptedValues[Field.celebrationStyle] = payload.celebration?.rawValue
         record[Field.updatedAt] = payload.updatedAt as CKRecordValue
         // Change-tag checked, so a write that raced ours surfaces as
-        // `serverRecordChanged` and `publish` retries on the fresh copy.
-        let result = try await database.waited { try await $0.modifyRecords(saving: [record],
-                                                      deleting: [],
-                                                      savePolicy: .ifServerRecordUnchanged) }
+        // `serverRecordChanged` and `publish` retries on the fresh copy. Its log
+        // rides along, non-atomically: a new record saves under the same check,
+        // and one already there (same name, same words) is that log, landed.
+        let log = ride.map { Self.statusLogRecord(payload, role: $0.role, zone: record.recordID.zoneID) }
+        let pruning = ride?.pruning ?? []
+        let result = try await database.waited {
+            try await $0.modifyRecords(saving: [record] + [log].compactMap { $0 },
+                                       deleting: pruning.map(\.id),
+                                       savePolicy: .ifServerRecordUnchanged,
+                                       atomically: log == nil)
+        }
         let saved = try Self.confirmSaved(result, record.recordID)
         await cacheStatusRecord(saved, payload: payload)
-        return .saved(saved.modificationDate)
+        guard let log else { return .saved(saved.modificationDate) }
+        let logLanded: Bool = switch result.saveResults[log.recordID] {
+        case .success?: true
+        case .failure(let error as CKError)? where Self.isServerRecordChanged(error): true
+        default: false
+        }
+        return .saved(saved.modificationDate, logged: logLanded ? Self.confirmedPrunes(result, pruning) : nil)
     }
 
     /// Our status record as saved, or as a delta carried it (another device of

@@ -59,7 +59,12 @@ struct SyncFooter: View, Equatable {
     let onlyStatusPending: Bool
     let storageFull: Bool
     let isParticipant: Bool
+    /// The history is filling in from nothing: "Syncing…" for minutes reads as stuck.
+    var isRestoring = false
+    /// Syncs keep failing: "Synced hours ago" alone looks like nothing's wrong.
+    var syncFailing = false
     let onRetry: () -> Void
+    var onSync: () -> Void = {}
 
     nonisolated static func == (lhs: SyncFooter, rhs: SyncFooter) -> Bool {
         lhs.partnerName == rhs.partnerName && lhs.showsSent == rhs.showsSent && lhs.isOffline == rhs.isOffline
@@ -67,6 +72,7 @@ struct SyncFooter: View, Equatable {
             && lhs.needsICloudAttention == rhs.needsICloudAttention && lhs.isSending == rhs.isSending
             && lhs.pendingCount == rhs.pendingCount && lhs.onlyStatusPending == rhs.onlyStatusPending
             && lhs.storageFull == rhs.storageFull && lhs.isParticipant == rhs.isParticipant
+            && lhs.isRestoring == rhs.isRestoring && lhs.syncFailing == rhs.syncFailing
     }
 
     /// Says whose storage is full when that's why sends are stuck — only the owner can fix it.
@@ -86,7 +92,8 @@ struct SyncFooter: View, Equatable {
 
     /// The retry button is up: combining for VoiceOver would swallow its action.
     private var showsRetry: Bool {
-        !showsSent && !isOffline && !isRefreshing && !needsICloudAttention && !isSending && pendingCount > 0
+        !showsSent && !isOffline && !isRefreshing && !needsICloudAttention && !isSending
+            && (pendingCount > 0 || syncFailing)
     }
 
     var body: some View {
@@ -106,7 +113,7 @@ struct SyncFooter: View, Equatable {
                 }
             } else if isRefreshing {
                 ProgressView().controlSize(.mini)
-                Text("Syncing…")
+                Text(isRestoring ? "Restoring your history…" : "Syncing…")
             } else if needsICloudAttention {
                 // The full story is in the notice at the top.
                 Image(systemName: "exclamationmark.icloud")
@@ -124,6 +131,19 @@ struct SyncFooter: View, Equatable {
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("Retries the send now")
+            } else if syncFailing {
+                Button(action: onSync) {
+                    Group {
+                        if let lastSyncedAt {
+                            RelativeTime(lastSyncedAt) { Text("Couldn't sync · last synced \($0)") }
+                        } else {
+                            Text("Couldn't sync · tap to try again")
+                        }
+                    }
+                    .modifier(FooterPill(tint: Theme.warmText))
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Tries syncing again now")
             } else if let lastSyncedAt {
                 Image(systemName: "checkmark.icloud")
                 RelativeTime(lastSyncedAt) { Text("Synced \($0)") }

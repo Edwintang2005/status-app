@@ -93,6 +93,14 @@ struct RefreshResult: Sendable {
     }
 }
 
+/// What `discoverExistingPairing` found. A look that failed is `unknown`, never
+/// "nothing there": a new phone on a bad connection would lose its Rejoin.
+enum PairingDiscovery: Sendable {
+    case found(role: PairRole, zoneID: CKRecordZone.ID)
+    case none
+    case unknown
+}
+
 /// Whether the backend can actually do anything right now.
 enum BackendReadiness: Equatable, Sendable {
     case ready
@@ -166,7 +174,7 @@ protocol SyncBackend: Sendable {
     func acceptShare(_ metadata: CKShare.Metadata, displayName: String) async throws
     /// Our own share's link tapped again: confirms a pending private seat.
     func reacceptShare(_ metadata: CKShare.Metadata) async throws
-    func discoverExistingPairing() async -> (role: PairRole, zoneID: CKRecordZone.ID)?
+    func discoverExistingPairing() async -> PairingDiscovery
     func rejoin(role: PairRole, zoneID: CKRecordZone.ID, displayName: String) async throws
     func shareCheck() async throws -> ShareCheck
     func closeUnusedInvite() async throws
@@ -432,7 +440,7 @@ struct DemoBackend: SyncBackend {
         throw SyncError.shareUnavailable
     }
     func reacceptShare(_ metadata: CKShare.Metadata) async throws {}
-    func discoverExistingPairing() async -> (role: PairRole, zoneID: CKRecordZone.ID)? { nil }
+    func discoverExistingPairing() async -> PairingDiscovery { .none }
     func rejoin(role: PairRole, zoneID: CKRecordZone.ID, displayName: String) async throws {
         throw SyncError.shareUnavailable
     }

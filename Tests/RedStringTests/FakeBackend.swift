@@ -165,7 +165,7 @@ final class FakeBackend: SyncBackend, @unchecked Sendable {
     }
     func acceptShare(_ metadata: CKShare.Metadata, displayName: String) async throws {}
     func reacceptShare(_ metadata: CKShare.Metadata) async throws {}
-    func discoverExistingPairing() async -> (role: PairRole, zoneID: CKRecordZone.ID)? { nil }
+    func discoverExistingPairing() async -> PairingDiscovery { .none }
     func rejoin(role: PairRole, zoneID: CKRecordZone.ID, displayName: String) async throws {}
     func shareCheck() async throws -> ShareCheck { ShareCheck(memberCount: nil, invite: .missing) }
     func closeUnusedInvite() async throws {}

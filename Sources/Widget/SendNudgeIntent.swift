@@ -24,9 +24,10 @@ struct SendNudgeIntent: AppIntent {
         } catch {
             // `sendNudge`'s own failure path released the cooldown and stamped it.
         }
-        // In-app (Siri) the model holds its own snapshot copy; a no-op in the widget.
+        // In-app (Siri) the model holds its own snapshot copy: a re-read, not a
+        // fetch — only our own heart changed. A no-op in the widget.
         await MainActor.run {
-            NotificationCenter.default.post(name: .pairingDidChange, object: nil)
+            NotificationCenter.default.post(name: .snapshotDidChange, object: nil)
         }
         return .result()
     }
