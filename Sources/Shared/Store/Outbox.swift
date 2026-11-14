@@ -145,7 +145,7 @@ final class Outbox {
         let backend = backend()
         do {
             try await withDeadline(AppConfig.publishDeadline) { try await backend.publish(mine, logged: logged) }
-            store.mutate(reloadWidgets: false) {
+            store.mutate {
                 $0.markStatusPublished(mine)
                 // A logged publish that returned wrote the log; with a null mark
                 // meaning "owed", nothing else may be left to claim it landed.
@@ -186,7 +186,7 @@ final class Outbox {
                 log.error("Anniversary republish failed: \(error.localizedDescription, privacy: .public)")
                 return false
             }
-            current = store.mutate(reloadWidgets: false) { $0.markAnniversaryPublished(anniversary) }
+            current = store.mutate { $0.markAnniversaryPublished(anniversary) }
             guard store.pairing?.role == .owner else { break }
         }
         log.info("Republished the offline anniversary update")
@@ -218,7 +218,7 @@ final class Outbox {
                 log.error("Anniversary request publish failed: \(error.localizedDescription, privacy: .public)")
                 return false
             }
-            let current = store.mutate(reloadWidgets: false) { $0.markAnniversaryRequestPublished(sending) }
+            let current = store.mutate { $0.markAnniversaryRequestPublished(sending) }
             guard !current.anniversaryRequestPublished, let newer = current.anniversaryRequestedAt,
                   store.pairing?.role == .participant else { break }
             date = newer
@@ -560,7 +560,7 @@ final class Outbox {
         guard store.pairing != nil, store.snapshot.freshStart.pendingIntent == nil else { return false }
         let backend = backend()
         let result = try await withDeadline(AppConfig.publishDeadline) { try await backend.publishFreshStart(.ask) }
-        store.mutate(reloadWidgets: false) { $0.freshStart.asked(result) }
+        store.mutate { $0.freshStart.asked(result) }
         if case .refused = result { return false }
         return true
     }
@@ -572,12 +572,12 @@ final class Outbox {
     func publishFreshStart(_ intent: FreshStartIntent) async -> FreshStartPublishResult? {
         guard store.pairing != nil else { return nil }
         var began = false
-        store.mutate(reloadWidgets: false) { began = $0.freshStart.begin(intent) }
+        store.mutate { began = $0.freshStart.begin(intent) }
         guard began else { return nil }
         let backend = backend()
         do {
             let result = try await withDeadline(AppConfig.publishDeadline) { try await backend.publishFreshStart(intent) }
-            store.mutate(reloadWidgets: false) { $0.freshStart.published(intent, result) }
+            store.mutate { $0.freshStart.published(intent, result) }
             return result
         } catch {
             noteSendFailed(error)
@@ -740,11 +740,11 @@ final class Outbox {
                 // or throttled, it never went.
                 if noteSendFailed(error) == .transient { receiptWriteAbandoned = true }
                 log.error("Receipt publish failed: \(error.localizedDescription, privacy: .public)")
-                store.mutate(reloadWidgets: false) { $0.receiptsDirty = true }
+                store.mutate { $0.receiptsDirty = true }
                 return
             }
             if !receiptWriteAbandoned {
-                store.mutate(reloadWidgets: false) { $0.receiptsUnsettled = false }
+                store.mutate { $0.receiptsUnsettled = false }
             }
         }
     }
@@ -811,7 +811,7 @@ extension SharedStore {
     /// `Snapshot.claimReceiptsDirty` under the snapshot lock.
     func claimReceiptsDirty() -> Bool {
         var claimed = false
-        mutate(reloadWidgets: false) { claimed = $0.claimReceiptsDirty() }
+        mutate { claimed = $0.claimReceiptsDirty() }
         return claimed
     }
 }

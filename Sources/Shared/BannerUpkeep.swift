@@ -88,7 +88,7 @@ enum BannerUpkeep {
     /// Check-and-claim in one locked write (invariant 1), as every banner's claim is.
     private static func claim(_ decide: (inout Snapshot) -> Bool) -> Bool {
         var claimed = false
-        _ = SharedStore.shared.mutate(reloadWidgets: false) { claimed = decide(&$0) }
+        _ = SharedStore.shared.mutate { claimed = decide(&$0) }
         return claimed
     }
 

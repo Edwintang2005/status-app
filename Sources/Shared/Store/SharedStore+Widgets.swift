@@ -19,20 +19,22 @@ extension SharedStore {
 
     /// Files moments in the history index, refreshes derived snapshot fields,
     /// and trims cached media.
+    /// - Returns: whether it reloaded the widgets.
+    @discardableResult
     func record(_ moments: [Moment], cleared: (() -> (Moment) -> Bool)? = nil,
-                index: MomentIndex = .shared, media: MomentStore = .shared) {
-        guard !moments.isEmpty else { return }
+                index: MomentIndex = .shared, media: MomentStore = .shared) -> Bool {
+        guard !moments.isEmpty else { return false }
         // `nil` for an unreadable index: pruning against just this delta would
         // delete the media of everything else.
-        guard let all = index.insertReadable(moments, cleared: cleared) else { return }
-        refreshDerived(reloadWidgets: false, index: index)
+        guard let all = index.insertReadable(moments, cleared: cleared) else { return false }
+        let redrawn = refreshDerived(index: index).changed
 
         // Only recent files stay on disk (`MediaRetention`); older media is
-        // re-fetched from CloudKit when it's looked at.
+        // re-fetched from CloudKit when it's looked at. The drawn picture's are kept.
         let drawn = snapshot.latestPartnerVisualMoment?.id
         media.prune(keeping: MediaRetention.fullCopies(of: all, drawn: drawn),
                     thumbnailsFor: MediaRetention.thumbnails(of: all, drawn: drawn))
-        requestWidgetReload()
+        return redrawn
     }
 
     func record(_ moment: Moment) {
@@ -40,49 +42,25 @@ extension SharedStore {
     }
 
     /// Recomputes snapshot fields derived from the history index; call whenever
-    /// the index changes. The index is read *inside* the locked mutate: a list
+    /// the index changes. The index is read *inside* the locked write: a list
     /// captured earlier can be applied after another process's newer one, and
-    /// the widget would regress to an older moment.
-    /// Reloads the widgets only when a derived field moved: a moment marked
-    /// seen deep in the history changes nothing they draw. `alongside` runs in
-    /// the same locked write, so a caller's own change costs no second one.
+    /// the widget would regress to an older moment. `alongside` runs in the
+    /// same write, so a caller's own change costs no second one.
+    /// - Parameter deferringWidgetReload: the gallery's paging — the reload this
+    ///   owes is the caller's to make once (`changed`), not one per page.
+    /// - Returns: `changed`: whether what the widgets draw moved.
     @discardableResult
-    func refreshDerived(reloadWidgets: Bool = true,
+    func refreshDerived(deferringWidgetReload: Bool = false,
                         index: MomentIndex = .shared,
                         alongside: ((inout Snapshot) -> Void)? = nil) -> (changed: Bool, snapshot: Snapshot) {
-        var changed = false
-        let snapshot = mutate(reloadWidgets: false) { snapshot in
+        let (snapshot, redraws) = write { snapshot in
             alongside?(&snapshot)
             // Unreadable isn't empty; the widget keeps what it last showed.
             guard let all = index.loadReadable() else { return }
-            let before = Derived(snapshot)
             Self.fillDerived(&snapshot, from: all)
-            changed = Derived(snapshot) != before
         }
-        if changed, reloadWidgets { requestWidgetReload() }
-        return (changed, snapshot)
-    }
-
-    /// What the widgets draw from the fields `fillDerived` owns. Not whole
-    /// moments: marking one seen changes no pixel and must not cost a reload.
-    struct Derived: Equatable {
-        struct Drawn: Equatable {
-            var id: String, kind: Moment.Kind, caption: String, senderName: String
-
-            init?(_ moment: Moment?) {
-                guard let moment else { return nil }
-                (id, kind, caption, senderName) = (moment.id, moment.kind, moment.caption, moment.senderName)
-            }
-        }
-        var partner, own, visual: Drawn?
-        var unheard: Int
-
-        init(_ snapshot: Snapshot) {
-            partner = Drawn(snapshot.latestPartnerMoment)
-            own = Drawn(snapshot.latestOwnMoment)
-            visual = Drawn(snapshot.latestPartnerVisualMoment)
-            unheard = snapshot.unheardVoiceMemoCount
-        }
+        if redraws, !deferringWidgetReload { requestWidgetReload() }
+        return (redraws, snapshot)
     }
 
     /// `all` is the whole index, newest first.

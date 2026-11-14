@@ -1,20 +1,38 @@
 import CoreGraphics
 import Foundation
 
-/// What the widgets draw, moderated once when the timeline entry is built
-/// (invariant 20): a view reads its properties many times per render, and each
-/// read of the store is a file read and a decode.
+/// Exactly what the widgets draw, moderated once when the timeline entry is
+/// built (invariant 20): a view reads its properties many times per render, and
+/// each read of the store is a file read and a decode. Nothing a widget doesn't
+/// draw belongs here: `SharedStore.mutate` reloads the widgets when this moves
+/// (invariant 6), so an extra field costs reloads and a missing one, a stale tile.
 struct WidgetContent: Hashable {
+    /// A status as a tile draws it.
+    struct Status: Hashable {
+        var emoji: String
+        var message: String
+    }
+
+    /// The photo widget's picture: which file, and the words drawn over it.
+    struct Photo: Hashable {
+        var id: String
+        var kind: Moment.Kind
+        var caption: String
+        var senderName: String
+
+        var noun: String { kind.noun }
+    }
+
     var isPaired: Bool
     /// The store can't be read yet (before first unlock): neither paired nor unlinked.
     var isLocked = false
-    var mine: StatusPayload?
+    var mine: Status?
     /// Reported → no words; a message the filter hides → a stand-in that fits a tile.
-    var partner: StatusPayload?
+    var partner: Status?
     /// Only once they've published one — "Partner" reads cold as a heading.
     var partnerName: String?
     /// The latest photo or doodle; a caption or name the filter hides is empty.
-    var photo: Moment?
+    var photo: Photo?
     var unheardMemos: Int
     var lastNudgeSentAt: Date?
     var lastNudgeFailedAt: Date?
@@ -22,23 +40,30 @@ struct WidgetContent: Hashable {
 
     init(snapshot: Snapshot, reportedAt: Date?, filterEnabled: Bool) {
         isPaired = snapshot.isPaired
-        mine = snapshot.mine
-        partner = snapshot.theirs?.moderated(reportedAt: reportedAt,
-                                             sealed: snapshot.partnerStatusSealed,
-                                             filteredText: String(localized: "Hidden"),
-                                             filterEnabled: filterEnabled)
-        let name = partner.map { ContentFilter.displayName($0.displayName, fallback: "", enabled: filterEnabled) }
+        mine = snapshot.mine.map { Status(emoji: $0.emoji, message: $0.message) }
+        let theirs = snapshot.theirs?.moderated(reportedAt: reportedAt,
+                                                sealed: snapshot.partnerStatusSealed,
+                                                filteredText: String(localized: "Hidden"),
+                                                filterEnabled: filterEnabled)
+        partner = theirs.map { Status(emoji: $0.emoji, message: $0.message) }
+        let name = theirs.map { ContentFilter.displayName($0.displayName, fallback: "", enabled: filterEnabled) }
         partnerName = name?.isEmpty == false ? name : nil
         photo = snapshot.latestPartnerVisualMoment.map { moment in
-            var shown = moment
-            shown.caption = moment.displayCaption(filterEnabled: filterEnabled) ?? ""
-            shown.senderName = moment.displaySenderName(fallback: "", filterEnabled: filterEnabled)
-            return shown
+            Photo(id: moment.id, kind: moment.kind,
+                  caption: moment.displayCaption(filterEnabled: filterEnabled) ?? "",
+                  senderName: moment.displaySenderName(fallback: "", filterEnabled: filterEnabled))
         }
         unheardMemos = snapshot.unheardVoiceMemoCount
         lastNudgeSentAt = snapshot.lastNudgeSentAt
         lastNudgeFailedAt = snapshot.lastNudgeFailedAt
         lastNudgeIssuedAt = snapshot.lastNudgeIssuedAt
+    }
+
+    /// What `mutate` compares, before and after. The word filter is left out:
+    /// it only ever hides what's here, and its switch reloads on its own. A
+    /// report isn't — re-picking the reported words lifts it by date alone.
+    init(drawing snapshot: Snapshot, reportedAt: Date? = nil) {
+        self.init(snapshot: snapshot, reportedAt: reportedAt, filterEnabled: false)
     }
 
     /// What the store holds now; locked, the empty snapshot's look is never the unlinked one.
@@ -51,15 +76,7 @@ struct WidgetContent: Hashable {
 
     /// The gallery's sample: our own fixed text, so no store read and no filter.
     private init(sample snapshot: Snapshot) {
-        isPaired = snapshot.isPaired
-        mine = snapshot.mine
-        partner = snapshot.theirs
-        partnerName = snapshot.theirs?.displayName
-        photo = snapshot.latestPartnerVisualMoment
-        unheardMemos = snapshot.unheardVoiceMemoCount
-        lastNudgeSentAt = snapshot.lastNudgeSentAt
-        lastNudgeFailedAt = snapshot.lastNudgeFailedAt
-        lastNudgeIssuedAt = snapshot.lastNudgeIssuedAt
+        self.init(drawing: snapshot)
     }
 
     static let preview = WidgetContent(sample: .preview)

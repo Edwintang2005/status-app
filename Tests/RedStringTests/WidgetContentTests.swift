@@ -54,7 +54,8 @@ final class WidgetContentTests: XCTestCase {
     }
 
     func testTheGallerySampleIsFixed() {
-        XCTAssertEqual(WidgetContent.preview.partner, Snapshot.preview.theirs)
+        XCTAssertEqual(WidgetContent.preview.partner?.emoji, Snapshot.preview.theirs?.emoji)
+        XCTAssertEqual(WidgetContent.preview.partner?.message, Snapshot.preview.theirs?.message)
         XCTAssertEqual(WidgetContent.preview.partnerName, "Sam")
         XCTAssertNil(WidgetContent.previewWaiting.partner)
         XCTAssertTrue(WidgetContent.previewWaiting.isPaired)

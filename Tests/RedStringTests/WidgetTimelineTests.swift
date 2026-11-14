@@ -144,9 +144,9 @@ private actor Gate {
         moment.seen = true
         after.latestPartnerMoment = moment
         after.latestPartnerVisualMoment = moment
-        XCTAssertEqual(SharedStore.Derived(before), SharedStore.Derived(after), "no pixel moved")
+        XCTAssertEqual(WidgetContent(drawing: before), WidgetContent(drawing: after), "no pixel moved")
         moment.caption = "hello"
         after.latestPartnerVisualMoment = moment
-        XCTAssertNotEqual(SharedStore.Derived(before), SharedStore.Derived(after), "a caption that became readable redraws")
+        XCTAssertNotEqual(WidgetContent(drawing: before), WidgetContent(drawing: after), "a caption that became readable redraws")
     }
 }

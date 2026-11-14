@@ -434,9 +434,9 @@ final class AppModel {
     }
 
     /// Looked at, or — for a memo — listened to.
-    /// `reloadWidgets: false` while paging the gallery: one reload when it
+    /// `deferringWidgetReload` while paging the gallery: one reload when it
     /// closes (`flushWidgetReload`), not one per page.
-    func markSeen(_ moment: Moment, reloadWidgets: Bool = true) {
+    func markSeen(_ moment: Moment, deferringWidgetReload: Bool = false) {
         guard !moment.seen, !moment.fromMe else { return }
         if let index = history.firstIndex(where: { $0.id == moment.id }) {
             // One assignment: each one rebuilds `history`'s derived lookups.
@@ -448,13 +448,13 @@ final class AppModel {
         let owesReceipt = readReceiptsEnabled && isPaired
         // Owed now, not when the write lands: the gallery can close first. Only a
         // memo's seen state is drawn (the unheard badge; invariant 6).
-        if !reloadWidgets, moment.isVoice { widgetReloadOwed = true }
+        if deferringWidgetReload, moment.isVoice { widgetReloadOwed = true }
         let id = moment.id
         let store = store
         writeIndex { [weak self] in
             MomentIndex.shared.markSeen(ids: [id])
             // The widget's unheard-memo badge is a snapshot field; this is what clears it.
-            let refreshed = store.refreshDerived(reloadWidgets: reloadWidgets) { snapshot in
+            let refreshed = store.refreshDerived(deferringWidgetReload: deferringWidgetReload) { snapshot in
                 // A write landing after an unlink owes the new pairing nothing.
                 if owesReceipt, store.pairing != nil { snapshot.receiptsDirty = true }
                 // Seen in the app before any banner said so: none is owed now.
@@ -462,7 +462,7 @@ final class AppModel {
             }
             Task { @MainActor in
                 guard let model = self else { return }
-                if refreshed.changed, !reloadWidgets { model.widgetReloadOwed = true }
+                if refreshed.changed, deferringWidgetReload { model.widgetReloadOwed = true }
                 model.snapshot = refreshed.snapshot
                 if owesReceipt { model.outbox.scheduleReceiptFlush() }
             }
@@ -511,7 +511,7 @@ final class AppModel {
         // A receipt write the last run couldn't confirm is re-sent, receipts off
         // too, so a retraction a stale write overtook is healed. Before any
         // await: the scene's own refresh may run its recovery pass first.
-        if isPaired { store.mutate(reloadWidgets: false) { $0.rearmUnsettledReceipts() } }
+        if isPaired { store.mutate { $0.rearmUnsettledReceipts() } }
         // An index filled under a smaller cap is swept once to the new one. Every
         // fetch until it ends is a resync: news only what the server created
         // since the last complete fetch (`Snapshot.newsAfter`), older history filed seen.
@@ -990,7 +990,7 @@ final class AppModel {
     /// refresh. `nil` removes the date on both phones.
     func setAnniversary(_ anniversary: Anniversary?) async {
         guard canEditAnniversary else { return }
-        store.mutate(reloadWidgets: false) {
+        store.mutate {
             $0.anniversary = anniversary
             $0.anniversaryPublished = false
             // Setting a date answers any standing ask, so it can't resurface
@@ -1026,7 +1026,7 @@ final class AppModel {
     func requestAnniversary() async {
         guard canRequestAnniversary else { return }
         let now = Date().wholeSeconds
-        store.mutate(reloadWidgets: false) {
+        store.mutate {
             $0.anniversaryRequestedAt = now
             $0.anniversaryRequestPublished = false
         }
@@ -1037,7 +1037,7 @@ final class AppModel {
 
     /// Owner side: the prompt was waved away; it stays away until they ask again.
     func dismissAnniversaryRequest() {
-        store.mutate(reloadWidgets: false) {
+        store.mutate {
             $0.anniversaryRequestDismissedAt = $0.anniversaryRequestedAt
         }
         reload()
@@ -1069,7 +1069,7 @@ final class AppModel {
             guard oldValue != readReceiptsEnabled else { return }
             store.readReceiptsEnabled = readReceiptsEnabled
             // Publish the backlog when enabling; retract with an empty map when disabling.
-            store.mutate(reloadWidgets: false) { $0.receiptsDirty = true }
+            store.mutate { $0.receiptsDirty = true }
             Task { await outbox.flushReceipts() }
         }
     }
@@ -1089,7 +1089,7 @@ final class AppModel {
                                         sealed: snapshot.partnerStatusSealed,
                                         filterEnabled: contentFilterEnabled) { return }
         var changed = false
-        let updated = store.mutate(reloadWidgets: false) { changed = $0.stampPartnerStatusSeen(shown, at: Date()) }
+        let updated = store.mutate { changed = $0.stampPartnerStatusSeen(shown, at: Date()) }
         guard changed else { return }
         snapshot = updated
         outbox.scheduleReceiptFlush()

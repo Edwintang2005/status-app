@@ -160,7 +160,7 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
             var carried: Moment?
             // Check-and-claim in one `mutate` under the cross-process lock, so
             // concurrent instances and the app never both announce one event.
-            _ = SharedStore.shared.mutate(reloadWidgets: false) {
+            _ = SharedStore.shared.mutate {
                 (row, plan) = PushBannerPolicy.decideRow(push, result: result, reportedAt: reportedAt, in: &$0)
                 carried = PushBannerPolicy.carriedMoment(push, in: &$0)
             }

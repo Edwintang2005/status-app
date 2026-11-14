@@ -19,7 +19,7 @@ extension CloudSync {
         // check let two nudges through one cooldown.
         let allowed = await MainActor.run { () -> Bool in
             var claimed = false
-            _ = store.mutate(reloadWidgets: false) { claimed = $0.claimNudgeCooldown(now: now) }
+            _ = store.mutate { claimed = $0.claimNudgeCooldown(now: now) }
             return claimed
         }
         guard allowed else { return false }
@@ -91,7 +91,7 @@ extension CloudSync {
             do {
                 // Stamped before the hand-off, so a deadline after it never reads as a failure.
                 await MainActor.run {
-                    _ = self.stores.shared.mutate(reloadWidgets: false) { $0.lastNudgeIssuedAt = Date().wholeSeconds }
+                    _ = self.stores.shared.mutate { $0.lastNudgeIssuedAt = Date().wholeSeconds }
                 }
                 let saved = try await Self.saveNudgeRecord(record, in: database)
                 await MainActor.run {

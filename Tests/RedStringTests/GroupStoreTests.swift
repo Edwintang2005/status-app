@@ -43,7 +43,7 @@ final class GroupStoreTests: XCTestCase {
         let (store, directory) = makeStore()
         XCTAssertEqual(store.storedValue(forKey: "snapshot"), .absent)
         let shared = SharedStore(store: store)
-        shared.mutate(reloadWidgets: false) { $0.lastSeenPartnerNudgeCount = 7 }
+        shared.mutate { $0.lastSeenPartnerNudgeCount = 7 }
         let file = directory.appendingPathComponent("snapshot")
         let saved = try Data(contentsOf: file)
 
@@ -53,7 +53,7 @@ final class GroupStoreTests: XCTestCase {
         XCTAssertNil(store.data(forKey: "snapshot"))
 
         var ran = false
-        shared.mutate(reloadWidgets: false) { snapshot in
+        shared.mutate { snapshot in
             ran = true
             snapshot.lastSeenPartnerNudgeCount = 0
         }
@@ -65,11 +65,13 @@ final class GroupStoreTests: XCTestCase {
     }
 
     /// A `mutate` that changes nothing writes nothing: every other process would
-    /// otherwise re-read the file, and a widget reload would be spent on nothing.
+    /// otherwise re-read the file. One that changes nothing drawn writes, but
+    /// spends no widget reload (`WidgetRedrawTests` walks every field).
     func testAnUnchangedMutateLeavesTheFileAndTheWidgetsAlone() throws {
         let (store, directory) = makeStore()
         let shared = SharedStore(store: store)
-        shared.mutate(reloadWidgets: false) { $0.lastSeenPartnerNudgeCount = 3 }
+        shared.mutate { $0.lastSeenPartnerNudgeCount = 3 }
+        shared.widgetReloadRequestedAt = nil
         let file = directory.appendingPathComponent("snapshot")
         let before = try XCTUnwrap(FileIdentity(file))
 
@@ -79,6 +81,9 @@ final class GroupStoreTests: XCTestCase {
 
         shared.mutate { $0.lastSeenPartnerNudgeCount = 4 }
         XCTAssertNotEqual(FileIdentity(file), before)
+        XCTAssertNil(shared.widgetReloadRequestedAt, "a watermark isn't drawn")
+
+        shared.mutate { $0.mine = Fixtures.status() }
         XCTAssertNotNil(shared.widgetReloadRequestedAt)
     }
 

@@ -24,7 +24,7 @@ struct MomentWidgetView: View {
 
     /// The picture only — a memo never displaces it. Moderated when the entry
     /// was built: a hidden caption or name is empty, as if there were none.
-    private var moment: Moment? { entry.content.photo }
+    private var moment: WidgetContent.Photo? { entry.content.photo }
     private var unheardMemos: Int { entry.content.unheardMemos }
 
     var body: some View {
@@ -87,7 +87,7 @@ struct MomentWidgetView: View {
     // MARK: - Content
 
     @ViewBuilder
-    private func content(for moment: Moment) -> some View {
+    private func content(for moment: WidgetContent.Photo) -> some View {
         // Until the photo downloads, the background is the pale accent fill —
         // white-on-pale text is invisible, so style for whichever is showing.
         let onPhoto = entry.photo != nil

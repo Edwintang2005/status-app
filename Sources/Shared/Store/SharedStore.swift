@@ -88,29 +88,38 @@ final class SharedStore: @unchecked Sendable {
     /// without this lock, concurrent read-modify-writes lose updates.
     private static let snapshotLock = CrossProcessLock(name: "snapshot.lock")
 
-    /// Locked read–modify–write plus a widget reload. A snapshot that exists
-    /// but can't be read is left alone — the body would start from empty and
-    /// save that over every watermark — and the change is dropped.
+    /// Locked read–modify–write, reloading the widgets when what they draw
+    /// moved (`WidgetContent`, invariant 6) — never by the caller's say-so. A
+    /// snapshot that exists but can't be read is left alone — the body would
+    /// start from empty and save that over every watermark — and the change is dropped.
     @discardableResult
-    func mutate(reloadWidgets: Bool = true, _ body: (inout Snapshot) -> Void) -> Snapshot {
+    func mutate(_ body: (inout Snapshot) -> Void) -> Snapshot {
+        let (result, redraws) = write(body)
+        if redraws { requestWidgetReload() }
+        return result
+    }
+
+    /// `mutate` without the reload: whether one is owed is the caller's to keep
+    /// (`refreshDerived(deferringWidgetReload:)`).
+    func write(_ body: (inout Snapshot) -> Void) -> (snapshot: Snapshot, redraws: Bool) {
+        // Outside the lock: a report changing meanwhile reloads on its own.
+        let reportedAt = hiddenPartnerStatusAt
         let outcome = Self.snapshotLock.withLock { () -> (Snapshot, Bool)? in
             if case .unreadable = store.storedValue(forKey: Key.snapshot.name) { return nil }
             let before = snapshot
             var current = before
             body(&current)
-            // Unchanged: no write (it would make every other process re-read the
-            // file) and no widget reload — nothing a widget draws moved.
+            // Unchanged: no write (it would make every other process re-read the file).
             guard current != before else { return (current, false) }
             snapshot = current
-            return (current, true)
+            return (current, WidgetContent(drawing: current, reportedAt: reportedAt)
+                != WidgetContent(drawing: before, reportedAt: reportedAt))
         }
         guard let outcome else {
             log.error("Snapshot exists but can't be read; nothing written.")
-            return snapshot
+            return (snapshot, false)
         }
-        let (result, changed) = outcome
-        if changed, reloadWidgets { requestWidgetReload() }
-        return result
+        return outcome
     }
 
     // MARK: - Pairing

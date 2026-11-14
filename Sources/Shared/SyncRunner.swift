@@ -44,7 +44,7 @@ struct SyncRunner {
         // Check and claim inside one `mutate`, under the cross-process lock: the service
         // extension advances the same watermarks, and check-then-act outside it double-announced.
         var claims = AnnouncementPolicy.Claims()
-        store.mutate(reloadWidgets: false) {
+        store.mutate {
             claims = AnnouncementPolicy.claim(result, previousStatus: previousStatus, in: &$0)
         }
         let name = store.snapshot.moderatedPartnerName

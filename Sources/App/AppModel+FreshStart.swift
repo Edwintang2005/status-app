@@ -107,7 +107,7 @@ extension AppModel {
 
     func dismissFreshStartRequest() {
         guard case .theyAsked(let asked) = freshStartPhase else { return }
-        store.mutate(reloadWidgets: false) { $0.freshStart.dismissedAsk = asked }
+        store.mutate { $0.freshStart.dismissedAsk = asked }
         reload()
     }
 }

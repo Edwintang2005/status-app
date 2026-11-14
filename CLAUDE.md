@@ -36,7 +36,7 @@ Each: the rule · where · guarded by. Full text, with the why: `Documentation/i
 3. **Shared state lives in files, not UserDefaults.** Caches key on the file's identity. · `GroupStoreTests`.
 4. **Encryption boundaries.** User words and behaviour go through `encryptedValues`; only names, kinds, dates and counts are plaintext; assets never through `encryptedValues`. · unguarded (review every new field).
 5. **Hand-written Codable.** Persisted types decode with fallbacks so old data survives. · `SnapshotCodableTests`, `ModelCodableTests`, `ForwardCompatTests`.
-6. **Widgets reload through `SharedStore`, only when something drawn moved,** never from the widget process; the NSE holds reloads to one per push. · `WidgetReloadPolicyTests`, `testAnUnchangedMutateLeavesTheFileAndTheWidgetsAlone`, `testAHeldProcessAbsorbsReloadsUntilTheHoldEnds`.
+6. **Widgets reload through `SharedStore`, only when something drawn moved** — `mutate` works it out from `WidgetContent`, never the caller; never from the widget process; the NSE holds reloads to one per push. · `WidgetRedrawTests`, `WidgetReloadPolicyTests`, `testAHeldProcessAbsorbsReloadsUntilTheHoldEnds`.
 7. **The heart's cooldown is claimed before the network** (`Snapshot.claimNudgeCooldown`), released only for a tap that never reached iCloud. · `NudgeCooldownPolicyTests`.
 8. **Unlink is cloud-first;** "zone gone" needs a second sighting and the same account; a new invite never reuses an occupied zone. · `CloudSyncSeamTests` (zone gone, unlink mid-fetch), `SharePostureTests`.
 9. **Closing the invite link is a manual two-step handshake;** never automatic, never evicts a stranger with the partner. · `SharePostureTests`; the handshake itself only on devices.

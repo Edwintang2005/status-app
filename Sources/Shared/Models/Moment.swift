@@ -196,14 +196,7 @@ extension Moment {
     var isPicture: Bool { kind == .photo || kind == .drawing }
 
     /// What to call this in a sentence: "sent you a …".
-    var noun: String {
-        switch kind {
-        case .photo: return String(localized: "photo")
-        case .drawing: return String(localized: "drawing")
-        case .voice: return String(localized: "voice memo")
-        case .unsupported: return String(localized: "moment")
-        }
-    }
+    var noun: String { kind.noun }
 
     /// SF Symbol standing in for the kind, in labels and on tiles.
     var symbolName: String {
@@ -232,6 +225,15 @@ extension Moment {
 }
 
 extension Moment.Kind {
+    var noun: String {
+        switch self {
+        case .photo: return String(localized: "photo")
+        case .drawing: return String(localized: "drawing")
+        case .voice: return String(localized: "voice memo")
+        case .unsupported: return String(localized: "moment")
+        }
+    }
+
     /// Kind-level so a locked phone's banner can use it: `kind` is plaintext.
     var arrivalSummary: String {
         switch self {

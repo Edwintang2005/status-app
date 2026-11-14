@@ -52,7 +52,7 @@ extension CloudSync {
                 }
             }
             await MainActor.run {
-                _ = self.stores.shared.mutate(reloadWidgets: false) { $0.recordLogged(payload) }
+                _ = self.stores.shared.mutate { $0.recordLogged(payload) }
             }
             noteStatusLogsPruned(removed)
             let foldedNames = Set(folded.map(\.id.recordName))

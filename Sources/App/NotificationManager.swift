@@ -248,7 +248,7 @@ enum NotificationManager {
     static func postNudge(from name: String, sentAt: Date?) async {
         await removeGenericBanners(body: CloudSync.GenericAlert.nudge, category: NotificationCategory.nudge)
         var interruption = AnnouncementPolicy.NudgeInterruption(stale: false, breaksThroughFocus: false)
-        _ = SharedStore.shared.mutate(reloadWidgets: false) {
+        _ = SharedStore.shared.mutate {
             interruption = AnnouncementPolicy.nudgeInterruption(sentAt: sentAt, in: &$0)
         }
 

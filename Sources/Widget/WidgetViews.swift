@@ -9,8 +9,8 @@ struct StatusWidgetView: View {
     @Environment(\.widgetFamily) private var family
 
     /// Moderated when the entry was built (`WidgetContent`).
-    private var status: StatusPayload? { entry.content.partner }
-    private var mine: StatusPayload? { entry.content.mine }
+    private var status: WidgetContent.Status? { entry.content.partner }
+    private var mine: WidgetContent.Status? { entry.content.mine }
     private var isPaired: Bool { entry.content.isPaired }
     private var isLocked: Bool { entry.content.isLocked }
     private var knownName: String? { entry.content.partnerName }
@@ -104,7 +104,7 @@ struct StatusWidgetView: View {
     }
 
     /// One half of the pair; `nil` (paired, nothing yet) draws a placeholder, not a blank.
-    private func person(_ status: StatusPayload?, label: String) -> some View {
+    private func person(_ status: WidgetContent.Status?, label: String) -> some View {
         VStack(spacing: 1.5) {
             Text(label.uppercased())
                 .font(.system(size: 9, weight: .semibold, design: .rounded))
@@ -129,7 +129,7 @@ struct StatusWidgetView: View {
         .accessibilityElement(children: .combine)
     }
 
-    private func personMessage(for status: StatusPayload?) -> String {
+    private func personMessage(for status: WidgetContent.Status?) -> String {
         guard let status else { return String(localized: "nothing yet") }
         return status.message.isEmpty ? String(localized: "no message") : status.message
     }

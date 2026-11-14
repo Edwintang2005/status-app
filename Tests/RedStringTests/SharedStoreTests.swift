@@ -109,7 +109,7 @@ final class SharedStoreTests: XCTestCase {
 
     func testMutatePersistsAndReturnsTheResult() {
         let (store, _) = makeStore()
-        let result = store.mutate(reloadWidgets: false) {
+        let result = store.mutate {
             $0.isPaired = true
             $0.lastSeenPartnerNudgeCount = max($0.lastSeenPartnerNudgeCount, 4)
         }
@@ -200,7 +200,7 @@ final class SharedStoreTests: XCTestCase {
         ]
         let index = MomentIndex(fileURL: temporaryFile("moments-index.json"), onCorrupt: {})
         index.insert(all)
-        XCTAssertTrue(store.refreshDerived(reloadWidgets: false, index: index).changed)
+        XCTAssertTrue(store.refreshDerived(index: index).changed)
         let snapshot = store.snapshot
         XCTAssertEqual(snapshot.latestOwnMoment?.id, "o1")
         XCTAssertEqual(snapshot.latestPartnerMoment?.id, "v1")
@@ -208,11 +208,11 @@ final class SharedStoreTests: XCTestCase {
         XCTAssertEqual(snapshot.unheardVoiceMemoCount, 1)
 
         index.markSeen(ids: ["p1"])
-        XCTAssertFalse(store.refreshDerived(reloadWidgets: false, index: index).changed,
+        XCTAssertFalse(store.refreshDerived(index: index).changed,
                        "a photo marked seen changes nothing a widget draws")
 
         index.clear()
-        store.refreshDerived(reloadWidgets: false, index: index)
+        store.refreshDerived(index: index)
         XCTAssertNil(store.snapshot.latestPartnerVisualMoment, "must return to nil when the last picture goes")
         XCTAssertEqual(store.snapshot.unheardVoiceMemoCount, 0)
     }
@@ -223,27 +223,27 @@ final class SharedStoreTests: XCTestCase {
         let (store, _) = makeStore()
         let index = MomentIndex(fileURL: temporaryFile("moments-index.json"), onCorrupt: {})
         index.insert([Fixtures.moment("m1", at: Fixtures.date(-20)), Fixtures.moment("m2", at: Fixtures.date(-10))])
-        store.refreshDerived(reloadWidgets: false, index: index)
+        store.refreshDerived(index: index)
         XCTAssertEqual(store.snapshot.latestPartnerVisualMoment?.id, "m2")
 
-        let hidden = store.refreshDerived(reloadWidgets: false, index: index) { $0.widgetHiddenMomentIDs.append("m2") }
+        let hidden = store.refreshDerived(index: index) { $0.widgetHiddenMomentIDs.append("m2") }
         XCTAssertTrue(hidden.changed, "the widget redraws")
         XCTAssertEqual(store.snapshot.latestPartnerVisualMoment?.id, "m1")
         XCTAssertEqual(store.snapshot.widgetHiddenMomentIDs, ["m2"])
 
         index.insert([Fixtures.moment("v3", kind: .voice, at: Fixtures.date(-5)),
                       Fixtures.moment("o3", at: Fixtures.date(-4), fromMe: true)])
-        store.refreshDerived(reloadWidgets: false, index: index)
+        store.refreshDerived(index: index)
         XCTAssertEqual(store.snapshot.latestPartnerVisualMoment?.id, "m1", "a memo or an own send isn't a new picture")
 
         index.insert([Fixtures.moment("m3")])
-        store.refreshDerived(reloadWidgets: false, index: index)
+        store.refreshDerived(index: index)
         XCTAssertEqual(store.snapshot.latestPartnerVisualMoment?.id, "m3")
         XCTAssertEqual(store.snapshot.widgetHiddenMomentIDs, [], "the hide ends with the new picture")
 
         index.clear()
         index.insert([Fixtures.moment("m1", at: Fixtures.date(-20)), Fixtures.moment("m2", at: Fixtures.date(-10))])
-        store.refreshDerived(reloadWidgets: false, index: index)
+        store.refreshDerived(index: index)
         XCTAssertEqual(store.snapshot.latestPartnerVisualMoment?.id, "m2", "so m3 going doesn't bring the hide back")
     }
 
@@ -267,7 +267,7 @@ final class SharedStoreTests: XCTestCase {
         let (store, _) = makeStore()
         let index = MomentIndex(fileURL: temporaryFile("moments-index.json"), onCorrupt: {})
         index.insert([Fixtures.moment("v1", kind: .voice)])
-        let refreshed = store.refreshDerived(reloadWidgets: false, index: index) { $0.receiptsDirty = true }
+        let refreshed = store.refreshDerived(index: index) { $0.receiptsDirty = true }
         XCTAssertTrue(refreshed.changed)
         XCTAssertTrue(refreshed.snapshot.receiptsDirty)
         XCTAssertEqual(refreshed.snapshot.unheardVoiceMemoCount, 1)
@@ -280,7 +280,7 @@ final class SharedStoreTests: XCTestCase {
         let url = temporaryFile("moments-index.json")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         let index = MomentIndex(fileURL: url, onCorrupt: {})
-        let refreshed = store.refreshDerived(reloadWidgets: false, index: index) { $0.receiptsDirty = true }
+        let refreshed = store.refreshDerived(index: index) { $0.receiptsDirty = true }
         XCTAssertFalse(refreshed.changed)
         XCTAssertTrue(store.snapshot.receiptsDirty)
     }
@@ -292,10 +292,10 @@ final class SharedStoreTests: XCTestCase {
         let here = SharedStore(store: GroupFileStore(directory: directory, legacy: nil, isAppExtension: false))
         let there = SharedStore(store: GroupFileStore(directory: directory, legacy: nil, isAppExtension: true))
 
-        here.mutate(reloadWidgets: false) { $0.lastSeenPartnerNudgeCount = 1 }
+        here.mutate { $0.lastSeenPartnerNudgeCount = 1 }
         XCTAssertEqual(here.snapshot.lastSeenPartnerNudgeCount, 1)
         XCTAssertEqual(there.snapshot.lastSeenPartnerNudgeCount, 1)
-        there.mutate(reloadWidgets: false) { $0.lastSeenPartnerNudgeCount = 2 }
+        there.mutate { $0.lastSeenPartnerNudgeCount = 2 }
         XCTAssertEqual(here.snapshot.lastSeenPartnerNudgeCount, 2)
 
         XCTAssertTrue(here.contentFilterEnabled)
@@ -315,7 +315,7 @@ final class SharedStoreTests: XCTestCase {
     /// drops fractions, so a cached fractional date would never match its file.
     func testCachedSnapshotIsTheDecodedCopy() {
         let (store, _) = makeStore()
-        store.mutate(reloadWidgets: false) { $0.lastSyncedAt = Fixtures.date(0.6) }
+        store.mutate { $0.lastSyncedAt = Fixtures.date(0.6) }
         XCTAssertEqual(store.snapshot.lastSyncedAt, Fixtures.t0)
     }
 
@@ -333,7 +333,7 @@ final class SharedStoreTests: XCTestCase {
 
     func testUnlinkKeepsOnlyTheName() {
         let (store, _) = makeStore()
-        store.mutate(reloadWidgets: false) {
+        store.mutate {
             $0.mine = Fixtures.status()
             $0.theirs = Fixtures.status()
             $0.isPaired = true

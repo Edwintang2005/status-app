@@ -5,7 +5,7 @@ import UIKit
 /// size (the 512 px thumbnail is soft on a medium or large tile), or the
 /// thumbnail while the full copy isn't on disk.
 enum WidgetPhoto {
-    static func image(for moment: Moment, pointSize: CGSize) -> UIImage? {
+    static func image(for moment: WidgetContent.Photo, pointSize: CGSize) -> UIImage? {
         let traitScale = UITraitCollection.current.displayScale
         let scale = traitScale > 0 ? traitScale : 3
         let target = CGSize(width: pointSize.width * scale, height: pointSize.height * scale)

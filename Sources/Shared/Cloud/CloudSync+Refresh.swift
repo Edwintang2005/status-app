@@ -654,22 +654,19 @@ extension CloudSync {
             return fold
         }()
 
-        let snapshotChanged = await MainActor.run {
-            var changed = false
-            store.mutate(reloadWidgets: false) {
-                // Checked *inside* the locked mutate, by zone identity: an unlink
+        // Its reload waits for the moments' below: one for the delta, not one per write.
+        let foldRedraws = await MainActor.run {
+            store.write {
+                // Checked *inside* the locked write, by zone identity: an unlink
                 // — or an unlink and a new pairing — can land mid-refresh, and
                 // writing this delta would file the ex's records onto the wrong snapshot.
                 guard store.pairing?.sameZone(as: pairing) == true else { return }
-                let before = $0
                 fold.fold(into: &$0)
                 $0.isPaired = true
-                changed = $0 != before
                 // Only a complete fetch counts as synced: the widget skips its own
                 // fetch after a recent sync, and one batch of a large delta isn't one.
                 if complete { $0.lastSyncedAt = Date() }
-            }
-            return changed
+            }.redraws
         }
 
         // An unlink can land mid-refresh (the status write above checks under the
@@ -691,25 +688,24 @@ extension CloudSync {
         }
 
         let arrived = outcome.arrived
+        var redrawn = false
         if arrived.isEmpty {
             if !parsed.removedMomentIDs.isEmpty {
                 // A deletions-only delta still invalidates snapshot fields derived from
                 // the index — otherwise the photo widget points at deleted files.
                 let index = stores.index
-                await MainActor.run { _ = store.refreshDerived(index: index) }
-            } else if snapshotChanged {
-                // An empty delta reloads nothing: each reload costs every widget kind budget.
-                store.requestWidgetReload()
+                redrawn = await MainActor.run { store.refreshDerived(index: index).changed }
             }
         } else {
             // Off the main actor: an index rewrite, a snapshot write and a media
             // prune, all thread-safe, mustn't stall the app's UI per arriving moment.
-            store.record(arrived, cleared: {
+            redrawn = store.record(arrived, cleared: {
                 let epoch = store.snapshot.freshStart.clearedBefore
                 let isCleared = FreshStartPolicy.clearedFilter(createdAt: created.moments, epoch: epoch)
                 return { isCleared($0.id) }
             }, index: stores.index, media: stores.media)
         }
+        if foldRedraws, !redrawn { store.requestWidgetReload() }
 
         // After the moments above are in the index — a receipt arriving in the
         // same delta (a full resync) must find the entries it refers to.
@@ -810,6 +806,8 @@ extension CloudSync {
             items.forEach { store.delete(id: $0.moment.id) }
             return
         }
-        if reloadsWidgets { SharedStore.reloadWidgets() }
+        // Only the picture a widget draws: the app's prefetch of recent history isn't one.
+        let drawn = await MainActor.run { self.stores.shared.snapshot.latestPartnerVisualMoment?.id }
+        if reloadsWidgets, items.contains(where: { $0.moment.id == drawn }) { SharedStore.reloadWidgets() }
     }
 }

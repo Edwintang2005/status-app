@@ -227,7 +227,7 @@ struct MomentGalleryView: View {
                 guard playing, let moment = current, moment.isVoice,
                       let url = MomentStore.shared.mediaURL(for: moment),
                       player.currentURL == url else { return }
-                model.markSeen(moment, reloadWidgets: false)
+                model.markSeen(moment, deferringWidgetReload: true)
             }
             .onDisappear {
                 player.stop()
@@ -555,7 +555,7 @@ struct MomentGalleryView: View {
     private func markCurrentPhotoSeen() {
         guard let moment = current, !moment.isVoice,
               MomentStore.shared.hasImage(for: moment.id) else { return }
-        model.markSeen(moment, reloadWidgets: false)
+        model.markSeen(moment, deferringWidgetReload: true)
     }
 
     // MARK: - Lazy loading

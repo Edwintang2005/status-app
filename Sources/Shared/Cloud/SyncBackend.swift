@@ -389,7 +389,7 @@ enum DemoMode {
 struct DemoBackend: AppBackend {
     func readiness() async -> BackendReadiness { .ready }
     func publish(_ payload: StatusPayload, logged: Bool) async throws {
-        SharedStore.shared.mutate(reloadWidgets: false) {
+        SharedStore.shared.mutate {
             $0.recordPublished(payload, savedAt: Date().wholeSeconds)
             if logged, $0.mine?.wordsAt == payload.wordsAt { $0.myStatusLoggedAt = payload.wordsAt }
         }
