@@ -6,6 +6,11 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 Version 1.7.
 
+- **Tapping the photo widget opens the photo it shows.** After a long lock the
+  widget had already drawn the newest picture, but the app opened the one from
+  before the lock: it looked the picture up in its own out-of-date copy of the
+  history. It now re-reads the history first.
+
 - **You can tell when syncing isn't working.** After three failed syncs in a
   row, Home's footer says it couldn't sync, with when it last did, and a tap
   tries again; a first sync on a new phone says "Restoring your history…"

@@ -350,8 +350,14 @@ struct HomeView: View {
             carouselQueue = model.carouselMoments
             return !carouselQueue.isEmpty
         case .moment(let id):
-            // Not filed yet (the widget can run ahead of the app): the new arrivals.
-            guard let moment = model.history.first(where: { $0.id == id && !$0.isVoice }) else {
+            // This model's copy can predate it: the widget and the notification
+            // service file pictures while the app sits suspended (a long lock),
+            // and the widget draws from the store. Re-read before looking.
+            if !model.history.contains(where: { $0.id == id }) { model.reload() }
+            // A queued index write holds `history` back: the file itself has it.
+            // Neither (an unreadable index): the new arrivals.
+            guard let moment = model.history.first(where: { $0.id == id && !$0.isVoice })
+                    ?? MomentIndex.shared.load().first(where: { $0.id == id && !$0.isVoice }) else {
                 carouselQueue = model.carouselMoments
                 return !carouselQueue.isEmpty
             }
