@@ -67,6 +67,9 @@ final class StatusHistoryLog: @unchecked Sendable {
     private(set) var readFailed = false
     /// The last list read or written, by file identity, like `MomentIndex`'s.
     private var cache: (key: FileIdentity, entries: [StatusHistoryEntry])?
+    /// Tests only: runs between a plain read that failed to decode and its
+    /// re-read under the cross-process lock — where another writer can land.
+    var beforeLockedReread: (() -> Void)?
 
     /// `fileURL` defaults to the App Group file; tests pass a temporary one.
     init(fileURL: URL? = nil, onCorrupt: (() -> Void)? = nil) {
@@ -195,6 +198,7 @@ final class StatusHistoryLog: @unchecked Sendable {
             // there, or it could bin a fresh file another process's writer just saved.
             guard writing else {
                 cache = nil
+                beforeLockedReread?()
                 return crossLock.withLock { loadUnlocked(writing: true) }
             }
             log.error("Corrupt status history: \(error.localizedDescription)")

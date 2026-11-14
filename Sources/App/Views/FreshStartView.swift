@@ -29,6 +29,12 @@ struct FreshStartView: View {
     @State private var actionAfterShare: Action?
     @State private var noticeAfterShare: String?
     @State private var confirmingAfterShare: Action?
+    /// Moments the archive found with no file left anywhere (`ArchiveGate.confirmGone`).
+    @State private var goneBeforeAction = 0
+    /// The archive reached iCloud Drive: only the gone moments are being asked about.
+    @State private var archiveInDrive = false
+    /// Where the archive went, said once the confirmed action goes on.
+    @State private var savedBeforeAction: String?
     @State private var notice: String?
     @State private var working = false
 
@@ -96,11 +102,13 @@ struct FreshStartView: View {
                             titleVisibility: .visible,
                             presenting: confirmingAfterShare) { action in
             Button(action == .ask ? "Ask" : "Agree", role: .destructive) {
-                Task { await perform(action) }
+                let saved = savedBeforeAction
+                savedBeforeAction = nil
+                Task { await perform(action, after: saved) }
             }
-            Button("Not now", role: .cancel) {}
+            Button("Not now", role: .cancel) { savedBeforeAction = nil }
         } message: { _ in
-            Text("The archive was only shared from this iPhone — continue only if you saved it somewhere safe.")
+            Text(confirmationMessage)
         }
         .alert("Fresh start", isPresented: $notice.isPresent()) {
             Button("OK", role: .cancel) { notice = nil }
@@ -220,6 +228,19 @@ struct FreshStartView: View {
             : String(localized: "Ask without saving memories?")
     }
 
+    private var confirmationMessage: String {
+        var parts: [String] = []
+        if goneBeforeAction > 0 {
+            parts.append(goneBeforeAction == 1
+                ? String(localized: "1 moment is no longer in iCloud, so the archive has only what this iPhone kept of it.")
+                : String(localized: "\(goneBeforeAction) moments are no longer in iCloud, so the archive has only what this iPhone kept of them."))
+        }
+        if !archiveInDrive {
+            parts.append(String(localized: "The archive was only shared from this iPhone — continue only if you saved it somewhere safe."))
+        }
+        return parts.joined(separator: " ")
+    }
+
     private var footer: String {
         String(localized: "A fresh start clears every photo, drawing and voice memo, the status history and read receipts — from both iPhones and from iCloud. Your link, both current statuses, the heart and your date stay. It needs you both: one asks, the other agrees, and nothing is cleared before that. Anything still waiting to send goes afterwards.")
     }
@@ -233,9 +254,11 @@ struct FreshStartView: View {
         let saved = outcome.destination == .iCloudDrive
             ? String(localized: "Memories saved to iCloud Drive › \(AppConfig.appName) › \(outcome.folder.lastPathComponent).")
             : String(localized: "Memories saved on this iPhone only.")
-        if !outcome.isComplete {
+        goneBeforeAction = if case .confirmGone(let count) = outcome.gate { count } else { 0 }
+        archiveInDrive = outcome.destination == .iCloudDrive
+        if outcome.gate == .retry || outcome.gate == .updateFirst {
             // Only an update saves a newer build's moments; anything else may just need signal.
-            let why = outcome.unsupported > 0 && outcome.unrecovered == 0
+            let why = outcome.gate == .updateFirst
                 ? String(localized: "Some of your history needs a newer version of \(AppConfig.appName) to be saved, so nothing was asked or agreed. Update it from the App Store, then try again.")
                 : String(localized: "Some of your history couldn't be saved, so nothing was asked or agreed. Try again with a better connection.")
             let text = saved + " " + why
@@ -249,7 +272,13 @@ struct FreshStartView: View {
         }
         switch outcome.destination {
         case .iCloudDrive:
-            await perform(action, after: saved)
+            // Moments with no file anywhere: asked about, never taken silently (APP-1).
+            if goneBeforeAction > 0 {
+                savedBeforeAction = saved
+                confirmingAfterShare = action
+            } else {
+                await perform(action, after: saved)
+            }
         case .deviceOnly:
             actionAfterShare = action
             sharing = SharedArchive(url: outcome.folder)

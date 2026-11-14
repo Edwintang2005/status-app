@@ -64,7 +64,7 @@ extension CloudSync {
                 let record: CKRecord
                 do {
                     guard let fetched = try await database.waited({
-                        try await $0.records(for: [recordID], desiredKeys: [Field.caption])
+                        try await $0.records(for: [recordID], desiredKeys: [Field.caption.rawValue])
                     })[recordID] else { return }
                     record = try fetched.get()
                 } catch let error as CKError where error.code == .unknownItem {
@@ -234,6 +234,12 @@ extension CloudSync {
         try await downloadMedia(for: moment, pairing: pairing, in: database)
     }
 
+    func fetchMedia(for moments: [Moment]) async throws {
+        guard !moments.isEmpty else { return }
+        let pairing = try await requirePairing()
+        try await downloadFullMedia(for: moments, pairing: pairing, in: database(for: pairing))
+    }
+
     func prefetchRecentMedia() async {
         guard let pairing = try? await requirePairing() else { return }
         await prefetchMedia(for: [], pairing: pairing)
@@ -263,7 +269,7 @@ extension CloudSync {
             // A fresh configuration defaults to discretionary QoS (see `changesOperation`).
             configuration.qualityOfService = .userInitiated
             let results = try await database.configuredWith(configuration: configuration) { configured in
-                try await configured.records(for: chunk, desiredKeys: [Field.thumb])
+                try await configured.records(for: chunk, desiredKeys: [Field.thumb.rawValue])
             }
             // Abandoned at a deadline: nothing lands after the caller moved on.
             try Task.checkCancellation()
@@ -335,7 +341,7 @@ extension CloudSync {
         guard !byRecord.isEmpty else { return }
         let ids = Array(byRecord.keys)
         let results = try await database.waited {
-            try await $0.records(for: ids, desiredKeys: [Field.image, Field.thumb, Field.audio])
+            try await $0.records(for: ids, desiredKeys: [Field.image, .thumb, .audio].map(\.rawValue))
         }
         // Abandoned at a deadline: nothing lands after the caller moved on.
         try Task.checkCancellation()
@@ -449,6 +455,8 @@ extension CloudSync {
         let staging = destination.appendingPathExtension("\(UUID().uuidString).part")
         let fileManager = FileManager.default
         try fileManager.copyItem(at: source, to: staging)
+        // Never left behind: beside an archive's files it would be saved with them.
+        defer { try? fileManager.removeItem(at: staging) }
         try? fileManager.removeItem(at: destination)
         try fileManager.moveItem(at: staging, to: destination)
     }

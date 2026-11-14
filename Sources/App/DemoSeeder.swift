@@ -19,6 +19,16 @@ enum DemoSeeder {
         // so the library and status history are long enough to scroll.
         let bulk = ProcessInfo.processInfo.environment["REDSTRING_DEMO_BULK"] == "1"
 
+        // `REDSTRING_DEMO_UNPAIRED=1`: a first launch — terms, name, then pairing.
+        if ProcessInfo.processInfo.environment["REDSTRING_DEMO_UNPAIRED"] == "1" {
+            store.clearPairing(keepingName: false)
+            store.acceptedTermsVersion = 0
+            MomentIndex.shared.clear()
+            return
+        }
+
+        // An earlier unpaired run's invite leaves the "when did you begin?" ask owed.
+        store.anniversaryPromptPending = false
         store.pairing = PairingInfo(role: .owner,
                                     zoneName: AppConfig.coupleZoneName,
                                     zoneOwnerName: "__defaultOwner__",

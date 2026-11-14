@@ -14,6 +14,35 @@ enum BannerUpkeepPolicy {
         var date: Date
         /// The words it shows, to tell when its moment's caption has moved on.
         var body = ""
+
+        /// A delivered banner as upkeep sees it: its stamped subject, or — a push the
+        /// service never worded — one inferred from CloudKit's words, held. `nil`
+        /// for a banner upkeep has no business with (a local one, a worded echo).
+        init?(id: String, userInfo: [AnyHashable: Any], isPush: Bool, subscriptionID: String?,
+              date: Date, body: String) {
+            var held = userInfo[NotificationCategory.heldBannerKey] != nil
+            let subject: BannerSubject
+            if let stamped = BannerSubject(userInfo: userInfo) {
+                subject = stamped
+            } else if isPush, let inferred = BannerUpkeepPolicy.inferredSubject(subscriptionID: subscriptionID,
+                                                                               body: body) {
+                subject = inferred
+                held = true
+            } else {
+                return nil
+            }
+            self.init(id: id, subject: subject, held: held,
+                      wantsAttachment: userInfo[BannerSubject.wantsAttachmentKey] != nil, date: date, body: body)
+        }
+
+        init(id: String, subject: BannerSubject, held: Bool, wantsAttachment: Bool, date: Date, body: String = "") {
+            self.id = id
+            self.subject = subject
+            self.held = held
+            self.wantsAttachment = wantsAttachment
+            self.date = date
+            self.body = body
+        }
     }
 
     struct State {
@@ -36,6 +65,29 @@ enum BannerUpkeepPolicy {
         /// The bodies a banner about this moment may show now — its words, or
         /// the edited-caption notice; the first is what a stale banner becomes.
         var wordings: (Moment) -> [String] = { _ in [] }
+
+        /// From the stores as one pass reads them. `caughtUp` is the pass's own
+        /// verdict: still owing records, it isn't, whichever pass said so.
+        static func make(role: PairRole, snapshot: Snapshot, heldNames: [String], caughtUp: Bool,
+                         index: [Moment]?, hidden: Set<String>, filterEnabled: Bool,
+                         hasAttachment: @escaping (Moment) -> Bool) -> State {
+            let theirs = role.other
+            return State(index: index,
+                         heldMomentIDs: Set(heldNames.compactMap(theirs.momentID(fromRecordName:))),
+                         hidden: hidden,
+                         hasAttachment: hasAttachment,
+                         statusHeld: heldNames.contains(theirs.statusRecordName),
+                         partnerStatus: snapshot.theirs,
+                         caughtUp: caughtUp && heldNames.isEmpty,
+                         nothingUnannounced: snapshot.owedMoments.isEmpty,
+                         wordings: { [BannerUpkeepPolicy.words(for: $0, filterEnabled: filterEnabled),
+                                      PushBannerPolicy.editedCaptionBody($0, filterEnabled: filterEnabled)] })
+        }
+    }
+
+    /// What a banner about this moment says, as every path words it.
+    static func words(for moment: Moment, filterEnabled: Bool) -> String {
+        moment.displayCaption(filterEnabled: filterEnabled) ?? moment.arrivalSummary
     }
 
     enum Action: Equatable, Sendable {

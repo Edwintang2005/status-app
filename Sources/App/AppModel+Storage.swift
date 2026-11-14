@@ -3,8 +3,8 @@ import os
 
 // Settings' "Downloaded media": what this iPhone keeps of moments iCloud still holds.
 extension AppModel {
-    /// Not while an archive runs: it fetches missing media, then copies it,
-    /// and a clear in between would leave its photos unrecovered.
+    /// Not while an archive runs: it copies this phone's files first, and a clear
+    /// mid-copy would leave them to fetch from iCloud again (or not at all, unsent).
     var canClearDownloadedMedia: Bool { archiveProgress == nil && !isClearingMedia }
 
     /// Bytes "Clear downloaded media" would free: moment files outside

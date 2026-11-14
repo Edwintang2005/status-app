@@ -348,6 +348,7 @@ struct ScratchCard: View {
                     .foregroundStyle(.primary)
                     .padding(22)
                     .accessibilityHidden(!opened)
+                    .accessibilityIdentifier("celebration.sealed")
                 foil
                     .mask { mask(size: size) }
                     .opacity(opened ? 0 : 1)

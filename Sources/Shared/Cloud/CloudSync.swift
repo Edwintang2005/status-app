@@ -199,56 +199,61 @@ actor CloudSync: AppBackend {
     /// Likewise one per pair, only the participant writes it; re-asking overwrites.
     static let anniversaryRequestRecordName = "anniversary-request"
 
-    enum Field {
+    /// Every record field, by its name in the schema. `CaseIterable`: the change
+    /// fetch asks for every one that isn't an asset (`changeFetchKeys`).
+    enum Field: String, CaseIterable, Sendable {
         // Status. The human-readable parts are encrypted.
-        static let emoji = "emoji"
-        static let message = "message"
-        static let displayName = "displayName"
-        static let updatedAt = "updatedAt"
+        case emoji
+        case message
+        case displayName
+        case updatedAt
         /// CloudKit has no boolean type: Int64 (1/0), encrypted with the message.
-        static let isCelebration = "isCelebration"
+        case isCelebration
         /// `CelebrationStyle`'s raw value, encrypted; only on the `Status` record.
-        static let celebrationStyle = "celebrationStyle"
+        case celebrationStyle
 
         // Nudge.
-        static let count = "count"
+        case count
 
         // Moment. `image`/`thumb`/`audio` are CKAssets, which CloudKit
         // encrypts by default — they must NOT go through `encryptedValues`.
-        static let momentID = "momentID"
-        static let kind = "kind"
-        static let caption = "caption"
-        static let senderName = "senderName"
-        static let sentAt = "sentAt"
-        static let image = "image"
-        static let thumb = "thumb"
+        case momentID
+        case kind
+        case caption
+        case senderName
+        case sentAt
+        case image
+        case thumb
         // Voice memos only. `waveform` is a speech loudness envelope, so it
         // goes through `encryptedValues` like the caption.
-        static let audio = "audio"
-        static let duration = "duration"
-        static let waveform = "waveform"
+        case audio
+        case duration
+        case waveform
 
         // Receipt. A JSON blob of {momentID: seenAt}; which moments someone
         // read is behavioural, so it's encrypted like the captions. The status
         // receipt is two dates: when, and which status (`wordsAt`) it was.
-        static let seenMap = "seenMap"
-        static let statusSeenAt = "statusSeenAt"
-        static let statusSeenFor = "statusSeenFor"
+        case seenMap
+        case statusSeenAt
+        case statusSeenFor
 
         // Anniversary. A date is personal even if it isn't words, so both go
         // through `encryptedValues`.
-        static let startsAt = "startsAt"
-        static let timeZone = "timeZone"
+        case startsAt
+        case timeZone
 
         // AnniversaryRequest. Encrypted for the same reason, and it doubles as
         // the type's readability probe.
-        static let requestedAt = "requestedAt"
+        case requestedAt
 
         // FreshStart. Who asked to clear the history is behavioural, so every
         // field is encrypted; `stage` is always written and is the type's probe.
-        static let stage = "stage"
-        static let epoch = "epoch"
-        static let clearedBefore = "clearedBefore"
+        case stage
+        case epoch
+        case clearedBefore
+
+        /// Media, encrypted by CloudKit itself: fetched on demand, never with a delta.
+        var isAsset: Bool { [.image, .thumb, .audio].contains(self) }
     }
 
     /// One subscription per record type — each wants a different payload.
@@ -526,5 +531,19 @@ actor CloudSync: AppBackend {
     static func confirmZoneDeleted(_ results: [CKRecordZone.ID: Result<Void, Error>], _ id: CKRecordZone.ID) throws {
         guard let deleted = results[id] else { throw SyncError.saveUnconfirmed }
         try deleted.get()
+    }
+}
+
+/// Record fields by `CloudSync.Field`, so call sites read as the schema does
+/// (a `CKRecord` and its `encryptedValues` alike).
+extension CKRecordKeyValueSetting {
+    subscript(_ field: CloudSync.Field) -> CKRecordValue? {
+        get { self[field.rawValue] }
+        set { self[field.rawValue] = newValue }
+    }
+
+    subscript<T: CKRecordValueProtocol>(_ field: CloudSync.Field) -> T? {
+        get { self[field.rawValue] }
+        set { self[field.rawValue] = newValue }
     }
 }

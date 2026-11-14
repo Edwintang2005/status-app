@@ -67,6 +67,7 @@ struct TermsView: View {
                 Text("A private status app for two people.")
                     .font(Theme.rounded(17))
                     .foregroundStyle(Theme.mutedText)
+                    .accessibilityIdentifier("terms.tagline")
             }
             VStack(alignment: .leading, spacing: 12) {
                 Label("What you send goes only to your partner, through iCloud.", systemImage: "lock.fill")

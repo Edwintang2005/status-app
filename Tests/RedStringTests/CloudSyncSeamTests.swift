@@ -522,6 +522,32 @@ final class CloudSyncSeamTests: XCTestCase {
         XCTAssertEqual(storedToken, FakeCloudDatabase.token("t1"))
     }
 
+    /// The archive's batched fetch (redesign A): each file straight to its place,
+    /// and what iCloud no longer has — the record, or its file — is gone, not failed.
+    func testTheArchiveFetchSortsWhatItCouldntSave() async throws {
+        let picture = temporaryFile("source.jpg")
+        try Data([0xFF, 0xD8]).write(to: picture)
+        let named = { (id: String) in PairRole.participant.momentRecordName(id: id) }
+        let withFile = momentRecord(.participant, "p1")
+        withFile[CloudSync.Field.image] = CKAsset(fileURL: picture)
+        database.byName[named("p1")] = .success(withFile)
+        database.byName[named("p2")] = .success(momentRecord(.participant, "p2"))
+        database.byName[named("p3")] = .failure(CKError(.unknownItem))
+        database.byName[named("p4")] = .failure(CKError(.requestRateLimited, userInfo: [CKErrorRetryAfterKey: 30.0]))
+        let destination = temporaryFile("p1.jpg")
+
+        let results = try await sync.fetchArchiveMedia(["p1", "p2", "p3", "p4"].map { Fixtures.moment($0) },
+                                                       to: ["p1": destination])
+
+        XCTAssertEqual(results["p1"], .saved)
+        XCTAssertEqual(try Data(contentsOf: destination), Data([0xFF, 0xD8]))
+        XCTAssertEqual(results["p2"], .gone, "a record without its file")
+        XCTAssertEqual(results["p3"], .notFound, "judged against the zone's listing by the archive")
+        guard case .failed(let retryAt?)? = results["p4"] else { return XCTFail("throttled is worth a retry") }
+        XCTAssertEqual(retryAt.timeIntervalSinceNow, 30, accuracy: 5)
+        XCTAssertEqual(index.load(), [], "nothing filed: the archive touches no local state")
+    }
+
     /// A sweep its budget cut short is finished by the next refresh, which still
     /// judges what's missing from every batch, the earlier refresh's included.
     func testASweepCutShortIsJudgedWholeByTheRefreshThatFinishesIt() async throws {

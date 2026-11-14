@@ -40,12 +40,12 @@ Each: the rule · where · guarded by. Full text, with the why: `Documentation/i
 7. **The heart's cooldown is claimed before the network** (`Snapshot.claimNudgeCooldown`), released only for a tap that never reached iCloud. · `NudgeCooldownPolicyTests`.
 8. **Unlink is cloud-first;** "zone gone" needs a second sighting and the same account; a new invite never reuses an occupied zone. · `CloudSyncSeamTests` (zone gone, unlink mid-fetch), `SharePostureTests`.
 9. **Closing the invite link is a manual two-step handshake;** never automatic, never evicts a stranger with the partner. · `SharePostureTests`; the handshake itself only on devices.
-10. **Every banner is a claim, deduped by `Snapshot` watermarks;** moments are owed, not reconstructed; unread pushes keep CloudKit's words at full volume; the receiver's preferences cap last. · `AnnouncementPolicyTests`, `PushBannerPolicyTests`, `BannerUpkeepPolicyTests`.
+10. **Every banner is a claim, deduped by `Snapshot` watermarks;** moments are owed, not reconstructed; unread pushes keep CloudKit's words at full volume; the receiver's preferences cap last. · `AnnouncementPolicyTests`, `PushBannerPolicyTests`, `PushBannerBypassTests`, `BannerUpkeepPolicyTests`.
 11. **Offline sends recover, never silently drop;** every send goes through `Outbox`; failures are classified (`SendFailure`). · `OutboxTests`, `UploadPolicyTests`, `SendFailureTests`.
 12. **`AppConfig` IDs match** the six entitlements files, `project.yml` and `Info.plist`. · unguarded.
 13. **Read receipts are double-gated and sticky;** claimed before the call, settled only by a confirmed write; never un-see. · `testReceiptsAreClaimedBeforeTheCallAndReDirtiedOnFailure`, `testPartnerReceiptsApplyOnlyToOwnMomentsAndNeverUnsee`.
 14. **Status history dedups by `(fromMe, wordsAt)`; persisted dates are whole seconds.** · `StatusHistoryLogTests`, `StatusOrderingTests`.
-15. **Corrupt store files are preserved, not overwritten; unreadable isn't corrupt or empty.** · `testCorruptFileIsPreservedNotOverwritten`, `testAnUnreadablePairingIsNotUnpaired`.
+15. **Corrupt store files are preserved, not overwritten; unreadable isn't corrupt or empty.** · `testCorruptFileIsPreservedNotOverwritten`, `testAFileHealedBeforeTheLockedRereadIsKept`, `testAnUnreadablePairingIsNotUnpaired`.
 16. **Publish-success flags verify currency;** conflicting saves refetch and retry. · `StatusOrderingTests`, `testAnUnloggedFirstStatusStaysOwedAcrossARelaunch`.
 17. **Scrub gestures need `.highPriorityGesture`;** never a waveform inside a `Button`. · unguarded.
 18. **Pin vertical-ScrollView content with `.containerRelativeFrame(.horizontal)`.** · UI smoke's `assertFitsScreen`.

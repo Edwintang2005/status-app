@@ -74,13 +74,16 @@ struct InviteLinkText: View {
     let url: URL
 
     var body: some View {
+        // Whole, never truncated: it may be read out character by character.
         Text(url.absoluteString)
             .font(.system(.footnote, design: .monospaced))
             .foregroundStyle(Theme.mutedText)
-            .lineLimit(2)
-            .truncationMode(.middle)
+            .fixedSize(horizontal: false, vertical: true)
             .textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+            .accessibilityLabel("Invite link")
+            .accessibilityValue(url.absoluteString)
     }
 }
 
@@ -123,6 +126,7 @@ struct InviteLinkSheet: View {
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 15)
                                     .background(Theme.accent, in: Capsule())
+                                    .accessibilityIdentifier("invite.share")
                             }
 
                             CopyLinkButton(url: url)

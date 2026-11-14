@@ -8,6 +8,26 @@ Version 1.7, one heading per day it was built, newest first.
 
 ### 14 November 2026
 
+- **Saving memories before an unlink is clearer about what's missing.** A photo
+  whose file is no longer in iCloud — deleted, or never uploaded whole — used to
+  stop "save then unlink" with "try again", which never helped. Now the archive
+  lists it as no longer in iCloud (keeping this iPhone's small copy, if it has
+  one) and asks whether to go ahead; a download that merely failed still stops
+  it, and asks for a better connection.
+- **Saving memories is faster.** Photos and memos are fetched ten to a request
+  instead of one at a time, straight into the archive (so clearing the photo
+  cache mid-way can't lose them), and a failed batch is retried in smaller
+  ones. The year in review fetches its pictures four to a request.
+- **Accessibility fixes.** The surprise card's grey text was too faint on its
+  pink background and is darker; while a celebration is up, Home behind it is
+  hidden from VoiceOver; the invite link is shown whole (it was cut short) and
+  read as "Invite link"; Diagnostics' container ID reads as "iCloud container";
+  the recap's "Make it again" has a full-size tap target.
+- **More screens are tested.** The UI tests now walk onboarding (terms, name,
+  pairing, the invite link, the "when did you begin?" ask), Diagnostics, Fresh
+  start, the recap and a surprise celebration, check every main screen at the
+  largest text size, and check each sheet opens on its first tap. Demo mode
+  gains `REDSTRING_DEMO_UNPAIRED=1` for a first launch.
 - **A half-typed status survives a stray swipe.** Swiping the status sheet
   down no longer throws away words you've typed; Cancel still does.
 - **Banners arrive a little sooner.** Tidying up earlier banners now runs

@@ -18,50 +18,25 @@ enum BannerUpkeep {
         noteProbe(listed: delivered.count)
         #endif
         let banners = delivered.compactMap { notification -> BannerUpkeepPolicy.Banner? in
-            let info = notification.request.content.userInfo
-            var held = info[NotificationCategory.heldBannerKey] != nil
-            let subject: BannerSubject
-            if let stamped = BannerSubject(userInfo: info) {
-                subject = stamped
-            } else if notification.request.trigger is UNPushNotificationTrigger,
-                      let inferred = BannerUpkeepPolicy.inferredSubject(
-                        subscriptionID: CKNotification(fromRemoteNotificationDictionary: info)?.subscriptionID,
-                        body: notification.request.content.body) {
-                subject = inferred
-                held = true
-            } else {
-                return nil
-            }
-            return BannerUpkeepPolicy.Banner(id: notification.request.identifier,
-                                             subject: subject,
-                                             held: held,
-                                             wantsAttachment: info[BannerSubject.wantsAttachmentKey] != nil,
-                                             date: notification.date,
-                                             body: notification.request.content.body)
+            let content = notification.request.content
+            return BannerUpkeepPolicy.Banner(
+                id: notification.request.identifier, userInfo: content.userInfo,
+                isPush: notification.request.trigger is UNPushNotificationTrigger,
+                subscriptionID: CKNotification(fromRemoteNotificationDictionary: content.userInfo)?.subscriptionID,
+                date: notification.date, body: content.body)
         }
         let store = SharedStore.shared
         guard !banners.isEmpty, let pairing = store.pairing else { return }
         let snapshot = store.snapshot
         let filterOn = store.contentFilterEnabled
-        let theirs = pairing.role.other
-        let heldNames = store.unreadableTally.heldNames
-        // Caught up means nothing still owed, whichever pass's result said so.
-        let caughtUp = caughtUp && heldNames.isEmpty
-        let index = MomentIndex.shared.loadReadable()
-        let state = BannerUpkeepPolicy.State(
-            index: index,
-            heldMomentIDs: Set(heldNames.compactMap(theirs.momentID(fromRecordName:))),
-            hidden: store.hiddenMomentIDs,
+        let state = BannerUpkeepPolicy.State.make(
+            role: pairing.role, snapshot: snapshot, heldNames: store.unreadableTally.heldNames,
+            caughtUp: caughtUp, index: MomentIndex.shared.loadReadable(), hidden: store.hiddenMomentIDs,
+            filterEnabled: filterOn,
             hasAttachment: { moment in
                 moment.isVoice ? MomentStore.shared.hasAudio(for: moment.id)
                                : MomentStore.shared.hasThumbnail(for: moment.id)
-            },
-            statusHeld: heldNames.contains(theirs.statusRecordName),
-            partnerStatus: snapshot.theirs,
-            caughtUp: caughtUp,
-            nothingUnannounced: snapshot.owedMoments.isEmpty,
-            wordings: { [Self.words(for: $0, filterEnabled: filterOn),
-                         PushBannerPolicy.editedCaptionBody($0, filterEnabled: filterOn)] })
+            })
         let actions = BannerUpkeepPolicy.plan(banners, state: state, incoming: incoming)
         guard !actions.isEmpty else { return }
 
@@ -80,9 +55,9 @@ enum BannerUpkeep {
                 }
                 await replace(id, from: originals[id], moment: moment,
                               title: moment.displaySenderName(fallback: name, filterEnabled: filterOn),
-                              body: Self.words(for: moment, filterEnabled: filterOn), in: center)
+                              body: BannerUpkeepPolicy.words(for: moment, filterEnabled: filterOn), in: center)
             case let .refresh(id, moment):
-                let body = Self.words(for: moment, filterEnabled: filterOn)
+                let body = BannerUpkeepPolicy.words(for: moment, filterEnabled: filterOn)
                 // An edited-caption notice keeps its wording; its picture may still land.
                 let keeps = originals[id]?.body == PushBannerPolicy.editedCaptionBody(moment, filterEnabled: filterOn)
                 await replace(id, from: originals[id], moment: moment,
@@ -108,11 +83,6 @@ enum BannerUpkeep {
             }
         }
         if !removals.isEmpty { center.removeDeliveredNotifications(withIdentifiers: removals) }
-    }
-
-    /// What a banner about this moment says, as every path words it.
-    private static func words(for moment: Moment, filterEnabled: Bool) -> String {
-        moment.displayCaption(filterEnabled: filterEnabled) ?? moment.arrivalSummary
     }
 
     /// Check-and-claim in one locked write (invariant 1), as every banner's claim is.

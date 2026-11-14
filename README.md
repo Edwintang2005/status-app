@@ -150,4 +150,7 @@ voice memo — so the whole app (widgets included) can be driven on a Simulator
 with no iCloud account. It is `#if DEBUG` and environment-gated; a Release
 build contains none of it. The App Store screenshots and previews were made
 this way. Add `SIMCTL_CHILD_REDSTRING_DEMO_BULK=1` for weeks of older moments
-and statuses below that set, so the library and status history scroll.
+and statuses below that set, so the library and status history scroll;
+`SIMCTL_CHILD_REDSTRING_DEMO_UNPAIRED=1` for a first launch (terms, name,
+pairing — "Create invite link" pairs locally); `SIMCTL_CHILD_REDSTRING_DEMO_CELEBRATION=reveal`
+(or another style) for Sam's status to arrive as a celebration.

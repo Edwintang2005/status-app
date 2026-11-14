@@ -247,7 +247,7 @@ final class AppModel {
     /// `0...1` while an archive is being written, `nil` otherwise.
     var archiveProgress: Double?
     /// Settings' "Clear downloaded media" is deleting: an archive started now
-    /// could lose files between fetching them and copying them.
+    /// could find a file on this phone and lose it before copying it.
     var isClearingMedia = false
     @ObservationIgnored var archiveTask: Task<MemoryArchive.Outcome?, Never>?
     /// Bumped per archive and by a cancel: a cancelled run winding down in the

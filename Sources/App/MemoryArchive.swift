@@ -23,9 +23,14 @@ enum MemoryArchive {
         let unrecovered: Int
         /// Of a kind from a newer build: this one can't save them, so no connection helps.
         let unsupported: Int
+        /// With no file in iCloud or on this phone (`ArchiveMedia.gone`): nothing to save,
+        /// and nothing a delete could take — but listed, and asked about first.
+        let gone: Int
+        /// What it allows before a delete (`ArchiveGate`).
+        let gate: ArchiveGate
         /// The zone was read, every record in it was readable and every picture and
         /// memo was saved; anything short of that must not be the last copy before a delete.
-        let isComplete: Bool
+        var isComplete: Bool { gate == .proceed }
         let includesZone: Bool
         let unreadable: Int
     }
@@ -71,12 +76,17 @@ enum MemoryArchive {
         // arriving mid-archive prunes full copies older than five minutes, and a
         // long archive's first downloads are older than that by the end.
         var copied: [String: String] = [:]
-        func copy(_ moment: Moment) {
-            guard copied[moment.id] == nil, let source = store.mediaURL(for: moment) else { return }
+        var reserved: Set<String> = []
+        func destination(for moment: Moment, extension ext: String) -> (url: URL, relative: String) {
             let directory = staging.appendingPathComponent(Self.subfolder(for: moment.kind), isDirectory: true)
             try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-            let name = Self.fileName(for: moment, names: names, extension: source.pathExtension)
-            let destination = Self.unusedURL(in: directory, named: name)
+            let name = Self.fileName(for: moment, names: names, extension: ext)
+            let url = Self.unusedURL(in: directory, named: name, reserved: &reserved)
+            return (url, Self.subfolder(for: moment.kind) + "/" + url.lastPathComponent)
+        }
+        func copy(_ moment: Moment) {
+            guard copied[moment.id] == nil, let source = store.mediaURL(for: moment) else { return }
+            let destination = destination(for: moment, extension: source.pathExtension).url
             do {
                 try fileManager.copyItem(at: source, to: destination)
                 copied[moment.id] = Self.subfolder(for: moment.kind) + "/" + destination.lastPathComponent
@@ -89,21 +99,44 @@ enum MemoryArchive {
             try Task.checkCancellation()
             copy(moment)
         }
-        // Most of a long archive is fetched back from CloudKit rather than copied.
+        // Most of a long archive is fetched back from CloudKit rather than copied:
+        // straight into staging, each file's name fixed before its download.
         let missing = ordered.filter { $0.kind.isSupported && copied[$0.id] == nil }
-        await fetchMedia(for: missing, progress: progress, landed: copy)
+        let planned = Dictionary(uniqueKeysWithValues: missing.map {
+            ($0.id, destination(for: $0, extension: $0.isVoice ? "m4a" : "jpg"))
+        })
+        let fetched = await fetchMedia(for: missing, to: planned.mapValues(\.url), progress: progress)
         try Task.checkCancellation()
+        for moment in missing where fetched[moment.id] == .saved {
+            copied[moment.id] = planned[moment.id]?.relative
+        }
+        // What iCloud has no file for: the square thumbnail, if this phone kept one,
+        // is better than nothing — still counted gone, as the photo itself is.
+        for moment in missing where copied[moment.id] == nil && !moment.isVoice {
+            guard contents.isGone(fetched[moment.id], momentID: moment.id),
+                  let thumb = store.thumbURL(for: moment.id), fileManager.fileExists(atPath: thumb.path) else { continue }
+            let small = destination(for: moment, extension: "small.jpg")
+            if (try? fileManager.copyItem(at: thumb, to: small.url)) != nil { copied[moment.id] = small.relative }
+        }
 
         var entries: [Entry] = []
         var unrecovered = 0
         var unsupported = 0
+        var gone = 0
         for moment in ordered {
             let path = copied[moment.id]
-            if path == nil {
-                if moment.kind.isSupported { unrecovered += 1 } else { unsupported += 1 }
+            let isGone = moment.kind.isSupported && contents.isGone(fetched[moment.id], momentID: moment.id)
+            if !moment.kind.isSupported {
+                unsupported += 1
+            } else if isGone {
+                gone += 1
+            } else if path == nil {
+                unrecovered += 1
             }
-            entries.append(Entry(moment: moment, relativePath: path))
+            entries.append(Entry(moment: moment, relativePath: path, gone: isGone))
         }
+        let gate = ArchiveGate(contentsComplete: contents.isComplete, unrecovered: unrecovered,
+                               unsupported: unsupported, gone: gone)
 
         try Self.html(for: entries, statuses: statuses, contents: contents, names: names)
             .write(to: staging.appendingPathComponent("Memories.html"), atomically: true, encoding: .utf8)
@@ -122,8 +155,7 @@ enum MemoryArchive {
             finished = true
             return Outcome(folder: staging, destination: .deviceOnly,
                            momentCount: ordered.count, statusCount: statuses.count,
-                           unrecovered: unrecovered, unsupported: unsupported,
-                           isComplete: contents.isComplete(unrecovered: unrecovered + unsupported),
+                           unrecovered: unrecovered, unsupported: unsupported, gone: gone, gate: gate,
                            includesZone: contents.includesZone, unreadable: contents.unreadable)
         }
 
@@ -138,82 +170,24 @@ enum MemoryArchive {
         log.notice("Archived \(ordered.count) moments and \(statuses.count) statuses to iCloud Drive.")
         return Outcome(folder: final, destination: .iCloudDrive,
                        momentCount: ordered.count, statusCount: statuses.count,
-                       unrecovered: unrecovered, unsupported: unsupported,
-                           isComplete: contents.isComplete(unrecovered: unrecovered + unsupported),
+                       unrecovered: unrecovered, unsupported: unsupported, gone: gone, gate: gate,
                        includesZone: contents.includesZone, unreadable: contents.unreadable)
     }
 
-    /// A few at a time, each bounded: one stalled download can't hold the rest.
-    /// What failed is tried once more after a pause (as long as iCloud asks, when
-    /// it's throttling, up to a minute): a bulk fetch is exactly what trips a
-    /// throttle, and anything still missing blocks a delete after the archive.
-    /// Stops starting new ones once cancelled.
-    private static func fetchMedia(for moments: [Moment],
-                                   progress: @escaping @Sendable (Double) -> Void,
-                                   landed: (Moment) -> Void) async {
-        guard !moments.isEmpty else { return }
-        let total = Double(moments.count)
-        var done = 0
-        var failed = await fetchPass(moments, landed: landed) {
-            done += 1
-            progress(min(Double(done) / total, 0.95))
-        }
-        guard !failed.moments.isEmpty, !Task.isCancelled else { return }
-        log.notice("\(failed.moments.count) archive downloads failed; trying them once more.")
-        let wait = failed.retryAt.map { min(max($0.timeIntervalSinceNow, 1), 60) } ?? 2
-        try? await Task.sleep(for: .seconds(wait))
-        guard !Task.isCancelled else { return }
-        failed = await fetchPass(failed.moments, landed: landed) {}
-        if !failed.moments.isEmpty {
-            log.error("\(failed.moments.count) archive downloads failed twice.")
-        }
-    }
-
-    private struct Failed {
-        var moments: [Moment] = []
-        /// The latest "try again after" iCloud gave, if it was throttling.
-        var retryAt: Date?
-    }
-
-    private static func fetchPass(_ moments: [Moment], landed: (Moment) -> Void,
-                                  finishedOne: () -> Void) async -> Failed {
+    /// Chunked, bounded and retried by `ArchiveFetcher`; a download abandoned at
+    /// its deadline that lands anyway is counted by its file.
+    private static func fetchMedia(for moments: [Moment], to destinations: [String: URL],
+                                   progress: @escaping @Sendable (Double) -> Void) async -> [String: ArchiveMedia] {
+        guard !moments.isEmpty else { return [:] }
         let backend = Backend.current
-        let store = MomentStore.shared
-        var failed = Failed()
-        await withTaskGroup(of: (Moment, Error?).self) { group in
-            var queue = moments[...]
-            func start(_ moment: Moment) {
-                group.addTask {
-                    do {
-                        try await withDeadline(AppConfig.archiveItemDeadline) { try await backend.fetchMedia(for: moment) }
-                        return (moment, nil)
-                    } catch {
-                        return (moment, error)
-                    }
-                }
-            }
-            for _ in 0..<AppConfig.archiveFetchConcurrency {
-                guard let next = queue.popFirst() else { break }
-                start(next)
-            }
-            for await (moment, error) in group {
-                finishedOne()
-                if store.mediaURL(for: moment) != nil {
-                    landed(moment)
-                } else {
-                    failed.moments.append(moment)
-                    if let error, case .throttled(let until) = SendFailure(error) {
-                        failed.retryAt = max(failed.retryAt ?? until, until)
-                    }
-                }
-                if Task.isCancelled {
-                    queue.removeAll()
-                } else if let next = queue.popFirst() {
-                    start(next)
-                }
-            }
-        }
-        return failed
+        let total = Double(moments.count)
+        let fetcher = ArchiveFetcher(
+            fetch: { try await backend.fetchArchiveMedia($0, to: destinations) },
+            landed: { moment in destinations[moment.id].map { FileManager.default.fileExists(atPath: $0.path) } ?? false })
+        let results = await fetcher.run(moments) { done in progress(min(Double(done) / total, 0.95)) }
+        let failed = results.values.filter { if case .failed = $0 { true } else { false } }.count
+        if failed > 0 { log.error("\(failed) archive downloads failed twice.") }
+        return results
     }
 
     // MARK: - Naming
@@ -222,6 +196,8 @@ enum MemoryArchive {
         let moment: Moment
         /// `nil` when the file couldn't be recovered.
         let relativePath: String?
+        /// No file anywhere to recover (`ArchiveMedia.gone`).
+        var gone = false
     }
 
     private struct Names {
@@ -301,16 +277,24 @@ enum MemoryArchive {
     }
 
     /// Same-minute, same-caption collisions are possible; silently overwriting isn't acceptable.
-    private static func unusedURL(in directory: URL, named name: String) -> URL {
+    /// `reserved`: names already promised to a download still under way.
+    private static func unusedURL(in directory: URL, named name: String, reserved: inout Set<String>) -> URL {
+        let url = unusedURL(in: directory, named: name, taken: reserved)
+        reserved.insert(url.path)
+        return url
+    }
+
+    private static func unusedURL(in directory: URL, named name: String, taken: Set<String> = []) -> URL {
+        func free(_ url: URL) -> Bool { !taken.contains(url.path) && !FileManager.default.fileExists(atPath: url.path) }
         let candidate = directory.appendingPathComponent(name)
-        guard FileManager.default.fileExists(atPath: candidate.path) else { return candidate }
+        guard !free(candidate) else { return candidate }
 
         let base = candidate.deletingPathExtension().lastPathComponent
         let ext = candidate.pathExtension
         for suffix in 2...999 {
             let next = ext.isEmpty ? "\(base) (\(suffix))" : "\(base) (\(suffix)).\(ext)"
             let url = directory.appendingPathComponent(next)
-            if !FileManager.default.fileExists(atPath: url.path) { return url }
+            if free(url) { return url }
         }
         return candidate
     }
@@ -370,7 +354,8 @@ enum MemoryArchive {
             if moment.isVoice, moment.duration > 0 {
                 line += "  ·  \(Int(moment.duration.rounded()))s"
             }
-            line += "  ·  " + (entry.relativePath ?? "[file no longer available]")
+            line += "  ·  " + (entry.relativePath ?? (entry.gone ? "[no longer in iCloud]" : "[couldn't be fetched]"))
+            if entry.gone, entry.relativePath != nil { line += "  ·  a small copy; the photo is no longer in iCloud" }
             lines.append(line)
         }
         if !statuses.isEmpty {
@@ -395,7 +380,8 @@ enum MemoryArchive {
             var trailing = "\(who) · \(when)"
             switch (entry.relativePath, moment.kind) {
             case (nil, _):
-                media = "<p class=\"missing\">This one couldn't be recovered from iCloud.</p>"
+                media = entry.gone ? "<p class=\"missing\">This one is no longer in iCloud.</p>"
+                    : "<p class=\"missing\">This one couldn't be fetched from iCloud.</p>"
             case (let path?, .voice):
                 media = "<audio controls src=\"\(href(path))\"></audio>"
                 if moment.duration > 0 {
@@ -405,6 +391,7 @@ enum MemoryArchive {
                 let alt = names.caption(of: moment)
                     ?? "A \(moment.kind == .drawing ? "drawing" : "photo") from \(sender)"
                 media = "<img src=\"\(href(path))\" alt=\"\(escaped(alt))\">"
+                if entry.gone { trailing += " · a small copy; the photo is no longer in iCloud" }
             }
 
             return """

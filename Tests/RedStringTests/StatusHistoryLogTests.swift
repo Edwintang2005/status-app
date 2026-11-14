@@ -10,6 +10,19 @@ final class StatusHistoryLogTests: XCTestCase {
         return (StatusHistoryLog(fileURL: url, onCorrupt: { [self] in corruptHits += 1 }), url)
     }
 
+    /// STORE-10, as for the index: a file healed before the locked re-read is kept.
+    func testAFileHealedBeforeTheLockedRereadIsKept() throws {
+        let (log, url) = makeLog()
+        StatusHistoryLog(fileURL: url, onCorrupt: {}).record(Fixtures.status(at: Fixtures.t0), fromMe: true)
+        let healthy = try Data(contentsOf: url)
+        try Data("{ not json".utf8).write(to: url)
+        log.beforeLockedReread = { try? healthy.write(to: url, options: .atomic) }
+
+        XCTAssertEqual(log.load().count, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.appendingPathExtension("corrupt").path))
+        XCTAssertEqual(corruptHits, 0)
+    }
+
     func testSameStatusFromBothFeedsIsOneEntry() {
         let (log, _) = makeLog()
         let payload = Fixtures.status(at: Fixtures.t0)

@@ -3,6 +3,10 @@ import SwiftUI
 struct RootView: View {
     @Environment(AppModel.self) private var model
 
+    private var celebrationShowing: Bool {
+        model.pendingCelebration != nil && !model.homeSheetShowing && !model.rootSheetShowing
+    }
+
     var body: some View {
         @Bindable var model = model
 
@@ -10,23 +14,27 @@ struct RootView: View {
             Theme.Background()
             // Terms first, even over a tapped invite: nothing user-generated
             // is shown or sent before they're agreed to (guideline 1.2).
-            if !model.termsAccepted {
-                TermsView()
-            } else if model.pendingInvite != nil {
-                // An invite outranks first-run: the link is a stronger statement
-                // of intent than an empty name field.
-                WelcomeView(mode: .joining(ownerName: model.pendingInviteOwnerName))
-            } else if !model.hasName {
-                WelcomeView(mode: .firstRun)
-            } else if model.isPaired {
-                HomeView()
-            } else {
-                PairingView()
+            Group {
+                if !model.termsAccepted {
+                    TermsView()
+                } else if model.pendingInvite != nil {
+                    // An invite outranks first-run: the link is a stronger statement
+                    // of intent than an empty name field.
+                    WelcomeView(mode: .joining(ownerName: model.pendingInviteOwnerName))
+                } else if !model.hasName {
+                    WelcomeView(mode: .firstRun)
+                } else if model.isPaired {
+                    HomeView()
+                } else {
+                    PairingView()
+                }
             }
+            // Under a celebration, nothing else is there to find by touch or VoiceOver.
+            .accessibilityHidden(celebrationShowing)
 
             // Layered over the app, but held while a sheet is up: sheets sit
             // above this layer, so it would play out unseen beneath one.
-            if let celebration = model.pendingCelebration, !model.homeSheetShowing, !model.rootSheetShowing {
+            if let celebration = model.pendingCelebration, celebrationShowing {
                 CelebrationOverlay(payload: celebration,
                                    partnerName: model.partnerName) {
                     model.celebrationPlayed()

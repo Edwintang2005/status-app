@@ -97,6 +97,17 @@ final class FakeBackend: SyncBackend, @unchecked Sendable {
         }
     }
     func fetchMedia(for moment: Moment) async throws {}
+    func fetchMedia(for moments: [Moment]) async throws {}
+    /// Each archive chunk asked for, in order; `archiveAnswer` answers each (all saved by default).
+    var archiveChunks: [[String]] { lock.withLock { _archiveChunks } }
+    private var _archiveChunks: [[String]] = []
+    var archiveAnswer: @Sendable ([Moment]) async throws -> [String: ArchiveMedia] = { moments in
+        Dictionary(uniqueKeysWithValues: moments.map { ($0.id, .saved) })
+    }
+    func fetchArchiveMedia(_ moments: [Moment], to destinations: [String: URL]) async throws -> [String: ArchiveMedia] {
+        lock.withLock { _archiveChunks.append(moments.map(\.id)) }
+        return try await archiveAnswer(moments)
+    }
     func fetchThumbnails(for moments: [Moment]) async throws {}
     func prefetchRecentMedia() async {}
     func archiveZone() async throws -> ArchiveContents.Zone {

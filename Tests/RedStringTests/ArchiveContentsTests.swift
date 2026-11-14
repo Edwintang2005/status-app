@@ -22,9 +22,6 @@ final class ArchiveContentsTests: XCTestCase {
         XCTAssertEqual(merged.moments.map(\.id), ["a", "b", "c"])
         XCTAssertEqual(merged.statuses.map(\.emoji), ["☀️", "🌧️"])
         XCTAssertTrue(merged.isComplete)
-        XCTAssertTrue(merged.isComplete(unrecovered: 0))
-        // A photo whose download failed would go with the zone: no delete after this archive.
-        XCTAssertFalse(merged.isComplete(unrecovered: 1))
     }
 
     /// The zone's copy of a record this phone already filed may have come back blank.

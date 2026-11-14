@@ -21,15 +21,26 @@ struct ArchiveContents: Sendable {
     var unreadable: Int
     /// `false` when the zone couldn't be read: this phone's copy only.
     var includesZone: Bool
+    /// Moments the zone's listing returned: a by-ID "not found" for one of these
+    /// is a fetch that failed, not a record that's gone.
+    var zoneMomentIDs: Set<String> = []
 
-    /// Nothing the zone held was left out.
+    /// Nothing the zone held was left out; whether every file was saved too is
+    /// the archive's `ArchiveGate`.
     var isComplete: Bool { includesZone && unreadable == 0 }
 
-    /// Safe as the last copy before an unlink or a fresh start: nothing left out,
-    /// and every picture and memo saved — a download that failed is a photo the
-    /// delete would take with it.
-    func isComplete(unrecovered: Int) -> Bool { isComplete && unrecovered == 0 }
     var isEmpty: Bool { moments.isEmpty && statuses.isEmpty }
+
+    /// No file in iCloud to save. "Not found" counts only for a record the zone's
+    /// own listing didn't return: one it did is still there and its fetch failed —
+    /// calling it gone would let a delete take it.
+    func isGone(_ result: ArchiveMedia?, momentID: String) -> Bool {
+        switch result {
+        case .gone?: true
+        case .notFound?: !zoneMomentIDs.contains(momentID)
+        default: false
+        }
+    }
 
     /// Local copies win: they keep what an unreadable re-delivery would blank
     /// (`MomentIndex.insert`'s rule). Reported moments stay out, like everywhere else.
@@ -51,7 +62,8 @@ struct ArchiveContents: Sendable {
             statuses: statuses.values.sorted { ($0.at, $0.id) < ($1.at, $1.id) },
             anniversary: anniversary,
             unreadable: zone?.unreadable ?? 0,
-            includesZone: zone != nil
+            includesZone: zone != nil,
+            zoneMomentIDs: Set((zone?.moments ?? []).map(\.id))
         )
     }
 }

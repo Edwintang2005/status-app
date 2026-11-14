@@ -46,6 +46,9 @@ struct DiagnosticsView: View {
                     Text(diagnostics.containerID)
                         .font(.system(.footnote, design: .monospaced))
                         .textSelection(.enabled)
+                        // An identifier, not words: named for VoiceOver, the ID as its value.
+                        .accessibilityLabel("iCloud container")
+                        .accessibilityValue(diagnostics.containerID)
                 }
 
                 list("Your own zones", diagnostics.privateZones,

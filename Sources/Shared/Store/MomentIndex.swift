@@ -27,6 +27,9 @@ final class MomentIndex: @unchecked Sendable {
     /// loads the index several times, and only another process's write (an
     /// atomic replace, so a new inode and mtime) makes decoding it again worth it.
     private var cache: (key: FileIdentity, moments: [Moment])?
+    /// Tests only: runs between a plain read that failed to decode and its
+    /// re-read under the cross-process lock — where another writer can land.
+    var beforeLockedReread: (() -> Void)?
 
     /// Waveforms as bytes: the index is rewritten whole on every change.
     private static let encoder: JSONEncoder = {
@@ -96,6 +99,7 @@ final class MomentIndex: @unchecked Sendable {
             // there, or it could bin a fresh file another process's writer just saved.
             guard writing else {
                 cache = nil
+                beforeLockedReread?()
                 return crossLock.withLock { loadUnlocked(writing: true) }
             }
             log.error("Corrupt moment index: \(error.localizedDescription)")

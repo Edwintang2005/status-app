@@ -10,6 +10,34 @@ final class MomentIndexTests: XCTestCase {
         return (MomentIndex(fileURL: url, onCorrupt: { [self] in corruptHits += 1 }), url)
     }
 
+    /// STORE-10: a plain read that hit a half-written file re-reads under the
+    /// lock; a healthy file another process saved meanwhile is read, never sidelined.
+    func testAFileHealedBeforeTheLockedRereadIsKept() throws {
+        let (index, url) = makeIndex()
+        let writer = MomentIndex(fileURL: url, onCorrupt: {})
+        writer.insert([Fixtures.moment("kept")])
+        let healthy = try Data(contentsOf: url)
+        try Data("{ not json".utf8).write(to: url)
+        index.beforeLockedReread = { try? healthy.write(to: url, options: .atomic) }
+
+        XCTAssertEqual(index.load().map(\.id), ["kept"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.appendingPathExtension("corrupt").path))
+        XCTAssertEqual(corruptHits, 0, "no refill asked for")
+    }
+
+    /// Still corrupt under the lock: then it is sidelined, once.
+    func testAFileStillCorruptUnderTheLockIsSidelined() throws {
+        let (index, url) = makeIndex()
+        try Data("{ not json".utf8).write(to: url)
+        var rereads = 0
+        index.beforeLockedReread = { rereads += 1 }
+
+        XCTAssertEqual(index.load(), [])
+        XCTAssertEqual(rereads, 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.appendingPathExtension("corrupt").path))
+        XCTAssertEqual(corruptHits, 1)
+    }
+
     func testInsertSortsNewestFirstAndReplacesByID() {
         let (index, _) = makeIndex()
         index.insert([Fixtures.moment("old", at: Fixtures.date(-100)),

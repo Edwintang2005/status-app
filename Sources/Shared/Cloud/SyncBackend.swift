@@ -133,6 +133,12 @@ protocol SyncBackend: Sendable {
     /// Pulls the media files for a history entry whose photo or recording
     /// isn't cached locally any more. No-op for backends that never evict.
     func fetchMedia(for moment: Moment) async throws
+    /// Several moments' full media in one request (the recap's next slides);
+    /// a record that fails is skipped, not the batch.
+    func fetchMedia(for moments: [Moment]) async throws
+    /// The memories archive's files, one request for the lot: each written straight
+    /// to `destinations[moment.id]`, every moment answered (`ArchiveMedia`).
+    func fetchArchiveMedia(_ moments: [Moment], to destinations: [String: URL]) async throws -> [String: ArchiveMedia]
     /// Pulls only the thumbnails — what library tiles need when they scroll into
     /// view past the cache window, batched by `ThumbnailFetcher`. Skips voice
     /// memos; a no-op for backends that never evict.
@@ -409,6 +415,20 @@ struct DemoBackend: AppBackend {
     func deleteMoments(ids: [String]) async throws -> Set<String> { Set(ids) }
     func resumeUploads() async -> [ResumedUpload]? { [] }
     func fetchMedia(for moment: Moment) async throws {}
+    func fetchMedia(for moments: [Moment]) async throws {}
+    /// Never evicts: what's on this phone is all there is; the rest is gone.
+    func fetchArchiveMedia(_ moments: [Moment], to destinations: [String: URL]) async throws -> [String: ArchiveMedia] {
+        var results: [String: ArchiveMedia] = [:]
+        for moment in moments {
+            guard let source = MomentStore.shared.mediaURL(for: moment), let destination = destinations[moment.id],
+                  (try? FileManager.default.copyItem(at: source, to: destination)) != nil else {
+                results[moment.id] = .gone
+                continue
+            }
+            results[moment.id] = .saved
+        }
+        return results
+    }
     func fetchThumbnails(for moments: [Moment]) async throws {}
     func prefetchRecentMedia() async {}
     func archiveZone() async throws -> ArchiveContents.Zone {
@@ -436,8 +456,11 @@ struct DemoBackend: AppBackend {
     func unpair() async throws {}
 
     // The seeded pairing is fake: there is no share to create, join or close.
+    /// The pairing `CloudSync` commits locally; the link itself goes nowhere.
     func createPairInvite(displayName: String, replacingExisting: Bool) async throws -> URL {
-        throw SyncError.shareUnavailable
+        SharedStore.shared.pairing = PairingInfo(role: .owner, zoneName: AppConfig.coupleZoneName,
+                                                 zoneOwnerName: CKCurrentUserDefaultName, pairedAt: Date())
+        return URL(string: "https://www.icloud.com/share/demo-invite")!
     }
     func acceptShare(_ metadata: CKShare.Metadata, displayName: String) async throws {
         throw SyncError.shareUnavailable

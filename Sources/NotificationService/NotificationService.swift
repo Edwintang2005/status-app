@@ -38,7 +38,7 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         // This phone's preference before anything is read: an expiry delivers no louder.
         let preferences = SharedStore.shared.notificationPreferences
         fallback?.limit(to: preferences.level(for: push))
-        Self.markUnworded(fallback, push: push)
+        push.markUnworded(fallback)
         self.fallback = fallback
         reloadHold = SharedStore.shared.holdWidgetReloads()
         // Handed to the task; only the category is set on it here first.
@@ -96,18 +96,11 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         deliveryLock.unlock()
     }
 
-    /// Still CloudKit's words: tagged as a held banner, so a later refresh rewords it.
-    private static func markUnworded(_ content: UNMutableNotificationContent?, push: PushBannerPolicy.Push) {
-        guard let content, let subject = push.unwordedSubject else { return }
-        content.userInfo[BannerSubject.key] = subject.stamp
-        content.userInfo[NotificationCategory.heldBannerKey] = push.category
-    }
-
-    /// Before first unlock nothing here can be read: CloudKit's words go out as
-    /// they are, held, and whatever runs first once it can read rewords them.
-    private func unreadableStore(_ content: UNMutableNotificationContent, push: PushBannerPolicy.Push) -> UNNotificationContent {
-        note(.unworded, "store unreadable")
-        Self.markUnworded(content, push: push)
+    /// An exit before any plan (`PushBannerPolicy.Bypass`), applied and noted.
+    private func bypass(_ bypass: PushBannerPolicy.Bypass, _ content: UNMutableNotificationContent,
+                        push: PushBannerPolicy.Push) -> UNNotificationContent {
+        let (outcome, detail) = bypass.apply(to: content, push: push)
+        note(outcome, detail)
         return content
     }
 
@@ -129,23 +122,11 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         var widgetNeedsFetch = true
         defer { reloadHold?.release(widgetNeedsFetch: widgetNeedsFetch) }
         guard let content else { return nil }
-        guard CKNotification(fromRemoteNotificationDictionary: userInfo) != nil else {
-            note(.unworded, "not a CloudKit push")
-            return content
-        }
-
-        switch await MainActor.run(body: { SharedStore.shared.pairingState }) {
-        case .paired:
-            break
-        case .unpaired:
-            // Unpaired with the old subscriptions still registered (an offline block,
-            // a local-only reset): never at full volume, never a heart to send back.
-            widgetNeedsFetch = false
-            note(.worded, "unpaired")
-            apply(PushBannerPolicy.unpaired, to: content)
-            return content
-        case .unreadable:
-            return unreadableStore(content, push: push)
+        let pairing = await MainActor.run(body: { SharedStore.shared.pairingState })
+        if let early = PushBannerPolicy.Bypass(
+            isCloudKitPush: CKNotification(fromRemoteNotificationDictionary: userInfo) != nil, pairing: pairing) {
+            widgetNeedsFetch = early.widgetNeedsFetch
+            return bypass(early, content, push: push)
         }
 
         let result: RefreshResult
@@ -153,19 +134,11 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         let media: CloudSync.PendingMedia
         do {
             (result, media) = try await CloudSync.shared.refreshDeferringMedia()
-        } catch SyncError.storeUnreadable {
-            return unreadableStore(content, push: push)
-        } catch SyncError.notPaired {
-            // Unpaired, like the guard above: there's nothing for the widget to fetch.
-            widgetNeedsFetch = false
-            note(.worded, "unpaired")
-            apply(PushBannerPolicy.unpaired, to: content)
-            return content
         } catch {
             log.error("Refresh failed in service extension: \(error.localizedDescription)")
-            note(.failed, error.localizedDescription)
-            Self.markUnworded(content, push: push)
-            return content
+            let failed = PushBannerPolicy.Bypass(after: error)
+            widgetNeedsFetch = failed.widgetNeedsFetch
+            return bypass(failed, content, push: push)
         }
         // Records owed recently (this service never retries them) leave the widget
         // and the open app something to fetch, like the rest of a batch.
@@ -196,9 +169,9 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         let level = SharedStore.shared.notificationPreferences
             .level(for: push, momentKinds: result.newPartnerMoments.map(\.kind) + result.heldPartnerMomentKinds
                    + [plan.attachment?.kind].compactMap { $0 })
-        apply(plan.limited(to: level), to: content)
+        plan.limited(to: level).apply(to: content)
         if plan.title == nil, plan.body == nil {
-            Self.markUnworded(content, push: push)
+            push.markUnworded(content)
             let why = result.incomplete ? "one batch of many"
                 : result.unreadableRecordNames.isEmpty ? nil
                 : "\(result.unreadableRecordNames.count) record(s) unreadable"
@@ -274,29 +247,5 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         let request = UNNotificationRequest(identifier: MomentBanner.identifier(for: moment.id),
                                             content: content, trigger: nil)
         try? await UNUserNotificationCenter.current().add(request)
-    }
-
-    private func apply(_ plan: PushBannerPolicy.Plan, to content: UNMutableNotificationContent) {
-        if let title = plan.title { content.title = title }
-        if let body = plan.body { content.body = body }
-        if let thread = plan.thread { content.threadIdentifier = thread }
-        if let category = plan.heldCategory { content.userInfo[NotificationCategory.heldBannerKey] = category }
-        if let subject = plan.subject { content.userInfo[BannerSubject.key] = subject.stamp }
-        if plan.dropsCategory { content.categoryIdentifier = "" }
-        if plan.sound { content.sound = .default }
-        switch plan.volume {
-        case .asSent:
-            break
-        case .quiet:
-            content.sound = nil
-            content.interruptionLevel = .passive
-        case .silent:
-            content.sound = nil
-            content.interruptionLevel = .active
-        case .active:
-            content.interruptionLevel = .active
-        case .timeSensitive:
-            content.interruptionLevel = .timeSensitive
-        }
     }
 }

@@ -24,6 +24,74 @@ final class BannerUpkeepPolicyTests: XCTestCase {
                                  wordings: wordings)
     }
 
+    // MARK: State and banners as a pass reads them
+
+    private func made(heldNames: [String], caughtUp: Bool = true, owed: [Moment] = [],
+                      filterEnabled: Bool = false) -> BannerUpkeepPolicy.State {
+        var snapshot = Snapshot.empty
+        snapshot.theirs = Fixtures.status()
+        snapshot.owedMoments = owed
+        return .make(role: .owner, snapshot: snapshot, heldNames: heldNames, caughtUp: caughtUp,
+                     index: [], hidden: [], filterEnabled: filterEnabled, hasAttachment: { _ in false })
+    }
+
+    /// Still owing records, a pass isn't caught up, whatever its own fetch said;
+    /// only the partner's held records count as theirs.
+    func testAStateIsMadeFromWhatIsStillHeld() {
+        let partner = PairRole.participant
+        let held = made(heldNames: [partner.momentRecordName(id: "m1"), PairRole.owner.momentRecordName(id: "mine"),
+                                    partner.statusRecordName])
+        XCTAssertFalse(held.caughtUp)
+        XCTAssertEqual(held.heldMomentIDs, ["m1"])
+        XCTAssertTrue(held.statusHeld)
+        XCTAssertNotNil(held.partnerStatus)
+
+        let clear = made(heldNames: [])
+        XCTAssertTrue(clear.caughtUp)
+        XCTAssertFalse(clear.statusHeld)
+        XCTAssertFalse(made(heldNames: [], caughtUp: false).caughtUp, "the pass's own verdict stands")
+    }
+
+    func testNothingUnannouncedMeansNothingOwed() {
+        XCTAssertTrue(made(heldNames: []).nothingUnannounced)
+        XCTAssertFalse(made(heldNames: [], owed: [Fixtures.moment("m1")]).nothingUnannounced)
+    }
+
+    /// A stale banner's words are judged through the filter like every surface.
+    func testWordingsGoThroughTheFilter() {
+        var moment = Fixtures.moment("m1", fromMe: false)
+        moment.caption = "fuck yes"
+        XCTAssertFalse(made(heldNames: [], filterEnabled: true).wordings(moment).contains("fuck yes"))
+        XCTAssertTrue(made(heldNames: [], filterEnabled: false).wordings(moment).contains("fuck yes"))
+    }
+
+    func testABannerIsReadFromItsStamp() {
+        let info: [AnyHashable: Any] = [BannerSubject.key: BannerSubject.moment("m1").stamp,
+                                        NotificationCategory.heldBannerKey: NotificationCategory.moment,
+                                        BannerSubject.wantsAttachmentKey: true]
+        let read = BannerUpkeepPolicy.Banner(id: "b", userInfo: info, isPush: false, subscriptionID: nil,
+                                             date: Fixtures.t0, body: "words")
+        XCTAssertEqual(read, banner("b", .moment("m1"), held: true, wantsAttachment: true, body: "words"))
+    }
+
+    /// The service never ran: CloudKit's own words on a status or moment push
+    /// are inferred and held; anything else unstamped is none of upkeep's business.
+    func testAnUnstampedBannerIsInferredOnlyFromAPushInCloudKitsWords() {
+        let status = BannerUpkeepPolicy.Banner(id: "s", userInfo: [:], isPush: true,
+                                               subscriptionID: CloudSync.SubscriptionID.status,
+                                               date: Fixtures.t0, body: CloudSync.GenericAlert.status)
+        XCTAssertEqual(status?.subject, .status)
+        XCTAssertEqual(status?.held, true)
+        XCTAssertNil(BannerUpkeepPolicy.Banner(id: "l", userInfo: [:], isPush: false,
+                                               subscriptionID: CloudSync.SubscriptionID.status,
+                                               date: Fixtures.t0, body: CloudSync.GenericAlert.status),
+                     "a local banner")
+        XCTAssertNil(BannerUpkeepPolicy.Banner(id: "w", userInfo: [:], isPush: true,
+                                               subscriptionID: CloudSync.SubscriptionID.status,
+                                               date: Fixtures.t0, body: "Your status was sent to Sam."),
+                     "a worded echo")
+    }
+
     func testSubjectsSurviveTheirStamp() {
         for subject in [BannerSubject.moment("abc-123"), .status, .hearts, .newMoments] {
             XCTAssertEqual(BannerSubject(stamp: subject.stamp), subject)

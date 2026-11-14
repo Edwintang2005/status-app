@@ -479,19 +479,9 @@ extension CloudSync {
         var zoneError: Error?
     }
 
-    /// Every field a refresh reads; assets stay out (see `fetchZoneChanges`).
-    /// `IngestTests` checks every non-asset `Field` is here: one missing reads nil.
-    static let changeFetchKeys: [String] = [
-        Field.emoji, Field.message, Field.displayName, Field.updatedAt,
-        Field.isCelebration, Field.celebrationStyle,
-        Field.count,
-        Field.momentID, Field.kind, Field.caption, Field.senderName, Field.sentAt,
-        Field.duration, Field.waveform,
-        Field.seenMap, Field.statusSeenAt, Field.statusSeenFor,
-        Field.startsAt, Field.timeZone,
-        Field.requestedAt,
-        Field.stage, Field.epoch, Field.clearedBefore,
-    ]
+    /// Every field a refresh reads: all but the assets (see `fetchZoneChanges`),
+    /// so a new field can't be left out and read as nil.
+    static let changeFetchKeys: [String] = Field.allCases.filter { !$0.isAsset }.map(\.rawValue)
 
     /// Records an extension takes per refresh before handing over to the app.
     static let extensionBatchLimit = 150

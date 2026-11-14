@@ -78,7 +78,7 @@ extension CloudSync {
         // Names and server creation times judge the rest; only `FreshStart` fields are read.
         let changes = try await withZoneRecovery(pairing) {
             try await fetchZoneChanges(zone: zone, in: database, since: nil,
-                                       desiredKeys: [Field.stage, Field.epoch, Field.clearedBefore])
+                                       desiredKeys: [Field.stage, .epoch, .clearedBefore].map(\.rawValue))
         }
 
         let names = myRecordNames(pairing)

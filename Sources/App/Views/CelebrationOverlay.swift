@@ -45,6 +45,10 @@ struct CelebrationOverlay: View {
         return trimmed
     }
 
+    /// The quieter lines. Not `Theme.mutedText`: over this backdrop's pink centre
+    /// that measured 4.3:1, short of AA; in either appearance this is well clear.
+    private static let quietText = Color.primary.opacity(0.72)
+
     private var accessibilityText: String {
         switch style {
         case .birthday where !opened:
@@ -218,7 +222,7 @@ struct CelebrationOverlay: View {
     private var from: some View {
         Text("from \(partnerName)")
             .font(Theme.rounded(17, .medium))
-            .foregroundStyle(Theme.mutedText)
+            .foregroundStyle(Self.quietText)
     }
 
     /// Their news under foil until scratched (or "Just show me").
@@ -253,7 +257,7 @@ struct CelebrationOverlay: View {
     private func prompt(_ text: LocalizedStringKey) -> some View {
         Text(text)
             .font(Theme.rounded(16, .medium))
-            .foregroundStyle(Theme.mutedText)
+            .foregroundStyle(Self.quietText)
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 40)
@@ -271,20 +275,20 @@ struct CelebrationOverlay: View {
 
             Text("Tap anywhere to close")
                 .font(Theme.rounded(13))
-                .foregroundStyle(Theme.mutedText)
+                .foregroundStyle(Self.quietText)
                 .padding(.top, 12)
                 .opacity(revealed ? 1 : 0)
                 .animation(.smooth(duration: 0.4).delay(1.1), value: revealed)
         } else {
             Button("Not now") { finish() }
                 .font(Theme.rounded(15, .medium))
-                .foregroundStyle(Theme.mutedText)
+                .foregroundStyle(Self.quietText)
                 .frame(minWidth: 44, minHeight: 44)
         }
 
         Button("Report...") { confirmingReport = true }
             .font(Theme.rounded(13, .medium))
-            .foregroundStyle(Theme.mutedText)
+            .foregroundStyle(Self.quietText)
             .frame(minWidth: 44, minHeight: 44)
             .opacity(revealed ? 1 : 0)
             .animation(.smooth(duration: 0.4).delay(1.1), value: revealed)

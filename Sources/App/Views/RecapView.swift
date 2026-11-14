@@ -207,6 +207,7 @@ struct RecapView: View {
                 ShareLink(item: url) {
                     Label("Share…", systemImage: "square.and.arrow.up")
                         .frame(maxWidth: .infinity, minHeight: 44)
+                        .accessibilityIdentifier("recap.share")
                 }
                 .buttonStyle(.bordered)
                 .tint(.primary)
@@ -237,9 +238,14 @@ struct RecapView: View {
                     .foregroundStyle(Theme.mutedText)
                 Text("·").foregroundStyle(Theme.mutedText).accessibilityHidden(true)
                 // Newer moments since: a fresh one picks them up.
-                Button("Make it again") { run.attempt += 1 }
-                    .foregroundStyle(Theme.accentText)
-                    .frame(minHeight: 44)
+                // The frame inside the label: outside, it pads the layout but not the tap.
+                Button { run.attempt += 1 } label: {
+                    Text("Make it again")
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .foregroundStyle(Theme.accentText)
+                .accessibilityIdentifier("recap.remake")
             }
             .font(Theme.rounded(14))
         }
