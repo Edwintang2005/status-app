@@ -63,6 +63,14 @@ extension SharedStore {
         return (redraws, snapshot)
     }
 
+    /// A download wrote these moments' files: the widgets redraw if one is the
+    /// picture they show — its file isn't in the snapshot (invariant 6). Every
+    /// fetch into the media store ends here, whichever process or path made it.
+    func mediaLanded(for ids: [String]) {
+        guard let drawn = snapshot.latestPartnerVisualMoment?.id, ids.contains(drawn) else { return }
+        requestWidgetReload()
+    }
+
     /// `all` is the whole index, newest first.
     private static func fillDerived(_ snapshot: inout Snapshot, from all: [Moment]) {
         // Unconditional: each field must be able to return to nil when the

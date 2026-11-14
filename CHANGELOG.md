@@ -15,6 +15,11 @@ Version 1.7, one heading per day it was built, newest first.
   can be missed. Downloading recent history's pictures no longer reloads them
   either, only the picture the widget shows. A test walks every stored field
   and fails until a new one is classified.
+- **The photo widget sharpens as soon as its picture arrives.** When the
+  widget's picture finished downloading some other way than a sync — opening
+  it in the app, a new phone filling in thumbnails, an expanded banner — the
+  widget kept its blurry stand-in until something else refreshed it. Every
+  download now checks whether it brought the widget's picture.
 - **Behind the scenes: one rule for every retry.** The send loops (statuses,
   captions, deletes, receipts, the date, the fresh start, uploads) each run one
   at a time through the same gate, and every automatic retry's wait — a full

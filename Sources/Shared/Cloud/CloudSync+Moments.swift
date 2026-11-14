@@ -273,14 +273,17 @@ extension CloudSync {
             }
             // Abandoned at a deadline: nothing lands after the caller moved on.
             try Task.checkCancellation()
+            var landed: [String] = []
             for (recordID, result) in results {
                 guard case .success(let record) = result, let moment = byRecord[recordID] else { continue }
                 do {
                     try Self.copyAsset(record[Field.thumb] as? CKAsset, to: self.stores.media.thumbURL(for: moment.id))
+                    landed.append(moment.id)
                 } catch {
                     log.error("Couldn't store the thumbnail for \(moment.id): \(error.localizedDescription)")
                 }
             }
+            stores.shared.mediaLanded(for: landed)
         }
     }
 
@@ -345,14 +348,17 @@ extension CloudSync {
         }
         // Abandoned at a deadline: nothing lands after the caller moved on.
         try Task.checkCancellation()
+        var landed: [String] = []
         for (recordID, result) in results {
             guard case .success(let record) = result, let moment = byRecord[recordID] else { continue }
             do {
                 try Self.copyMedia(from: record, for: moment, into: stores.media)
+                landed.append(moment.id)
             } catch {
                 log.error("Couldn't store the media for \(moment.id): \(error.localizedDescription)")
             }
         }
+        stores.shared.mediaLanded(for: landed)
     }
 
     /// One moment's full media, for the gallery: a failure other than "gone" throws.
@@ -362,6 +368,7 @@ extension CloudSync {
         guard let recordID = recordIDs(for: [moment], pairing: pairing).keys.first,
               let record = try await fetchRecord(recordID, in: database) else { return }
         try Self.copyMedia(from: record, for: moment, into: stores.media)
+        stores.shared.mediaLanded(for: [moment.id])
     }
 
     func recordIDs(for moments: [Moment], pairing: PairingInfo) -> [CKRecord.ID: Moment] {

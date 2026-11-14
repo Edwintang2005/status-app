@@ -656,10 +656,8 @@ final class AppModel {
     func restoreLatestThumbnailIfMissing() async {
         guard let latest = store.snapshot.latestPartnerVisualMoment,
               !MomentStore.shared.hasThumbnail(for: latest.id) else { return }
-        if await ensureThumbnail(for: latest) {
-            SharedStore.reloadWidgets()
-            reload()
-        }
+        // The download itself redraws the widgets (`SharedStore.mediaLanded`).
+        if await ensureThumbnail(for: latest) { reload() }
     }
 
     /// The photo widget's picture, or one this phone took off it: the moments
@@ -678,7 +676,7 @@ final class AppModel {
         snapshot = refreshed.snapshot
         guard let next = refreshed.snapshot.latestPartnerVisualMoment,
               !MomentStore.shared.hasMedia(for: next) else { return }
-        if await ensureMedia(for: next) { SharedStore.reloadWidgets() }
+        _ = await ensureMedia(for: next)
     }
 
     /// The library grid's version of `ensureMedia`: just the thumbnail, fetched

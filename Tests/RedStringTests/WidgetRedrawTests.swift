@@ -154,6 +154,21 @@ final class WidgetRedrawTests: XCTestCase {
         XCTAssertTrue(redraws(from: sealed) { $0.lastCelebratedAt = Fixtures.t0 }, "opened: the words show")
     }
 
+    /// A file isn't in the snapshot: its landing redraws only for the picture
+    /// the widget shows, whichever download brought it.
+    func testOnlyTheDrawnPicturesFileRedraws() {
+        let store = SharedStore(defaults: temporaryDefaults())
+        store.mutate { $0 = self.base }
+        store.widgetReloadRequestedAt = nil
+
+        store.mediaLanded(for: ["older", "memo"])
+        XCTAssertNil(store.widgetReloadRequestedAt, "history's files draw nothing")
+        store.mediaLanded(for: [])
+        XCTAssertNil(store.widgetReloadRequestedAt)
+        store.mediaLanded(for: ["older", "p1"])
+        XCTAssertNotNil(store.widgetReloadRequestedAt, "the drawn picture sharpens")
+    }
+
     /// The gallery's paging: the reload is owed to the caller, not spent per page.
     func testADeferredRefreshReportsTheRedrawWithoutSpendingIt() {
         let store = SharedStore(defaults: temporaryDefaults())

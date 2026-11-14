@@ -207,7 +207,7 @@ extension CloudSync {
         } else if timing == .later {
             return (result, { within in
                 (try? await withDeadline(within) {
-                    await self.prefetchMedia(for: filed, pairing: pairing, reloadsWidgets: false)
+                    await self.prefetchMedia(for: filed, pairing: pairing)
                     return true
                 }) ?? false
             })
@@ -765,7 +765,7 @@ extension CloudSync {
     /// covers the index's newest). Stops at a cancellation, or when the pairing
     /// changed underneath (the ex's photos must not land in the new pairing's
     /// store) — the records are already applied and the token saved, so nothing is lost.
-    func prefetchMedia(for arrived: [Moment], pairing: PairingInfo, reloadsWidgets: Bool = true) async {
+    func prefetchMedia(for arrived: [Moment], pairing: PairingInfo) async {
         let store = self.stores.media
         let process = Self.prefetchProcess
         let recent: [Moment]
@@ -806,8 +806,5 @@ extension CloudSync {
             items.forEach { store.delete(id: $0.moment.id) }
             return
         }
-        // Only the picture a widget draws: the app's prefetch of recent history isn't one.
-        let drawn = await MainActor.run { self.stores.shared.snapshot.latestPartnerVisualMoment?.id }
-        if reloadsWidgets, items.contains(where: { $0.moment.id == drawn }) { SharedStore.reloadWidgets() }
     }
 }
