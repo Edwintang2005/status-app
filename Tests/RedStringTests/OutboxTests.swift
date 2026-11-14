@@ -418,6 +418,19 @@ final class OutboxTests: XCTestCase {
     }
 
     /// A publish that keeps failing for another reason backs off.
+    /// One run of a loop at a time: a second call while one runs is skipped
+    /// (`RunGate.skipIfBusy`), not queued — the run in progress sends it.
+    func testASecondRunWhileOneIsUnderWayIsSkipped() async {
+        store.mutate { $0.mine = Fixtures.status(); $0.myStatusPublished = false }
+        let outbox = self.outbox!
+        async let first = outbox.republishStatus()
+        async let second = outbox.republishStatus()
+        let results = await [first, second]
+
+        XCTAssertEqual(results.sorted { !$0 && $1 }, [false, true], "one ran, one was skipped")
+        XCTAssertEqual(backend.published.count, 1)
+    }
+
     func testRepeatedStatusFailuresBackOff() async {
         store.mutate { $0.mine = Fixtures.status(); $0.myStatusPublished = false }
         let now = Date()
@@ -425,12 +438,12 @@ final class OutboxTests: XCTestCase {
         await outbox.republishStatus(automatic: true, now: now)
         await outbox.republishStatus(automatic: true, now: now.addingTimeInterval(1))
         XCTAssertEqual(backend.published.count, 0)
-        let delay = Outbox.statusRetryDelay(failures: 1)
+        let delay = RetryPacing.backOffDelay(failures: 1)
         await outbox.republishStatus(automatic: true, now: now.addingTimeInterval(delay + 1))
         XCTAssertEqual(backend.published.count, 0, "the second attempt failed too")
         await outbox.republishStatus(automatic: false, now: now.addingTimeInterval(delay + 2))
         XCTAssertEqual(backend.published.count, 1, "the footer's tap doesn't wait")
-        XCTAssertEqual(Outbox.statusRetryDelay(failures: 30), AppConfig.statusRetryMaxDelay)
+        XCTAssertEqual(RetryPacing.backOffDelay(failures: 30), AppConfig.statusRetryMaxDelay)
     }
 
     /// Paging through new photos is one receipt write, not one per page.

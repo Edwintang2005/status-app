@@ -21,7 +21,17 @@ final class AppModel {
     private(set) var role: PairRole?
     /// Owner side: invite revoked from Settings or Diagnostics.
     var inviteClosed: Bool
-    var isBusy = false
+    /// The pairing step under way, named so its screen's spinner sits on the
+    /// button that started it.
+    enum PairingOperation: Equatable { case joining, creatingInvite, unlinking, blocking }
+    var pairingOperation: PairingOperation?
+    var isBusy: Bool { pairingOperation != nil }
+
+    /// Steps can overlap (Block, then Unlink, from Settings) without nesting: a
+    /// step ending clears only its own mark, so none outlives every step.
+    func endPairingOperation(_ operation: PairingOperation) {
+        if pairingOperation == operation { pairingOperation = nil }
+    }
     /// When to fetch and what runs after — launch, foreground, pushes, the
     /// network (`SyncCoordinator`); this model is its host.
     @ObservationIgnored let sync: SyncCoordinator
@@ -888,8 +898,6 @@ final class AppModel {
                       taskName: String,
                       saveFailure: String,
                       saveMedia: @escaping @Sendable () throws -> Void) async {
-        isBusy = true
-        defer { isBusy = false }
         do {
             try await Self.withUploadProtection("moment-save") {
                 try await Task.detached(priority: .userInitiated, operation: saveMedia).value

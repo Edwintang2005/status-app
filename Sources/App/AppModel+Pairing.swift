@@ -55,8 +55,8 @@ extension AppModel {
     private func join(name: String,
                       failureTitle: String,
                       _ commit: (any AppBackend, String) async throws -> Void) async {
-        isBusy = true
-        defer { isBusy = false }
+        pairingOperation = .joining
+        defer { endPairingOperation(.joining) }
 
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -120,8 +120,8 @@ extension AppModel {
 
     /// `replacingExisting` only after the user confirmed deleting the old space.
     func createInvite(replacingExisting: Bool = false) async {
-        isBusy = true
-        defer { isBusy = false }
+        pairingOperation = .creatingInvite
+        defer { endPairingOperation(.creatingInvite) }
         do {
             let url = try await backend.createPairInvite(displayName: myDisplayName,
                                                          replacingExisting: replacingExisting)
@@ -357,8 +357,8 @@ extension AppModel {
     /// - Returns: `false` if nothing was changed.
     @discardableResult
     func unlink(startingOver: Bool) async -> Bool {
-        isBusy = true
-        defer { isBusy = false }
+        pairingOperation = .unlinking
+        defer { endPairingOperation(.unlinking) }
 
         do {
             try await backend.unpair()

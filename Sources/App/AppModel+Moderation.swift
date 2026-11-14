@@ -71,8 +71,8 @@ extension AppModel {
     /// even offline — so, unlike `unlink`, a failed cloud step is reported
     /// afterwards rather than stopping it.
     func block() async {
-        isBusy = true
-        defer { isBusy = false }
+        pairingOperation = .blocking
+        defer { endPairingOperation(.blocking) }
         let name = partnerName
         let status = snapshot.theirs
         let pairing = store.pairing

@@ -117,17 +117,7 @@ struct MomentLibraryView: View {
                     // A reply sent from it reports here, over the library.
                     .presentsModelErrors()
             }
-            .confirmationDialog("Report this \(reporting?.noun ?? "moment")?",
-                                isPresented: $reporting.isPresent(),
-                                titleVisibility: .visible) {
-                Button("Report", role: .destructive) {
-                    if let reporting { model.report(reporting) }
-                    reporting = nil
-                }
-                Button("Cancel", role: .cancel) { reporting = nil }
-            } message: {
-                Text("It's removed from this iPhone straight away, and an email to us opens with the details — send it and we'll respond within 24 hours.")
-            }
+            .reportMomentDialog($reporting, model: model)
             .deleteMomentDialog($deleting, model: model)
         }
     }

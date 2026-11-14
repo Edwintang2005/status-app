@@ -1,5 +1,4 @@
 import CoreLocation
-import Photos
 import SwiftUI
 
 /// Swipe back through the whole history: photos, voice memos, save/share.
@@ -41,11 +40,6 @@ struct MomentGalleryView: View {
     private enum ReplyKind: String, Identifiable {
         case moment, voiceMemo
         var id: String { rawValue }
-    }
-
-    private enum SaveState: Equatable {
-        case idle, saving, saved
-        case failed(String)
     }
 
     init(moments: [Moment], startAt: Moment) {
@@ -207,21 +201,8 @@ struct MomentGalleryView: View {
             } message: {
                 Text("\(partnerName) sees the new caption, quietly. Leave it empty to remove it.")
             }
-            .confirmationDialog("Report this \(reporting?.noun ?? "moment")?",
-                                isPresented: $reporting.isPresent(),
-                                titleVisibility: .visible) {
-                Button("Report", role: .destructive) {
-                    // Gone from the history, so the pager moves on (`settle`), as after a delete.
-                    if let reporting {
-                        model.report(reporting)
-                        reported.insert(reporting.id)
-                    }
-                    reporting = nil
-                }
-                Button("Cancel", role: .cancel) { reporting = nil }
-            } message: {
-                Text("It's removed from this iPhone straight away, and an email to us opens with the details — send it and we'll respond within 24 hours.")
-            }
+            // Gone from the history, so the pager moves on (`settle`), as after a delete.
+            .reportMomentDialog($reporting, model: model) { reported.insert($0.id) }
             .deleteMomentDialog($deleting, model: model)
             .onChange(of: pages.map(\.id)) { _, ids in settle(on: ids) }
             .onChange(of: model.isOffline) { _, offline in
@@ -641,7 +622,6 @@ struct MomentGalleryView: View {
         }
     }
 
-    /// Add-only authorisation: never reads the library, so a gentler prompt.
     private func save() async {
         guard let moment = current,
               let file = MomentStore.shared.imageURL(for: moment.id),
@@ -650,12 +630,6 @@ struct MomentGalleryView: View {
         // late "Saved"/failure would then claim the wrong photo.
         let saving = moment.id
         saveState = .saving
-
-        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
-        guard status == .authorized || status == .limited else {
-            if selection == saving { saveState = .failed(String(localized: "Allow photo access in Settings to save.")) }
-            return
-        }
 
         // Our own file goes as it is. The partner's is anything their build wrote
         // (invariant 23): redrawn, carrying only the place that passed `PhotoLocation`.
@@ -668,23 +642,11 @@ struct MomentGalleryView: View {
             return
         }
         let place = PhotoLocation.read(from: file)
-        let sentAt = moment.sentAt
-        do {
-            try await PHPhotoLibrary.shared().performChanges {
-                let request = PHAssetCreationRequest.forAsset()
-                if let copy {
-                    request.addResource(with: .photo, data: copy, options: nil)
-                } else {
-                    request.addResource(with: .photo, fileURL: file, options: nil)
-                }
-                // Filed under when it was sent and where it was taken, as Photos would its own.
-                request.creationDate = sentAt
-                request.location = place.map { CLLocation(latitude: $0.latitude, longitude: $0.longitude) }
-            }
-            if selection == saving { saveState = .saved }
-        } catch {
-            if selection == saving { saveState = .failed(error.localizedDescription) }
-        }
+        // Filed under when it was sent and where it was taken, as Photos would its own.
+        let outcome = await PhotosSaver.save(copy.map { .photo($0) } ?? .photoFile(file),
+                                             createdAt: moment.sentAt,
+                                             location: place.map { CLLocation(latitude: $0.latitude, longitude: $0.longitude) })
+        if selection == saving { saveState = outcome }
     }
 }
 

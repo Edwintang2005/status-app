@@ -240,13 +240,7 @@ private struct NudgeButtonStyle: ButtonStyle {
     @ViewBuilder
     func makeBody(configuration: Configuration) -> some View {
         if calm {
-            // The primary's metrics, so the button doesn't change size between states.
-            configuration.label
-                .font(Theme.rounded(17, .semibold))
-                .foregroundStyle(Theme.accentText)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 15)
-                .background(Theme.accent.opacity(0.12), in: Capsule())
+            SecondaryButtonStyle(prominent: true).makeBody(configuration: configuration)
         } else {
             PrimaryButtonStyle(tint: tint).makeBody(configuration: configuration)
         }

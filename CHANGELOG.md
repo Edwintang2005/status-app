@@ -8,6 +8,13 @@ Version 1.7, one heading per day it was built, newest first.
 
 ### 14 November 2026
 
+- **Behind the scenes: one rule for every retry.** The send loops (statuses,
+  captions, deletes, receipts, the date, the fresh start, uploads) each run one
+  at a time through the same gate, and every automatic retry's wait — a full
+  iCloud, being asked to slow down, a send iCloud refused, a status that keeps
+  failing — lives in one tested place. The pairing screen's spinner now sits
+  on the button that started the work. Report dialogs, the caption field,
+  Save to Photos and the capsule buttons are each one shared piece.
 - **Saving memories before an unlink is clearer about what's missing.** A photo
   whose file is no longer in iCloud — deleted, or never uploaded whole — used to
   stop "save then unlink" with "try again", which never helped. Now the archive

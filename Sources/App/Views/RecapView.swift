@@ -1,5 +1,4 @@
 import AVKit
-import Photos
 import SwiftUI
 
 /// Makes the year's montage on this iPhone, then offers to keep or share it.
@@ -53,11 +52,6 @@ struct RecapView: View {
         let image: UIImage
         let index: Int
         let count: Int
-    }
-
-    private enum SaveState: Equatable {
-        case idle, saving, saved
-        case failed(String)
     }
 
     @State private var phase: Phase = .gathering
@@ -388,21 +382,8 @@ struct RecapView: View {
         staged = nil
     }
 
-    /// Add-only authorisation: never reads the library.
     private func save(_ url: URL) async {
         saveState = .saving
-        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
-        guard status == .authorized || status == .limited else {
-            saveState = .failed(String(localized: "Allow photo access in Settings to save."))
-            return
-        }
-        do {
-            try await PHPhotoLibrary.shared().performChanges {
-                PHAssetCreationRequest.forAsset().addResource(with: .video, fileURL: url, options: nil)
-            }
-            saveState = .saved
-        } catch {
-            saveState = .failed(error.localizedDescription)
-        }
+        saveState = await PhotosSaver.save(.video(url))
     }
 }

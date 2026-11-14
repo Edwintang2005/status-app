@@ -92,16 +92,9 @@ struct CelebrationOverlay: View {
         }
         // Guideline 1.2: their words fill the screen, so they can be reported from here.
         .accessibilityAction(named: "Report…") { confirmingReport = true }
-        .confirmationDialog("Report this status?",
-                            isPresented: $confirmingReport,
-                            titleVisibility: .visible) {
-            Button("Report", role: .destructive) {
-                model.reportPartnerStatus()
-                finish()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Its text is hidden on this iPhone straight away, and an email to us opens with the details — send it and we'll respond within 24 hours.")
+        .reportStatusDialog(isPresented: $confirmingReport) {
+            model.reportPartnerStatus()
+            finish()
         }
         .task {
             start = .now

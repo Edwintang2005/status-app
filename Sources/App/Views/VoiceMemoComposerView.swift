@@ -272,26 +272,7 @@ struct VoiceMemoComposerView: View {
     }
 
     private var captionField: some View {
-        VStack(spacing: 6) {
-            captionInput
-            CharacterCount(count: caption.count, limit: AppConfig.captionMaxLength)
-        }
-    }
-
-    private var captionInput: some View {
-        TextField("Add a caption (optional)", text: $caption)
-            .font(Theme.rounded(16))
-            .focused($captionFocused)
-            .submitLabel(.done)
-            .onChange(of: caption) { _, text in
-                if text.count > AppConfig.captionMaxLength {
-                    caption = String(text.prefix(AppConfig.captionMaxLength))
-                }
-            }
-            .padding(.vertical, 14)
-            .padding(.horizontal, 16)
-            .background(Color.primary.opacity(0.05),
-                        in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        CaptionField(caption: $caption, focus: $captionFocused)
     }
 
     // MARK: - Sending

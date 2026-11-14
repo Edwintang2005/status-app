@@ -107,15 +107,6 @@ final class SyncPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.partnerStatusSeen?.statusUpdatedAt, Fixtures.date(100))
     }
 
-    func testAutomaticRetryWaitsAfterAFullICloud() {
-        let interval = AppConfig.storageFullRetryInterval
-        XCTAssertTrue(Outbox.automaticRetryAllowed(storageFullAt: nil, now: Fixtures.t0))
-        XCTAssertFalse(Outbox.automaticRetryAllowed(storageFullAt: Fixtures.t0, now: Fixtures.date(interval - 1)))
-        XCTAssertTrue(Outbox.automaticRetryAllowed(storageFullAt: Fixtures.t0, now: Fixtures.date(interval)))
-        XCTAssertTrue(Outbox.automaticRetryAllowed(storageFullAt: Fixtures.date(60), now: Fixtures.t0),
-                      "a stamp ahead of the clock doesn't hold retries off")
-    }
-
     func testSeenMapCoversOnlyThePartnersSeenMoments() {
         var legacy = Fixtures.moment("legacy", seen: true)
         legacy.seenAt = nil

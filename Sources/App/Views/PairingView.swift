@@ -6,8 +6,6 @@ struct PairingView: View {
     @Environment(AppModel.self) private var model
     @State private var name: String = ""
     @FocusState private var nameFocused: Bool
-    /// Which button's work `isBusy` is, so the spinner shows on the one tapped.
-    @State private var startingNewSpace = false
 
     var body: some View {
         @Bindable var model = model
@@ -62,11 +60,7 @@ struct PairingView: View {
     private func startNewSpace(replacingExisting: Bool = false) {
         nameFocused = false
         commitName()  // The invite carries the name; don't race the focus change.
-        startingNewSpace = true
-        Task {
-            await model.createInvite(replacingExisting: replacingExisting)
-            startingNewSpace = false
-        }
+        Task { await model.createInvite(replacingExisting: replacingExisting) }
     }
 
     private var trimmedName: String {
@@ -129,7 +123,7 @@ struct PairingView: View {
                 Button { startNewSpace() } label: {
                     HStack(spacing: 6) {
                         Text("Start a new shared space instead…")
-                        if model.isBusy && startingNewSpace { ProgressView().controlSize(.small) }
+                        if model.pairingOperation == .creatingInvite { ProgressView().controlSize(.small) }
                     }
                     .frame(minHeight: 44)
                     .contentShape(Rectangle())
@@ -139,7 +133,7 @@ struct PairingView: View {
                 .disabled(trimmedName.isEmpty || model.isBusy)
             } else {
                 Button { startNewSpace() } label: {
-                    if model.isBusy {
+                    if model.pairingOperation == .creatingInvite {
                         ProgressView().tint(.white)
                     } else {
                         Text("Create invite link")
@@ -174,7 +168,7 @@ struct PairingView: View {
                 commitName()
                 Task { await model.rejoin(name: trimmedName) }
             } label: {
-                if model.isBusy && !startingNewSpace {
+                if model.pairingOperation == .joining {
                     ProgressView().tint(.white)
                 } else {
                     Text("Rejoin")
@@ -200,12 +194,8 @@ struct PairingView: View {
 
             InviteShareLink(url: url) {
                 Label("Share invite link", systemImage: "square.and.arrow.up")
-                    .font(Theme.rounded(17, .semibold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 15)
-                    .background(Theme.accent, in: Capsule())
             }
+            .buttonStyle(PrimaryButtonStyle())
 
             CopyLinkButton(url: url)
 

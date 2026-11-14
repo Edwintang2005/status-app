@@ -166,12 +166,16 @@ struct PrimaryButtonStyle: ButtonStyle {
 }
 
 struct SecondaryButtonStyle: ButtonStyle {
+    /// The primary's metrics, beside one or in its place (the heart while it
+    /// cools down), so neither changes size.
+    var prominent = false
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(Theme.rounded(16, .medium))
+            .font(Theme.rounded(prominent ? 17 : 16, prominent ? .semibold : .medium))
             .foregroundStyle(Theme.accentText)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
+            .padding(.vertical, prominent ? 15 : 14)
             .background(Theme.accent.opacity(configuration.isPressed ? 0.20 : 0.12),
                         in: Capsule())
     }

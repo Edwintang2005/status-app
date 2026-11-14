@@ -13,21 +13,15 @@ struct CopyLinkButton: View {
     @State private var copied = false
 
     var body: some View {
-        Button {
-            copy()
-        } label: {
+        Group {
             if prominent {
-                label
-                    .font(Theme.rounded(17, .semibold))
-                    .foregroundStyle(Theme.accentText)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 15)
-                    .background(Theme.accent.opacity(0.12), in: Capsule())
+                Button(action: copy) { label }
+                    .buttonStyle(SecondaryButtonStyle(prominent: true))
             } else {
-                label
+                Button(action: copy) { label }
+                    .buttonStyle(.plain)
             }
         }
-        .buttonStyle(.plain)
         .animation(.smooth(duration: 0.2), value: copied)
         .accessibilityLabel(copied ? "Link copied" : "Copy link")
     }
@@ -121,13 +115,9 @@ struct InviteLinkSheet: View {
 
                             InviteShareLink(url: url) {
                                 Label("Share link", systemImage: "square.and.arrow.up")
-                                    .font(Theme.rounded(17, .semibold))
-                                    .foregroundStyle(.white)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 15)
-                                    .background(Theme.accent, in: Capsule())
                                     .accessibilityIdentifier("invite.share")
                             }
+                            .buttonStyle(PrimaryButtonStyle())
 
                             CopyLinkButton(url: url)
                         }

@@ -81,17 +81,8 @@ struct PartnerCard: View, Equatable {
         }
         // Guideline 1.2: reachable under VoiceOver and Voice Control, not only by long-press.
         .accessibilityActions { moderationActions }
-        .confirmationDialog("Report this status?",
-                            isPresented: $confirmingReport,
-                            titleVisibility: .visible) {
-            Button("Report", role: .destructive, action: onReport)
-            if canReveal {
-                Button("Show hidden text", action: onReveal)
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Its text is hidden on this iPhone straight away, and an email to us opens with the details — send it and we'll respond within 24 hours.")
-        }
+        .reportStatusDialog(isPresented: $confirmingReport, onReport: onReport,
+                            reveal: canReveal ? onReveal : nil)
     }
 
     private var hasModerationActions: Bool {
