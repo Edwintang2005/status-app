@@ -42,6 +42,7 @@ enum BannerUpkeep {
         let store = SharedStore.shared
         guard !banners.isEmpty, let pairing = store.pairing else { return }
         let snapshot = store.snapshot
+        let filterOn = store.contentFilterEnabled
         let theirs = pairing.role.other
         let heldNames = store.unreadableTally.heldNames
         // Caught up means nothing still owed, whichever pass's result said so.
@@ -59,13 +60,14 @@ enum BannerUpkeep {
             partnerStatus: snapshot.theirs,
             caughtUp: caughtUp,
             nothingUnannounced: snapshot.owedMoments.isEmpty,
-            wordings: { [Self.words(for: $0), PushBannerPolicy.editedCaptionBody($0)] })
+            wordings: { [Self.words(for: $0, filterEnabled: filterOn),
+                         PushBannerPolicy.editedCaptionBody($0, filterEnabled: filterOn)] })
         let actions = BannerUpkeepPolicy.plan(banners, state: state, incoming: incoming)
         guard !actions.isEmpty else { return }
 
         let originals = Dictionary(delivered.map { ($0.request.identifier, $0.request.content) },
                                    uniquingKeysWith: { first, _ in first })
-        let name = snapshot.moderatedPartnerName
+        let name = snapshot.partnerName(filterEnabled: filterOn)
         var removals: [String] = []
         for action in actions {
             switch action {
@@ -77,14 +79,14 @@ enum BannerUpkeep {
                     continue
                 }
                 await replace(id, from: originals[id], moment: moment,
-                              title: moment.displaySenderName(fallback: name),
-                              body: Self.words(for: moment), in: center)
+                              title: moment.displaySenderName(fallback: name, filterEnabled: filterOn),
+                              body: Self.words(for: moment, filterEnabled: filterOn), in: center)
             case let .refresh(id, moment):
-                let body = Self.words(for: moment)
+                let body = Self.words(for: moment, filterEnabled: filterOn)
                 // An edited-caption notice keeps its wording; its picture may still land.
-                let keeps = originals[id]?.body == PushBannerPolicy.editedCaptionBody(moment)
+                let keeps = originals[id]?.body == PushBannerPolicy.editedCaptionBody(moment, filterEnabled: filterOn)
                 await replace(id, from: originals[id], moment: moment,
-                              title: keeps ? nil : moment.displaySenderName(fallback: name),
+                              title: keeps ? nil : moment.displaySenderName(fallback: name, filterEnabled: filterOn),
                               body: keeps ? nil : body, in: center)
             case let .rewordStatus(id, status, generic):
                 guard claim({ AnnouncementPolicy.claimStatusBanner(for: status, in: &$0) != nil }) else {
@@ -99,7 +101,8 @@ enum BannerUpkeep {
                     continue
                 }
                 let body = PushBannerPolicy.statusBody(status, reportedAt: store.hiddenPartnerStatusAt,
-                                                       sealed: snapshot.partnerStatusSealed)
+                                                       sealed: snapshot.partnerStatusSealed,
+                                                       filterEnabled: filterOn)
                 await replace(id, from: originals[id], moment: nil, title: name, body: body,
                               stamping: .status, in: center)
             }
@@ -108,8 +111,8 @@ enum BannerUpkeep {
     }
 
     /// What a banner about this moment says, as every path words it.
-    private static func words(for moment: Moment) -> String {
-        moment.displayCaption ?? moment.arrivalSummary
+    private static func words(for moment: Moment, filterEnabled: Bool) -> String {
+        moment.displayCaption(filterEnabled: filterEnabled) ?? moment.arrivalSummary
     }
 
     /// Check-and-claim in one locked write (invariant 1), as every banner's claim is.
@@ -140,14 +143,16 @@ enum BannerUpkeep {
         info[NotificationCategory.heldBannerKey] = nil
         info[NotificationCategory.revisedKey] = true
         if let moment {
+            // Looked at before the attempt: a download landing in between (the
+            // service's own runs beside this) is then attached, never judged refused.
+            let onDisk = moment.isVoice ? MomentStore.shared.hasAudio(for: moment.id)
+                                        : MomentStore.shared.hasThumbnail(for: moment.id)
             if let attachment = MomentAttachment.make(for: moment, suffix: "upkeep") {
                 content.attachments = [attachment]
                 info[BannerSubject.wantsAttachmentKey] = nil
             } else {
                 // Not here yet: a later pass adds it. Here but refused by iOS (a
                 // memo past its size limit): asking again would rewrite it forever.
-                let onDisk = moment.isVoice ? MomentStore.shared.hasAudio(for: moment.id)
-                                            : MomentStore.shared.hasThumbnail(for: moment.id)
                 info[BannerSubject.wantsAttachmentKey] = onDisk ? nil : true
             }
         }

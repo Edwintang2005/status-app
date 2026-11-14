@@ -54,7 +54,7 @@ extension AppModel {
     /// the join commits the pairing before its bootstrap publish, so the store may already say paired.
     private func join(name: String,
                       failureTitle: String,
-                      _ commit: (any SyncBackend, String) async throws -> Void) async {
+                      _ commit: (any AppBackend, String) async throws -> Void) async {
         isBusy = true
         defer { isBusy = false }
 

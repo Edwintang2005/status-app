@@ -212,20 +212,24 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         // Worded and claimed: from here on expiry delivers these words, not
         // CloudKit's — the claim stands, so nothing would ever re-announce it.
         setFallback(content)
+        // Earlier banners, beside this push's downloads rather than after them:
+        // the banner waits on the slower of the two, not both.
+        async let tidied: Void = tidyUp(incoming: plan.subject, caughtUp: result.isWholeDelta)
         // The delta's pictures, now that the words are safe: a carried moment from
-        // this delta is posted with its own. Skipped for want of time, the widget's
+        // this delta is posted with its own. Skipped or cut short, the widget's
         // next run fetches the one it draws.
         if await !prefetch(media) { widgetNeedsFetch = true }
         // Claimed too, so posted now — after the fallback, which no wait may precede.
         if let carried { await announce(carried: carried) }
-        // This push's own picture; then earlier banners (`tidyUp`).
-        guard let moment = plan.attachment else {
-            await tidyUp(incoming: plan.subject, caughtUp: result.isWholeDelta)
-            return content
-        }
-        // The refresh fetched at most the widget's thumbnail; pull only what the
-        // banner attaches — the thumbnail, or a memo's recording — and only while
-        // there's time left for the words to go out anyway.
+        if let moment = plan.attachment { await attach(moment, to: content) }
+        await tidied
+        return content
+    }
+
+    /// This push's own picture. The refresh fetched at most the widget's thumbnail;
+    /// pull only what the banner attaches — the thumbnail, or a memo's recording —
+    /// and only while there's time left for the words to go out anyway.
+    private func attach(_ moment: Moment, to content: UNMutableNotificationContent) async {
         var attachment = MomentAttachment.make(for: moment, suffix: "push")
         if attachment == nil,
            let deadline = PushBannerPolicy.attachmentDeadline(elapsed: Date().timeIntervalSince(receivedAt)) {
@@ -236,19 +240,16 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
             content.attachments = [attachment]
             content.userInfo[BannerSubject.wantsAttachmentKey] = nil
         }
-        await tidyUp(incoming: plan.subject, caughtUp: result.isWholeDelta)
-        return content
     }
 
     /// The delta's pictures, once the banner is worded, within what's left of the
-    /// window. - Returns: `false` when skipped, out of time.
+    /// window. - Returns: `false` when skipped or cut short by it.
     private func prefetch(_ media: CloudSync.PendingMedia) async -> Bool {
         guard !Task.isCancelled,
               let within = PushBannerPolicy.attachmentDeadline(elapsed: Date().timeIntervalSince(receivedAt)) else {
             return false
         }
-        await media(within)
-        return true
+        return await media(within)
     }
 
     /// Earlier banners this pass can now complete — reworded, given their

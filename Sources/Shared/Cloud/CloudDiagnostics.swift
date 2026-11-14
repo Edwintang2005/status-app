@@ -40,7 +40,7 @@ struct CloudDiagnostics: Sendable {
     /// One block of text, for pasting into a bug report or a message.
     var report: String {
         var lines = [
-            "\(AppConfig.appName) — iCloud diagnostics",
+            "\(AppConfig.appName) — diagnostics",
             "Environment: \(environment.label)",
             "Container: \(containerID)",
             "Account: \(accountStatus)",

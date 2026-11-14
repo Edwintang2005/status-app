@@ -4,13 +4,31 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 ## Unreleased
 
-Version 1.7.
+Version 1.7, one heading per day it was built, newest first.
 
+### 14 November 2026
+
+- **A half-typed status survives a stray swipe.** Swiping the status sheet
+  down no longer throws away words you've typed; Cancel still does.
+- **Banners arrive a little sooner.** Tidying up earlier banners now runs
+  alongside a push's downloads instead of after them, and a picture that
+  downloads after the deadline no longer reloads the widgets a second time.
+- **A long first sync still checks for lost sends.** On a slow connection a
+  new phone's first sync can take several tries; the last try now still
+  checks whether any photo you sent never reached iCloud, and re-sends it.
+- **A long history scrolls more lightly.** The library and the gallery work
+  out their list once per redraw rather than several times.
+- **"iCloud diagnostics" is now "Diagnostics".**
+- **Docs reorganised.** The README is a short front page; the design notes,
+  shipping steps and rejected ideas moved to `Documentation/`, each
+  invariant has its own page, and CLAUDE.md is a one-screen map. Behind the
+  scenes: the pairing calls are their own backend protocol, the shared store
+  is split by concern with typed keys, the content filter is read once per
+  screen, and demo mode shares the heart's real cooldown claim.
 - **Tapping the photo widget opens the photo it shows.** After a long lock the
   widget had already drawn the newest picture, but the app opened the one from
   before the lock: it looked the picture up in its own out-of-date copy of the
   history. It now re-reads the history first.
-
 - **You can tell when syncing isn't working.** After three failed syncs in a
   row, Home's footer says it couldn't sync, with when it last did, and a tap
   tries again; a first sync on a new phone says "Restoring your history…"
@@ -27,7 +45,6 @@ Version 1.7.
   switch at once); a heart sent from Siri no longer sets off a full sync.
   Sending a photo no longer writes the history on the main thread as the
   composer closes, and crash reports are read off it at launch.
-
 - **Banners are worded before any picture downloads.** On a slow connection a
   banner could run out of time waiting for the widget's picture and show
   iCloud's generic words; now its words are settled first, then the pictures
@@ -45,7 +62,6 @@ Version 1.7.
   damaged value in the fresh start no longer resets what was cleared; a damaged
   snapshot fetches the statuses again; and the gallery's date line swaps
   straight to the full date, with no blink or slide.
-
 - **A long history now finishes syncing on a slow connection.** A phone fetching
   its whole history (a reinstall, a new phone) did it as one download that had
   two minutes to finish; on a weak signal a long history ran out of time, kept
@@ -78,6 +94,8 @@ Version 1.7.
   "Thin brush", not "Colour 2" and "Brush size 4"; and reporting a moment in the
   gallery moves on to the next one instead of closing it.
 
+### 13 November 2026
+
 - **When the app syncs is now one tested piece.** Launch, coming to the front,
   pushes, the network returning and an account change all go through a sync
   coordinator, out of the app's main model. Opening the app fetches once, not
@@ -104,7 +122,6 @@ Version 1.7.
   5,000-moment history to word its banner. A held banner whose moment was
   announced as part of a later burst keeps its place, now worded, rather than
   being withdrawn.
-
 - **Whole-codebase review fixes.**
   - *Save memories, then unlink or fresh start* no longer goes ahead when
     photos or memos couldn't be downloaded: the archive now has to hold every
@@ -141,13 +158,18 @@ Version 1.7.
   - The UI smoke reports a sheet that needed a second tap, or an audit that
     timed out, instead of passing over it.
   - Docs and comments brought up to date.
-
 - **Faster CI.** The Release check runs as its own job beside the tests and
   builds one architecture rather than two (129 s → 66 s on an M2); the
   simulator boots while the Debug build runs; Debug builds no longer make
   dSYMs (Release and archives still do), and the test bundle no longer
   compiles the accent colour's catalogue. The jobs are now `test` and
   `release` — a branch rule naming `build-and-test` needs updating.
+- **The share sheet's keyboard comes back.** Switching away from Photos while
+  typing a caption and coming back left the cursor in the field but no
+  keyboard; now it returns with the caption as you left it.
+
+### 12 November 2026
+
 - **Ten times the history on the phone.** The library now keeps your newest
   5,000 moments instead of 500 (about 1 MB of details). A phone updating from
   an older build fetches the rest of its history once, on first launch — quietly:
@@ -163,15 +185,15 @@ Version 1.7.
   and how it ended (sent, saved for the app, cancelled…). One that never made
   it on screen is listed as such — the trace of a sheet that flashed and closed,
   which iOS doesn't log.
-- **The share sheet's keyboard comes back.** Switching away from Photos while
-  typing a caption and coming back left the cursor in the field but no
-  keyboard; now it returns with the caption as you left it.
 - **Favourites.** Star any moment, yours or theirs, from the gallery's
   toolbar or a library tile's long-press menu; the library's filter menu adds
   "Favourites only", alongside the direction and type filters. Local to this
   phone and never sent. A favourite stays in the history past its 5,000-moment
   limit; starring one fetches its full picture and keeps it on the phone (Clear
   downloaded media included), so it opens offline.
+
+### 11 November 2026
+
 - **Share a photo from any app.** "Red String" in the share sheet takes one
   photo, shows it in the app's own style (light or dark) with "To <partner>"
   and a caption, and sends it as an ordinary moment. Read at 2048 px straight
@@ -191,6 +213,48 @@ Version 1.7.
   until tapped again.
 - **Memories shelved** to the roadmap ("On this day / Memories") with the
   first design pass's notes.
+- **Fixes from an audit of the recap and outage work.** A saved recap is
+  deleted when a picture in it is reported, deleted or re-captioned, or the
+  strong-language filter changes — and a recap still being made then starts
+  over rather than keeping it; the Christmas dates are
+  Gregorian on every calendar; no "your year together" note or Home card once
+  a partner has left; a recap made without iCloud's older moments is shown
+  with a note and not kept; the build can no longer hang on a failed encoder,
+  let the screen sleep mid-render after a quick leave-and-return, or show an
+  error instead of pausing as the app leaves; Diagnostics' widget line keeps
+  the last iCloud attempt through redraws; older status banners still in
+  iCloud's generic words go once the newest is reworded.
+- **Widgets recover from an iCloud outage.** When Apple's sign-in service is
+  down, the widget's own checks now wait quietly (hourly) instead of
+  spending its refresh budget, and opening the app — or its first fetch to
+  work again — redraws every widget, so a frozen widget no longer needs a
+  restart. Diagnostics gains a "Widget" line: its last run, whether it
+  reached iCloud (and why not), and its next refresh.
+
+### 9 November 2026
+
+- **Year in review.** A short video of the year — the photos and drawings you
+  shared as collages of two to four, and your statuses between them, after an
+  opening card with the year's counts and before a closing one — made on the
+  phone and never uploaded. A Christmas gift: it unwraps at midday on
+  25 December with a notification and a Home card (until 31 January), then
+  stays in Settings → Memories. The finished video is kept, so it opens again
+  at once ("Make it again" picks up newer moments), and it's erased along with
+  the history it shows. Leaving the app or locking the phone while it's being
+  made pauses it, and it carries on from where it got to when you're back.
+  Each slide shows on screen as it's made, and the frames are composed on the
+  GPU (on the CPU a year took about five minutes). A year's video is kept
+  until the next year's unwraps; Diagnostics can delete saved recaps. Save it to Photos or share it. Diagnostics → "Year in review" makes one from the last
+  12 months to test with. It works from what's already on the phone: iCloud
+  is read only for a year older than the 500 moments the phone keeps, and
+  only missing full pictures download, while the video is already being made.
+- **Status banners no longer replace each other.** Each partner status keeps
+  its own banner until you clear it or open the app, so the ones you missed
+  read as a history. A locked phone's "updated their status" banner still
+  gets the words once readable, but only the newest can (the phone knows only
+  the latest status); older ones keep their wording.
+
+### 8 November 2026
 
 - **Audit fixes.** From a full audit before the feature pause:
   - **A photo always gets its banner.** A heart or status push that brings a
@@ -215,60 +279,19 @@ Version 1.7.
     voice tile's badge meets 4.5:1; Diagnostics footers are localizable;
     `PairingInfo` decodes field by field; the privacy manifest declares the
     active-keyboards API; tests no longer touch the real App Group; doc drift.
-
-- **Fixes from an audit of the recap and outage work.** A saved recap is
-  deleted when a picture in it is reported, deleted or re-captioned, or the
-  strong-language filter changes — and a recap still being made then starts
-  over rather than keeping it; the Christmas dates are
-  Gregorian on every calendar; no "your year together" note or Home card once
-  a partner has left; a recap made without iCloud's older moments is shown
-  with a note and not kept; the build can no longer hang on a failed encoder,
-  let the screen sleep mid-render after a quick leave-and-return, or show an
-  error instead of pausing as the app leaves; Diagnostics' widget line keeps
-  the last iCloud attempt through redraws; older status banners still in
-  iCloud's generic words go once the newest is reworded.
-
-- **Widgets recover from an iCloud outage.** When Apple's sign-in service is
-  down, the widget's own checks now wait quietly (hourly) instead of
-  spending its refresh budget, and opening the app — or its first fetch to
-  work again — redraws every widget, so a frozen widget no longer needs a
-  restart. Diagnostics gains a "Widget" line: its last run, whether it
-  reached iCloud (and why not), and its next refresh.
-
-- **Year in review.** A short video of the year — the photos and drawings you
-  shared as collages of two to four, and your statuses between them, after an
-  opening card with the year's counts and before a closing one — made on the
-  phone and never uploaded. A Christmas gift: it unwraps at midday on
-  25 December with a notification and a Home card (until 31 January), then
-  stays in Settings → Memories. The finished video is kept, so it opens again
-  at once ("Make it again" picks up newer moments), and it's erased along with
-  the history it shows. Leaving the app or locking the phone while it's being
-  made pauses it, and it carries on from where it got to when you're back.
-  Each slide shows on screen as it's made, and the frames are composed on the
-  GPU (on the CPU a year took about five minutes). A year's video is kept
-  until the next year's unwraps; Diagnostics can delete saved recaps. Save it to Photos or share it. Diagnostics → "Year in review" makes one from the last
-  12 months to test with. It works from what's already on the phone: iCloud
-  is read only for a year older than the 500 moments the phone keeps, and
-  only missing full pictures download, while the video is already being made.
-
-- **Status banners no longer replace each other.** Each partner status keeps
-  its own banner until you clear it or open the app, so the ones you missed
-  read as a history. A locked phone's "updated their status" banner still
-  gets the words once readable, but only the newest can (the phone knows only
-  the latest status); older ones keep their wording.
-
 - **Resize the small picture before sending.** In the composer, a Both-cameras
   shot's inset now pinches bigger or smaller (15–60% of the photo's width,
   from 30%), anywhere on the photo, as well as dragging anywhere; it keeps its
   corner as it grows, stays inside the thumbnail's square, and the sent
   picture matches (`DualShotLayout.Placement.share`). VoiceOver: "Make it
   bigger" / "Make it smaller".
-
 - **A delay between the two cameras.** With Both on, a new hourglass button
   sets Off, 1, 2 or 5 seconds: the camera filling the frame fires at the press,
   and the small picture's camera after the delay, with a countdown over the
   inset — time to turn the phone or pose. A press during it takes the small
   picture at once. Remembered on this phone (`CameraSettings.dualDelay`).
+
+### 7 November 2026
 
 - **A blank status picker is measured and rebuilt.** The picker has opened,
   intermittently on a phone, as toolbar and backdrop only until reopened; it
@@ -278,17 +301,17 @@ Version 1.7.
   noting whether that fixed it — Diagnostics → "Blank sheets", and "Copy
   report" (`LayoutGlitch`, `SharedStore.layoutGlitches`, newest 10).
 
+### 6 November 2026
+
 - **Fill tool follow-ups.** An outline that stops a few points short still
   holds the fill (`FillPlan.gapRadius`, 3 pt; a narrower space falls back to
   a smaller radius, so it fills too), and tapping a line with the bucket
   recolours that line. One undo step each.
-
 - **Crash and hang reports in Diagnostics.** MetricKit's reports for the app
   and its extensions (crashes with their exception, signal, termination reason
   and blamed frame; hangs; CPU, disk-write and launch reports) are kept on the
   phone, newest 20 (`CrashReport`, `SharedStore.crashReports`), shown under
   "Crashes and hangs" and included in "Copy report". No server.
-
 - **Notification follow-ups.** Hearts stack in their own thread
   (`NotificationThread.hearts`), each still its own banner. A push banner the
   service never touched — no subject, still in CloudKit's words — is worked
@@ -296,7 +319,6 @@ Version 1.7.
   like a locked-phone banner by whichever process runs first. Debug builds
   record a per-process banner probe (listing, and whether a rewrite replaced
   the banner in place) under Diagnostics → "Notification probes".
-
 - **UI smoke on the narrowest screen.** Every screen in `DemoSmokeTests` must
   fit the window's width, the drawing palette included (`testDrawingPalette`);
   `make uitest-narrow` runs it on an iPhone SE (3rd generation). Its first
@@ -305,12 +327,16 @@ Version 1.7.
   narrow-screen misreads: text inside a navigation-bar glass button, and the
   status picker's emoji field.
 
+### 5 November 2026
+
 - **Fill tool for drawings.** A paint bucket beside the eraser (a drop before
   iOS 26) fills the area the lines enclose — the whole canvas if none do — in
   the current colour. Fills are PencilKit strokes under the lines
   (`FillPlan`), so undo, the eraser, the 2048 px render and everything
   downstream treat them like ink; filling a filled area again recolours it.
   **No schema change.**
+
+### 4 November 2026
 
 - **Delete your own moment, within five minutes.** "Delete for both of you…"
   in the gallery's menu and on a library tile's long-press, confirmed, for
@@ -331,7 +357,6 @@ Version 1.7.
     the NSE or the app, whichever claims it first (`claimRemovals`). Its
     original banner is withdrawn by the tidy-up, and an open gallery page
     for it closes.
-
 - **Review fixes for the notification ties and caption edits.**
   - A generic status banner (now tagged since 1.6.3's mobile-data fix) could
     be this phone's own status coming back; it no longer clears the banner
@@ -349,7 +374,6 @@ Version 1.7.
   - Diagnostics' "Last notification" is saved before the banner is handed
     to iOS, so a timed-out pass isn't lost; the footer's owed-caption count
     no longer rescans the history on every Home render.
-
 - **Hide a picture from the photo widget.** In the gallery, the partner's
   picture the widget is showing has "Hide from widget" in its menu: the
   widget falls back to the one before (fetched in full for it), and "Show in
@@ -359,11 +383,16 @@ Version 1.7.
   (`Snapshot.widgetHiddenMomentIDs`, `WidgetPicture`, chosen in
   `SharedStore.refreshDerived` like every derived field.)
 
+### 3 November 2026
+
 - **The expanded notification wears the app's look.** Press-and-hold on a
   moment or status banner now shows the app's backdrop — cream and crimson in
   light mode, black with the same glow in dark — with the rounded type and the
   partner's name as an eyebrow, instead of plain system white or grey.
   (`ExpandedBannerView`, `Theme.Background`.)
+
+### 1 November 2026
+
 - **Status notifications on mobile data.** The change fetch ran at CloudKit's
   default priority, which iOS treats as discretionary and may hold back —
   on mobile data, past the notification service's deadline, so the banner
@@ -376,7 +405,6 @@ Version 1.7.
   before, no tidy-up pass could find it. Diagnostics shows how the last push
   went ("Last notification": worded, left generic, failed or timed out, and
   how long it took).
-
 - **Edit your moments' captions.** "Edit caption…" in the gallery's menu on
   your own moments (empty removes it); the moment shows "Edited". **No schema
   change**: only the encrypted `caption` changes, fetched without its assets
@@ -389,20 +417,8 @@ Version 1.7.
   caption: …" (`RefreshResult.editedPartnerMoments`). A cleared caption
   arrives too; a copy with every encrypted field empty still can't wipe one.
 
-- **Both cameras at once.** The camera's "Both" button runs the front and back
-  cameras together (`DualCameraEngine`, an `AVCaptureMultiCamSession`): one
-  fills the frame, the other sits inset — tap it to swap, drag it to a corner.
-  The shutter takes one photo from each; in the composer the inset can still be
-  dragged anywhere, and Send draws them into a single picture
-  (`DualShotComposer`), so it sends, notifies and shows like any photo. **No
-  schema change.**
-  - The inset always sits inside the centred square (`DualShotLayout`), which
-    thumbnails crop to, so the widget, library and banner show it too; held
-    sideways, it lands in the photo corner that was under it on screen. Its
-    white frame is a hairline (0.4% of the short side).
-  - Formats step down until `hardwareCost` fits; if the cameras can't run
-    together, or the phone gets warm (`systemPressureState` serious or worse),
-    it says so and goes back to one camera. The camera always opens on one.
+### 31 October 2026
+
 - **Notifications are tied to what they announce.** Each banner carries its
   subject (`BannerSubject`), and every later run — the next push, the app, the
   widget, an expanded banner — tidies up (`BannerUpkeep`): a locked phone's
@@ -424,6 +440,23 @@ Version 1.7.
   opens the app on the composer with the camera already up
   (`Route.replyWithPhoto`; Home's composer sheet now carries its options in a
   `ComposerRequest` item).
+
+### 30 October 2026
+
+- **Both cameras at once.** The camera's "Both" button runs the front and back
+  cameras together (`DualCameraEngine`, an `AVCaptureMultiCamSession`): one
+  fills the frame, the other sits inset — tap it to swap, drag it to a corner.
+  The shutter takes one photo from each; in the composer the inset can still be
+  dragged anywhere, and Send draws them into a single picture
+  (`DualShotComposer`), so it sends, notifies and shows like any photo. **No
+  schema change.**
+  - The inset always sits inside the centred square (`DualShotLayout`), which
+    thumbnails crop to, so the widget, library and banner show it too; held
+    sideways, it lands in the photo corner that was under it on screen. Its
+    white frame is a hairline (0.4% of the short side).
+  - Formats step down until `hardwareCost` fits; if the cameras can't run
+    together, or the phone gets warm (`systemPressureState` serious or worse),
+    it says so and goes back to one camera. The camera always opens on one.
 
 ## 1.6.2 — App Review and data safety (October 2026)
 

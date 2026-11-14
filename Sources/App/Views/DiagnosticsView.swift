@@ -247,7 +247,7 @@ struct DiagnosticsView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Theme.Background())
-        .navigationTitle("iCloud diagnostics")
+        .navigationTitle("Diagnostics")
         .navigationBarTitleDisplayMode(.inline)
         .task { await reload() }
         .refreshable { await reload() }

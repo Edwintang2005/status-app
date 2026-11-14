@@ -71,8 +71,11 @@ struct MomentGalleryView: View {
         if let next { selection = next } else { dismiss() }
     }
 
+    /// By id, not a walk of the pages: `selection` is always one of them (`settle`).
     private var current: Moment? {
-        moments.first { $0.id == selection }.map(live)
+        guard !reported.contains(selection) else { return nil }
+        let here = model.historyByID
+        return here.isEmpty ? opened.first { $0.id == selection } : here[selection]
     }
 
     /// The model's copy: `moments` was taken when the gallery opened, and an
@@ -90,12 +93,14 @@ struct MomentGalleryView: View {
     var body: some View {
         let partnerName = model.partnerName
         let filterOn = model.contentFilterEnabled
+        // Once per body: a padded history is 5,000 pages.
+        let pages = moments
 
         NavigationStack {
             ZStack {
                 Theme.Background()
 
-                if moments.isEmpty {
+                if pages.isEmpty {
                     ContentUnavailableView("Nothing here yet",
                                            systemImage: "photo.on.rectangle.angled")
                 } else {
@@ -103,7 +108,7 @@ struct MomentGalleryView: View {
                     // mid-swipe when one changes.
                     ScrollView(.horizontal) {
                         LazyHStack(spacing: 0) {
-                            ForEach(moments) { moment in
+                            ForEach(pages) { moment in
                                 page(moment, partnerName: partnerName, filterOn: filterOn)
                                     .containerRelativeFrame(.horizontal)
                                     .id(moment.id)
@@ -114,10 +119,10 @@ struct MomentGalleryView: View {
                     .scrollTargetBehavior(.paging)
                     .scrollPosition(id: scrolledID)
                     .scrollIndicators(.hidden)
-                    .overlay(alignment: .bottom) { pageDots }
+                    .overlay(alignment: .bottom) { pageDots(pages) }
                 }
             }
-            .navigationTitle(counterLabel)
+            .navigationTitle(counterLabel(pages))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -218,7 +223,7 @@ struct MomentGalleryView: View {
                 Text("It's removed from this iPhone straight away, and an email to us opens with the details — send it and we'll respond within 24 hours.")
             }
             .deleteMomentDialog($deleting, model: model)
-            .onChange(of: moments.map(\.id)) { _, pages in settle(on: pages) }
+            .onChange(of: pages.map(\.id)) { _, ids in settle(on: ids) }
             .onChange(of: model.isOffline) { _, offline in
                 guard !offline else { return }
                 unavailable.removeAll()
@@ -289,10 +294,10 @@ struct MomentGalleryView: View {
     /// Page dots for a short run; the title already counts, so a long history
     /// gets no row of fifty dots.
     @ViewBuilder
-    private var pageDots: some View {
-        if (2...12).contains(moments.count) {
+    private func pageDots(_ pages: [Moment]) -> some View {
+        if (2...12).contains(pages.count) {
             HStack(spacing: 8) {
-                ForEach(moments) { moment in
+                ForEach(pages) { moment in
                     Circle()
                         .fill(moment.id == selection ? Color.primary : Color.primary.opacity(0.25))
                         .frame(width: 7, height: 7)
@@ -303,10 +308,10 @@ struct MomentGalleryView: View {
         }
     }
 
-    private var counterLabel: String {
-        guard moments.count > 1,
-              let index = moments.firstIndex(where: { $0.id == selection }) else { return "" }
-        return String(localized: "\(index + 1) of \(moments.count)")
+    private func counterLabel(_ pages: [Moment]) -> String {
+        guard pages.count > 1,
+              let index = pages.firstIndex(where: { $0.id == selection }) else { return "" }
+        return String(localized: "\(index + 1) of \(pages.count)")
     }
 
     // MARK: - Page

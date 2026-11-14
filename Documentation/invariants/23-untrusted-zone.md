@@ -1,0 +1,9 @@
+# Invariant 23: Nothing from the shared zone is trusted
+
+Read before touching `CloudSync.payload(from:)`/`moment(from:)`/`logEntry(from:)`, `TrustedTime`, caps.
+
+**Nothing from the shared zone is trusted** — a modified build can write anything. At ingestion (`CloudSync.payload(from:)`, `moment(from:)`, `logEntry(from:)`):
+- dates go through `TrustedTime.plausible`: ≤ the server `modificationDate` + `clockSkewAllowance` (a *day*, so clocks set minutes ahead pass and keys still match), never before 1970 (ISO-8601 can't read a negative year). Receipt and request dates too; the anniversary floors at `Anniversary.earliest` (1900). A partner moment's `sentAt` is held tighter — never past the server's `creationDate` + `momentClockLeeway` (2 min, `CloudSync.trustedSentAt`): it keys nothing, and orders the history and judges news.
+- the *partner's* text is capped (`statusMessageMaxLength`, `statusEmojiMaxLength`, `displayNameMaxLength`, `captionMaxLength`; own records aren't — `payload(from:fromPartner:)`); waveforms are finite and 0…1 (a NaN made the index unsavable); nudge counts clamp to `nudgeCountCeiling`, incremented from the clamped value.
+- Stored marks over a day ahead of this phone are stale to `RefreshDelta.fold`, the status claims, `pendingCelebration` and `MomentIndex.insert`; `saveStatus` caps the server copy alike.
+- The index's cap (`momentHistoryLimit`, 5,000) never drops a pending own send, nor a favourite (`Moment.favouritedAt`, local only); `MediaRetention` keeps both's files whatever their age. A nudge breaks through Focus only when fresh, at most once per `nudgeBreakthroughInterval` (`AnnouncementPolicy.nudgeInterruption`, claimed with the nudge). `Snapshot` decodes field by field (a bad value costs that field only); `Anniversary`, `StatusSeen` and `FreshStart` decode by hand (their encoders are synthesized: same keys, optionals omitted).

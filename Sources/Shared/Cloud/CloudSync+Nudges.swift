@@ -19,18 +19,7 @@ extension CloudSync {
         // check let two nudges through one cooldown.
         let allowed = await MainActor.run { () -> Bool in
             var claimed = false
-            _ = store.mutate(reloadWidgets: false) { snapshot in
-                if let last = snapshot.lastNudgeSentAt,
-                   now.timeIntervalSince(last) < AppConfig.nudgeCooldown {
-                    return
-                }
-                // Claim the cooldown before the network call so a double-tap
-                // can't slip a second nudge through mid-flight.
-                snapshot.lastNudgeSentAt = now
-                // A retry is underway; the failure notice has done its job.
-                snapshot.lastNudgeFailedAt = nil
-                claimed = true
-            }
+            _ = store.mutate(reloadWidgets: false) { claimed = $0.claimNudgeCooldown(now: now) }
             return claimed
         }
         guard allowed else { return false }

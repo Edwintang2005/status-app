@@ -105,6 +105,8 @@ struct MoodPickerView: View {
             }
         }
         .presentationDetents([.large])
+        // Words typed aren't lost to a stray swipe; Cancel still discards them.
+        .interactiveDismissDisabled(!trimmedMessage.isEmpty)
         // Opens ready for a *new* status: the emoji carries over but the message,
         // tile highlight and celebration flag start fresh — and Set waits for a
         // change, so one stray tap can't re-post the emoji over your words.

@@ -14,54 +14,58 @@ import WidgetKit
 final class SharedStore: @unchecked Sendable {
     static let shared = SharedStore()
 
-    private let store: GroupKeyValueStore
-    private let log = Logger(subsystem: AppConfig.appGroupID, category: "SharedStore")
+    /// The store's plumbing (`store`, `log`, `decode`, the `StoreKey` subscript)
+    /// is internal for its own extension files, never for callers.
+    let store: GroupKeyValueStore
+    let log = Logger(subsystem: AppConfig.appGroupID, category: "SharedStore")
     /// Decoded values by the bytes they came from: comparing bytes is far
     /// cheaper than decoding them again, and any other writer changes them.
     private var decoded: [String: (data: Data, value: Any)] = [:]
     private let decodedLock = NSLock()
 
-    private enum Key {
-        static let snapshot = "snapshot"
-        static let pairing = "pairing"
+    /// A stored value's name; the JSON ones carry their type (`StoreKey`), so a
+    /// getter and setter can't disagree. Plain names are raw bytes kept as they were.
+    enum Key {
+        static let snapshot = StoreKey<Snapshot>("snapshot")
+        static let pairing = StoreKey<PairingInfo>("pairing")
         static let inviteClosed = "inviteClosed"
         static let inviteURL = "inviteURL"
         static let readReceipts = "readReceiptsEnabled"
         static let termsVersion = "acceptedTermsVersion"
         static let contentFilter = "contentFilterEnabled"
-        static let hiddenMoments = "hiddenMomentIDs"
-        static let pendingMomentDeletions = "pendingMomentDeletions"
-        static let hiddenStatusAt = "hiddenPartnerStatusAt"
-        static let blockedOwners = "blockedOwnerRecordNames"
+        static let hiddenMoments = StoreKey<Set<String>>("hiddenMomentIDs")
+        static let pendingMomentDeletions = StoreKey<Set<String>>("pendingMomentDeletions")
+        static let hiddenStatusAt = StoreKey<Date>("hiddenPartnerStatusAt")
+        static let blockedOwners = StoreKey<Set<String>>("blockedOwnerRecordNames")
         static let anniversaryPrompt = "anniversaryPromptPending"
-        static let unreadable = "unreadableRecords"
-        static let zoneGone = "zoneGoneSeenAt"
-        static let fetchThrottledUntil = "fetchThrottledUntil"
-        static let shareCheckedAt = "shareCheckedAt"
-        static let lastPairing = "lastPairing"
+        static let unreadable = StoreKey<UnreadableTally>("unreadableRecords")
+        static let zoneGone = StoreKey<Date>("zoneGoneSeenAt")
+        static let fetchThrottledUntil = StoreKey<Date>("fetchThrottledUntil")
+        static let shareCheckedAt = StoreKey<Date>("shareCheckedAt")
+        static let lastPairing = StoreKey<PairingInfo>("lastPairing")
         static let closeLinkPromptDismissed = "closeLinkPromptDismissed"
         static let widgetTipDismissed = "widgetTipDismissed"
-        static let recapNoticeDismissed = "recapNoticeDismissed"
-        static let partnerLeftNoticeDismissed = "partnerLeftNoticeDismissed"
-        static let subscriptionsVerified = "subscriptionsVerifiedAt"
-        static let widgetReloadRequestedAt = "widgetReloadRequestedAt"
-        static let verifiedAccount = "verifiedAccount"
-        static let nudgeRecordCache = "nudgeRecordCache"
-        static let statusRecordCache = "statusRecordCache"
+        static let recapNoticeDismissed = StoreKey<Int>("recapNoticeDismissed")
+        static let partnerLeftNoticeDismissed = StoreKey<Date>("partnerLeftNoticeDismissed")
+        static let subscriptionsVerified = StoreKey<Date>("subscriptionsVerifiedAt")
+        static let widgetReloadRequestedAt = StoreKey<Date>("widgetReloadRequestedAt")
+        static let verifiedAccount = StoreKey<VerifiedAccount>("verifiedAccount")
+        static let nudgeRecordCache = StoreKey<NudgeRecordCache>("nudgeRecordCache")
+        static let statusRecordCache = StoreKey<StatusRecordCache>("statusRecordCache")
         static let wholePushID = "wholePushID"
         static let lastPushID = "lastPushID"
-        static let subscriptionCleanup = "subscriptionCleanup"
+        static let subscriptionCleanup = StoreKey<SubscriptionCleanup>("subscriptionCleanup")
         static let milestoneReminders = "milestoneRemindersEnabled"
-        static let notificationPreferences = "notificationPreferences"
+        static let notificationPreferences = StoreKey<NotificationPreferences>("notificationPreferences")
         static let notificationsNoticeDismissed = "notificationsNoticeDismissed"
-        static let cameraSettings = "cameraSettings"
-        static let lastBannerPass = "lastBannerPass"
-        static let lastWidgetRun = "lastWidgetRun"
-        static let crashReports = "crashReports"
-        static let layoutGlitches = "layoutGlitches"
-        static let shareUploadClaims = "shareUploadClaims"
-        static let historyCoverage = "historyCoverage"
-        static let shareLaunches = "shareLaunches"
+        static let cameraSettings = StoreKey<CameraSettings>("cameraSettings")
+        static let lastBannerPass = StoreKey<BannerPass>("lastBannerPass")
+        static let lastWidgetRun = StoreKey<WidgetRun>("lastWidgetRun")
+        static let crashReports = StoreKey<[CrashReport]>("crashReports")
+        static let layoutGlitches = StoreKey<[LayoutGlitch]>("layoutGlitches")
+        static let shareUploadClaims = StoreKey<[String: Date]>("shareUploadClaims")
+        static let historyCoverage = StoreKey<Int>("historyCoverage")
+        static let shareLaunches = StoreKey<[ShareLaunch]>("shareLaunches")
     }
 
     init(store: GroupKeyValueStore = GroupFileStore()) {
@@ -76,8 +80,8 @@ final class SharedStore: @unchecked Sendable {
     // MARK: - Snapshot
 
     var snapshot: Snapshot {
-        get { decode(Snapshot.self, forKey: Key.snapshot) ?? .empty }
-        set { encode(newValue, forKey: Key.snapshot) }
+        get { self[Key.snapshot] ?? .empty }
+        set { self[Key.snapshot] = newValue }
     }
 
     /// The snapshot has writers in five processes (the app and each extension);
@@ -90,7 +94,7 @@ final class SharedStore: @unchecked Sendable {
     @discardableResult
     func mutate(reloadWidgets: Bool = true, _ body: (inout Snapshot) -> Void) -> Snapshot {
         let outcome = Self.snapshotLock.withLock { () -> (Snapshot, Bool)? in
-            if case .unreadable = store.storedValue(forKey: Key.snapshot) { return nil }
+            if case .unreadable = store.storedValue(forKey: Key.snapshot.name) { return nil }
             let before = snapshot
             var current = before
             body(&current)
@@ -112,8 +116,8 @@ final class SharedStore: @unchecked Sendable {
     // MARK: - Pairing
 
     var pairing: PairingInfo? {
-        get { decode(PairingInfo.self, forKey: Key.pairing) }
-        set { encodeOptional(newValue, forKey: Key.pairing) }
+        get { self[Key.pairing] }
+        set { self[Key.pairing] = newValue }
     }
 
     enum PairingState {
@@ -125,7 +129,7 @@ final class SharedStore: @unchecked Sendable {
     }
 
     var pairingState: PairingState {
-        if case .unreadable = store.storedValue(forKey: Key.pairing) { return .unreadable }
+        if case .unreadable = store.storedValue(forKey: Key.pairing.name) { return .unreadable }
         return pairing.map(PairingState.paired) ?? .unpaired
     }
 
@@ -133,7 +137,7 @@ final class SharedStore: @unchecked Sendable {
     /// drawn from them would be the empty, unlinked look.
     var isLockedOut: Bool {
         if case .unreadable = pairingState { return true }
-        return store.storedValue(forKey: Key.snapshot) == .unreadable
+        return store.storedValue(forKey: Key.snapshot.name) == .unreadable
     }
 
     /// Whether this device sends (and shows) read receipts. On by default —
@@ -164,23 +168,23 @@ final class SharedStore: @unchecked Sendable {
     /// (`CloudSync.apply` drops them), since the record itself lives on in the
     /// sender's iCloud. Written only by the app, so no cross-process lock.
     var hiddenMomentIDs: Set<String> {
-        get { decode(Set<String>.self, forKey: Key.hiddenMoments) ?? [] }
-        set { encode(newValue, forKey: Key.hiddenMoments) }
+        get { self[Key.hiddenMoments] ?? [] }
+        set { self[Key.hiddenMoments] = newValue }
     }
 
     /// Own moments deleted here whose record iCloud hasn't confirmed gone
     /// (`Outbox.sendDeletions`): already off this phone, and kept out of every
     /// delta like reported ones until then. Written only by the app.
     var pendingMomentDeletions: Set<String> {
-        get { decode(Set<String>.self, forKey: Key.pendingMomentDeletions) ?? [] }
-        set { encode(newValue, forKey: Key.pendingMomentDeletions) }
+        get { self[Key.pendingMomentDeletions] ?? [] }
+        set { self[Key.pendingMomentDeletions] = newValue }
     }
 
     /// `wordsAt` of a reported partner status (an older report's `updatedAt`);
     /// its text is never shown while that status is current. Cleared with the pairing.
     var hiddenPartnerStatusAt: Date? {
-        get { decode(Date.self, forKey: Key.hiddenStatusAt) }
-        set { encodeOptional(newValue, forKey: Key.hiddenStatusAt) }
+        get { self[Key.hiddenStatusAt] }
+        set { self[Key.hiddenStatusAt] = newValue }
     }
 
     /// Owner side: the "when did you two begin?" prompt is owed — set when the
@@ -195,16 +199,16 @@ final class SharedStore: @unchecked Sendable {
     /// waits for a second sighting `AppConfig.zoneGoneConfirmation` later
     /// (`CloudSync.zoneGoneVerdict`); any successful fetch clears it.
     var zoneGoneSeenAt: Date? {
-        get { decode(Date.self, forKey: Key.zoneGone) }
-        set { encodeOptional(newValue, forKey: Key.zoneGone) }
+        get { self[Key.zoneGone] }
+        set { self[Key.zoneGone] = newValue }
     }
 
     /// iCloud asked every process to slow its change fetches until then
     /// (`SendFailure.throttled`): the app's automatic fetches and the widget's wait
     /// it out; pull-to-refresh and the notification service's fetch don't.
     var fetchThrottledUntil: Date? {
-        get { decode(Date.self, forKey: Key.fetchThrottledUntil) }
-        set { encodeOptional(newValue, forKey: Key.fetchThrottledUntil) }
+        get { self[Key.fetchThrottledUntil] }
+        set { self[Key.fetchThrottledUntil] = newValue }
     }
 
     /// Whether automatic fetches wait now; a stamp over `throttleMaxDelay` ahead is a clock change, not iCloud.
@@ -217,15 +221,15 @@ final class SharedStore: @unchecked Sendable {
     /// so re-accepting the *same* zone — a partner evicted by the close handshake
     /// tapping the link again — can keep its unsent media instead of wiping.
     var lastPairing: PairingInfo? {
-        get { decode(PairingInfo.self, forKey: Key.lastPairing) }
-        set { encodeOptional(newValue, forKey: Key.lastPairing) }
+        get { self[Key.lastPairing] }
+        set { self[Key.lastPairing] = newValue }
     }
 
     /// CloudKit user record names of blocked people; their invites are refused.
     /// Survives unlink and "start over" — a block is meant to stick.
     var blockedOwnerRecordNames: Set<String> {
-        get { decode(Set<String>.self, forKey: Key.blockedOwners) ?? [] }
-        set { encode(newValue, forKey: Key.blockedOwners) }
+        get { self[Key.blockedOwners] ?? [] }
+        set { self[Key.blockedOwners] = newValue }
     }
 
     /// Owner side: cached "invite link revoked" flag so `CloudSync` stops
@@ -238,8 +242,8 @@ final class SharedStore: @unchecked Sendable {
     /// The owner's last look at who is on the share, kept across launches so a
     /// closed link isn't re-checked on every cold launch.
     var shareCheckedAt: Date? {
-        get { decode(Date.self, forKey: Key.shareCheckedAt) }
-        set { encodeOptional(newValue, forKey: Key.shareCheckedAt) }
+        get { self[Key.shareCheckedAt] }
+        set { self[Key.shareCheckedAt] = newValue }
     }
 
     /// Owner side: cached invite link so Settings can show it instantly and
@@ -265,8 +269,8 @@ final class SharedStore: @unchecked Sendable {
     /// When this device last confirmed its push subscriptions with the server,
     /// so launch re-asserts them daily rather than every time. Per pairing.
     var subscriptionsVerifiedAt: Date? {
-        get { decode(Date.self, forKey: Key.subscriptionsVerified) }
-        set { encodeOptional(newValue, forKey: Key.subscriptionsVerified) }
+        get { self[Key.subscriptionsVerified] }
+        set { self[Key.subscriptionsVerified] = newValue }
     }
 
     /// The home card on adding the lock-screen widget was dismissed, or a
@@ -279,29 +283,29 @@ final class SharedStore: @unchecked Sendable {
     /// The cap a complete sweep of the zone last filled the index to
     /// (`HistoryCoverage`); `owed` from any token clear until the sweep ends.
     var historyCoverage: Int? {
-        get { decode(Int.self, forKey: Key.historyCoverage) }
-        set { encodeOptional(newValue, forKey: Key.historyCoverage) }
+        get { self[Key.historyCoverage] }
+        set { self[Key.historyCoverage] = newValue }
     }
 
     /// Sends the share sheet started, by moment id: the app's retry pass,
     /// deletes and the fresh start's clear leave them alone while
     /// `ShareIntake.isClaimed`. Written only by the sheet, one at a time.
     var shareUploadClaims: [String: Date] {
-        get { decode([String: Date].self, forKey: Key.shareUploadClaims) ?? [:] }
-        set { encode(newValue, forKey: Key.shareUploadClaims) }
+        get { self[Key.shareUploadClaims] ?? [:] }
+        set { self[Key.shareUploadClaims] = newValue }
     }
 
     /// The year whose Home recap card was waved away (or opened). Per device,
     /// kept across unlinks.
     var recapNoticeDismissed: Int? {
-        get { decode(Int.self, forKey: Key.recapNoticeDismissed) }
-        set { encodeOptional(newValue, forKey: Key.recapNoticeDismissed) }
+        get { self[Key.recapNoticeDismissed] }
+        set { self[Key.recapNoticeDismissed] = newValue }
     }
 
     /// The `partnerLeftAt` whose Home notice was waved away; a later departure shows again.
     var partnerLeftNoticeDismissed: Date? {
-        get { decode(Date.self, forKey: Key.partnerLeftNoticeDismissed) }
-        set { encodeOptional(newValue, forKey: Key.partnerLeftNoticeDismissed) }
+        get { self[Key.partnerLeftNoticeDismissed] }
+        set { self[Key.partnerLeftNoticeDismissed] = newValue }
     }
 
     /// Opt-in local reminders on milestone mornings (`MilestoneReminderPlan`).
@@ -314,15 +318,15 @@ final class SharedStore: @unchecked Sendable {
     /// How loudly each kind of partner notification arrives here. Per device:
     /// an unlink keeps it.
     var notificationPreferences: NotificationPreferences {
-        get { decode(NotificationPreferences.self, forKey: Key.notificationPreferences) ?? NotificationPreferences() }
-        set { encode(newValue, forKey: Key.notificationPreferences) }
+        get { self[Key.notificationPreferences] ?? NotificationPreferences() }
+        set { self[Key.notificationPreferences] = newValue }
     }
 
     /// The camera's last camera, flash and timer, per device. Not pairing
     /// state: an unlink keeps it.
     var cameraSettings: CameraSettings {
-        get { decode(CameraSettings.self, forKey: Key.cameraSettings) ?? CameraSettings() }
-        set { encode(newValue, forKey: Key.cameraSettings) }
+        get { self[Key.cameraSettings] ?? CameraSettings() }
+        set { self[Key.cameraSettings] = newValue }
     }
 
     /// The signed-in account's user record name as a process last verified it,
@@ -335,147 +339,8 @@ final class SharedStore: @unchecked Sendable {
     }
 
     var verifiedAccount: VerifiedAccount? {
-        get { decode(VerifiedAccount.self, forKey: Key.verifiedAccount) }
-        set { encodeOptional(newValue, forKey: Key.verifiedAccount) }
-    }
-
-    /// How the notification service's last push went, for Diagnostics: a banner
-    /// left in CloudKit's words is otherwise invisible. Per device.
-    struct BannerPass: Codable, Equatable, Sendable {
-        enum Outcome: String, Codable, Sendable {
-            case worded
-            /// Fetched, but the plan kept CloudKit's words (held unreadable, one batch of many).
-            case unworded
-            case failed
-            /// iOS's deadline came before the words.
-            case timedOut
-        }
-
-        var at: Date
-        var outcome: Outcome
-        var seconds: Double
-        var detail: String?
-
-        var summary: String {
-            let took = seconds.formatted(.number.precision(.fractionLength(1)))
-            let what = switch outcome {
-            case .worded: String(localized: "worded in \(took) s")
-            case .unworded: String(localized: "left generic after \(took) s")
-            case .failed: String(localized: "fetch failed after \(took) s")
-            case .timedOut: String(localized: "timed out after \(took) s")
-            }
-            let line = [what, detail].compactMap { $0 }.joined(separator: " — ")
-            return "\(line) (\(at.formatted(date: .abbreviated, time: .shortened)))"
-        }
-    }
-
-    /// The widget's last timeline, for Diagnostics: whether WidgetKit still
-    /// calls it, and whether its own check reached iCloud.
-    struct WidgetRun: Codable, Equatable, Sendable {
-        enum Outcome: String, Codable, Sendable {
-            case fetched
-            /// The app or another kind had just fetched; drawn from the store.
-            case skipped
-            /// iCloud refused or had no route (`WidgetReloadPolicy.waitsQuietly`).
-            case unreachable
-            case failed
-            case unpaired
-        }
-
-        /// One attempt to reach iCloud.
-        struct Fetch: Codable, Equatable, Sendable {
-            var at: Date
-            var outcome: Outcome
-            var detail: String?
-        }
-
-        var at: Date
-        var outcome: Outcome
-        var detail: String?
-        var nextReload: Date
-        /// The last run that tried iCloud — kept through the runs that didn't
-        /// (opening the app redraws without fetching), so an outage stays visible.
-        var lastFetch: Fetch?
-
-        /// This run, carrying the previous one's attempt when it made none.
-        static func recorded(after previous: WidgetRun?, at: Date, outcome: Outcome,
-                             detail: String?, nextReload: Date) -> WidgetRun {
-            let fetched = [.fetched, .unreachable, .failed].contains(outcome)
-            return WidgetRun(at: at, outcome: outcome, detail: detail, nextReload: nextReload,
-                             lastFetch: fetched ? Fetch(at: at, outcome: outcome, detail: detail) : previous?.lastFetch)
-        }
-
-        var summary: String {
-            let next = nextReload.formatted(date: .omitted, time: .shortened)
-            var line = "\(Self.words(outcome, detail)) (\(at.formatted(date: .abbreviated, time: .shortened))), next \(next)"
-            if let lastFetch, lastFetch.at != at {
-                line += " · last fetch: \(Self.words(lastFetch.outcome, lastFetch.detail)) "
-                    + "(\(lastFetch.at.formatted(date: .abbreviated, time: .shortened)))"
-            }
-            return line
-        }
-
-        private static func words(_ outcome: Outcome, _ detail: String?) -> String {
-            let what = switch outcome {
-            case .fetched: String(localized: "fetched")
-            case .skipped: String(localized: "drawn from this iPhone's copy")
-            case .unreachable: String(localized: "couldn't reach iCloud")
-            case .failed: String(localized: "fetch failed")
-            case .unpaired: String(localized: "not linked")
-            }
-            return [what, detail].compactMap { $0 }.joined(separator: " — ")
-        }
-    }
-
-    var lastWidgetRun: WidgetRun? {
-        get { decode(WidgetRun.self, forKey: Key.lastWidgetRun) }
-        set { encodeOptional(newValue, forKey: Key.lastWidgetRun) }
-    }
-
-    var lastBannerPass: BannerPass? {
-        get { decode(BannerPass.self, forKey: Key.lastBannerPass) }
-        set { encodeOptional(newValue, forKey: Key.lastBannerPass) }
-    }
-
-    #if DEBUG
-    /// What one process last saw of delivered banners, and how its last rewrite
-    /// went — the device probes behind `BannerUpkeep` (Diagnostics). DEBUG only.
-    struct BannerProbe: Codable, Equatable, Sendable {
-        var at: Date
-        var listed: Int
-        var rewrite: String?
-    }
-
-    /// One key per process, so no process writes over another's.
-    func bannerProbe(for process: String) -> BannerProbe? {
-        decode(BannerProbe.self, forKey: "bannerProbe.\(process)")
-    }
-
-    func setBannerProbe(_ probe: BannerProbe, for process: String) {
-        encodeOptional(probe, forKey: "bannerProbe.\(process)")
-    }
-
-    static let processName = Bundle.main.infoDictionary?["CFBundleExecutable"] as? String ?? "?"
-    #endif
-
-    /// Sheets that opened blank, measured at the time, newest first, for
-    /// Diagnostics (`LayoutGlitch`). Per device, written only by the app.
-    var layoutGlitches: [LayoutGlitch] {
-        get { decode(LossyArray<LayoutGlitch>.self, forKey: Key.layoutGlitches)?.elements ?? [] }
-        set { encodeOptional(newValue.isEmpty ? nil : newValue, forKey: Key.layoutGlitches) }
-    }
-
-    /// The share sheet's last openings, newest first (`ShareLaunch`). Written only by the sheet.
-    var shareLaunches: [ShareLaunch] {
-        get { decode(LossyArray<ShareLaunch>.self, forKey: Key.shareLaunches)?.elements ?? [] }
-        set { encodeOptional(newValue.isEmpty ? nil : newValue, forKey: Key.shareLaunches) }
-    }
-
-    /// MetricKit's crash and hang reports, newest first, for Diagnostics. Per
-    /// device, written only by the app; a bad entry costs only itself.
-    var crashReports: [CrashReport] {
-        get { decode(LossyArray<CrashReport>.self, forKey: Key.crashReports)?.elements ?? [] }
-        set { encodeOptional(newValue.isEmpty ? nil : newValue, forKey: Key.crashReports) }
+        get { self[Key.verifiedAccount] }
+        set { self[Key.verifiedAccount] = newValue }
     }
 
     /// Our nudge record's system fields and count as last saved or fetched, so
@@ -487,8 +352,8 @@ final class SharedStore: @unchecked Sendable {
     }
 
     var nudgeRecordCache: NudgeRecordCache? {
-        get { decode(NudgeRecordCache.self, forKey: Key.nudgeRecordCache) }
-        set { encodeOptional(newValue, forKey: Key.nudgeRecordCache) }
+        get { self[Key.nudgeRecordCache] }
+        set { self[Key.nudgeRecordCache] = newValue }
     }
 
     /// Our status record's system fields and what it held when last saved or
@@ -500,8 +365,8 @@ final class SharedStore: @unchecked Sendable {
     }
 
     var statusRecordCache: StatusRecordCache? {
-        get { decode(StatusRecordCache.self, forKey: Key.statusRecordCache) }
-        set { encodeOptional(newValue, forKey: Key.statusRecordCache) }
+        get { self[Key.statusRecordCache] }
+        set { self[Key.statusRecordCache] = newValue }
     }
 
     /// The last push whose refresh in the notification service took the whole
@@ -530,8 +395,8 @@ final class SharedStore: @unchecked Sendable {
     }
 
     var subscriptionCleanup: SubscriptionCleanup? {
-        get { decode(SubscriptionCleanup.self, forKey: Key.subscriptionCleanup) }
-        set { encodeOptional(newValue, forKey: Key.subscriptionCleanup) }
+        get { self[Key.subscriptionCleanup] }
+        set { self[Key.subscriptionCleanup] = newValue }
     }
 
     /// Which "notifications are off" notice Home's card was waved away for —
@@ -567,14 +432,14 @@ final class SharedStore: @unchecked Sendable {
             subscriptionsVerifiedAt = nil
             nudgeRecordCache = nil
             statusRecordCache = nil
-            store.setData(nil, forKey: Key.unreadable)
+            store.setData(nil, forKey: Key.unreadable.name)
             clearChangeTokens()
             var fresh = Snapshot.empty
             if let name, !name.isEmpty { fresh.mine = .initial(displayName: name) }
             snapshot = fresh
             // Preserved corrupt bytes are the ex's data too.
-            for key in [Key.snapshot, Key.pairing, Key.lastPairing, Key.hiddenStatusAt, Key.unreadable,
-                        Key.pendingMomentDeletions] {
+            for key in [Key.snapshot.name, Key.pairing.name, Key.lastPairing.name, Key.hiddenStatusAt.name,
+                        Key.unreadable.name, Key.pendingMomentDeletions.name] {
                 store.setData(nil, forKey: "\(key).corrupt")
             }
             decodedLock.withLock { decoded.removeAll() }
@@ -591,321 +456,6 @@ final class SharedStore: @unchecked Sendable {
     }
 
     /// Wipes pairing, cached statuses and the whole moment history.
-
-    // MARK: - Widgets
-
-    /// `true` only inside the WidgetKit extension — deliberately not "any
-    /// extension": the notification service still needs to reload widgets.
-    static let isRunningInWidgetExtension: Bool = {
-        guard let extensionInfo = Bundle.main.infoDictionary?["NSExtension"] as? [String: Any],
-              let point = extensionInfo["NSExtensionPointIdentifier"] as? String else {
-            return false
-        }
-        return point == "com.apple.widgetkit-extension"
-    }()
-
-    /// Files moments in the history index, refreshes derived snapshot fields,
-    /// and trims cached media.
-    func record(_ moments: [Moment], cleared: (() -> (Moment) -> Bool)? = nil,
-                index: MomentIndex = .shared, media: MomentStore = .shared) {
-        guard !moments.isEmpty else { return }
-        // `nil` for an unreadable index: pruning against just this delta would
-        // delete the media of everything else.
-        guard let all = index.insertReadable(moments, cleared: cleared) else { return }
-        refreshDerived(reloadWidgets: false, index: index)
-
-        // Only recent files stay on disk (`MediaRetention`); older media is
-        // re-fetched from CloudKit when it's looked at.
-        let drawn = snapshot.latestPartnerVisualMoment?.id
-        media.prune(keeping: MediaRetention.fullCopies(of: all, drawn: drawn),
-                    thumbnailsFor: MediaRetention.thumbnails(of: all, drawn: drawn))
-        requestWidgetReload()
-    }
-
-    func record(_ moment: Moment) {
-        record([moment])
-    }
-
-    /// Recomputes snapshot fields derived from the history index; call whenever
-    /// the index changes. The index is read *inside* the locked mutate: a list
-    /// captured earlier can be applied after another process's newer one, and
-    /// the widget would regress to an older moment.
-    /// Reloads the widgets only when a derived field moved: a moment marked
-    /// seen deep in the history changes nothing they draw. `alongside` runs in
-    /// the same locked write, so a caller's own change costs no second one.
-    @discardableResult
-    func refreshDerived(reloadWidgets: Bool = true,
-                        index: MomentIndex = .shared,
-                        alongside: ((inout Snapshot) -> Void)? = nil) -> (changed: Bool, snapshot: Snapshot) {
-        var changed = false
-        let snapshot = mutate(reloadWidgets: false) { snapshot in
-            alongside?(&snapshot)
-            // Unreadable isn't empty; the widget keeps what it last showed.
-            guard let all = index.loadReadable() else { return }
-            let before = Derived(snapshot)
-            Self.fillDerived(&snapshot, from: all)
-            changed = Derived(snapshot) != before
-        }
-        if changed, reloadWidgets { requestWidgetReload() }
-        return (changed, snapshot)
-    }
-
-    /// What the widgets draw from the fields `fillDerived` owns. Not whole
-    /// moments: marking one seen changes no pixel and must not cost a reload.
-    struct Derived: Equatable {
-        struct Drawn: Equatable {
-            var id: String, kind: Moment.Kind, caption: String, senderName: String
-
-            init?(_ moment: Moment?) {
-                guard let moment else { return nil }
-                (id, kind, caption, senderName) = (moment.id, moment.kind, moment.caption, moment.senderName)
-            }
-        }
-        var partner, own, visual: Drawn?
-        var unheard: Int
-
-        init(_ snapshot: Snapshot) {
-            partner = Drawn(snapshot.latestPartnerMoment)
-            own = Drawn(snapshot.latestOwnMoment)
-            visual = Drawn(snapshot.latestPartnerVisualMoment)
-            unheard = snapshot.unheardVoiceMemoCount
-        }
-    }
-
-    /// `all` is the whole index, newest first.
-    private static func fillDerived(_ snapshot: inout Snapshot, from all: [Moment]) {
-        // Unconditional: each field must be able to return to nil when the
-        // last moment in its direction is deleted.
-        snapshot.latestPartnerMoment = all.first { !$0.fromMe }
-        snapshot.latestOwnMoment = all.first { $0.fromMe }
-        let picture = WidgetPicture.choose(all.filter { !$0.fromMe && $0.isPicture },
-                                           hidden: snapshot.widgetHiddenMomentIDs)
-        snapshot.latestPartnerVisualMoment = picture.shown
-        snapshot.widgetHiddenMomentIDs = picture.stillHidden
-        snapshot.unheardVoiceMemoCount = all
-            .filter { !$0.fromMe && $0.isVoice && !$0.seen }
-            .count
-    }
-
-    // MARK: - Unreadable records (Diagnostics)
-
-    /// Per-process count of records whose encrypted fields came back empty —
-    /// the evidence for whether background processes lose decryption — and the
-    /// records still owed: missed by a fetch (unreadable, or reported but not
-    /// handed over) while the change token moved on past them, fetched again by
-    /// ID until read (`CloudSync.retryOwedRecords`).
-    struct UnreadableTally: Codable, Equatable {
-        var counts: [String: Int] = [:]
-        var lastAt: Date?
-        var owed: [OwedRecord] = []
-        /// Owed records that aged out unread (`owedRecordLifetime`): gone until a full resync.
-        var abandoned = 0
-        /// The last fetch of owed records by ID, by any process (`owedRetrySpacing`).
-        var lastRetryAt: Date?
-        /// That fetch read nothing: an extension waits longer before trying blind again.
-        var lastRetryReadNothing = false
-        /// A resync batch a process without the keys held (its token kept, nothing
-        /// owed): never retried — the batch comes round again — but still held,
-        /// for the banners and the widget's schedule. Replaced by each held pass,
-        /// cleared by any that keeps a token.
-        /// The partner's moments, their status and the fresh-start records only —
-        /// what the held banners and the clear read — the newest `owedRecordLimit`;
-        /// `heldCount` is the whole batch's misses, for Diagnostics.
-        var held: [String] = []
-        var heldCount = 0
-        var heldAt: Date?
-        /// Spaced looks at a held batch by the app with its keys (`ResyncHold`).
-        var heldPasses = 0
-        var heldPassAt: Date?
-
-        struct OwedRecord: Codable, Equatable {
-            var name: String
-            var firstMissedAt: Date
-            /// Missed by a full resync: judged as one when it's finally read, against
-            /// the mark in force when it was missed (`Snapshot.newsAfter` may have
-            /// moved since) — re-fetched history isn't news, a new moment still is.
-            var resync = false
-            var newsAfter: Date?
-
-            init(name: String, firstMissedAt: Date, resync: Bool = false, newsAfter: Date? = nil) {
-                self.name = name
-                self.firstMissedAt = firstMissedAt
-                self.resync = resync
-                self.newsAfter = newsAfter
-            }
-
-            private enum CodingKeys: String, CodingKey { case name, firstMissedAt, resync, newsAfter }
-
-            init(from decoder: Decoder) throws {
-                let container = try decoder.container(keyedBy: CodingKeys.self)
-                name = try container.decode(String.self, forKey: .name)
-                firstMissedAt = try container.decode(Date.self, forKey: .firstMissedAt)
-                resync = try container.decodeIfPresent(Bool.self, forKey: .resync) ?? false
-                newsAfter = try container.decodeIfPresent(Date.self, forKey: .newsAfter)
-            }
-        }
-
-        /// What every reader of the old hold asks: which records are still owed or held…
-        var heldNames: [String] { owed.map(\.name) + held }
-        /// …and since the latest miss — the stale stretch the widget's schedule
-        /// and the app's foreground fetch care about; one record stuck for weeks
-        /// mustn't stand in for a fresh one.
-        var heldSince: Date? { (owed.map(\.firstMissedAt) + [heldAt].compactMap { $0 }).max() }
-
-        init() {}
-
-        private enum CodingKeys: String, CodingKey {
-            case counts, lastAt, owed, abandoned, lastRetryAt, lastRetryReadNothing, held, heldCount, heldAt
-            case heldPasses, heldPassAt
-        }
-
-        /// Hand-written: fields added after the first release fall back (invariant 5).
-        /// The pre-list hold's fields are dropped: its records are re-fetched with the delta it pinned.
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            counts = try container.decodeIfPresent([String: Int].self, forKey: .counts) ?? [:]
-            lastAt = try container.decodeIfPresent(Date.self, forKey: .lastAt)
-            owed = (try? container.decodeIfPresent(LossyArray<OwedRecord>.self, forKey: .owed))?.elements ?? []
-            abandoned = try container.decodeIfPresent(Int.self, forKey: .abandoned) ?? 0
-            lastRetryAt = try? container.decodeIfPresent(Date.self, forKey: .lastRetryAt)
-            lastRetryReadNothing = (try? container.decodeIfPresent(Bool.self, forKey: .lastRetryReadNothing)) ?? false
-            // The old hold's `heldNames` is dropped: its records come back with the delta it pinned.
-            held = (try? container.decodeIfPresent([String].self, forKey: .held)) ?? []
-            heldAt = try? container.decodeIfPresent(Date.self, forKey: .heldAt)
-            heldCount = (try? container.decodeIfPresent(Int.self, forKey: .heldCount)) ?? held.count
-            heldPasses = (try? container.decodeIfPresent(Int.self, forKey: .heldPasses)) ?? 0
-            heldPassAt = try? container.decodeIfPresent(Date.self, forKey: .heldPassAt)
-        }
-
-        var summary: String {
-            guard !counts.isEmpty || !owed.isEmpty else { return "none" }
-            var parts = counts.keys.sorted().map { "\($0) \(counts[$0] ?? 0)" }
-            if let oldest = owed.map(\.firstMissedAt).min() {
-                parts.append("\(owed.count) still owed, the oldest since \(oldest.formatted(date: .abbreviated, time: .shortened))")
-            }
-            if heldCount > 0 { parts.append("a resync batch of \(heldCount) held") }
-            if abandoned > 0 { parts.append("gave up on \(abandoned) after \(Int(AppConfig.owedRecordLifetime / 86_400)) days") }
-            let last = lastAt.map { " (last \($0.formatted(date: .abbreviated, time: .shortened)))" } ?? ""
-            return parts.joined(separator: ", ") + last
-        }
-
-        /// Files missed records (new ones only), settles ones read or deleted,
-        /// ages out the long-unreadable and keeps the list bounded — pure, for tests.
-        mutating func update(missed: [String], resync: Bool = false, newsAfter: Date? = nil,
-                             settled: Set<String>, now: Date) {
-            owed.removeAll { settled.contains($0.name) }
-            for name in missed where !settled.contains(name) && !owed.contains(where: { $0.name == name }) {
-                owed.append(OwedRecord(name: name, firstMissedAt: now, resync: resync, newsAfter: resync ? newsAfter : nil))
-            }
-            let expired = owed.filter { now.timeIntervalSince($0.firstMissedAt) > AppConfig.owedRecordLifetime }
-            abandoned += expired.count
-            owed.removeAll { now.timeIntervalSince($0.firstMissedAt) > AppConfig.owedRecordLifetime }
-            if owed.count > AppConfig.owedRecordLimit {
-                abandoned += owed.count - AppConfig.owedRecordLimit
-                owed.removeFirst(owed.count - AppConfig.owedRecordLimit)
-            }
-        }
-    }
-
-    private static let tallyLock = CrossProcessLock(name: "unreadable.lock")
-
-    var unreadableTally: UnreadableTally {
-        decode(UnreadableTally.self, forKey: Key.unreadable) ?? UnreadableTally()
-    }
-
-    /// A fetch's outcome for the owed list, in one locked write: what it missed
-    /// (counted against `process`, for Diagnostics; `resync` when the fetch was
-    /// one) and what it read or saw deleted.
-    /// `holding`: a resync batch held rather than owed — `names` as `held` keeps
-    /// them, `count` its whole size, `look` whether it was the app with its keys
-    /// (a spaced one counts toward giving up); `tokenKept`: this pass kept a
-    /// token, so no batch is held any more.
-    func noteFetched(missed: [String], resync: Bool = false, newsAfter: Date? = nil, settled: Set<String>,
-                     holding: (names: [String], count: Int, look: Bool)? = nil, tokenKept: Bool = false,
-                     now: Date = Date(), process: String = SharedStore.processLabel) {
-        guard !missed.isEmpty || !settled.isEmpty || holding != nil || tokenKept else { return }
-        Self.tallyLock.withLock {
-            var tally = unreadableTally
-            let before = tally
-            let seen = missed.count + (holding?.count ?? 0)
-            if seen > 0 {
-                tally.counts[process, default: 0] += seen
-                tally.lastAt = now
-            }
-            tally.update(missed: missed, resync: resync, newsAfter: newsAfter, settled: settled, now: now)
-            if let holding {
-                if tally.held.isEmpty { tally.heldAt = now }
-                tally.held = Array(holding.names.suffix(AppConfig.owedRecordLimit))
-                tally.heldCount = holding.count
-                if holding.look,
-                   now.timeIntervalSince(tally.heldPassAt ?? .distantPast) >= AppConfig.owedRetrySpacing {
-                    tally.heldPasses += 1
-                    tally.heldPassAt = now
-                }
-            } else if tokenKept {
-                tally.held = []
-                tally.heldCount = 0
-                tally.heldAt = nil
-                tally.heldPasses = 0
-                tally.heldPassAt = nil
-            }
-            guard tally != before else { return }
-            encode(tally, forKey: Key.unreadable)
-        }
-    }
-
-    /// Claims a fetch of owed records by ID for this process — `nil` when there's
-    /// nothing owed or any process did one within `owedRetrySpacing` — handing back
-    /// what to fetch, newest first, at most `limit` (an extension's budget).
-    /// An extension after a retry that read nothing waits `owedRetryBlindSpacing`:
-    /// it can't know the keys are there, and the widget runs every few minutes while held.
-    func claimOwedRetry(now: Date = Date(), limit: Int = AppConfig.owedRecordLimit,
-                        isExtension: Bool = false) -> [UnreadableTally.OwedRecord]? {
-        Self.tallyLock.withLock {
-            var tally = unreadableTally
-            let spacing = isExtension && tally.lastRetryReadNothing ? AppConfig.owedRetryBlindSpacing
-                                                                    : AppConfig.owedRetrySpacing
-            guard !tally.owed.isEmpty,
-                  now.timeIntervalSince(tally.lastRetryAt ?? .distantPast) >= spacing
-                    || (tally.lastRetryAt ?? .distantPast) > now else { return nil }
-            tally.lastRetryAt = now
-            encode(tally, forKey: Key.unreadable)
-            return Array(tally.owed.suffix(limit).reversed())
-        }
-    }
-
-    /// A claimed retry that fetched nothing (failed, timed out, cancelled): the
-    /// next pass may try at once. Otherwise, whether it read anything.
-    func noteOwedRetry(fetched: Bool, readAny: Bool = false) {
-        Self.tallyLock.withLock {
-            var tally = unreadableTally
-            if fetched { tally.lastRetryReadNothing = !readAny } else { tally.lastRetryAt = nil }
-            encode(tally, forKey: Key.unreadable)
-        }
-    }
-
-    /// Kept current by the app from the protected-data notifications; a locked
-    /// phone's background refresh must not count toward giving up. Extensions
-    /// never give up regardless. Written on main, read from the sync actor.
-    static var protectedDataAvailable: Bool {
-        get { protectedData.withLock { $0 } }
-        set { protectedData.withLock { $0 = newValue } }
-    }
-    private static let protectedData = OSAllocatedUnfairLock(initialState: true)
-
-    /// Which of the five processes this is, for the tally above.
-    static let processLabel: String = {
-        guard let extensionInfo = Bundle.main.infoDictionary?["NSExtension"] as? [String: Any],
-              let point = extensionInfo["NSExtensionPointIdentifier"] as? String else {
-            return "app"
-        }
-        switch point {
-        case "com.apple.widgetkit-extension": return "widget"
-        case "com.apple.usernotifications.content-extension": return "expanded banner"
-        case "com.apple.share-services": return "share sheet"
-        default: return "notification service"
-        }
-    }()
 
     // MARK: - CloudKit change tokens
 
@@ -942,65 +492,14 @@ final class SharedStore: @unchecked Sendable {
         historyCoverage = HistoryCoverage.owed
     }
 
-    /// `widgetNeedsFetch: false` (the usual case) stamps `widgetReloadRequestedAt`:
-    /// whoever asked has just applied the delta or changed only local state, so
-    /// the widget renders the store without a fetch of its own
-    /// (`WidgetReloadPolicy.shouldFetch`). Absorbed while this process holds reloads.
-    static func reloadWidgets(widgetNeedsFetch: Bool = false) {
-        shared.requestWidgetReload(widgetNeedsFetch: widgetNeedsFetch)
-    }
-
-    /// The same, stamping this store — a test's own, never the real container.
-    func requestWidgetReload(widgetNeedsFetch: Bool = false) {
-        #if canImport(WidgetKit)
-        // A reload from inside the widget process would re-enter the timeline
-        // provider; WidgetKit already refreshes after interactive intents.
-        guard !Self.isRunningInWidgetExtension else { return }
-        guard Self.reloadHolds.withLock({ $0 }) == 0 else { return }
-        widgetReloadRequestedAt = widgetNeedsFetch ? nil : Date()
-        WidgetCenter.shared.reloadTimelines(ofKind: AppConfig.widgetKind)
-        WidgetCenter.shared.reloadTimelines(ofKind: AppConfig.momentWidgetKind)
-        WidgetCenter.shared.reloadTimelines(ofKind: AppConfig.nudgeWidgetKind)
-        #endif
-    }
-
-    /// When the app or the notification service last asked for a reload it
-    /// didn't need the widget to fetch for; `nil` when the last one did.
-    var widgetReloadRequestedAt: Date? {
-        get { decode(Date.self, forKey: Key.widgetReloadRequestedAt) }
-        set { encodeOptional(newValue, forKey: Key.widgetReloadRequestedAt) }
-    }
-
-    /// Open holds in this process. While any is open, `reloadWidgets` is
-    /// absorbed; each hold's release reloads once.
-    private static let reloadHolds = OSAllocatedUnfairLock(initialState: 0)
-
-    /// Collapses a run's reloads into one — each is a WidgetKit budget spend per
-    /// kind. The hold is process-wide; the release's reload stamps this store.
-    func holdWidgetReloads() -> WidgetReloadHold {
-        Self.reloadHolds.withLock { $0 += 1 }
-        return WidgetReloadHold(store: self)
-    }
-
-    /// Released at most once — the expiry callback and the task's own exit both try.
-    final class WidgetReloadHold: Sendable {
-        private let store: SharedStore
-        private let open = OSAllocatedUnfairLock(initialState: true)
-
-        fileprivate init(store: SharedStore) {
-            self.store = store
-        }
-
-        func release(widgetNeedsFetch: Bool) {
-            guard open.withLock({ isOpen in defer { isOpen = false }; return isOpen }) else { return }
-            SharedStore.reloadHolds.withLock { $0 = max(0, $0 - 1) }
-            store.requestWidgetReload(widgetNeedsFetch: widgetNeedsFetch)
-        }
-    }
-
     // MARK: - Codable plumbing
 
-    private func decode<T: Decodable>(_ type: T.Type, forKey key: String) -> T? {
+    subscript<Value: Codable>(key: StoreKey<Value>) -> Value? {
+        get { decode(Value.self, forKey: key.name) }
+        set { encodeOptional(newValue, forKey: key.name) }
+    }
+
+    func decode<T: Decodable>(_ type: T.Type, forKey key: String) -> T? {
         guard let data = store.data(forKey: key) else { return nil }
         if let hit = decodedLock.withLock({ decoded[key] }), hit.data == data, let value = hit.value as? T {
             return value
@@ -1017,12 +516,12 @@ final class SharedStore: @unchecked Sendable {
             store.setData(data, forKey: "\(key).corrupt")
             // Like the index and the log: a blank snapshot (both statuses) refills
             // only from a full fetch — once, not on every read until it's rewritten.
-            if firstSighting, key == Key.snapshot { clearChangeTokens() }
+            if firstSighting, key == Key.snapshot.name { clearChangeTokens() }
             return nil
         }
     }
 
-    private func encode<T: Encodable>(_ value: T, forKey key: String) {
+    func encode<T: Encodable>(_ value: T, forKey key: String) {
         do {
             let data = try JSONEncoder.shared.encode(value)
             // The same bytes again: a rewrite would only make every process re-read it.
@@ -1033,13 +532,19 @@ final class SharedStore: @unchecked Sendable {
         }
     }
 
-    private func encodeOptional<T: Encodable>(_ value: T?, forKey key: String) {
+    func encodeOptional<T: Encodable>(_ value: T?, forKey key: String) {
         if let value {
             encode(value, forKey: key)
         } else {
             store.setData(nil, forKey: key)
         }
     }
+}
+
+/// A JSON-stored value's name and type (`SharedStore.Key`).
+struct StoreKey<Value: Codable>: Sendable {
+    let name: String
+    init(_ name: String) { self.name = name }
 }
 
 extension JSONEncoder {

@@ -15,6 +15,20 @@ final class NudgeCooldownPolicyTests: XCTestCase {
         return snapshot
     }
 
+    /// The one claim both backends make: refused inside the cooldown, and a
+    /// claim clears the last failure notice.
+    func testTheClaimHoldsForTheCooldown() {
+        var snapshot = snapshot(claim: nil)
+        snapshot.lastNudgeFailedAt = Fixtures.t0
+        XCTAssertTrue(snapshot.claimNudgeCooldown(now: started))
+        XCTAssertEqual(snapshot.lastNudgeSentAt, started)
+        XCTAssertNil(snapshot.lastNudgeFailedAt)
+
+        XCTAssertFalse(snapshot.claimNudgeCooldown(now: started.addingTimeInterval(AppConfig.nudgeCooldown - 1)))
+        XCTAssertEqual(snapshot.lastNudgeSentAt, started, "a refused claim changes nothing")
+        XCTAssertTrue(snapshot.claimNudgeCooldown(now: started.addingTimeInterval(AppConfig.nudgeCooldown)))
+    }
+
     func testADeadlineBeforeTheSaveReleasesTheClaim() {
         for claim in [started, Fixtures.date(1)] {
             var snapshot = snapshot(claim: claim)

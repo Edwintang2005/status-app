@@ -114,7 +114,7 @@ final class CelebrationTests: XCTestCase {
         let widget = WidgetContent(snapshot: snapshot, reportedAt: nil, filterEnabled: false)
         XCTAssertFalse(widget.partner?.message.contains("engaged") ?? true)
 
-        let banner = PushBannerPolicy.statusBody(status, reportedAt: nil, sealed: true)
+        let banner = PushBannerPolicy.statusBody(status, reportedAt: nil, sealed: true, filterEnabled: false)
         XCTAssertFalse(banner.contains("engaged"))
         XCTAssertFalse(banner.contains("💍"))
 

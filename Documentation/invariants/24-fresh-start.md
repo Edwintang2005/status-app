@@ -1,0 +1,9 @@
+# Invariant 24: A fresh start clears only with both committed, each side its own records, by server time
+
+Read before touching `FreshStartPolicy`, `CloudSync+FreshStart`, `Outbox.advanceFreshStart`, `clearedBefore`.
+
+**A fresh start clears only with both committed, each side its own records, by server time.**
+- The asker's epoch is its `FreshStart` record's server save time (never re-saved, never queued offline); the agreer names it (final); the asker's app commits on seeing it. Withdraw and commit both write the asker's record under `.ifServerRecordUnchanged`, judged against the server copy (`FreshStartPolicy.transition`), so they can't both land.
+- Then each phone's *app* clears (`Outbox.advanceFreshStart` → `CloudSync.clearHistory`): re-reads both records from the server, deletes its own moments/`StatusLog`s created (server `creationDate`) before the epoch and its receipt — never `status-*`/`nudge-*` (read as an unlink), the `FreshStart` record, or the current status's log — and only then purges its copy (`FreshStartPolicy.purge`: the zone's classification wins; an own unsent send is kept and sent). Extensions only read and fold.
+- `Snapshot.freshStart.clearedBefore` (moved only by a *published* commit, max-only) drops older moments/logs from every delta at parse time — before readability, so they don't hold the token — and from `requeueMissingUploads` (held off while a `FreshStart` record is unreadable or owed). Stores re-judge each insert *inside their locks* (`FreshStartPolicy.clearedFilter`), so a batch parsed before the commit can't re-file what was purged; the clear stands aside for the upload retry and any upload in flight, and runs again via `linkFreed` after a landing — otherwise at the next refresh's recovery pass.
+- Our own record written by another account (`lastModifiedUserRecordID`; positive proof only, and only once this phone knows its real record name, else a failed lookup wedges the clear) is never our consent.

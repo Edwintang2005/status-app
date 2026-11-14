@@ -32,9 +32,10 @@ enum ContentFilter {
             .contains { terms.contains(String($0)) && !exempt.contains(String($0)) }
     }
 
-    /// The filter as the user has it set: on by default, off in Settings.
-    /// `enabled` is injectable so the presentation helpers below stay testable.
-    static func hides(_ text: String, enabled: Bool = SharedStore.shared.contentFilterEnabled) -> Bool {
+    /// The filter as the user has it set (`SharedStore.contentFilterEnabled`, on by
+    /// default). Every helper here takes it from its caller, read once per surface
+    /// or pass rather than once per tile, name or caption.
+    static func hides(_ text: String, enabled: Bool) -> Bool {
         enabled && flags(text)
     }
 
@@ -45,7 +46,7 @@ enum ContentFilter {
     /// the filter hides it — names are user text too.
     static func displayName(_ name: String,
                             fallback: String,
-                            enabled: Bool = SharedStore.shared.contentFilterEnabled) -> String {
+                            enabled: Bool) -> String {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !(enabled && flags(trimmed, except: nameExemptions)) else { return fallback }
         return trimmed
@@ -110,7 +111,7 @@ extension StatusPayload {
                     revealed: Bool = false,
                     sealed: Bool = false,
                     filteredText: String = ContentFilter.hiddenPlaceholder,
-                    filterEnabled: Bool = SharedStore.shared.contentFilterEnabled) -> ModeratedStatus {
+                    filterEnabled: Bool) -> ModeratedStatus {
         if let reportedAt, wordsAt == reportedAt || updatedAt == reportedAt { return .reported }
         if sealed { return .sealed }
         guard ContentFilter.hides(message, enabled: filterEnabled) else { return .shown(emoji, message) }
@@ -121,7 +122,7 @@ extension StatusPayload {
     func moderated(reportedAt: Date?,
                    sealed: Bool = false,
                    filteredText: String = ContentFilter.hiddenPlaceholder,
-                   filterEnabled: Bool = SharedStore.shared.contentFilterEnabled) -> StatusPayload {
+                   filterEnabled: Bool) -> StatusPayload {
         let shown = moderation(reportedAt: reportedAt, sealed: sealed,
                                filteredText: filteredText, filterEnabled: filterEnabled)
         var payload = self
@@ -135,7 +136,7 @@ extension StatusPayload {
     func wordsShown(reportedAt: Date?,
                     revealed: Bool,
                     sealed: Bool = false,
-                    filterEnabled: Bool = SharedStore.shared.contentFilterEnabled) -> Bool {
+                    filterEnabled: Bool) -> Bool {
         !moderation(reportedAt: reportedAt, revealed: revealed, sealed: sealed,
                     filterEnabled: filterEnabled).message.isPlaceholder
     }
@@ -146,7 +147,7 @@ extension StatusHistoryEntry {
     /// `sealedAt`: the unopened surprise's `wordsAt` (`Snapshot.sealedPartnerWordsAt`).
     func moderation(reportedAt: Date?,
                     sealedAt: Date? = nil,
-                    filterEnabled: Bool = SharedStore.shared.contentFilterEnabled) -> ModeratedStatus {
+                    filterEnabled: Bool) -> ModeratedStatus {
         guard !fromMe else { return .shown(emoji, message) }
         if let reportedAt, at == reportedAt { return .reported }
         if let sealedAt, at == sealedAt { return .sealed }
@@ -155,7 +156,7 @@ extension StatusHistoryEntry {
     }
 
     func moderated(reportedAt: Date?,
-                   filterEnabled: Bool = SharedStore.shared.contentFilterEnabled) -> StatusHistoryEntry {
+                   filterEnabled: Bool) -> StatusHistoryEntry {
         let shown = moderation(reportedAt: reportedAt, filterEnabled: filterEnabled)
         var entry = self
         entry.emoji = shown.emoji
@@ -168,15 +169,13 @@ extension Moment {
     /// The sender's name as it may be shown: own sends are never filtered, and
     /// a partner's name the filter hides (or that was never set) becomes `fallback`.
     func displaySenderName(fallback: String,
-                           filterEnabled: Bool = SharedStore.shared.contentFilterEnabled) -> String {
+                           filterEnabled: Bool) -> String {
         if fromMe { return senderName.trimmingCharacters(in: .whitespacesAndNewlines) }
         return ContentFilter.displayName(senderName, fallback: fallback, enabled: filterEnabled)
     }
 
     /// The caption as it may be shown, or `nil` when there is none to show — a
     /// partner caption the filter hides reads as no caption.
-    var displayCaption: String? { displayCaption(filterEnabled: SharedStore.shared.contentFilterEnabled) }
-
     func displayCaption(filterEnabled: Bool) -> String? {
         guard let shown = moderatedCaption(revealed: false, filterEnabled: filterEnabled),
               !shown.isPlaceholder else { return nil }
@@ -186,7 +185,7 @@ extension Moment {
     /// For a surface that says a caption is hidden, and can reveal it; `nil`
     /// when there is no caption at all.
     func moderatedCaption(revealed: Bool,
-                          filterEnabled: Bool = SharedStore.shared.contentFilterEnabled) -> ModeratedText? {
+                          filterEnabled: Bool) -> ModeratedText? {
         guard !caption.isEmpty else { return nil }
         if !fromMe, !revealed, ContentFilter.hides(caption, enabled: filterEnabled) {
             return ModeratedText(text: ContentFilter.hiddenPlaceholder, isPlaceholder: true)

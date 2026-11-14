@@ -1,0 +1,8 @@
+# Invariant 6: Widgets reload via SharedStore.reloadWidgets()
+
+Read before touching `SharedStore+Widgets`, `WidgetReloadPolicy`, `refreshDerived`, the NSE's hold, `AppModel.redrawWidgets`.
+
+**Widgets reload via `SharedStore.reloadWidgets()`** after a snapshot/media change, never from the widget process (`isRunningInWidgetExtension`); in-process calls use the instance (`requestWidgetReload`), so a test store stamps itself.
+- An app/NSE reload stamps `widgetReloadRequestedAt` and the widget skips its fetch for `WidgetReloadPolicy.siblingReloadWindow` (2 min); `reloadWidgets(widgetNeedsFetch: true)` clears it (the NSE after an incomplete batch, failure or expiry). The NSE holds reloads for its run (`holdWidgetReloads()`, one idempotent release per exit).
+- The app also redraws when it comes to the front and after its first fetch to work following a failure (`AppModel.redrawWidgets`, front-only: WidgetKit doesn't count those), so an outage's stale timeline never needs a restart. The widget records each run (`SharedStore.lastWidgetRun`, carrying the last real fetch through redraws that skipped one) for Diagnostics.
+- Otherwise reload only when something drawn moved: a `mutate` that changes nothing writes nothing and reloads nothing (an identical encode isn't rewritten either: `JSONEncoder.shared` sorts keys), `refreshDerived` compares `SharedStore.Derived` (ids, kinds, captions, names, memo count — never `seen`); an empty refresh reloads only if the fold changed the snapshot; the gallery reloads once on dismiss (`flushWidgetReload`). Widget kinds share one refresh (`SingleFlight`).

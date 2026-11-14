@@ -52,8 +52,9 @@ enum MemoryArchive {
         guard !contents.isEmpty else { throw ArchiveError.nothingToSave }
 
         let ordered = contents.moments
-        let names = Names(me: myName, partner: partnerName)
-        let statuses = contents.statuses.map { $0.moderated(reportedAt: reportedStatusAt) }
+        let filterEnabled = SharedStore.shared.contentFilterEnabled
+        let names = Names(me: myName, partner: partnerName, filterEnabled: filterEnabled)
+        let statuses = contents.statuses.map { $0.moderated(reportedAt: reportedStatusAt, filterEnabled: filterEnabled) }
         let store = MomentStore.shared
         let fileManager = FileManager.default
 
@@ -226,12 +227,16 @@ enum MemoryArchive {
     private struct Names {
         let me: String
         let partner: String
+        /// Read once for the whole archive.
+        let filterEnabled: Bool
 
         func sender(of moment: Moment) -> String {
             let fallback = moment.fromMe ? me : partner
-            let shown = moment.displaySenderName(fallback: fallback)
+            let shown = moment.displaySenderName(fallback: fallback, filterEnabled: filterEnabled)
             return shown.isEmpty ? fallback : shown
         }
+
+        func caption(of moment: Moment) -> String? { moment.displayCaption(filterEnabled: filterEnabled) }
 
         func author(of status: StatusHistoryEntry) -> String { status.fromMe ? me : partner }
     }
@@ -270,7 +275,7 @@ enum MemoryArchive {
     /// Dated, attributed and captioned — the filename is the only metadata that survives copying.
     private static func fileName(for moment: Moment, names: Names, extension ext: String) -> String {
         var name = fileDateFormat.string(from: moment.sentAt) + " " + prefix(sanitised(names.sender(of: moment)), bytes: 60)
-        let caption = sanitised(moment.displayCaption ?? "")
+        let caption = sanitised(names.caption(of: moment) ?? "")
         if !caption.isEmpty {
             name += " — " + prefix(caption, bytes: 100)
         }
@@ -361,7 +366,7 @@ enum MemoryArchive {
         for entry in entries {
             let moment = entry.moment
             var line = readableDate.string(from: moment.sentAt) + "  ·  " + names.sender(of: moment)
-            if let caption = moment.displayCaption { line += "  ·  \u{201C}\(caption)\u{201D}" }
+            if let caption = names.caption(of: moment) { line += "  ·  \u{201C}\(caption)\u{201D}" }
             if moment.isVoice, moment.duration > 0 {
                 line += "  ·  \(Int(moment.duration.rounded()))s"
             }
@@ -384,7 +389,7 @@ enum MemoryArchive {
             let sender = names.sender(of: moment)
             let when = escaped(readableDate.string(from: moment.sentAt))
             let who = escaped(sender)
-            let caption = moment.displayCaption.map { "<p class=\"caption\">\(escaped($0))</p>" } ?? ""
+            let caption = names.caption(of: moment).map { "<p class=\"caption\">\(escaped($0))</p>" } ?? ""
 
             let media: String
             var trailing = "\(who) · \(when)"
@@ -397,7 +402,7 @@ enum MemoryArchive {
                     trailing += " · \(Int(moment.duration.rounded()))s"
                 }
             case (let path?, _):
-                let alt = moment.displayCaption
+                let alt = names.caption(of: moment)
                     ?? "A \(moment.kind == .drawing ? "drawing" : "photo") from \(sender)"
                 media = "<img src=\"\(href(path))\" alt=\"\(escaped(alt))\">"
             }

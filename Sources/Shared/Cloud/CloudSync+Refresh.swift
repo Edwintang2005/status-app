@@ -19,15 +19,17 @@ extension CloudSync {
 
     /// The media a refresh brings along: downloaded as part of it, or handed back.
     enum MediaTiming { case now, later }
-    /// What's left to download, within the bound given (`refreshDeferringMedia`).
-    typealias PendingMedia = @Sendable (_ within: TimeInterval) async -> Void
+    /// What's left to download, within the bound given (`refreshDeferringMedia`);
+    /// `false` when the bound cut it short. It never reloads widgets: its caller's
+    /// hold does, once, and a download landing after the bound stays quiet.
+    typealias PendingMedia = @Sendable (_ within: TimeInterval) async -> Bool
 
     /// The notification service's refresh: nothing waits on a download before the
     /// banner is worded and claimed; `media` downloads the rest within what's left
     /// of the service's window (`PushBannerPolicy.attachmentDeadline`).
     func refreshDeferringMedia() async throws -> (result: RefreshResult, media: PendingMedia) {
         let refreshed = try await refresh(media: .later)
-        return (refreshed.result, refreshed.media ?? { _ in })
+        return (refreshed.result, refreshed.media ?? { _ in true })
     }
 
     private func refresh(media timing: MediaTiming) async throws -> (result: RefreshResult, media: PendingMedia?) {
@@ -48,6 +50,9 @@ extension CloudSync {
         let batchLimit = isExtension ? Self.extensionBatchLimit : Self.appBatchLimit
 
         var sweep = Sweep()
+        // Spent once a first batch arrives, resumed or not; a refresh that fails
+        // before then read nothing and moved no token, so it leaves the carry.
+        let carried = unfinishedSweep
         while true {
             // Past the deadline no further batch starts; the ones filed keep their tokens.
             if sweep.batches > 0 { try Task.checkCancellation() }
@@ -67,6 +72,11 @@ extension CloudSync {
             // What a whole-zone fetch may later call missing: sends confirmed before
             // it asked — one confirmed while a batch is out may not be in it.
             if sweep.batches == 0, previous == nil { sweep.noteSentBefore(isExtension ? nil : self.stores.index) }
+            // Continuing the token a cut-short whole-zone sweep kept, and nothing
+            // else's since: this refresh's batches can finish judging it.
+            if sweep.batches == 0, let carried, let previous, carried.continues(zone: zone, from: previous) {
+                sweep.resume(carried)
+            }
 
             // At most twice: an expired token starts the zone over, and that fetch's
             // "zone gone" goes to the verdict like the first's.
@@ -81,7 +91,7 @@ extension CloudSync {
                         startedFrom = nil
                         if sweep.batches > 0 { sweep.unbroken = false }
                         await MainActor.run { self.stores.shared.setChangeToken(nil, for: tokenKey) }
-                        if sweep.batches == 0 { sweep.noteSentBefore(isExtension ? nil : self.stores.index) }
+                        if sweep.batches == 0 { sweep.restart(isExtension ? nil : self.stores.index) }
                     } catch let error as CKError where Self.isAlreadyGone(error) {
                         guard await sameAccount else { throw SyncError.differentAccount }
                         // The other side unlinked, or the zone is briefly gone mid-handshake.
@@ -116,13 +126,16 @@ extension CloudSync {
                 log.notice("Took one batch of \(changes.records.count) records; the app will fetch the rest.")
             }
 
-            if sweep.batches == 0 { sweep.fromNothing = previous == nil }
+            if sweep.batches == 0 {
+                sweep.fromNothing = previous == nil || sweep.resumed
+                unfinishedSweep = nil
+            }
             // A sweep another process began (its first batch kept a token) is still a
             // resync to the batches that finish it: old history isn't news.
             sweep.resync = sweep.resync || previous == nil || start.sweeping
             let batch = await file(changes, pairing: pairing, tokenKey: tokenKey, hadToken: previous != nil,
                                    startedFrom: startedFrom, resync: sweep.resync,
-                                   missedEarlier: !sweep.result.unreadableRecordNames.isEmpty,
+                                   missedEarlier: sweep.missedBefore || !sweep.result.unreadableRecordNames.isEmpty,
                                    readEarlier: sweep.newestRead)
             sweep.batches += 1
             sweep.result.append(batch.result)
@@ -135,6 +148,7 @@ extension CloudSync {
             guard !isExtension, changes.moreComing, batch.kept != nil else { break }
         }
         if sweep.batches > 1 { log.notice("Fetched the zone in \(sweep.batches) batches.") }
+        if !isExtension { unfinishedSweep = sweep.carry(zone: zone) }
         var result = sweep.result
 
         // A complete fetch of the whole zone is the one moment "not returned"
@@ -192,7 +206,10 @@ extension CloudSync {
             }
         } else if timing == .later {
             return (result, { within in
-                try? await withDeadline(within) { await self.prefetchMedia(for: filed, pairing: pairing) }
+                (try? await withDeadline(within) {
+                    await self.prefetchMedia(for: filed, pairing: pairing, reloadsWidgets: false)
+                    return true
+                }) ?? false
             })
         } else {
             await prefetchMedia(for: filed, pairing: pairing)
@@ -219,13 +236,60 @@ extension CloudSync {
         /// Own sends confirmed when a sweep from no token began (`requeueMissingUploads`).
         var sentBefore: Set<String>?
 
+        /// Continues a sweep an earlier refresh began (`Carry`).
+        var resumed = false
+        /// An earlier refresh's batch of this sweep missed records.
+        var missedBefore = false
+
         /// The app's index only: an extension never re-queues.
         mutating func noteSentBefore(_ index: MomentIndex?) {
             guard let index else { return }
             sentBefore = Set(index.load().filter { $0.fromMe && $0.uploaded }.map(\.id))
         }
 
+        /// An expired token before the first batch: the zone from the top, carry dropped.
+        mutating func restart(_ index: MomentIndex?) {
+            resumed = false
+            missedBefore = false
+            delivered = []
+            newestRead = nil
+            noteSentBefore(index)
+        }
+
         var isWholeZone: Bool { fromNothing && unbroken && finished }
+
+        /// What a whole-zone sweep cut short needs for the refresh that finishes it,
+        /// so a long first sync (a reinstall on a slow link) still gets its check
+        /// for sends missing from the zone (`requeueMissingUploads`).
+        struct Carry: Sendable {
+            let zone: CKRecordZone.ID
+            let lastKept: Data
+            let delivered: [CKRecord.ID]
+            let sentBefore: Set<String>?
+            let newestRead: Date?
+            let missed: Bool
+
+            /// Only from the very token it kept: any other process's batch in
+            /// between read records this sweep never saw.
+            func continues(zone: CKRecordZone.ID, from stored: Data) -> Bool {
+                self.zone == zone && lastKept == stored
+            }
+        }
+
+        func carry(zone: CKRecordZone.ID) -> Carry? {
+            guard fromNothing, unbroken, !finished, let lastKept else { return nil }
+            return Carry(zone: zone, lastKept: lastKept, delivered: delivered, sentBefore: sentBefore,
+                         newestRead: newestRead,
+                         missed: missedBefore || !result.unreadableRecordNames.isEmpty)
+        }
+
+        mutating func resume(_ carry: Carry) {
+            resumed = true
+            delivered = carry.delivered
+            sentBefore = carry.sentBefore
+            newestRead = carry.newestRead
+            missedBefore = carry.missed
+        }
     }
 
     /// One batch filed (invariant 2): applied, what it missed owed — or, a resync
@@ -715,7 +779,7 @@ extension CloudSync {
     /// covers the index's newest). Stops at a cancellation, or when the pairing
     /// changed underneath (the ex's photos must not land in the new pairing's
     /// store) — the records are already applied and the token saved, so nothing is lost.
-    func prefetchMedia(for arrived: [Moment], pairing: PairingInfo) async {
+    func prefetchMedia(for arrived: [Moment], pairing: PairingInfo, reloadsWidgets: Bool = true) async {
         let store = self.stores.media
         let process = Self.prefetchProcess
         let recent: [Moment]
@@ -756,6 +820,6 @@ extension CloudSync {
             items.forEach { store.delete(id: $0.moment.id) }
             return
         }
-        SharedStore.reloadWidgets()
+        if reloadsWidgets { SharedStore.reloadWidgets() }
     }
 }

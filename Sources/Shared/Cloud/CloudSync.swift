@@ -136,7 +136,7 @@ struct ShareCheck: Sendable, Equatable {
 /// All CloudKit access, shared by the app, the widget and the notification
 /// service extension. Pairing is a zone-wide `CKShare`; each side writes only
 /// records named after its own role, so the two phones can never conflict.
-actor CloudSync: SyncBackend {
+actor CloudSync: AppBackend {
     static let shared = CloudSync()
 
     /// Not `private`: `CloudDiagnostics.swift` extends this actor from another file.
@@ -170,6 +170,9 @@ actor CloudSync: SyncBackend {
     /// it then (`noteAccountChanged`); an extension hears nothing, so it doesn't.
     static let appAccountCacheLifetime: TimeInterval = 60 * 60
     let log = Logger(subsystem: AppConfig.appGroupID, category: "CloudSync")
+    /// A whole-zone sweep the budget (or a failed batch) cut short, for the
+    /// refresh that continues it (`Sweep.carry`); app only, in memory.
+    var unfinishedSweep: Sweep.Carry?
     /// Uploads this process started: `resumeUploads` lists every long-lived
     /// operation, running ones included, and must leave these to their sender.
     var startedUploads: Set<CKOperation.ID> = []

@@ -25,7 +25,7 @@ struct MomentLibraryView: View {
 
     private let columns = [GridItem(.adaptive(minimum: Self.tileMinimum), spacing: 8)]
 
-    private var filtered: [Moment] {
+    private func filtered() -> [Moment] {
         model.history.filter {
             filter.allows(fromMe: $0.fromMe) && kind.allows($0.kind) && (!favouritesOnly || $0.isFavourite)
         }
@@ -34,6 +34,9 @@ struct MomentLibraryView: View {
     var body: some View {
         let partnerName = model.partnerName
         let filterOn = model.contentFilterEnabled
+        // Once per body: the index holds up to 5,000.
+        let shown = filtered()
+        let order = shown.map(\.id)
 
         NavigationStack {
             ZStack {
@@ -46,7 +49,7 @@ struct MomentLibraryView: View {
                         .padding(.bottom, 8)
                         .zIndex(1)
 
-                    if filtered.isEmpty {
+                    if shown.isEmpty {
                         if favouritesOnly, filter == .all, kind == .all {
                             ContentUnavailableView {
                                 Label("No favourites yet", systemImage: "star")
@@ -65,8 +68,8 @@ struct MomentLibraryView: View {
                     } else {
                         ScrollView {
                             LazyVGrid(columns: columns, spacing: 8) {
-                                ForEach(filtered) { moment in
-                                    cell(moment, partnerName: partnerName, filterOn: filterOn)
+                                ForEach(shown) { moment in
+                                    cell(moment, order: order, partnerName: partnerName, filterOn: filterOn)
                                 }
                             }
                             .padding(12)
@@ -78,7 +81,7 @@ struct MomentLibraryView: View {
                 }
                 .topBarBackingCeiling()
             }
-            .navigationTitle(title)
+            .navigationTitle(title(count: shown.count))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -139,18 +142,17 @@ struct MomentLibraryView: View {
     }
 
     private func galleryMoments(_ order: [String]) -> [Moment] {
-        let byID = Dictionary(model.history.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let byID = model.historyByID
         return order.compactMap { byID[$0] }
     }
 
-    private var title: String {
-        let count = filtered.count
-        return count == 0 ? String(localized: "Moments") : String(localized: "Moments · \(count)")
+    private func title(count: Int) -> String {
+        count == 0 ? String(localized: "Moments") : String(localized: "Moments · \(count)")
     }
 
-    private func cell(_ moment: Moment, partnerName: String, filterOn: Bool) -> some View {
+    private func cell(_ moment: Moment, order: [String], partnerName: String, filterOn: Bool) -> some View {
         Button {
-            opened = GalleryRequest(moment: moment, order: filtered.map(\.id))
+            opened = GalleryRequest(moment: moment, order: order)
         } label: {
             ZStack(alignment: .topTrailing) {
                 SquareFill { thumbnail(moment) }

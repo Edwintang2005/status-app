@@ -107,8 +107,9 @@ enum BackendReadiness: Equatable, Sendable {
     case unavailable(String)
 }
 
-/// The whole sync surface the UI depends on, pairing included, so demo mode
-/// and previews never reach the real share.
+/// The sync surface — what the send loops, the runner and the extensions call.
+/// Pairing and the invite link are `PairingBackend`'s; the app holds both
+/// (`AppBackend`), so demo mode and previews never reach the real share.
 protocol SyncBackend: Sendable {
     func readiness() async -> BackendReadiness
     /// `logged: false` for a rename — the status didn't change, so no `StatusLog` record.
@@ -167,9 +168,10 @@ protocol SyncBackend: Sendable {
     /// delete never landed is the one lie this app must not tell. The caller clears
     /// local state only after success.
     func unpair() async throws
+}
 
-    // MARK: Pairing and the invite link (the app's own flows — see `CloudSync+Pairing`)
-
+/// Pairing and the invite link: the app's own flows (`CloudSync+Pairing`).
+protocol PairingBackend: Sendable {
     func createPairInvite(displayName: String, replacingExisting: Bool) async throws -> URL
     func acceptShare(_ metadata: CKShare.Metadata, displayName: String) async throws
     /// Our own share's link tapped again: confirms a pending private seat.
@@ -341,8 +343,10 @@ private final class DeadlineSettled: @unchecked Sendable {
 }
 
 /// The backend the app talks to.
+typealias AppBackend = SyncBackend & PairingBackend
+
 enum Backend {
-    static var current: any SyncBackend {
+    static var current: any AppBackend {
         #if DEBUG
         if DemoMode.isActive { return DemoBackend() }
         #endif
@@ -376,7 +380,7 @@ enum DemoMode {
 }
 
 /// Mirrors what `CloudSync` stamps locally, so callers behave the same over either.
-struct DemoBackend: SyncBackend {
+struct DemoBackend: AppBackend {
     func readiness() async -> BackendReadiness { .ready }
     func publish(_ payload: StatusPayload, logged: Bool) async throws {
         SharedStore.shared.mutate(reloadWidgets: false) {
@@ -389,9 +393,8 @@ struct DemoBackend: SyncBackend {
         let now = Date().wholeSeconds
         var claimed = false
         SharedStore.shared.mutate { snapshot in
-            if let last = snapshot.lastNudgeSentAt, now.timeIntervalSince(last) < AppConfig.nudgeCooldown { return }
-            snapshot.lastNudgeSentAt = now
-            snapshot.lastNudgeFailedAt = nil
+            // The real claim, so demo mode can't drift from it.
+            guard snapshot.claimNudgeCooldown(now: now) else { return }
             snapshot.lastNudgeIssuedAt = now
             var mine = snapshot.mine ?? .initial(displayName: "")
             mine.nudgeCount += 1

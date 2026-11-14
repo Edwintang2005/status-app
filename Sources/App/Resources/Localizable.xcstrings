@@ -13,6 +13,9 @@
     ". Thinking of you, %@" : {
 
     },
+    "Diagnostics" : {
+
+    },
     "·" : {
 
     },
@@ -1047,9 +1050,6 @@
 
     },
     "iCloud couldn't be reached, so this holds only what was on this iPhone." : {
-
-    },
-    "iCloud diagnostics" : {
 
     },
     "iCloud didn't answer in time. If the request got through, it shows here shortly." : {

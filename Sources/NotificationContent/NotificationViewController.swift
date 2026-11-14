@@ -119,11 +119,13 @@ final class ExpandedBanner {
         case .status? where !held:
             let unreadable = store.pairing.map { store.unreadableTally.heldNames.contains($0.role.other.statusRecordName) } ?? true
             if let status = snapshot.theirs, !unreadable {
-                let shownStatus = status.moderated(reportedAt: store.hiddenPartnerStatusAt)
-                shown = .status(name: snapshot.moderatedPartnerName,
+                let filterOn = store.contentFilterEnabled
+                let shownStatus = status.moderated(reportedAt: store.hiddenPartnerStatusAt, filterEnabled: filterOn)
+                shown = .status(name: snapshot.partnerName(filterEnabled: filterOn),
                                 emoji: snapshot.partnerStatusSealed ? "🎁" : shownStatus.emoji,
                                 body: PushBannerPolicy.statusBody(status, reportedAt: store.hiddenPartnerStatusAt,
-                                                                  sealed: snapshot.partnerStatusSealed))
+                                                                  sealed: snapshot.partnerStatusSealed,
+                                                                  filterEnabled: filterOn))
             } else {
                 shown = .words(title: title, body: body, note: waiting)
             }
@@ -237,9 +239,11 @@ struct ExpandedBannerView: View {
                 ProgressView().frame(maxWidth: .infinity, minHeight: 120)
             }
             VStack(alignment: .leading, spacing: 4) {
-                Text(moment.displaySenderName(fallback: SharedStore.shared.snapshot.moderatedPartnerName))
+                let filterOn = SharedStore.shared.contentFilterEnabled
+                Text(moment.displaySenderName(fallback: SharedStore.shared.snapshot.partnerName(filterEnabled: filterOn),
+                                              filterEnabled: filterOn))
                     .eyebrow(size: 12)
-                Text(moment.displayCaption ?? moment.arrivalSummary)
+                Text(moment.displayCaption(filterEnabled: filterOn) ?? moment.arrivalSummary)
                     .font(Theme.rounded(18, .medium))
             }
             .padding(.horizontal, 4)

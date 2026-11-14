@@ -32,10 +32,11 @@ enum MomentBanner {
 
     /// Worded and stamped, with the default sound; the caller caps it
     /// (`limit(to:)`) last and attaches the picture if it has one.
-    static func content(for moment: Moment, from name: String) -> UNMutableNotificationContent {
+    static func content(for moment: Moment, from name: String,
+                        filterEnabled: Bool = SharedStore.shared.contentFilterEnabled) -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
-        content.title = moment.displaySenderName(fallback: name)
-        content.body = moment.displayCaption ?? moment.arrivalSummary
+        content.title = moment.displaySenderName(fallback: name, filterEnabled: filterEnabled)
+        content.body = moment.displayCaption(filterEnabled: filterEnabled) ?? moment.arrivalSummary
         content.sound = .default
         content.categoryIdentifier = NotificationCategory.moment
         content.userInfo[BannerSubject.key] = BannerSubject.moment(moment.id).stamp

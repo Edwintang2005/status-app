@@ -522,6 +522,64 @@ final class CloudSyncSeamTests: XCTestCase {
         XCTAssertEqual(storedToken, FakeCloudDatabase.token("t1"))
     }
 
+    /// A sweep its budget cut short is finished by the next refresh, which still
+    /// judges what's missing from every batch, the earlier refresh's included.
+    func testASweepCutShortIsJudgedWholeByTheRefreshThatFinishesIt() async throws {
+        let sync = CloudSync(stores: stores, database: database, prefetchesMedia: false, sweepBudget: 0)
+        index.insert([Fixtures.moment("early", fromMe: true, uploaded: true),
+                      Fixtures.moment("lost", fromMe: true, uploaded: true)])
+        for id in ["early", "lost"] { try stores.media.write(full: Data([1]), thumb: Data([1]), id: id) }
+        database.answer(.init(records: [momentRecord(.owner, "early")],
+                              token: FakeCloudDatabase.token("t1"), moreComing: true))
+        database.answer(.init(records: [momentRecord(.participant, "p2")], token: FakeCloudDatabase.token("t2")))
+
+        let first = try await sync.refresh()
+        let second = try await sync.refresh()
+
+        XCTAssertFalse(first.checkedWholeZone)
+        XCTAssertTrue(second.checkedWholeZone, "the two refreshes read the zone whole")
+        let byID = Dictionary(uniqueKeysWithValues: index.load().map { ($0.id, $0) })
+        XCTAssertEqual(byID["early"]?.uploaded, true, "returned by the first refresh's batch")
+        XCTAssertEqual(byID["lost"]?.uploaded, false, "returned by neither: sent again")
+    }
+
+    /// A refresh that fails before its first batch read nothing and moved no
+    /// token: the carry waits for the next one.
+    func testACarriedSweepSurvivesARefreshThatFailedFirst() async throws {
+        let sync = CloudSync(stores: stores, database: database, prefetchesMedia: false, sweepBudget: 0)
+        index.insert([Fixtures.moment("lost", fromMe: true, uploaded: true)])
+        try stores.media.write(full: Data([1]), thumb: Data([1]), id: "lost")
+        database.answer(.init(records: [momentRecord(.participant, "p1")],
+                              token: FakeCloudDatabase.token("t1"), moreComing: true))
+        database.fail(CKError(.networkUnavailable))
+        database.answer(.init(records: [momentRecord(.participant, "p2")], token: FakeCloudDatabase.token("t2")))
+
+        _ = try await sync.refresh()
+        do { _ = try await sync.refresh(); XCTFail("offline") } catch {}
+        let third = try await sync.refresh()
+
+        XCTAssertTrue(third.checkedWholeZone)
+        XCTAssertEqual(index.load().first { $0.id == "lost" }?.uploaded, false, "missing: sent again")
+    }
+
+    /// Another process's batch between the two refreshes read records the sweep
+    /// never saw: the finishing refresh can't say what's missing.
+    func testACarriedSweepEndsWhenAnotherProcessMovedTheToken() async throws {
+        let sync = CloudSync(stores: stores, database: database, prefetchesMedia: false, sweepBudget: 0)
+        index.insert([Fixtures.moment("elsewhere", fromMe: true, uploaded: true)])
+        try stores.media.write(full: Data([1]), thumb: Data([1]), id: "elsewhere")
+        database.answer(.init(records: [momentRecord(.participant, "p1")],
+                              token: FakeCloudDatabase.token("t1"), moreComing: true))
+        database.answer(.init(records: [momentRecord(.participant, "p2")], token: FakeCloudDatabase.token("t3")))
+
+        _ = try await sync.refresh()
+        store.setChangeToken(FakeCloudDatabase.token("t2"), for: tokenKey)
+        let second = try await sync.refresh()
+
+        XCTAssertFalse(second.checkedWholeZone)
+        XCTAssertEqual(index.load().first { $0.id == "elsewhere" }?.uploaded, true, "nothing judged missing")
+    }
+
     /// Only a whole sweep says what's missing from the zone, and it adds up every
     /// batch: a send returned by an earlier batch isn't re-queued.
     func testASweepRequeuesOnlySendsNoBatchReturned() async throws {

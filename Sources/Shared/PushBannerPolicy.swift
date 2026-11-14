@@ -99,8 +99,10 @@ enum PushBannerPolicy {
                        result: RefreshResult,
                        reportedAt: Date?,
                        in snapshot: inout Snapshot,
-                       now: Date = Date()) -> Plan {
-        decideRow(push, result: result, reportedAt: reportedAt, in: &snapshot, now: now).plan
+                       now: Date = Date(),
+                       filterEnabled: Bool = SharedStore.shared.contentFilterEnabled) -> Plan {
+        decideRow(push, result: result, reportedAt: reportedAt, in: &snapshot, now: now,
+                  filterEnabled: filterEnabled).plan
     }
 
     /// Which row of the table a banner came from, for Diagnostics' banner pass.
@@ -119,15 +121,17 @@ enum PushBannerPolicy {
                           result: RefreshResult,
                           reportedAt: Date?,
                           in snapshot: inout Snapshot,
-                          now: Date = Date()) -> (row: Row, plan: Plan) {
-        let name = snapshot.moderatedPartnerName
+                          now: Date = Date(),
+                          filterEnabled: Bool = SharedStore.shared.contentFilterEnabled) -> (row: Row, plan: Plan) {
+        let name = snapshot.partnerName(filterEnabled: filterEnabled)
         let couldNotRead = !result.unreadableRecordNames.isEmpty || result.incomplete
         switch push {
         case .moment:
             if let moment = AnnouncementPolicy.takeOwedMoments(in: &snapshot) {
                 // `name` covers records written before the sender set a name.
-                return (.momentNews, Plan(title: moment.displaySenderName(fallback: name),
-                                          body: moment.displayCaption ?? moment.arrivalSummary,
+                return (.momentNews, Plan(title: moment.displaySenderName(fallback: name, filterEnabled: filterEnabled),
+                                          body: moment.displayCaption(filterEnabled: filterEnabled)
+                                              ?? moment.arrivalSummary,
                                           attachment: moment,
                                           subject: .moment(moment.id)))
             }
@@ -145,8 +149,8 @@ enum PushBannerPolicy {
             // Quiet: the moment was announced when it came. Its subject replaces
             // the banner still showing the old words (`BannerUpkeep`).
             if let edited = result.editedPartnerMoments.last {
-                return (.captionEdited, Plan(title: edited.displaySenderName(fallback: name),
-                                             body: editedCaptionBody(edited),
+                return (.captionEdited, Plan(title: edited.displaySenderName(fallback: name, filterEnabled: filterEnabled),
+                                             body: editedCaptionBody(edited, filterEnabled: filterEnabled),
                                              volume: .quiet,
                                              subject: .moment(edited.id)))
             }
@@ -169,7 +173,8 @@ enum PushBannerPolicy {
                                        volume: .quiet))
             }
             return couldNotRead ? (.unreadable, .unchanged)
-                : (.momentKnown, momentAlreadyKnown(result, snapshot, name: name, now: now))
+                : (.momentKnown, momentAlreadyKnown(result, snapshot, name: name, now: now,
+                                                       filterEnabled: filterEnabled))
 
         case .nudge:
             let count = result.partnerStatus?.nudgeCount ?? snapshot.theirs?.nudgeCount
@@ -211,16 +216,18 @@ enum PushBannerPolicy {
             switch (banner, result.partnerStatus) {
             case (.rename(let previousName)?, let status?):
                 let fallback = String(localized: "Your partner")
-                let newName = ContentFilter.displayName(status.displayName, fallback: String(localized: "a new name"))
+                let newName = ContentFilter.displayName(status.displayName, fallback: String(localized: "a new name"),
+                                                        enabled: filterEnabled)
                 // No subject: it's about a name, not words, so status upkeep leaves it be.
-                return (.statusRename, Plan(title: ContentFilter.displayName(previousName, fallback: fallback),
+                return (.statusRename, Plan(title: ContentFilter.displayName(previousName, fallback: fallback, enabled: filterEnabled),
                                             body: String(localized: "is now going by \(newName)"),
                                             thread: "status-updates",
                                             sound: true))
             case (.update?, let status?):
                 return (.statusUpdate, Plan(title: name,
                                             body: statusBody(status, reportedAt: reportedAt,
-                                                             sealed: snapshot.partnerStatusSealed),
+                                                             sealed: snapshot.partnerStatusSealed,
+                                                             filterEnabled: filterEnabled),
                                             thread: "status-updates",
                                             subject: .status,
                                             sound: true))
@@ -238,7 +245,8 @@ enum PushBannerPolicy {
                 }
                 if let left = partnerLeft(result, name: name, in: &snapshot) { return (.partnerLeft, left) }
                 return couldNotRead ? (.unreadable, .unchanged)
-                    : (.statusKnown, statusAlreadyKnown(snapshot, name: name, reportedAt: reportedAt))
+                    : (.statusKnown, statusAlreadyKnown(snapshot, name: name, reportedAt: reportedAt,
+                                                         filterEnabled: filterEnabled))
             }
 
         case .other:
@@ -258,11 +266,12 @@ enum PushBannerPolicy {
 
     /// Same rule as every screen: a reported or filtered status shows no words,
     /// and an unopened surprise keeps them for the app.
-    static func statusBody(_ status: StatusPayload, reportedAt: Date?, sealed: Bool = false) -> String {
-        if sealed, status.moderation(reportedAt: reportedAt, sealed: true) == .sealed {
+    static func statusBody(_ status: StatusPayload, reportedAt: Date?, sealed: Bool = false,
+                           filterEnabled: Bool) -> String {
+        if sealed, status.moderation(reportedAt: reportedAt, sealed: true, filterEnabled: filterEnabled) == .sealed {
             return String(localized: "🎁 has a surprise for you — open \(AppConfig.appName) to see it")
         }
-        let shown = status.moderated(reportedAt: reportedAt)
+        let shown = status.moderated(reportedAt: reportedAt, filterEnabled: filterEnabled)
         if shown.message != status.message { return String(localized: "updated their status") }
         return shown.message.isEmpty ? shown.emoji : "\(shown.emoji) \(shown.message)"
     }
@@ -308,7 +317,7 @@ enum PushBannerPolicy {
     /// delta — or, with nothing read (another process took it), our newest
     /// moment uploaded, just now, and newer than theirs.
     private static func momentAlreadyKnown(_ result: RefreshResult, _ snapshot: Snapshot,
-                                           name: String, now: Date) -> Plan {
+                                           name: String, now: Date, filterEnabled: Bool) -> Plan {
         let sent = own(String(localized: "Your moment was sent to \(name)."))
         if result.ownMomentSent { return sent }
         if result.ownCaptionEditSent { return own(String(localized: "Your caption edit was sent to \(name).")) }
@@ -321,8 +330,8 @@ enum PushBannerPolicy {
         // Taken by an announcer — its own banner, a burst's, or a reworded held one.
         guard let theirs, snapshot.hasTaken(theirs.id) else { return spaceChanged }
         // With its picture: by subject it replaces the banner that showed it.
-        return Plan(title: theirs.displaySenderName(fallback: name),
-                    body: theirs.displayCaption ?? theirs.arrivalSummary,
+        return Plan(title: theirs.displaySenderName(fallback: name, filterEnabled: filterEnabled),
+                    body: theirs.displayCaption(filterEnabled: filterEnabled) ?? theirs.arrivalSummary,
                     volume: .quiet,
                     attachment: theirs,
                     subject: .moment(theirs.id))
@@ -330,7 +339,8 @@ enum PushBannerPolicy {
 
     /// The status twin: our own save coming back, or their status already announced.
     /// Server save times order the two when both carry them (`claimStatusBanner`).
-    private static func statusAlreadyKnown(_ snapshot: Snapshot, name: String, reportedAt: Date?) -> Plan {
+    private static func statusAlreadyKnown(_ snapshot: Snapshot, name: String, reportedAt: Date?,
+                                           filterEnabled: Bool) -> Plan {
         let theirs = snapshot.theirs
         if let mine = snapshot.mine, mine.updatedAt > .distantPast {
             let oursIsNewer: Bool
@@ -343,7 +353,8 @@ enum PushBannerPolicy {
         }
         guard let theirs else { return spaceChanged }
         return Plan(title: name,
-                    body: statusBody(theirs, reportedAt: reportedAt, sealed: snapshot.partnerStatusSealed),
+                    body: statusBody(theirs, reportedAt: reportedAt, sealed: snapshot.partnerStatusSealed,
+                                     filterEnabled: filterEnabled),
                     thread: "status-updates",
                     volume: .quiet,
                     subject: .status)
@@ -377,8 +388,8 @@ enum PushBannerPolicy {
     }
 
     /// Through the moderation helpers like every caption: a filtered one shows no words.
-    static func editedCaptionBody(_ moment: Moment) -> String {
-        guard let shown = moment.moderatedCaption(revealed: false) else { return String(localized: "removed a caption") }
+    static func editedCaptionBody(_ moment: Moment, filterEnabled: Bool) -> String {
+        guard let shown = moment.moderatedCaption(revealed: false, filterEnabled: filterEnabled) else { return String(localized: "removed a caption") }
         return shown.isPlaceholder ? String(localized: "edited a caption") : String(localized: "edited a caption: \(shown.text)")
     }
 

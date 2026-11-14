@@ -9,7 +9,7 @@ impact and feasibility; within each section, the first item is the one to pick.
 - **Research:** 🔬 an open question to settle (with how to probe it) before
   committing · ✓ probed October 2026, findings inline.
 - **Schema:** any new CloudKit field or record type needs a Production schema
-  deploy (README → "Shipping it"). Batch them: see "The next schema release".
+  deploy ([Documentation/SHIPPING.md](Documentation/SHIPPING.md)). Batch them: see "The next schema release".
 
 ## Read first: how a feature reaches the other phone
 
@@ -47,8 +47,8 @@ Two consequences shape the ideas below:
 
 ## The next schema release
 
-One Production deploy for all of these, in Development first (README →
-"Shipping it", steps 2–3; each field's encryption is fixed when it's created):
+One Production deploy for all of these, in Development first
+([Documentation/SHIPPING.md](Documentation/SHIPPING.md), steps 2–3; each field's encryption is fixed when it's created):
 - **`Presence` record** (new type, silent subscription): `battery`,
   `freeUntil`, `timeZone`, `candleUntil`, `goodnightAt`, `togetherAt`,
   `togetherWhat` — all encrypted.
@@ -751,13 +751,7 @@ Ranked by harm: data loss and trust first. Numbers like #5 are the September
     `CloudSync` itself has no `CKDatabase` seam, so the per-zone fetch error
     path (#16 of the October review) and the CloudKit calls behind the pure
     policies are untested.
-19. **A fresh start doesn't wait on unrecovered photos (S) — left as is,
-    October 2026.** `FreshStartView.saveThen` goes on when
-    `MemoryArchive.Outcome.isComplete`, even with `unrecovered > 0`: a photo the
-    archive couldn't fetch back is then cleared from iCloud once both agree.
-    Settings → Storage makes fetching back more common. If revisited: treat
-    `unrecovered > 0` as incomplete and ask for a retry on a better connection.
-20. **A deleted moment can come back from your own second device (S–M).** A
+19. **A deleted moment can come back from your own second device (S–M).** A
     second device on your account that misses the deletion long enough for its
     change token to expire re-queues the moment on its next full fetch
     (`requeueMissingUploads` checks only `clearedBefore`); a guard like the
@@ -836,7 +830,6 @@ Ranked by harm: data loss and trust first. Numbers like #5 are the September
 
 ## Docs and tooling (S each)
 
-- Each invariant: one-line rule + "guarded by: `TestName`" or "unguarded".
 - A CI step checking the `AppConfig` IDs against the six entitlements files,
   `project.yml` and `Info.plist` (invariant 12), and a grep for
   `.safeAreaInset(edge: .top)` in `Views/` (invariant 21).
@@ -848,23 +841,5 @@ Ranked by harm: data loss and trust first. Numbers like #5 are the September
 
 ## Parked, considered and rejected
 
-- **Reactions on a moment** (needs a `Reaction` record type + subscription).
-  Built and removed in September 2026 — the UI never felt right; the sync
-  design (one `reaction-<role>-<momentID>` record per person per moment,
-  encrypted emoji, own subscription, removal pushes that can't be suppressed)
-  is in the git history. The warm acknowledgement (Tier 2) is the receipt-based
-  replacement.
-- **Also considered:** heart variants (adjacent to super nudge; one plaintext
-  Int on `Nudge`), a Lock Screen doodle glyph (legibility unproven). The Apple
-  Watch is now a Tier 4 item.
-- **CarPlay (iOS 26) — left as is, October 2026.** CarPlay offers every
-  `systemSmall` widget (Statuses, Their photo) with no CarPlay app; whether one
-  goes in a car is the user's choice, so neither is `.disfavoredLocations`-ed.
-  Tapping one in the car does nothing, as intended.
-- **Thumbnail inside the NSE's change fetch** — would save the banner a round
-  trip, but puts media before the token (against invariant 2). Not recommended.
-- **Old `StatusLog` entries** logged before the cloud log existed are local-only
-  and don't survive a reinstall (documented; nothing to do unless it matters).
-- **Rejected:** Live Activities started remotely (push-to-start needs a server),
-  location sharing, view-once photos, `CKSyncEngine` (owns the change token,
-  against invariant 2).
+In [Documentation/DECISIONS.md](Documentation/DECISIONS.md): what was built and removed,
+left as is on purpose, or rejected — read it before proposing one again.

@@ -1,0 +1,5 @@
+# Invariant 7: Cooldown claims before network
+
+Read before touching `CloudSync+Nudges`, `NudgeCooldownPolicy`, `Snapshot.claimNudgeCooldown`, `SendNudgeIntent`.
+
+**Cooldown claims before network.** `CloudSync.sendNudge` claims the cooldown inside the lock before the call (`Snapshot.claimNudgeCooldown(now:)`, which `DemoBackend` shares, so demo mode can't drift); a failure releases it and stamps `lastNudgeFailedAt` (the lock-screen heart's only error channel). A lock-screen send abandoned at its deadline is released by `NudgeCooldownPolicy.releaseAbandoned` — only if the standing claim is that tap's, never landed, and was never handed to iCloud (`lastNudgeIssuedAt`, stamped just before the save: from there it lands on its own, and a "didn't send" only invited duplicate taps). The save is one round trip from the cached record (`SharedStore.nudgeRecordCache`, refreshed by every save and every delta carrying our nudge record), a long-lived operation never cancelled once handed over; the heart's ✓ runs from the hand-off (`nudgeSentNotice`). The app's heart holds `AppModel.isSendingNudge` over its unbounded call ("Sending…"; a second tap is dropped).

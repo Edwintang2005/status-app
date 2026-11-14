@@ -194,7 +194,7 @@ struct SettingsView: View {
                         // Repeated taps are no way in under VoiceOver or Voice Control.
                         .accessibilityAction(named: Text("Show diagnostics")) { versionTapCount = Self.diagnosticsTaps }
                     if showsDiagnostics {
-                        NavigationLink("iCloud diagnostics") {
+                        NavigationLink("Diagnostics") {
                             DiagnosticsView()
                         }
                     }

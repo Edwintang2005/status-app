@@ -79,14 +79,16 @@ extension AppModel {
             return RecapVideo.Words(myName: me.isEmpty ? String(localized: "You") : me,
                                     partnerName: partnerName,
                                     title: String(year),
-                                    closing: String(localized: "Here's to \(String(year + 1))"))
+                                    closing: String(localized: "Here's to \(String(year + 1))"),
+                                    filterEnabled: contentFilterEnabled)
         case .lastTwelveMonths:
             let span = plan.interval.start.formatted(.dateTime.month(.abbreviated).year())
                 + " – " + plan.interval.end.formatted(.dateTime.month(.abbreviated).year())
             return RecapVideo.Words(myName: me.isEmpty ? String(localized: "You") : me,
                                     partnerName: partnerName,
                                     title: span,
-                                    closing: String(localized: "Here's to what's next"))
+                                    closing: String(localized: "Here's to what's next"),
+                                    filterEnabled: contentFilterEnabled)
         }
     }
 }

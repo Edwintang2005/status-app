@@ -25,6 +25,8 @@ enum RecapVideo {
         /// "2026", or a "Nov 2025 – Nov 2026" span for the twelve-month run.
         var title: String
         var closing: String
+        /// The content filter as it stood when the recap was asked for.
+        var filterEnabled: Bool
     }
 
     enum Failure: LocalizedError {
@@ -375,8 +377,9 @@ enum RecapVideo {
                                   width: fill.width, height: fill.height))
             context.restoreGState()
 
-            let who = moment.fromMe ? words.myName : moment.displaySenderName(fallback: words.partnerName)
-            text(moment.displayCaption ?? who, font(34, .semibold), .black, top: cell.maxY + 10,
+            let who = moment.fromMe ? words.myName
+                : moment.displaySenderName(fallback: words.partnerName, filterEnabled: words.filterEnabled)
+            text(moment.displayCaption(filterEnabled: words.filterEnabled) ?? who, font(34, .semibold), .black, top: cell.maxY + 10,
                  width: cell.width - 20, centerX: cell.midX, lines: 1)
         }
 

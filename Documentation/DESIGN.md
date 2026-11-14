@@ -1,0 +1,846 @@
+# Design
+
+How Red String works and why: pairing and the share's security model, how each
+phone stays current, Home's layout, the moment features, and what it costs.
+Moved out of the README; the invariants that must not break are in
+[CLAUDE.md](../CLAUDE.md) and [invariants/](invariants/).
+
+## Pairing
+
+One of you creates an invite link and sends it over iMessage. The other taps
+it. That's the entire setup — no codes, no email addresses, no sign-up.
+
+Under the hood this is a **zone-wide `CKShare`**. Whoever pairs first owns a
+custom zone in their private database and shares the whole zone; the other side
+accepts, and the zone shows up in their shared database. Both can then write
+into it.
+
+### Closing the invite link
+
+The link is created with `publicPermission = .readWrite`, which makes it a
+**bearer token**: whoever holds the URL can join, not just the person you sent
+it to. That matters more than it first looks, because a device joining with no
+change token is handed the *entire zone* — every photo, drawing and voice memo
+ever sent, not just what happens next.
+
+Closing it after the partner has joined is **manual, and a two-step
+handshake** (CLAUDE.md invariant 9). CloudKit offers no single save that turns
+a link-joined (public) participant into a private one: flipping their role in
+place is silently ignored, and closing the link in the same save as re-adding
+them applies the close and drops the add — both verified against the live
+service. So `lockPairing` closes the link first (which sweeps the public
+joiner off the share), then re-invites them by `userRecordID` as a *pending*
+private participant; they confirm by tapping the same invite link once. While
+they're pending they have no zone access, and a failure between the two steps
+reopens the link rather than leaving them evicted — retried, and reported
+honestly: if the reopen itself fails, the error says the partner is locked out
+and **Settings → Invite link → Reopen the invite link** puts it back. Their own app is defended
+too: a refresh that finds the zone missing only *notes* it, and the device
+unlinks itself (and wipes) only if the zone is still missing on a second look
+two minutes or more later — so a refresh landing inside the handshake window
+costs nothing. Even then, anything they sent that never reached CloudKit is
+kept, and tapping the same link again re-sends it. Because the partner has to
+be on standby for that, the app never does it on its own: **Settings → Close
+the invite link** runs it only after a confirmation that says so (Diagnostics
+keeps its own button), and the Settings footer describes it.
+
+With nobody on the share yet, the same button simply closes the link — for
+closing it *early* if you sent it to the wrong person. Once closed the row
+reads "Invite link — Closed", with **Reopen the invite link** behind a
+confirmation.
+The local `inviteClosed` flag only stops a settled pairing re-checking the
+server; the share's own permission is the truth. Creating a genuinely new
+invite reopens the share.
+
+Two things this deliberately does **not** claim to protect against: the link
+staying open until the owner closes it, and anyone with access to the
+owner's unlocked phone.
+
+## How it stays current
+
+Each side writes exactly one record, named after its role (`status-owner` /
+`status-participant`), so neither phone ever needs to know the other's iCloud
+user ID and the two can never write conflicting records.
+
+### Battery
+
+The widgets carry **no timestamps and no live-updating text**, so nothing on
+them ticks. Worth knowing for future changes though: `Text(date, style:
+.relative)` in a widget is drawn by the system's rendering layer and does *not*
+re-run the timeline — it looks like a per-second update but costs no process
+launches. The only thing that actually spends battery is the timeline policy
+below, which is why it's an hour rather than a minute when caught up (it only
+shortens while a locked phone's pushes wait to be decrypted — see "The remaining
+paths").
+
+In the app, the nudge cooldown owns a one-second countdown that runs **only
+while the cooldown is live** (`AppConfig.nudgeCooldown`), scoped to the button
+so it doesn't invalidate the screen. The exceptions to "nothing scheduled":
+right after a nudge, the timeline carries a second entry at cooldown expiry so
+the lock-screen heart flips back from a checkmark, and after a failed nudge one
+at the end of the slashed-heart notice — pre-rendered entries, not extra
+process launches.
+
+### Three subscriptions, deliberately different
+
+`CKDatabaseSubscription` can filter by record type, and the payload it sends
+decides how much of the system wakes up. That's why nudges and moments are
+their own record types rather than fields on `Status`:
+
+| Record type | Payload | What happens |
+|---|---|---|
+| `Status` | `alertBody` (no sound) + `shouldSendMutableContent` | **Visible, with sound.** The subscription was registered silent and can't be edited in place, so the extension adds the sound (`Plan.sound`) once the plan says it's the partner's status — a claimed update or rename, or their record held unreadable; an unworded pass stays silent, as it may be our own save coming back; Do Not Disturb and Sleep Focus are how a partner opts out. The pre-1.1 silent subscription (`status-changes`) is deleted on sight. |
+| `Nudge` | `alertBody` + sound + `shouldSendMutableContent` | **Visible.** APNs displays it whether or not the app is running. |
+| `Moment` | `alertBody` + sound + `shouldSendMutableContent` | **Visible**, and the image is attached by the service extension. |
+
+Setting `alertBody` is what makes CloudKit send at normal priority as a
+displayed alert rather than a throttled background wake — which is what makes
+nudges and photos **survive a force-quit**, with no server anywhere.
+
+### The notification service extension
+
+`shouldSendMutableContent` sets `mutable-content: 1`, which hands the push to
+[RedStringNotificationService](../Sources/NotificationService/NotificationService.swift)
+for about thirty seconds before the user sees anything. It is often the only
+part of the app that runs at all.
+
+In that window it fetches the change from CloudKit, **decrypts it on-device**,
+writes it into the App Group, reloads the widget, and replaces CloudKit's
+wording with the real caption and name.
+
+That last part is the reason it exists. CloudKit composes alert text
+server-side and cannot read `encryptedValues`, so the subscription's own copy
+has to stay generic — *"Sent you something 📷"*. Rather than store names and
+captions in the clear just to personalise a push, the extension decrypts
+locally and rewrites it. Nothing readable ever reaches Apple's servers, and the
+notification still says *"Sam — morning ☕️"* with the photo attached.
+
+It also marks the event as seen in the shared snapshot, so the app doesn't
+raise a duplicate local notification the next time it refreshes.
+
+When that marking *didn't* happen — the push was dropped, or the extension
+failed mid-refresh — the app catches up on its next refresh, whatever triggered
+it (statuses aside: the app posts none, the card shows them). A photo can also
+arrive on another push's pass — APNs keeps one notification per app for an
+offline phone, so a heart may be all that comes: that push's service posts the
+photo's own banner beside the heart's (`PushBannerPolicy.carriedMoment`), and a
+photo the widget filed without any push is announced by the app's next refresh,
+unless it's already been seen. All of these take from one list: whichever process
+folds a delta files its new partner moments as owed a banner
+(`Snapshot.owedMoments`), and whoever announces takes the whole list at once —
+one banner for a burst, the newest to arrive; a moment you've seen in the app,
+reported or that was deleted leaves it. A full resync owes only what the server
+created since the last complete fetch, so re-fetched history is never announced. A heart found that way can be hours old, and announcing it as *"sent you a
+heart"* during, say, a status update reads as a mislabelled notification. So
+the catch-up checks `lastNudgeAt`: a nudge more than fifteen minutes old is worded
+*"sent you a heart earlier ❤️"* and loses its time-sensitive priority. The
+same rule runs in the service extension, and on both paths at most one nudge
+per ten minutes breaks through Focus (`AnnouncementPolicy.nudgeInterruption`):
+the rest still alert, just not through Focus, so repeated taps can't keep
+piercing it.
+
+Every branch of that decision is one pure function, `PushBannerPolicy.decide`,
+which makes the claims and words the banner under one lock, so the whole table
+runs under `make test`. A few rows worth knowing:
+
+- **Your partner unlinks.** Each push their unlink fires says, quietly,
+  *"Sam left your shared space"*, and Home shows an urgent card explaining what
+  happened, with a way to save your memories and unlink before inviting
+  someone new (or Dismiss).
+- **After a Block, or "remove from this iPhone only", while offline.** The old
+  subscriptions may still be registered, so the ex's writes still push here:
+  those pushes arrive silent, neutral and without actions, and the app keeps
+  trying to remove the subscriptions (both databases) until iCloud confirms.
+- **A long voice memo on slow signal.** The worded banner becomes the timeout
+  fallback before the attachment downloads, and the download is bounded, so
+  the words always arrive even when the recording doesn't.
+- **Nothing new to say.** A push for this phone's own send coming back, or for
+  something already announced, is quiet (`.passive`, no sound) and says what it
+  is — *"Your status was sent to Sam."*, or the announced words again — never
+  CloudKit's *"Sent you something"*. "Your moment was sent" needs our record in
+  the delta, or — nothing read, another process took it — an upload sent in the
+  last 10 minutes and newer than theirs. Over the open app a quiet push only
+  goes to Notification Centre, no banner; the app's own passive posts still show.
+- **A caption edited after sending.** The sender's own edit goes out like any
+  send (owed until it lands); the partner's phone files the new words and its
+  push reads, quietly, *"Sam edited a caption: …"*, replacing the banner that
+  showed the old words.
+- **Hidden previews.** With "Show Previews: When Unlocked", a locked banner
+  reads *"Something new 💛"* rather than a bare "Notification".
+
+**Banners are tied to what they announce.** Every worded banner carries its
+subject in `userInfo` (`BannerSubject`: a moment's ID, the status, hearts).
+A locked phone can't decrypt, so its banners say only *"Sam sent you a photo"*
+— and iOS runs nothing of ours at unlock. So every later run tidies up
+(`BannerUpkeep`, deciding by `BannerUpkeepPolicy`): the service on the next
+push, the app's refreshes, the widget's refresh (every 10 minutes while
+records are held), and the expanded banner. It rewords locked-phone banners
+once readable, adds a thumbnail that missed the service's deadline, withdraws
+banners for moments that are gone (deleted, cleared, reported), and keeps
+every status banner, so the unread ones read as a history (only the newest
+locked-phone one can take the latest words) — each rewrite re-added under its own identifier,
+`.passive`, so it never alerts twice — a rewrite counts as the announcement, so
+the app never posts the same moment again. A push the service never touched
+(killed, or before first unlock — when the shared files can't be read, the
+service leaves CloudKit's words rather than guess the space is gone) has no subject; while it still shows
+CloudKit's own words, its subscription says what it was about and it's handled
+like a locked-phone banner. Hearts stack in their own thread, each still its
+own banner. Tapping a photo or drawing banner opens that moment.
+
+**The expanded banner** (long-press a moment or status) is
+[RedStringNotificationContent](../Sources/NotificationContent/NotificationViewController.swift),
+the one thing of ours that runs when someone looks: it shows the moment or
+status from the App Group straight away, refreshes (bounded), and redraws — so
+a locked-phone banner shows the real photo and words the moment it's opened,
+and plays a voice memo in place.
+
+### The remaining paths
+
+Every subscription sends a visible push now, so the extension is the main
+delivery path. The widget and the open app still rely on:
+
+1. **The `willPresent` hook**: a banner about to show over the *open* app
+   posts `.snapshotDidChange`, so the home screen re-reads the store the
+   extension just updated instead of going stale under the banner; for a
+   remote push it also refreshes, since the extension may have taken only one
+   batch — unless the extension stamped that very push as a whole, readable
+   delta (`SharedStore.wholePushID`), when the recovery pass and the app's
+   full-media top-up run without the fetch.
+2. **Foreground refresh**, whenever the app becomes active — reusing a
+   complete fetch any process made in the last 30 s (`AppFetchPolicy`). Only
+   while notifications reach the service and the last push it started on
+   (`SharedStore.lastPushID`, stamped on arrival) finished whole; never while
+   records are owed (unreadable) or with no change token. Readiness and the
+   recovery pass still run.
+3. **The widget's own fetch**, on its timeline refresh, with an 8s
+   timeout and the cached snapshot as fallback. This is the only battery cost
+   in the widget: one process launch and one CloudKit round trip per widget
+   kind per tick (the status, photo and heart widgets each run the provider).
+   Hourly when caught up; while a locked phone's pushes sit undecrypted it
+   retries every 10 minutes, then every 20 after half an hour, and back to
+   hourly after two (`WidgetReloadPolicy`). Offline (`SendFailure.offline`),
+   or with iCloud refusing the sign-in (`waitsQuietly`: an Apple account
+   outage, a signed-out phone), it's hourly regardless — a retry can't fetch, and the push APNs holds for
+   the app arrives on reconnect if anything was sent, waking the service; a widget kind that finds another
+   fetched in the last minute uses that result instead of fetching again, and
+   the app redraws every widget whenever it comes to the front and after its
+   first fetch to work following a failure (`AppModel.redrawWidgets` — free
+   from the front), so opening the app frees a widget an outage left on an old
+   timeline. Diagnostics' "Widget" line shows its last run, its outcome and
+   its next refresh (`SharedStore.WidgetRun`); and
+   the kinds in one process share a single refresh. A reload the app or the
+   extension asked for doesn't fetch at all for two minutes — they just wrote
+   what it shows — so marking photos seen or filing a push no longer costs the
+   widget's daily budget; only timer reloads (and a batch left incomplete)
+   fetch. iOS never reloads a widget on unlock, so this is what catches it up
+   after one.
+4. **An `NWPathMonitor` in `SyncCoordinator`**, which refreshes on the
+   offline→online edge — so a phone that regains signal recovers without
+   waiting to be re-opened. Until a fetch since the edge has worked (DNS or a
+   VPN still coming up) it fetches again after 5 and 20 seconds
+   (`AppConfig.reconnectRetryDelays`); after that, while anything is still
+   queued (a send hitting the flap), it only re-sends.
+   It reacts only to that edge, never to path churn while the network stays
+   up — and only while the app is running: a suspended app catches up the
+   next time it comes to the front.
+
+### Offline
+
+The app works without a connection. Everything already on the phone stays
+readable — the home screen, the status history, the library grid (thumbnails
+are kept for the whole index) and the gallery, which shows the thumbnail with
+a "full size loads when you're back online" note for photos past the media
+cache. Anything sent is filed locally first and still *tried*: with no route
+CloudKit fails at once with `networkUnavailable`, which is quiet — no alert
+per send — and stops a retry pass early. The path monitor is display only: a
+"You're offline" card heads Home after the path has been down 1.5 s ("2 things
+will send when you're back online", with its own wording when mobile data is
+off for the app or iCloud is full), and any successful fetch clears it. Sends
+never wait on it — the monitor doesn't run while the app is suspended, and a
+banner's "heart back" or reply wakes the app before it catches up.
+`networkFailure` is CFNetwork's catch-all (a dropped upload, TLS, a proxy), so
+it stays transient: no alert — the send waits under "waiting to send" — and a
+retry pass moves on to the next send. Only a full iCloud alerts.
+
+When iCloud asks the app to slow down (`requestRateLimited`, `zoneBusy`,
+`serviceUnavailable`), automatic retries wait for as long as it says, at most
+an hour; tapping "waiting to send" still tries at once. A status whose history
+record failed to save shows as sent, and only the history record is retried.
+
+### Sends that fail offline
+
+Everything is written locally first, so nothing is ever lost — the question is
+only when the partner gets it. Each send type recovers its own way:
+
+- **Statuses** are marked unpublished (`Snapshot.myStatusPublished`) until the
+  publish lands, and republished by `Outbox.republishStatus()` on the next
+  successful refresh. A resync can hand back the *older* server copy of your
+  own status; `apply` keeps whichever has the newer `updatedAt`, so an offline
+  status can't be silently reverted.
+- **Moments** carry a local-only `uploaded` flag and are re-sent by
+  `Outbox.retryPendingUploads(automatic:)` — the grid badges them with a clock, and the sync
+  footer counts them, with any unpublished status, date or date request
+  ("1 waiting to send · tap to retry"), until they're out; tapping the footer
+  runs the same retries at once instead of waiting for the next refresh. On
+  weak signal an upload is given up only when its bytes stop moving
+  (`UploadWatch`), not after a fixed time; it keeps going in iCloud's
+  background daemon if the app closes, and is adopted again on relaunch
+  rather than sent twice. Retries go smallest first and one at a time, the
+  queue moving on as soon as a long upload lands. A
+  retry pass that hits no connection stops there rather than trying each
+  send in turn. Pending media is exempt from the cache prune, and a pending
+  entry whose media is genuinely gone is dropped (with a log) rather than
+  falsely marked sent.
+- **Nudges** are not queued — a heart is a moment-in-time gesture, so a failed
+  one releases the cooldown for an immediate re-tap instead. It is always
+  tried, offline too, and a failure raises no alert: the heart itself shows it
+  didn't send — "Didn't send · tap to retry" in the app, slashed on the lock
+  screen (`Snapshot.lastNudgeFailedAt`, for ten minutes) — so an offline tap
+  never silently passes for a sent one.
+
+A nudge or a moment arriving also runs a full refresh in the extension, so in
+practice status tends to ride along with them.
+
+### Acting from the banner, or by voice
+
+Every enriched banner carries actions: **Send a heart back** on all three
+kinds, and **Reply with a status** on a status alert, which sets your own
+status (💬 plus your words) without opening the app — after Face ID, so
+nobody holding a locked phone can post as you. The service extension
+stamps the category; the app registers the actions at launch and handles taps
+in `AppDelegate`, going through `AppModel` so the usual publish path (and its
+offline recovery) runs. The lock-screen heart's intent is also an App
+Shortcut — "Send a heart with Red String" works from Siri and the Shortcuts
+app.
+
+### How loud each kind arrives
+
+Settings → Notifications sets **statuses**, **hearts**, **photos and
+doodles** and **voice memos** each to *Sound*, *Silent* (a banner without a
+sound, never breaking through Focus) or *List only* (straight to Notification
+Centre, without lighting up the screen). It's per iPhone and the partner isn't
+told. `NotificationPreferences` (in the App Group) is read by the notification
+service, which caps its plan last (`Plan.limited`) and its content before
+anything is read, so an expiry is no louder; a moment push takes the loudest
+of the kinds it carries, or the louder of the two when nothing was read. The
+app's own posts apply the same cap (`limit(to:)`). A push can be made quieter
+but never dropped — iOS gives no way to drop one without the filtering
+entitlement — so List only is the quietest choice.
+
+Icon-only controls have VoiceOver labels, voice-memo rows are single elements
+(double-tap plays, swipe up or down scrubs), and the rounded type follows
+Dynamic Type up to 1.35× so fixed-height tiles keep fitting.
+
+## Home
+
+One scrolling column, partner first:
+
+1. **"You're offline"** while the path is down (display only — see "Offline"),
+   inside the scroll content rather than pinned above it (CLAUDE.md invariant 21).
+2. **An urgent notice**, if any — *"\<partner\> left your shared space"*
+   (role-worded; "Save and unlink…" opens Settings on the unlink dialog, Dismiss
+   is per departure), "someone else has joined", an iCloud account problem, a
+   fresh start clear running ("keep the app open"; the screen stays awake until
+   it finishes), a stuck fresh start clear.
+3. **The partner card** — their status and their last heart; tap for the status
+   history, long-press to report (or reveal a filtered status).
+4. **Your status row** — with "Seen …" once they've had it on screen, or "Not
+   sent yet · will retry".
+5. **The heart** — "Sending…", then "Sent · Ns" through the cooldown.
+6. **The send row** (Moment — photo or doodle — and Voice memo), then **one non-urgent notice** — the
+   partner's fresh start request (its only delivery), notifications off
+   (re-checked on every foregrounding; "Not now" lasts per device until the
+   problem changes), the owner's close-the-link prompt, the Lock Screen widget
+   tip, the year in review from Christmas to the end of January.
+7. **The moment card** (what's waiting — below), the latest received memo, and
+   the footer: last synced, or the "Sent to …" / "waiting to send · tap to
+   retry" pill.
+
+Only one notice shows at a time. A composer deep link, a tapped moment banner
+and the photo widget queue a route (`AppModel.pendingRoute`) that Home presents
+once nothing is in the way. Something landing while Home is in front plays a
+soft haptic, and Home is what stamps the status read receipt.
+
+## Photos and doodles
+
+### Two ways in: what's waiting, and everything
+
+The home card is for **what's waiting**. Tapping it opens a carousel of the
+moments you haven't looked at yet, newest first — the same one the card is
+previewing, so tapping a picture opens that picture. Once you're caught up it
+falls back to just the most recent, rather than replaying the archive.
+
+**Everything else lives in the library**, behind the photo button in the top
+left: a grid of the full history, unseen ones marked with a dot, your own sends
+wearing a clock until they've gone and an eye once they've been seen (read
+receipts on, both sides). Tap any of them to open the pager over the whole
+history.
+
+Under each of the partner's moments in the pager, **Send a heart back** and
+**Send a moment** answer it: the second opens the photo/doodle or voice-memo composer over
+the pager, and sending comes back to the same page. The reply is an ordinary
+new moment — nothing links the two.
+
+`Moment.seen` is local-only and never written to CloudKit — "seen" means seen
+*on this device*, and your own sends count as seen the moment you make them.
+Note that it's a different thing from `Snapshot.lastNotifiedMomentID`, which
+only stops a notification firing twice.
+
+One subtlety worth knowing if you touch this: the carousel's list is **captured
+when it opens**. Reading the unseen set live would shrink the list underneath
+the user, because paging marks each one seen as it appears.
+
+**Favourites** are this phone's own: the star in the gallery's toolbar, or
+"Favourite" in a library tile's long-press menu, stars a moment (both people's;
+`Moment.favouritedAt`, local only — never sent, and the other phone never
+knows). Starred tiles wear a star, and the library's filter menu has "Favourites
+only", which combines with the direction and type filters. A favourite never
+falls off the end of the history: the index's 5,000-entry cap spares it, as it
+does an unsent send (unstarred past the cap, it stays until the next moment
+arrives, so a slip can be starred back). Starring fetches its full copy, which
+the prune and Settings → Storage then leave alone, so it opens offline. The
+star shows at once; the index is written behind it, in order, off the main
+thread (`AppModel.writeIndex`, as marking seen is).
+An unlink or fresh start clears them with the rest of the history.
+
+Under each picture, "Sam · 3 months ago" is a button: a tap shows the full date
+and time ("Tuesday 10 November 2026 at 20:11") on every page until tapped again.
+
+### Where a photo was taken
+
+A photo carries its place in its own GPS tags, in the full-size JPEG only
+(`PhotoLocation`, written by `MomentStore.write`): no record field, so no schema
+change, and the asset is already encrypted by CloudKit. The thumbnail every
+tile and widget shows never has it.
+
+- **Red String's camera** asks for location ("while using") the first time it
+  opens — after the camera's own prompt — and stamps the shot with a fix taken
+  since the camera opened, no coarser than 100 m (`LocationStamp`: it stops at
+  the shot's first good fix, never running through a doodle). Declined, or no
+  fix by Send, the shot simply has no place. There's no in-app switch: iOS
+  Settings is the off switch for the camera.
+- **A photo picked from the library or shared from another app** keeps its own
+  tags, where it was taken rather than where you are, whatever the permission
+  (iOS's share sheet has its own "Location" switch under Options).
+- **A doodle over a photo** keeps the photo's place; a doodle on a blank
+  canvas has none.
+- **The gallery** shows "📍 Surry Hills, Sydney" under a picture whose full copy
+  has a place (`PlaceLine`; `PlaceNames` reverse geocodes on the viewing phone —
+  coordinates go to Apple's geocoder — one look at a time, cached for the launch
+  by ~100 m area). Nothing shows otherwise — every moment from before this, a
+  blank-canvas doodle, a declined permission — and a lookup that fails offline
+  is tried again next time. A page showing only the thumbnail gains the line
+  once the full copy downloads.
+- **Save to Photos** files it under its place and the time it was sent. Our own
+  file goes as it is; the partner's is redrawn and carries only the place that
+  passed `PhotoLocation`'s checks (invariant 23).
+- **Archive memories** copies the full files, places included.
+
+### Sharing from another app
+
+The share sheet's "Red String" (`Sources/Share`, its own extension target) takes
+one image, shows it in the app's own style, light or dark, with "To \<partner\>"
+and a caption, and sends it as an ordinary `.photo` moment. Stage for stage it's
+the composer's path (invariant 11): the picture is read at 2048 px straight from
+the file (`MomentStore.imported`: a 48 MP original decoded whole would pass the
+extension's ~120 MB ceiling), written with its place, filed in the index as an
+unsent own moment, then uploaded through an `Outbox` of the sheet's own.
+
+- The caption wraps but is one line, as every caption is (`Moment.caption(from:)`:
+  a pasted break becomes a space); the keyboard's return key sends, wherever
+  the cursor is and through an autocorrection — one new break with the rest of
+  the text unchanged but for a word — while a pasted block never does
+  (`ShareIntake.captionEdit`).
+- Left for another app with the keyboard up, it brings the keyboard back on
+  return (`NSExtensionHostDidBecomeActive`): iOS keeps the field focused but
+  doesn't show the keyboard for an extension, so the sheet lets go and takes
+  focus again.
+- Sent: a success haptic and the sheet closes — nothing to read.
+- Each opening is recorded for Diagnostics' "Share sheet launches"
+  (`ShareLaunch`, `SharedStore.shareLaunches`, the newest 10): when the
+  process started (from the system), how long until it loaded and was on
+  screen, and how it ended. iOS logs nothing for an extension the host gave up
+  on before it drew, so "never on screen" is the only trace of a sheet that
+  flashed and closed.
+- Closed early, offline or failed: the moment is already filed, so the app's
+  next retry pass sends it; the sheet says so ("It's saved and will send next
+  time Red String opens").
+- Closing the sheet while it's still sending — Done, a swipe, the system —
+  shortens the claim to `shareClosedHold` (90 s: room for a save already handed
+  to iCloud to land, so the app rarely uploads it twice; `ShareIntake.closing`,
+  from the controller's `viewDidDisappear`), and a send that later times out
+  in a closed sheet doesn't renew it (`afterTimeout`), and the app sends it as soon as any claim lapses
+  (`AppModel.sendWhenShareClaimsLapse`) rather than at its next pass. A send
+  that outlived the sheet's wait closes the sheet as sent if it lands while
+  it's still open.
+- While the sheet is sending, it holds a claim (`SharedStore.shareUploadClaims`,
+  `ShareIntake.isClaimed`, `AppConfig.shareUploadHold`). The app's automatic
+  retry pass waits it out, so the same photo isn't uploaded twice side by side;
+  a delete or the fresh start's clear waits too, or the upload would land after
+  the delete. A tap on "waiting to send" ignores it — a second save only
+  overwrites. The sheet drops the claim on a real failure, renews it when it
+  stops waiting at `uploadDeadline` with the upload still moving, and closes
+  as sent only once the index has it sent.
+- A swipe down can't close the sheet mid-send (`isModalInPresentation`); Done can.
+- The gate is read again at Send, so an unlink while the sheet is open files nothing.
+- Not set up (terms), not linked, or the partner has left: the sheet says why
+  and sends nothing (`ShareIntake.blocked`).
+
+### Whose name shows
+
+**A name belongs to the person it names.** You set yours in Settings, they set
+theirs on their phone, and there is no way to rename anyone else — no nickname
+override anywhere in the app.
+
+Two sources, for two different things:
+
+- **Moments** display `Moment.senderName`, captured at send time from the
+  sender's own `displayName`. That means an old photo keeps the name they were
+  using when they sent it, which is the honest thing for a historical record to
+  do. Notifications for a moment use the same field.
+- **Everything live** — the status card, the widget, a nudge — uses
+  `Snapshot.moderatedPartnerName`: their current `displayName` through the
+  word filter, or "Partner" if they haven't set one.
+
+Changing your own name republishes your `Status` record immediately, so your
+partner sees it on their next sync. It does not rewrite anything you've already
+sent.
+
+### The anniversary
+
+The hidden count (hold the home title, then tie the string between the fox and
+the fish, either way — the logo they become rises into the count's header) runs from a date
+only the zone owner sets: the prompt after creating the invite link, or later
+from the "Our date" row in Settings.
+It travels as one `Anniversary` record (`anniversary`, encrypted `startsAt` +
+`timeZone`) that both sides pick up on any refresh; the owner's time zone
+rides along so the monthly mark is the same moment on both phones. Until it's
+set, the count screen says so — and offers the owner the picker, and the
+partner an **"Ask … to set it"** button. The ask is one `AnniversaryRequest`
+record (`anniversary-request`, encrypted `requestedAt`, participant-written,
+re-asking overwrites) with no push of its own: it rides the next refresh, and
+the owner gets the same date prompt as after creating the link the next time
+they open the app, once per ask ("Not now" dismisses that ask;
+`Snapshot.anniversaryRequestDismissedAt`). Setting the date answers every
+standing ask. Offline edits and asks recover like statuses do
+(`Snapshot.anniversaryPublished`, `Snapshot.anniversaryRequestPublished`).
+
+**Milestone reminders** (Settings → Together, off by default, per phone) are
+local notifications on the morning of each coming milestone — one, two, three,
+six and nine months, a year, then yearly — at 9 am on that phone's clock
+(`MilestoneReminderPlan`, the next 12 scheduled). The lock screen only says
+*"Something to celebrate today 💛"*, so the egg stays hidden; tapping opens
+the easter egg, and tying the string reaches the count — on purpose, the tie
+is the only way in. They're rescheduled whenever the app runs and the date or the
+setting changed, and removed on unlink — a date changed while the app hasn't
+run since is picked up on its next launch. No schema change.
+
+### Read receipts
+
+On by default, one switch per side in Settings, and the switch gates both
+directions: a device only *publishes* receipts while its own toggle is on (off,
+a launch after a write it couldn't confirm re-sends an empty one, so a
+retraction a late write overtook heals),
+and only *shows* the partner's while it's on.
+
+Each side owns one `Receipt` record (`receipt-owner` / `receipt-participant`)
+carrying an encrypted JSON map of `{momentID: seenAt}` for the last
+`AppConfig.receiptMapLimit` seen moments. The receiver's `markSeen` sets
+`Snapshot.receiptsDirty` and `Outbox.flushReceipts()` publishes it after a
+short debounce (and retries on every refresh until it lands). The sender's
+refresh folds the map into `Moment.seenByPartnerAt` via
+`MomentIndex.applyPartnerReceipts` — sticky, so a capped or retracted map never
+un-sees anything already shown. Turning the toggle off publishes an empty map,
+which stops sharing anything new.
+
+The same record carries a **status read receipt**: two encrypted dates saying
+which of the partner's statuses (its `wordsAt`, so a rename keeps it) this device has had on screen,
+and when. The home screen stamps it (`AppModel.markPartnerStatusSeen`) only
+while the app is in the foreground — a background refresh isn't anyone looking
+— and the sender shows "Seen 2 hours ago" under their own status for as long as
+that status is still the current one. A new status starts unseen again.
+
+There is deliberately no push for receipts: they arrive with whatever refresh
+happens next. A partner on an older build simply ignores the record.
+
+### Status history
+
+Every status change is written twice: onto the overwritten `Status` record, and
+as its own `StatusLog` record named `statuslog-<role>-<seconds>` (the status's
+whole-second `wordsAt`, so a republish overwrites rather than duplicates).
+The log on device is `status-history.json` in the App Group
+(`StatusHistoryLog`, capped at `AppConfig.statusHistoryLimit`), fed from both:
+the `Status` record as it changes and every `StatusLog` record in a delta,
+deduping by `(fromMe, wordsAt)` so the two collapse into one entry. A device
+with no change token pulls the whole zone, which is how the log comes back on a
+new phone.
+
+Each side caps its own records at `AppConfig.statusLogLimit`: after a publish,
+`CloudSync.pruneStatusLog` deletes its oldest past the cap (record names derive
+from the local entries, so no query or index is needed), and both devices mirror
+the deletions. Entries logged before the cloud log existed have no record and
+are still local-only. The sheet opens from the partner card on the home screen.
+
+### History, and where it lives
+
+Every moment is its own CloudKit record, kept indefinitely. Nothing is
+overwritten and nothing expires: sign in on a new phone and the newest 5,000
+come back into the app (`AppConfig.momentHistoryLimit`, the index's cap), and
+"Save memories" exports every one the zone holds. The one way history
+is deleted while you stay linked is a fresh start, which needs you both (below).
+
+Syncing uses `CKFetchRecordZoneChangesOperation` with a stored server change
+token rather than fetching known record names. Three things fall out of that:
+
+- **No `CKQuery`, so no indexes are required.** Change tracking is index-free
+  by design. The schema does carry one optional index: `recordName` marked
+  **queryable** on each record type, added by hand in the CloudKit Console so
+  its Records browser can list records (the Console's browser runs real
+  queries, and errors with *"Field 'recordName' is not marked queryable"*
+  without it). The app never queries, so this index has no effect on sync,
+  pushes or notifications — and it must be re-added (Schema → Indexes, in
+  Development, then deployed) if the schema is ever rebuilt from scratch.
+- **A device with no token gets the entire zone**, which is exactly what a
+  fresh install needs. Recovery isn't a special path; it's the ordinary one
+  with an empty starting point.
+- Deletions propagate, so removing a moment later is a one-line change.
+
+### Year in review
+
+Each year's recap is a Christmas gift: it unwraps at midday on 25 December,
+wall-clock wherever the phone is (`RecapPlan.unwrapping`). Then a local
+notification says it's ready (scheduled while paired once the year has a
+picture; tapping opens it), Home shows a dismissible card until 31 January,
+and Settings → Memories keeps a row for it after that — until it unwraps,
+that row is the year before. Nothing shows a year's recap earlier.
+
+It's a silent portrait video (1080×1920, ≈ 90 s at most) made on the phone,
+nothing uploaded: an opening card with the year's counts, up to 80 photos and
+drawings spread evenly across the year as collages of two to four (a
+staggered pair, one big over two, or a 2×2 grid of tipped prints — photos
+fill their print, drawings show whole — with each caption beneath and the
+run's dates below) under a slow zoom, up to 8 statuses between them, and a
+closing card (`RecapPlan` decides, `RecapVideo` draws with `AVAssetWriter`).
+Each slide is drawn once on the CPU; every frame of its zoom and crossfade is
+then composed on the GPU with Core Image straight into the encoder's buffers
+— doing that on the CPU cost about 0.1 s a frame, five minutes for a year,
+and MetricKit's "too much CPU" reports. While it works, the screen shows each
+slide as it's drawn ("Slide 12 of 40").
+It works from the phone's own copy: the zone is read only when the period
+reaches past the index's newest 5,000 (`RecapPlan.needsZone`), pictures already
+here go straight in, and only the full copies the phone doesn't hold download
+— ahead, in slide order, while earlier slides draw (`RecapMedia`); one that
+can't be fetched shows its thumbnail. It puts in only what every surface may
+show — reported, sealed or filtered partner words stay out.
+
+A backgrounded app can't use the video encoder, so the video is written a
+slide at a time (each its own file, joined at the end without re-encoding):
+leaving the app mid-way pauses, and the return carries on from the first
+slide not yet written — no gathering again, the crossfade into it redrawn (a
+failure while away waits too). A run the app was killed in leaves only a
+temporary folder, cleared at launch. The finished video is kept, one per period (`RecapStore`, in the App
+Group, out of backups): the screen reopens on it, with "Make it again" for
+newer moments. Only one year is ever offered, so once the next year unwraps
+the last one's video goes (at launch, and when the new one is kept) — save
+it to Photos to keep it. Diagnostics shows their size and can delete them. It shows the history, so it's erased with it — unlink, block,
+starting over, a fresh start — and whenever anything in it may be gone: a
+report, a delete or caption edit (ours or a fetched one, pictures only), the
+strong-language filter switching. A recap being made when one of those
+happens is gathered again rather than resumed or kept, and one open on screen
+whose file went is made again. Dates are Gregorian
+whatever calendar the phone shows. A partner who has left gets no Christmas
+note or Home card (Settings keeps the row). If the year reaches past the
+phone's 5,000 moments and iCloud doesn't answer, the video is made from the
+phone's copy and shown with a note, but not kept. Save to Photos (add-only) or share.
+Diagnostics → "Year in review" makes one from the last 12 months any time, and
+can put the Home card up to test it.
+
+### Fresh start
+
+Settings → **Fresh start** clears the shared history — every moment, the
+status history and read receipts — from both phones and the zone, and keeps
+the link, both current statuses, the heart and the date. One person asks, the
+other agrees; nothing is deleted before both have. Save memories is offered
+first on both sides (skippable behind a confirmation); an archive that
+couldn't read the whole zone, or couldn't save every picture and memo (each
+failed download is tried once more), stops before anything is asked or agreed —
+as "Save memories and unlink" stops before the unlink.
+
+It's a handshake over one `FreshStart` record per side (`freshstart-<role>`,
+encrypted `stage`, `epoch`, `clearedBefore`), with no subscription: the
+request reaches the partner as a Home card on their next refresh, like the
+anniversary ask.
+
+1. **Ask.** The epoch is the ask's *server* save time, so "before the
+   request" is judged by the server's clock for every record
+   (`creationDate`), never by either phone's. An ask is sent at once or not at
+   all — queued offline, it would clear whatever arrived before it landed.
+2. **Agree**, naming that epoch. Final; an agreement naming a withdrawn or
+   older ask does nothing. If both ask at once, the later ask turns into
+   agreement to the earlier.
+3. **Commit.** The asker's app commits on seeing the yes. Withdrawing and
+   committing both write the asker's own record against the server copy under
+   a change tag, so a withdraw racing the partner's yes leaves neither phone
+   clearing (`FreshStartPolicy.transition`). The asker can withdraw until
+   then; an unanswered ask never expires.
+4. **Clear.** Each phone's app — never an extension — re-reads both records
+   from the server, deletes *its own* moments and `StatusLog`s created before
+   the epoch and its `Receipt` (never `status-*`/`nudge-*`, whose deletion
+   reads as an unlink, and never the current status's log record), then
+   purges its own copy, and marks its record `clearedBefore`. A phone that's
+   offline finishes its half the next time it opens; a failed pass re-runs
+   whole. A send that never reached iCloud is kept and sent afterwards — it's
+   the only copy.
+
+`Snapshot.freshStart.clearedBefore` then keeps older records out of every
+later delta (a partner whose phone hasn't cleared yet, a full resync) and out
+of the re-queue of "missing" sends, so nothing cleared comes back. Reports and
+blocks are untouched. The deletions can fire the moment subscription; the
+extension rewords such a push quietly ("Moments were cleared for your fresh
+start") rather than claim something new arrived.
+
+### What it costs
+
+**In iCloud:** roughly **750 KB per moment** (a 2048px copy at JPEG quality
+0.85 in the photo's own frame, plus a 512px square thumbnail), and it
+accumulates. A thousand moments is around
+750 MB against your iCloud quota — real, but inside the free 5 GB, and it only
+grows as fast as you actually send things. **All of it counts against whoever
+created the link**: the shared zone lives in their private database, so the
+partner's sends use the owner's storage too. When it fills, every send fails
+with `quotaExceeded`; the app says whose storage is full (`SendFailure`), keeps
+the sends queued, and retries automatically only hourly
+(`AppConfig.storageFullRetryInterval`) — the footer's tap retries at once.
+
+**On the phone:** bounded, and much smaller. The device keeps
+metadata for the last `AppConfig.momentHistoryLimit` (5,000) entries — about
+230 bytes each, so around 1 MB (measured in the simulator: 500 → 112 KB, 7 ms
+to decode; 5,000 → 1.1 MB, 25–50 ms to decode and about as long to rewrite,
+with some 8 MB more held while it's merged — expect a few times that on a
+phone). Every write rewrites the whole file, so the app's frequent ones (seen,
+starred) go off the main thread. A phone that filled its index under a smaller
+cap sweeps the zone once on first launch (`HistoryCoverage`,
+`SharedStore.historyCoverage`; any token clear owes one). Until it finishes,
+every fetch — in any process — counts as a resync, so nothing older than the
+last announced moment is announced and the partner's older moments are filed
+already seen (as on a reinstall: no "1,500 new"); the year in review treats the
+index as incomplete; and only a fetch that continued the stored token when it
+landed can finish the sweep. Diagnostics shows the refill's state, and in Debug
+builds "History (test)" pads this phone's index to 5,000 with local
+placeholders (`MomentIndex.padding`: never sent, already seen, dated before
+2020, no pictures to fetch), times a load and save, and removes them again —
+for trying a full-size history before having one. But image files
+only for the `momentImageCacheLimit` (60) most recent, around 45 MB, and
+thumbnails (30–60 KB each) for the `momentThumbnailLimit` (500) most recent,
+about 25 MB (`MediaRetention`). Unsent sends and favourites keep both whatever
+their age. A tile whose thumbnail isn't kept fetches just that as it scrolls
+into view, with a spinner meanwhile; after a reinstall the Wi-Fi backfill
+fetches only the thumbnails that would be kept. Scroll further back in the gallery and the full image is
+**fetched from CloudKit on demand**, with a spinner while it lands.
+Settings → Storage clears those full files early (thumbnails, the newest ten
+and unsent sends stay — `Outbox.mediaToKeep`), along with the app's temporary
+leftovers.
+
+That split is what lets the history be unlimited without the phone carrying
+every photo you've ever exchanged. The index is a JSON file in the App Group
+rather than part of `Snapshot`, because the widget decodes the snapshot on
+every render and has no business parsing hundreds of history entries.
+
+### Mechanics
+
+Change fetches use `desiredKeys` to exclude the `CKAsset` fields (`image`, `thumb`, `audio`), so a
+sync — including the big first one after a reinstall — moves only metadata.
+Media is pulled only once the delta is filed and its change token saved
+(`MediaPrefetchPlan`): the app takes full media for the ten newest moments, the
+widget the partner's newest photo or doodle in full plus the thumbnails of the next two, and the
+notification service only the newest of those thumbnails and its banner's one
+file. Everything older
+waits until you look at it.
+
+Images travel as `CKAsset`s, which **CloudKit encrypts by default** — they must
+*not* be put through `encryptedValues`, which rejects them. The caption and
+sender name are explicitly encrypted alongside.
+
+Anywhere a photo is shown in a square — the composer, the home card, the
+library grid, the gallery pager — it goes through `SquareFill`. `Image.resizable().scaledToFill()`
+reports the size it needs *in order to fill*, so as a plain child it drags its
+parent out to that size and a later `.aspectRatio(1, contentMode: .fit)` can't
+pull it back. `SquareFill` sizes from a `Color.clear` (no intrinsic size) and
+hangs the image in an `overlay`, which reverses the negotiation: the box
+decides, the content fits. Use it rather than reinventing the frame.
+
+Drawing is PencilKit (`PKCanvasView`) with a small custom palette rather than
+`PKToolPicker`, which docks itself to the window and fights with sheets on
+iPhone. Doodles with no photo behind them get a **backdrop colour**; choosing
+the dark one flips black ink to white so you can't end up drawing
+black-on-black. PencilKit has no bucket fill, so the **fill tool** makes one
+from strokes: it flood-fills the tapped area at one cell per point, bounded
+only by lines (not earlier fills, so a refill recolours), reaches one cell
+under the lines so no paper shows at the edge, and lays back-and-forth
+`.monoline` passes (`FillPlan`) underneath every line. Lines are thickened by
+`FillPlan.gapRadius` (3 pt) for the flood, so an outline that stops a few
+points short still holds — a narrower space falls back to a smaller radius,
+so it fills too. Tapping a line with the bucket recolours that line instead. Being ink, fills need
+nothing new from undo, the eraser, the export or sync; the ink type is how
+the next fill tells them from lines. The canvas is square because the widget is square — composing
+in the destination's shape means nothing gets unexpectedly cropped later.
+Strokes are rasterised at export resolution, not upscaled from the on-screen
+canvas. A photo with no strokes is stored in its **own frame**, though: every
+surface still shows the centred square (the thumbnail *is* that square), but
+"Save to Photos" and the archive hand back the whole shot. A doodled photo
+flattens to the square the strokes were drawn over.
+
+## Known limitations
+
+- **Lock screen widgets are monochrome.** iOS renders accessory widgets in a
+  vibrant, desaturated style; emoji become white silhouettes. Every layout
+  therefore pairs the emoji with words rather than relying on colour.
+- **A dropped push can lag the widget.** Statuses, nudges and photos all
+  arrive as real alerts now and survive a force-quit, but if APNs drops one
+  the widget waits for its hourly fetch — that's the backstop.
+- **A locked phone's banners are vaguer, and the widget can trail it.** A push
+  that lands while the phone is locked arrives, but the extensions can't
+  decrypt it. The banner says what travels unencrypted — who sent it (the
+  record's name) and a moment's kind: *"Sam — sent you a drawing ✏️"*, *"Sam —
+  updated their status"* — never the caption or status words (nudges carry no
+  words and read in full). The widget keeps its old picture until its next
+  retry after unlock — up to 10 minutes, 20 after half an hour locked, an hour after two. Opening the
+  app catches up at once.
+- **The first sync after a reinstall pulls the whole zone.** Metadata only, so
+  it's quick, but the images arrive gradually — the ten newest immediately and
+  the rest as you scroll back. Expect placeholders in the gallery for a while
+  on a fresh phone.
+- **The service extension has ~30 seconds and a small memory ceiling.** If the
+  CloudKit fetch is slow it falls back to CloudKit's generic wording rather
+  than showing nothing — you'd see *"Sent you something 📷"* instead of the
+  caption. The app sweeps that generic banner away when it next announces the
+  same event properly; a generic *status* banner is tagged, so the next
+  refresh anywhere (widget, app, long-press) rewords it. The fetch runs
+  `.userInitiated`: at CloudKit's default (discretionary) priority iOS held it
+  past the deadline on mobile data. Diagnostics → "Last notification" says
+  how the last push went; Debug builds also show each process's banner probe
+  (how many it could list, whether its last rewrite replaced the banner in
+  place) and every build keeps MetricKit's crash and hang reports there.
+- **Switching iCloud accounts pauses sync rather than breaking it.** The
+  pairing remembers which account made it (`PairingInfo.userRecordName`);
+  under a different account the home screen's sync footer says so, and
+  nothing local is wiped. Sign back in and it resumes.
+- **A second device on your own iCloud account is you, not your partner.**
+  A Simulator (or a second iPhone) signed in as you shares your CloudKit user
+  and your `PairRole`, so what it sets or sends appears on your other device
+  as *your* status and *your* sends, and its writes fire your own
+  subscriptions — a push whose refresh finds nothing from the partner. The
+  notification service words those as "from another device" and delivers
+  them silently. And a Debug build (Development environment) never sees a
+  TestFlight build's data at all; both must be on the same side to share
+  anything — Settings → Diagnostics shows which.
+- **A record that can't be read yet is owed, not lost.** A locked phone's
+  extensions have no keys, so a record they can't decrypt is put on a list of
+  ones still owed and the sync moves on past it. A later sync (the unlocked
+  app, the widget or the expanded banner — at most once a minute between
+  them, every ten minutes for an extension that found nothing readable)
+  fetches just those records by ID and files them — a photo that waited is
+  still announced. During a full resync (reinstall, a token expiry) a locked
+  phone instead keeps its place, so a whole history is never owed. One that
+  stays unreadable for 30 days is given up on; Diagnostics shows what's owed
+  and what was given up.

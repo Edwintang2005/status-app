@@ -60,8 +60,8 @@ final class AppModel {
     }
     /// The offline-send loops, over the same store and backend as this model.
     @ObservationIgnored let outbox: Outbox
-    @ObservationIgnored private let backendProvider: () -> any SyncBackend
-    var backend: any SyncBackend { backendProvider() }
+    @ObservationIgnored private let backendProvider: () -> any AppBackend
+    var backend: any AppBackend { backendProvider() }
     /// The home footer shows "Sending…" while it runs.
     var isRetryingUploads: Bool { outbox.isRetryingUploads }
     /// Any moment upload running, including one still going after its caller stopped waiting.
@@ -262,19 +262,19 @@ final class AppModel {
     /// Only the snapshot store and the backend are injected (`nil` is
     /// `Backend.current`, looked up per call): the moment index, status log,
     /// media store and `SyncRunner` stay process-wide, the real App Group even in a preview.
-    init(store: SharedStore = .shared, backend: (any SyncBackend)? = nil) {
+    init(store: SharedStore = .shared, backend: (any AppBackend)? = nil) {
         self.store = store
         #if DEBUG
         self.sync = SyncCoordinator(ignoresNetwork: DemoMode.isActive)
         #else
         self.sync = SyncCoordinator()
         #endif
-        let backendProvider: () -> any SyncBackend = backend.map { fixed in { fixed } } ?? { Backend.current }
+        let backendProvider: () -> any AppBackend = backend.map { fixed in { fixed } } ?? { Backend.current }
         self.backendProvider = backendProvider
         self.outbox = Outbox(store: store,
                              index: .shared,
                              statusLog: .shared,
-                             backend: backendProvider,
+                             backend: { backendProvider() },
                              hasMedia: { MomentStore.shared.hasMedia(for: $0) },
                              uploadSize: { MomentStore.shared.uploadSize(for: $0) },
                              deleteMedia: { MomentStore.shared.delete(id: $0) },
@@ -575,7 +575,7 @@ final class AppModel {
 
     /// A backend call under a deadline: CloudKit's own timeout is a week (invariant 22).
     func bounded<T: Sendable>(_ seconds: TimeInterval = AppConfig.publishDeadline,
-                              _ call: @escaping @Sendable (any SyncBackend) async throws -> T) async throws -> T {
+                              _ call: @escaping @Sendable (any AppBackend) async throws -> T) async throws -> T {
         let backend = backend
         return try await withDeadline(seconds) { try await call(backend) }
     }
