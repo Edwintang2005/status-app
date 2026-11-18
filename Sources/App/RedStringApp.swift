@@ -17,7 +17,12 @@ struct RedStringApp: App {
         #endif
         let model = AppModel()
         _model = State(initialValue: model)
-        MainActor.assumeIsolated { AppModel.current = model }
+        MainActor.assumeIsolated {
+            AppModel.current = model
+            #if DEBUG
+            DemoSeeder.scheduleArrivalsIfRequested()
+            #endif
+        }
     }
 
     var body: some Scene {

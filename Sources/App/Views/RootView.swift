@@ -2,6 +2,8 @@ import SwiftUI
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    /// Where a celebration's hero lands as it leaves: the partner card's emoji.
+    @State private var celebrationTarget = CelebrationTarget()
 
     private var celebrationShowing: Bool {
         model.pendingCelebration != nil && !model.homeSheetShowing && !model.rootSheetShowing
@@ -43,6 +45,7 @@ struct RootView: View {
                 .zIndex(1)
             }
         }
+        .environment(celebrationTarget)
         .animation(.smooth(duration: 0.4), value: model.isPaired)
         .animation(.smooth(duration: 0.4), value: model.termsAccepted)
         .animation(.smooth(duration: 0.4), value: model.hasName)

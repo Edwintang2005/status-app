@@ -14,11 +14,17 @@ struct RelativeTime<Content: View>: View {
         self.content = content
     }
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         // A date ahead of this clock (the partner's phone running fast) has no
         // boundary to wait for; tick from now instead.
         TimelineView(.periodic(from: min(date, Date()), by: 60)) { context in
-            content(date.relativeWording(asOf: context.date))
+            let wording = date.relativeWording(asOf: context.date)
+            // The numbers roll as the minutes pass, and back to "now" for a new date.
+            content(wording)
+                .contentTransition(reduceMotion ? .opacity : .numericText())
+                .animation(Theme.Motion.settle, value: wording)
         }
     }
 }

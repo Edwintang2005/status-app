@@ -121,8 +121,17 @@ struct HomeView: View {
             MyStatusRow(mine: model.snapshot.mine,
                         unsent: model.myStatusWaitingToSend,
                         seenAt: model.myStatusSeenAt,
+                        celebrationSent: freshCelebration,
                         onOpen: { showingPicker = true })
                 .equatable()
+                // Its burst plays over the rows below; only then, or its
+                // shadow would fall over the heart's label.
+                .zIndex(freshCelebration == nil ? 0 : 1)
+                .task(id: freshCelebration?.at) {
+                    guard freshCelebration != nil else { return }
+                    try? await Task.sleep(for: .seconds(2.2))
+                    if !Task.isCancelled { model.celebrationSentShown() }
+                }
             NudgeButton(lastSentAt: model.snapshot.lastNudgeSentAt,
                         lastFailedAt: model.snapshot.lastNudgeFailedAt,
                         sending: model.isSendingNudge) {
@@ -320,6 +329,13 @@ struct HomeView: View {
     }
 
     /// Nobody is looking at Home otherwise, so nothing "arrives" on it.
+    /// A celebration we just sent, once Home is back in front to show it.
+    private var freshCelebration: SentCelebration? {
+        guard let sent = model.celebrationSent, homeInFront,
+              Date().timeIntervalSince(sent.at) < 8 else { return nil }
+        return sent
+    }
+
     private var homeInFront: Bool {
         scenePhase == .active && !anySheetShowing && !model.rootSheetShowing
     }
@@ -539,6 +555,7 @@ private struct HomeSheets: ViewModifier {
 private struct HomeLifecycle: ViewModifier {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let anySheetShowing: Bool
     let homeInFront: Bool
     let unseenCount: Int
@@ -603,7 +620,7 @@ private struct HomeLifecycle: ViewModifier {
             .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.6), trigger: momentArrivals)
             .task(id: model.sendConfirmedAt) {
                 guard let at = model.sendConfirmedAt, Date().timeIntervalSince(at) < sentPillSeconds else { return }
-                withAnimation(.smooth) { showsSent = true }
+                withAnimation(reduceMotion ? .smooth : Theme.Motion.pop) { showsSent = true }
                 AccessibilityNotification.Announcement(String(localized: "Sent to \(model.partnerName)")).post()
                 try? await Task.sleep(for: .seconds(sentPillSeconds))
                 withAnimation(.smooth) { showsSent = false }

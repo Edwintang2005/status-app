@@ -70,6 +70,16 @@ enum Theme {
         }
     }
 
+    /// The app's few curves: one spring for things arriving, one for settling,
+    /// one for leaving. Callers swap in a plain fade under Reduce Motion.
+    enum Motion {
+        static let pop = Animation.spring(response: 0.45, dampingFraction: 0.72)
+        static let settle = Animation.smooth(duration: 0.35)
+        static let exit = Animation.easeIn(duration: 0.22)
+        /// Between siblings that arrive one after another.
+        static let stagger: Double = 0.08
+    }
+
     /// Follows Dynamic Type like the system text styles, capped so fixed-height
     /// tiles and single-line rows still fit at the accessibility sizes.
     static func rounded(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {

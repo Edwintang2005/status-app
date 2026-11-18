@@ -10,6 +10,36 @@ enum DemoSeeder {
         .reveal: "🏡", .fireworks: "🎆", .snow: "🎄",
     ]
 
+    /// `REDSTRING_DEMO_ARRIVALS=1`: Sam's status lands 4 s after launch and a heart
+    /// 4 s after that, so Home's arrival animations can be watched and recorded.
+    @MainActor static func scheduleArrivalsIfRequested() {
+        guard DemoMode.isActive, ProcessInfo.processInfo.environment["REDSTRING_DEMO_ARRIVALS"] == "1" else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(4))
+            arrive { theirs, now in
+                theirs.emoji = "☕️"
+                theirs.message = "coffee break?"
+                theirs.updatedAt = now
+                theirs.wordsSince = now
+            }
+            try? await Task.sleep(for: .seconds(4))
+            arrive { theirs, now in
+                theirs.nudgeCount += 1
+                theirs.lastNudgeAt = now
+            }
+        }
+    }
+
+    @MainActor private static func arrive(_ change: @escaping (inout StatusPayload, Date) -> Void) {
+        let now = Date().wholeSeconds
+        SharedStore.shared.mutate { snapshot in
+            guard var theirs = snapshot.theirs else { return }
+            change(&theirs, now)
+            snapshot.theirs = theirs
+        }
+        NotificationCenter.default.post(name: .snapshotDidChange, object: nil)
+    }
+
     static func seedIfRequested() {
         guard DemoMode.isActive else { return }
 

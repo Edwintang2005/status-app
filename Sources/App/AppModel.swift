@@ -158,6 +158,11 @@ final class AppModel {
 
     /// When a send of ours was last confirmed delivered — Home's footer says so briefly.
     private(set) var sendConfirmedAt: Date?
+    /// A celebration status of ours that just reached iCloud: Home plays a taste of it.
+    private(set) var celebrationSent: SentCelebration?
+
+    /// Home has played the taste; it doesn't play again.
+    func celebrationSentShown() { celebrationSent = nil }
 
     /// A tapped invite held until `WelcomeView` has a display name — see `acceptInvite(name:)`.
     var pendingInvite: CKShare.Metadata?
@@ -742,6 +747,7 @@ final class AppModel {
             }
             outbox.noteSendSucceeded()
             reload()
+            if let celebration { celebrationSent = SentCelebration(style: celebration, at: Date()) }
             AccessibilityNotification.Announcement(String(localized: "Status sent to \(partnerName)")).post()
             return nil
         } catch {

@@ -19,6 +19,7 @@ struct PartnerCard: View, Equatable {
     let onReveal: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(CelebrationTarget.self) private var celebrationTarget: CelebrationTarget?
     @State private var confirmingReport = false
 
     /// Their heart shows for a day: the banner is swept when the app opens, so
@@ -153,8 +154,12 @@ struct PartnerCard: View, Equatable {
                 // Emoji-only is a status, not a missing one: the emoji stands alone.
                 Text(status.emoji)
                     .font(.system(size: status.message.text.isEmpty ? 56 : 46))
-                    .contentTransition(.opacity)
-                    .animation(.smooth, value: status.emoji)
+                    // The size eases between emoji-only and with words.
+                    .contentTransition(.interpolate)
+                    // A celebration's hero lands here as it leaves.
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { celebrationTarget?.frame = $0 }
+                    .id(status.emoji)
+                    .transition(swap)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(partnerName).eyebrow()
@@ -166,8 +171,8 @@ struct PartnerCard: View, Equatable {
                             // single-line ideal (invariant 18).
                             .fixedSize(horizontal: false, vertical: true)
                             .foregroundStyle(status.message.isPlaceholder ? Theme.mutedText : .primary)
-                            .contentTransition(.opacity)
-                            .animation(.smooth, value: status.message.text)
+                            .id(status.message.text)
+                            .transition(swap)
                     }
                     RelativeTime(wordsAt)
                         .font(Theme.rounded(12))
@@ -199,6 +204,13 @@ struct PartnerCard: View, Equatable {
                 .foregroundStyle(.tertiary)
         }
         .card(padding: 16)
+        // Their new status blurs in and the emoji pops; Reduce Motion fades.
+        .animation(reduceMotion ? .smooth : Theme.Motion.pop, value: status)
+    }
+
+    private var swap: AnyTransition {
+        reduceMotion ? .opacity : .asymmetric(insertion: AnyTransition(.blurReplace).combined(with: .scale(scale: 0.6)),
+                                              removal: AnyTransition(.blurReplace))
     }
 }
 
@@ -215,10 +227,15 @@ struct MyStatusRow: View, Equatable {
     /// Not in iCloud yet, and not being sent right now.
     let unsent: Bool
     let seenAt: Date?
+    /// A celebration of ours that just reached iCloud: a taste of it plays here.
+    let celebrationSent: SentCelebration?
     let onOpen: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     nonisolated static func == (lhs: MyStatusRow, rhs: MyStatusRow) -> Bool {
         lhs.mine == rhs.mine && lhs.unsent == rhs.unsent && lhs.seenAt == rhs.seenAt
+            && lhs.celebrationSent == rhs.celebrationSent
     }
 
     private var hasWords: Bool { mine?.message.isEmpty == false }
@@ -243,6 +260,15 @@ struct MyStatusRow: View, Equatable {
             HStack(spacing: 12) {
                 Text(mine?.emoji ?? "➕")
                     .font(.system(size: 26))
+                    .id(mine?.emoji)
+                    .transition(swap)
+                    .overlay {
+                        if let celebrationSent {
+                            MiniBurst(style: celebrationSent.style)
+                                .frame(width: 220, height: 220)
+                                .id(celebrationSent.at)
+                        }
+                    }
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(text)
@@ -250,11 +276,14 @@ struct MyStatusRow: View, Equatable {
                         // `Color.primary`: the hierarchical style goes vibrant on the material.
                         .foregroundStyle(hasWords ? Color.primary : Theme.mutedText)
                         .lineLimit(1)
+                        .id(text)
+                        .transition(swap)
                     if unsent {
                         // Retried on every refresh; the footer offers it now.
                         Label("Not sent yet · will retry", systemImage: "icloud.and.arrow.up")
                             .font(Theme.rounded(12, .semibold))
                             .foregroundStyle(Theme.warmText)
+                            .transition(line)
                     } else if let seenAt {
                         // The status read receipt — read receipts on, both sides.
                         RelativeTime(seenAt) { when in
@@ -262,6 +291,7 @@ struct MyStatusRow: View, Equatable {
                         }
                         .font(Theme.rounded(12))
                         .foregroundStyle(Theme.mutedText)
+                        .transition(line)
                     }
                 }
 
@@ -273,9 +303,21 @@ struct MyStatusRow: View, Equatable {
             .padding(.horizontal, 18)
             .padding(.vertical, 12)
             .card(shape: Capsule())
+            .animation(reduceMotion ? .smooth : Theme.Motion.pop, value: mine)
+            .animation(reduceMotion ? .smooth : Theme.Motion.pop, value: unsent)
+            .animation(reduceMotion ? .smooth : Theme.Motion.pop, value: seenAt == nil)
         }
         .buttonStyle(.plain)
         .accessibilityHint("Changes your status")
+    }
+
+    private var swap: AnyTransition {
+        reduceMotion ? .opacity : AnyTransition(.blurReplace)
+    }
+
+    /// The "Not sent yet" and "Seen" lines slide up into place.
+    private var line: AnyTransition {
+        reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity)
     }
 
     private func summary(now: Date) -> String {

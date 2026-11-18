@@ -361,6 +361,30 @@ and the photo widget queue a route (`AppModel.pendingRoute`) that Home presents
 once nothing is in the way. Something landing while Home is in front plays a
 soft haptic, and Home is what stamps the status read receipt.
 
+## Celebrations and motion
+
+A celebration status fills the partner's screen once (`CelebrationOverlay`).
+Every style plays the same beats (`CelebrationBeats`): it waits until the
+launch or resume zoom is over (0.55 s after the scene is active, so nothing is
+spent behind it), the backdrop blooms, the hero lands with the haptic on
+impact, the words rise, then the footer. Particles peak in the first two
+seconds and are gone by seven; after that only the backdrop breathes. Pieces
+crossing the words fade (`ClearZone`), so the message stays readable. The
+birthday cake and the scratch card keep their place when the words arrive: the
+prompt and the words share one slot. Leaving, the hero flies into the partner
+card's emoji (`CelebrationTarget`) while the rest fades, so the celebration
+lands as the status it is; the cake and a report just fade.
+
+Under Reduce Motion nothing moves: the style's pieces lie still around the
+words (`StillScatter`) and everything fades in where it rests. Haptics follow
+the visual beats (a thud for the trophy, a lub-dub for hearts, a tick per
+firework, five at most), Reduce Motion or not.
+
+Home uses the same curves (`Theme.Motion`: `pop` arriving, `settle`, `exit`):
+their new status blurs in and the emoji pops, the "… ago" line rolls, your own
+row's change and its "Seen"/"Not sent yet" line slide in, and a celebration you
+send plays a small burst of its pieces from your row once it reaches iCloud.
+
 ## Photos and doodles
 
 ### Two ways in: what's waiting, and everything

@@ -47,6 +47,7 @@ struct OfflineBanner: View {
 /// The bottom line: sync state, and — as a pill — a send just confirmed or
 /// one still waiting, which taps to retry.
 struct SyncFooter: View, Equatable {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let partnerName: String
     let showsSent: Bool
     let isOffline: Bool
@@ -101,7 +102,7 @@ struct SyncFooter: View, Equatable {
             if showsSent {
                 Label("Sent to \(partnerName)", systemImage: "checkmark")
                     .modifier(FooterPill(tint: Theme.accentText))
-                    .transition(.opacity)
+                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             } else if isOffline {
                 // Ahead of the rest: offline, a refresh fails at once and readiness reads as a network error.
                 Image(systemName: "wifi.slash")

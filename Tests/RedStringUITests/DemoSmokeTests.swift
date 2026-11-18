@@ -40,6 +40,20 @@ final class DemoSmokeTests: XCTestCase {
         try assertFitsScreen("Home")
     }
 
+    /// Sam's status and heart land with Home open (`REDSTRING_DEMO_ARRIVALS`):
+    /// the card's arrival animations settle into a screen that still passes.
+    func testArrivals() throws {
+        launchToHome(["REDSTRING_DEMO_ARRIVALS": "1"])
+        let arrived = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "coffee break?",
+                                  "Sent you a heart now")).firstMatch
+        XCTAssertTrue(arrived.waitForExistence(timeout: 30), "Sam's status and heart never landed")
+        // Contrast is judged on pixels: a label mid-roll reads faint, so the
+        // arrival's transitions get a second to finish.
+        _ = XCTWaiter().wait(for: [XCTestExpectation(description: "arrival settles")], timeout: 1)
+        try judge("Home, after an arrival")
+    }
+
     func testSettings() throws {
         launchToHome()
         try openSheet(app.buttons["Settings"], closingWith: "Done", name: "Settings")

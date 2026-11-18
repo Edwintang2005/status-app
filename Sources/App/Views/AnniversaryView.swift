@@ -11,8 +11,6 @@ struct AnniversaryView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
-    @State private var pieces = ConfettiPiece.emitter(count: 48)
-    @State private var opened = Date()
     @State private var editing = false
     @AccessibilityFocusState private var summaryFocused: Bool
 
@@ -29,7 +27,7 @@ struct AnniversaryView: View {
                     content(anniversary, now: now, celebrating: milestone)
                         .overlay {
                             if milestone != nil, !reduceMotion {
-                                ConfettiLayer(pieces: pieces, start: opened)
+                                CannonConfetti()
                                     .allowsHitTesting(false)
                                     .ignoresSafeArea()
                             }
@@ -52,7 +50,6 @@ struct AnniversaryView: View {
             AnniversaryEditorView(mode: .edit)
         }
         .task {
-            opened = .now
             // The tie already buzzed; only a milestone earns a second one.
             if model.anniversary?.milestoneToday(.now) != nil {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)

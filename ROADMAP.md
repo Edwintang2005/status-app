@@ -386,6 +386,19 @@ No schema.
 
 ---
 
+### Celebrations, part 2 (S–M) ★★
+Left from the motion review (November 2026), which rebuilt every style on one
+motion language — see CHANGELOG 1.7.1.
+- **Play it again (M)** — while their current status is a celebration, a small
+  sparkle on the partner card replays the overlay without the haptics or the
+  read receipt; today a celebration is seen once. The sealed reveal stays
+  sealed until opened, and a replay must not move `lastCelebratedAt`.
+- **Blow out the candles by breath (S)** — the microphone's level as the
+  breath. Not built: a permission prompt in the middle of a surprise spoils it,
+  so it would need asking ahead (Settings) and a tap fallback.
+- **Sound (S)** — a short sound per style. The app has none today and most
+  phones are on silent; it would need its own switch and the ring/silent state.
+
 ## Tier 3 — later: bigger builds, or narrower impact
 
 ### Countdown status (M–L) ★★

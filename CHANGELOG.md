@@ -4,7 +4,51 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 ## Unreleased
 
-Version 1.7, one heading per day it was built, newest first.
+Version 1.7.1 (build 87), one heading per day it was built, newest first.
+
+### 18 November 2026
+
+- **Celebrations, redesigned on one motion language.** Every style now plays
+  the same beats: it waits until the app has finished opening (before, the
+  entrance and its haptic were spent behind the launch zoom), the backdrop
+  blooms, the hero lands with the haptic on impact, then the words rise and
+  the buttons follow. Particles peak in the first two seconds and are gone by
+  seven (they ran 8 to 33 s), then only the backdrop breathes. Pieces crossing
+  the words fade, so the message stays readable.
+- **Each style, rebuilt.** Confetti fires from two cannons at the bottom
+  corners and flutters down through the air instead of trickling from one
+  point. The trophy falls with weight, squashes as it lands, bursts gold from
+  where it lands and catches one shine; its pieces are outlined so they read on
+  the gold. Hearts: the hero beats twice, then hearts bloom out from it at
+  three depths. Fireworks: rockets with trails, bursts of light that streak and
+  twinkle, a finale of three, all kept clear of the words; the hero is a drawn
+  burst instead of the framed 🎆 tile. Snow falls at three depths in white,
+  already falling when it opens, with one gust. The cake no longer jumps when
+  the words arrive; its candles light one by one, lean away as they're blown
+  out and send up smoke, then confetti pops from the top. The scratch card no
+  longer moves under the finger; its foil shimmers until touched and breaks
+  away in pieces when it opens.
+- **A celebration lands on Home.** Closing it, the hero flies into the partner
+  card's emoji while the rest fades. The cake and a report just fade.
+- **Reduce Motion gets a still celebration** — the style's pieces scattered
+  around the words, fading in — instead of a plain card. Haptics follow the
+  visual moments: a thud for the trophy, a lub-dub for hearts, a light tick
+  per firework (five at most).
+- **Home moves the same way.** Their new status blurs in and the emoji pops
+  (it used to cross-fade), and the emoji eases between its two sizes. "18
+  minutes ago" rolls to "now" and ticks over by the minute. Your own status
+  row changes with the same blur and its "Seen" / "Not sent yet" line slides
+  in; the "Sent to …" pill rises. A celebration you send plays a small burst of
+  its pieces from your row once it reaches iCloud. The anniversary count's
+  milestone confetti fires from the cannons too.
+- **Demo arrivals.** `REDSTRING_DEMO_ARRIVALS=1` (Debug) lands Sam's status 4 s
+  after launch and a heart 4 s later, so Home's arrival animations can be
+  watched; the UI smoke has a test for it. Unit tests pin the beats' order,
+  the clear zone, the confetti's physics and emitters, and the fireworks show.
+
+## 1.7 — announcements, sync and widgets (November 2026)
+
+One heading per day it was built, newest first.
 
 ### 14 November 2026
 

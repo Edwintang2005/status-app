@@ -79,3 +79,9 @@ enum SeasonalMoods {
         return seasons.filter { $0.contains(month: month, day: day) }.map(\.mood)
     }
 }
+
+/// A celebration of ours confirmed sent, and when: the sender's taste of it.
+struct SentCelebration: Equatable, Sendable {
+    let style: CelebrationStyle
+    let at: Date
+}
