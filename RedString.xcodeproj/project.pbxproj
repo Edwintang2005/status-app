@@ -320,6 +320,7 @@
 		5A54F47DF957F6D26C307B34 /* MomentAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = C513794F944B58BC26B42ED2 /* MomentAttachment.swift */; };
 		5A61CC506870DE2601EFDA68 /* MoodPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 210847458004C670433D6EC5 /* MoodPickerView.swift */; };
 		5AE037DB175553555583D16B /* SingleFlight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3164BCEFDC39A3844EB96DD8 /* SingleFlight.swift */; };
+		5AE770498E298C5768D787A1 /* PhotoViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16707900A835DFDBC0502381 /* PhotoViewer.swift */; };
 		5B62C3E315857E14E1DEC973 /* AppModel+Moderation.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF08D58C1B54BBC446D14803 /* AppModel+Moderation.swift */; };
 		5B83D112C2B92232046EBC9B /* CameraPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB4ECF103C8F8A22E4555B29 /* CameraPlan.swift */; };
 		5BBA1A9627508DEAED24B2C4 /* AnnouncementPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24AA66634B9568315D4FC9FC /* AnnouncementPolicy.swift */; };
@@ -630,6 +631,7 @@
 		BB27ACB9001EFA7DC069B944 /* Outbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43901C1F14515E19C12B247B /* Outbox.swift */; };
 		BB44C76A14D45AED9D307588 /* ShareIntake.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2026FF39691181D5CB16D14 /* ShareIntake.swift */; };
 		BBDD3F7D3E26A7B45B87A8E4 /* CloudSync+Archive.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08B074466E33EF0363C8B37F /* CloudSync+Archive.swift */; };
+		BC6570449C15AC59FC2C1EAF /* PhotoViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16707900A835DFDBC0502381 /* PhotoViewer.swift */; };
 		BD1613370158BE8E9AE01759 /* HomeNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC6715C301D80285A8903E05 /* HomeNotice.swift */; };
 		BEAFAC6839D89D4C8EC6775E /* RecapStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A424DDAA387D05EF68CD5728 /* RecapStore.swift */; };
 		BF0571A889BCF7332E8CE88E /* Anniversary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7561BA90FD6BA87B3BD03EB9 /* Anniversary.swift */; };
@@ -917,6 +919,7 @@
 		15A99D777CB54E1D2965B72F /* CloudSync+Nudges.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSync+Nudges.swift"; sourceTree = "<group>"; };
 		15F74ABCF97C59574DE9C698 /* HomeRulesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeRulesTests.swift; sourceTree = "<group>"; };
 		16412F5A913637BE9583B6A8 /* CrashReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashReport.swift; sourceTree = "<group>"; };
+		16707900A835DFDBC0502381 /* PhotoViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoViewer.swift; sourceTree = "<group>"; };
 		16859BAE270D92FCB0C6D0FF /* DemoSeeder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoSeeder.swift; sourceTree = "<group>"; };
 		170BBF360ABFF11110F48279 /* Celebration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Celebration.swift; sourceTree = "<group>"; };
 		172A34614380AF462ADCB49F /* CelebrationEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CelebrationEffects.swift; sourceTree = "<group>"; };
@@ -1560,6 +1563,7 @@
 				D7555940C8F32AD881C18D9E /* MomentLibraryView.swift */,
 				210847458004C670433D6EC5 /* MoodPickerView.swift */,
 				AAF80F7994B39BDEC9BA087D /* PairingView.swift */,
+				16707900A835DFDBC0502381 /* PhotoViewer.swift */,
 				88CFEE9BF9F2D4F1C4724B57 /* PinchToZoom.swift */,
 				67DBFE6DD088CE95DC14170A /* PlaceLine.swift */,
 				66762B326CD0592475C6A26D /* RecapView.swift */,
@@ -2461,6 +2465,7 @@
 				19C069A4CC445DCE8F9ECB67 /* PairingView.swift in Sources */,
 				335A6C6A5EF08AEB31781341 /* ParsedDelta.swift in Sources */,
 				4196C4B343A424863A3F97DF /* PhotoLocation.swift in Sources */,
+				BC6570449C15AC59FC2C1EAF /* PhotoViewer.swift in Sources */,
 				FCFDF9ED172CC02132FD06D1 /* PhotosSaver.swift in Sources */,
 				DCF22EC7C2CAB5BEE3188339 /* PinchToZoom.swift in Sources */,
 				C8FA032746E0BD877A344F6E /* PlaceLine.swift in Sources */,
@@ -2724,6 +2729,7 @@
 				C8BFC36B3366F2DA467E70F7 /* PairingView.swift in Sources */,
 				15DDA91187D75D7EB63AC818 /* ParsedDelta.swift in Sources */,
 				EC60DBF127519086EF1F044F /* PhotoLocation.swift in Sources */,
+				5AE770498E298C5768D787A1 /* PhotoViewer.swift in Sources */,
 				9F853FD0E14359C7774A5A9A /* PhotosSaver.swift in Sources */,
 				2FBDC5C2E133D9A716BC93D6 /* PinchToZoom.swift in Sources */,
 				409D7648F675958195317E9B /* PlaceLine.swift in Sources */,

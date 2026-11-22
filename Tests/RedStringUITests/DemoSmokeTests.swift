@@ -106,7 +106,19 @@ final class DemoSmokeTests: XCTestCase {
         launchToHome()
         // The moment card sits below the fold, half under the home indicator.
         app.swipeUp()
-        try openSheet(button(labelStartingWith: "for you"), closingWith: "Done", name: "Gallery")
+        try openSheet(button(labelStartingWith: "for you"), closingWith: "Done", name: "Gallery") {
+            // A tap on the picture shows all of it, full screen (UI-9).
+            let photo = app.descendants(matching: .any)["gallery.photo"].firstMatch
+            XCTAssertTrue(photo.waitForExistence(timeout: 30), "the gallery's picture never loaded")
+            photo.tap()
+            XCTAssertTrue(app.descendants(matching: .any)["viewer.photo"].waitForExistence(timeout: 10),
+                          "the photo viewer never opened")
+            try judge("Photo viewer")
+            app.buttons["viewer.done"].tap()
+            // The gallery stays mounted under the cover: wait for the viewer itself to go.
+            XCTAssertTrue(app.descendants(matching: .any)["viewer.photo"].waitForNonExistence(timeout: 10),
+                          "the viewer didn't close back to the gallery")
+        }
     }
 
     // MARK: - Screens no sheet test reaches (TEST-3)

@@ -36,6 +36,8 @@ struct MomentGalleryView: View {
     @State private var starTaps = 0
     /// Where each page's picture was taken, once named (`PlaceNames`).
     @State private var places: [String: String] = [:]
+    /// The photo open full screen (`PhotoViewer`).
+    @State private var viewing: ViewedPhoto?
 
     private enum ReplyKind: String, Identifiable {
         case moment, voiceMemo
@@ -201,6 +203,7 @@ struct MomentGalleryView: View {
             }
             // Gone from the history, so the pager moves on (`settle`), as after a delete.
             .reportMomentDialog($reporting, model: model) { reported.insert($0.id) }
+            .fullScreenCover(item: $viewing) { PhotoViewer(photo: $0) }
             .deleteMomentDialog($deleting, model: model)
             .onChange(of: pages.map(\.id)) { _, ids in settle(on: ids) }
             .onChange(of: model.isOffline) { _, offline in
@@ -321,7 +324,7 @@ struct MomentGalleryView: View {
                                  summary: String(localized: "\(moment.noun) from \(attribution)"),
                                  isLoading: loading.contains(moment.id),
                                  isUnavailable: unavailable.contains(moment.id),
-                                 isOffline: model.isOffline)
+                                 isOffline: model.isOffline) { viewing = $0 }
                     // A pinched photo covers the caption and heart below it, not the reverse.
                     .raisedWhilePinched()
             }
@@ -400,6 +403,8 @@ struct MomentGalleryView: View {
         let isLoading: Bool
         let isUnavailable: Bool
         let isOffline: Bool
+        /// A tap: the whole photo, full screen.
+        let onOpen: (ViewedPhoto) -> Void
         @State private var image: UIImage?
         @State private var isPreview = false
 
@@ -411,9 +416,18 @@ struct MomentGalleryView: View {
                     // Always the centred square, whatever frame the file keeps.
                     SquareFill {
                         Image(uiImage: image).resizable().scaledToFill()
-                            .accessibilityLabel(summary)
                     }
                         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                        // On the clipped square: the filled image's own frame overhangs it.
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(summary)
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityHint("Shows the whole photo")
+                        .accessibilityAction { open(image) }
+                        .accessibilityIdentifier("gallery.photo")
+                        .contentShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                        // The square crops it; a tap shows all of it.
+                        .onTapGesture { open(image) }
                         // Over the photo, not under it: the page centres its content,
                         // and a note coming and going would shift the picture.
                         .overlay(alignment: .bottom) {
@@ -461,6 +475,10 @@ struct MomentGalleryView: View {
                 image = loaded.0
                 isPreview = loaded.0 != nil && loaded.1
             }
+        }
+
+        private func open(_ image: UIImage) {
+            onOpen(ViewedPhoto(id: momentID, image: image, summary: summary, isPreview: isPreview))
         }
 
         @ViewBuilder

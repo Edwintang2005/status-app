@@ -8,6 +8,10 @@ Version 1.7.1 (build 87), one heading per day it was built, newest first.
 
 ### 22 November 2026
 
+- **See the whole photo.** The gallery shows each picture as a square; tap
+  it to see all of it, full screen. Pinch or double-tap to zoom, drag to look
+  around, and tap Done or swipe down to go back. A single tap hides Done for
+  a clear view.
 - **Behind the scenes: the app's model is tested too.** The invite link
   (its close, re-seat and reopen, one at a time) and "save memories" are each
   their own piece, and the app's model now takes its stores and what it asks
