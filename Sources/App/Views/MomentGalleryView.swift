@@ -56,13 +56,11 @@ struct MomentGalleryView: View {
         return here.isEmpty ? shown : shown.filter { here[$0.id] != nil }
     }
 
-    /// The page after a removed one, else the one before; none left closes the gallery.
     private func settle(on pages: [String]) {
-        guard !pages.contains(selection) else { return }
-        let order = opened.map(\.id)
-        let gone = order.firstIndex(of: selection) ?? 0
-        let next = order[gone...].first(where: pages.contains) ?? order[..<gone].last(where: pages.contains)
-        if let next { selection = next } else { dismiss() }
+        guard let next = GalleryPaging.settle(selection, order: opened.map(\.id), remaining: pages) else {
+            return dismiss()
+        }
+        if next != selection { selection = next }
     }
 
     /// By id, not a walk of the pages: `selection` is always one of them (`settle`).

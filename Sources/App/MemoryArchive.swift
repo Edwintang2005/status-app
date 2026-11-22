@@ -7,33 +7,7 @@ import os
 enum MemoryArchive {
     private static let log = Logger(subsystem: AppConfig.appGroupID, category: "MemoryArchive")
 
-    struct Outcome: Sendable {
-        enum Destination: Sendable, Equatable {
-            /// Saved and safe: nothing more for the user to do.
-            case iCloudDrive
-            /// On this device only — the caller must offer to share it before anything is deleted.
-            case deviceOnly
-        }
-
-        let folder: URL
-        let destination: Destination
-        let momentCount: Int
-        let statusCount: Int
-        /// Moments whose media couldn't be recovered — listed in the archive, not quietly dropped.
-        let unrecovered: Int
-        /// Of a kind from a newer build: this one can't save them, so no connection helps.
-        let unsupported: Int
-        /// With no file in iCloud or on this phone (`ArchiveMedia.gone`): nothing to save,
-        /// and nothing a delete could take — but listed, and asked about first.
-        let gone: Int
-        /// What it allows before a delete (`ArchiveGate`).
-        let gate: ArchiveGate
-        /// The zone was read, every record in it was readable and every picture and
-        /// memo was saved; anything short of that must not be the last copy before a delete.
-        var isComplete: Bool { gate == .proceed }
-        let includesZone: Bool
-        let unreadable: Int
-    }
+    typealias Outcome = ArchiveOutcome
 
     enum ArchiveError: LocalizedError {
         case nothingToSave

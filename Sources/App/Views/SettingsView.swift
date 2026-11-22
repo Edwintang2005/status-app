@@ -32,7 +32,7 @@ struct SettingsView: View {
     /// The last word before an ending the archive couldn't make plain: it was
     /// only shared from this iPhone, or some moments have no file left to save.
     @State private var confirmingEndingAfterShare: Ending?
-    @State private var endingCheck = EndingCheck()
+    @State private var endingCheck = ""
     /// Taps on the Version row: enough of them reveal diagnostics in Release
     /// builds — support needs the report from real installs, not just Debug ones.
     @State private var versionTapCount = 0
@@ -331,7 +331,7 @@ struct SettingsView: View {
                 }
                 Button("Not now", role: .cancel) { confirmingEndingAfterShare = nil }
             } message: {
-                Text(endingCheck.message)
+                Text(endingCheck)
             }
             .confirmationDialog("Clear downloaded media?",
                                 isPresented: $confirmingClearMedia,
@@ -592,86 +592,24 @@ struct SettingsView: View {
     /// ending until that sheet closes — see `pendingEndingAfterShare`.
     private func saveMemories(then ending: Ending?) async {
         guard let outcome = await model.archiveMemories() else { return }
-
-        let deviceOnly = outcome.destination == .deviceOnly
-        // Part of the history would be deleted with no copy kept: stop, say so,
-        // and leave the ending for the user to choose again.
-        if ending != nil, outcome.gate == .retry || outcome.gate == .updateFirst {
-            let summary = ArchiveSummary(text: successText(outcome) + " "
+        let plan = EndingPlan(outcome, ending: ending != nil)
+        endingCheck = plan.check
+        switch plan.step {
+        case .report:
+            archiveSummary = ArchiveSummary(text: outcome.summary)
+        case .refuse:
+            let summary = ArchiveSummary(text: outcome.summary + " "
                 + String(localized: "Nothing was unlinked, because the archive isn't complete."))
             // A device-only archive's share sheet is already up; one presentation at a time.
-            if deviceOnly {
-                summaryAfterShare = summary
-            } else {
-                archiveSummary = summary
-            }
-            return
+            if plan.sharesFirst { summaryAfterShare = summary } else { archiveSummary = summary }
+        case .confirm:
+            // `model.archiveToShare` brings up a device-only archive's share sheet first.
+            if plan.sharesFirst { pendingEndingAfterShare = ending } else { confirmingEndingAfterShare = ending }
+        case .end:
+            if let ending { await end(ending) }
+        case .none:
+            break
         }
-        let gone = if case .confirmGone(let count) = outcome.gate { count } else { 0 }
-        endingCheck = EndingCheck(deviceOnly: deviceOnly, gone: gone)
-
-        switch outcome.destination {
-        case .iCloudDrive:
-            guard let ending else {
-                archiveSummary = ArchiveSummary(text: successText(outcome))
-                return
-            }
-            // Moments with no file anywhere: asked about, never taken silently (APP-1).
-            if gone > 0 {
-                confirmingEndingAfterShare = ending
-            } else {
-                await end(ending)
-            }
-        case .deviceOnly:
-            // `model.archiveToShare` is set, which brings up the share sheet.
-            pendingEndingAfterShare = ending
-        }
-    }
-
-    /// What the last confirmation before an ending says.
-    private struct EndingCheck {
-        var deviceOnly = true
-        var gone = 0
-
-        var message: String {
-            var parts: [String] = []
-            if gone > 0 {
-                parts.append(gone == 1
-                    ? String(localized: "1 moment is no longer in iCloud, so the archive has only what this iPhone kept of it.")
-                    : String(localized: "\(gone) moments are no longer in iCloud, so the archive has only what this iPhone kept of them."))
-            }
-            if deviceOnly {
-                parts.append(String(localized: "The archive was only shared from this iPhone — continue only if you saved it somewhere safe."))
-            }
-            return parts.joined(separator: " ")
-        }
-    }
-
-    private func successText(_ outcome: MemoryArchive.Outcome) -> String {
-        let moments = outcome.momentCount == 1
-            ? String(localized: "1 moment")
-            : String(localized: "\(outcome.momentCount) moments")
-        let statuses = outcome.statusCount == 1
-            ? String(localized: "1 status")
-            : String(localized: "\(outcome.statusCount) statuses")
-        var text = outcome.destination == .iCloudDrive
-            ? String(localized: "\(moments) and \(statuses) saved to iCloud Drive › \(AppConfig.appName) › \(outcome.folder.lastPathComponent).")
-            : String(localized: "\(moments) and \(statuses) saved on this iPhone only.")
-        if outcome.unrecovered > 0 {
-            text += " " + String(localized: "\(outcome.unrecovered) couldn't be fetched back from iCloud and are listed in Memories.txt without a file.")
-        }
-        if outcome.unsupported > 0 {
-            text += " " + String(localized: "\(outcome.unsupported) need a newer version of \(AppConfig.appName) to be saved — update it from the App Store first.")
-        }
-        if outcome.gone > 0 {
-            text += " " + String(localized: "\(outcome.gone) are no longer in iCloud: the archive has only what this iPhone kept of them.")
-        }
-        if !outcome.includesZone {
-            text += " " + String(localized: "iCloud couldn't be reached, so it holds only what was on this iPhone.")
-        } else if outcome.unreadable > 0 {
-            text += " " + String(localized: "\(outcome.unreadable) items in iCloud couldn't be read on this iPhone and were left out.")
-        }
-        return text
     }
 
     /// Which of the two endings a dialog is confirming.

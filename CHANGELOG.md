@@ -6,6 +6,16 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 Version 1.7.1 (build 87), one heading per day it was built, newest first.
 
+### 22 November 2026
+
+- **Behind the scenes: the screens' decisions are tested.** What "save
+  memories" allows before an unlink, a wipe or a fresh start deletes anything
+  (an incomplete archive never ends anything; moments with no file left are
+  asked about; an archive kept only on this iPhone is shared first) is one rule
+  for Settings and the fresh start, with tests. So are Home's choice of notice
+  and footer line, the status picker's draft, which gallery page follows a
+  removed one, and where a tapped picture opens. Nothing looks different.
+
 ### 18 November 2026
 
 - **Celebrations, redesigned on one motion language.** Every style now plays

@@ -14,17 +14,10 @@ struct MoodPickerView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @State private var emoji = ""
-    @State private var message = ""
+    @State private var draft = StatusDraft()
     @State private var query = ""
-    /// Armed only by a celebration preset, by design — never inferred from a
-    /// typed emoji — and kept while the wording is retyped.
-    @State private var celebration: CelebrationStyle?
     /// Read once, so a picker left open over midnight doesn't reshuffle "Us".
     @State private var today = Date()
-    /// Tile for the selection highlight, tracked by id: a preset tap keeps a
-    /// hand-typed message, and some presets share an emoji, so neither identifies the tile.
-    @State private var selectedPresetID: String?
     /// Set once: a second tap on "Set" while the sheet is on its way out
     /// would send the same status twice.
     @State private var committed = false
@@ -105,13 +98,12 @@ struct MoodPickerView: View {
             }
         }
         .presentationDetents([.large])
-        // Words typed aren't lost to a stray swipe; Cancel still discards them.
-        .interactiveDismissDisabled(!trimmedMessage.isEmpty)
+        .interactiveDismissDisabled(draft.guardsDismissal)
         // Opens ready for a *new* status: the emoji carries over but the message,
         // tile highlight and celebration flag start fresh — and Set waits for a
         // change, so one stray tap can't re-post the emoji over your words.
         .onAppear {
-            emoji = initialEmoji
+            draft.emoji = initialEmoji
         }
         .task { await checkLayout() }
     }
@@ -157,61 +149,49 @@ struct MoodPickerView: View {
             HStack(spacing: 12) {
                 // Any emoji at all: tapping opens the emoji keyboard, and a
                 // pick hands focus on to the words.
-                EmojiField(emoji: $emoji) {
-                    selectedPresetID = nil
-                    celebration = nil
+                EmojiField(emoji: $draft.emoji) {
+                    draft.typedEmoji()
                     messageFocused = true
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 }
                 .frame(width: 52, height: 48)
                 .background(Color.primary.opacity(0.06),
                             in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .accessibilityLabel(emoji.isEmpty ? String(localized: "Emoji") : String(localized: "Emoji: \(emoji)"))
+                .accessibilityLabel(draft.emoji.isEmpty ? String(localized: "Emoji") : String(localized: "Emoji: \(draft.emoji)"))
                 .accessibilityHint("Choose any emoji")
 
-                TextField(fieldPrompt, text: $message)
+                TextField(fieldPrompt, text: $draft.message)
                     .font(Theme.rounded(17))
                     .accessibilityIdentifier("status.words.field")
                     .focused($messageFocused)
                     .submitLabel(.done)
                     .onSubmit(commit)
                     // A glance, not a paragraph; widgets truncate anything longer.
-                    .onChange(of: message) { _, text in
-                        if text.count > AppConfig.statusMessageMaxLength {
-                            message = String(text.prefix(AppConfig.statusMessageMaxLength))
-                        }
-                    }
+                    .onChange(of: draft.message) { draft.capMessage() }
             }
             .padding(.vertical, 12)
             .padding(.horizontal, 14)
             .background(Color.primary.opacity(0.05),
                         in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 
-            if emoji.isEmpty, !trimmedMessage.isEmpty {
+            if draft.needsEmojiHint {
                 Text("Sends with 💬 unless you pick an emoji.")
                     .font(Theme.rounded(13))
                     .foregroundStyle(Theme.mutedText)
             }
-            CharacterCount(count: message.count, limit: AppConfig.statusMessageMaxLength)
+            CharacterCount(count: draft.message.count, limit: AppConfig.statusMessageMaxLength)
 
-            if let celebration { celebrationChip(celebration) }
+            if let celebration = draft.celebration { celebrationChip(celebration) }
         }
-        .animation(.smooth(duration: 0.25), value: celebration)
+        .animation(.smooth(duration: 0.25), value: draft.celebration)
     }
 
     private var fieldPrompt: String {
-        if celebration == .reveal { return String(localized: "Your news, kept secret") }
+        if draft.celebration == .reveal { return String(localized: "Your news, kept secret") }
         return currentMessage.isEmpty ? String(localized: "Say anything") : currentMessage
     }
 
-    private var trimmedMessage: String { message.trimmingCharacters(in: .whitespacesAndNewlines) }
-
-    /// A tapped tile (even the current status, re-posted on purpose), a
-    /// different emoji, or words typed. A surprise needs its news.
-    private var hasChange: Bool {
-        if celebration == .reveal, trimmedMessage.isEmpty { return false }
-        return selectedPresetID != nil || emoji != initialEmoji || !trimmedMessage.isEmpty
-    }
+    private var hasChange: Bool { draft.hasChange(from: initialEmoji) }
 
     private var recentSection: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -222,12 +202,9 @@ struct MoodPickerView: View {
                 ForEach(recent) { entry in
                     tile(emoji: entry.emoji,
                          label: entry.message,
-                         selected: selectedPresetID == entry.id,
+                         selected: draft.selectedPresetID == entry.id,
                          celebration: false) {
-                        emoji = entry.emoji
-                        message = entry.message
-                        selectedPresetID = entry.id
-                        celebration = nil
+                        draft.pick(recent: entry)
                         messageFocused = false
                         wordsScrollRequest += 1
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -248,7 +225,7 @@ struct MoodPickerView: View {
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
             Button {
-                celebration = nil
+                draft.celebration = nil
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(Theme.rounded(15))
@@ -314,23 +291,9 @@ struct MoodPickerView: View {
     private func moodTile(_ mood: Mood) -> some View {
         tile(emoji: mood.emoji,
              label: mood.label,
-             selected: mood.id == selectedPresetID,
+             selected: mood.id == draft.selectedPresetID,
              celebration: mood.isCelebration) {
-            emoji = mood.emoji
-            selectedPresetID = mood.id
-            let untouched = message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || isPresetLabel(message)
-            celebration = mood.celebration
-            if mood.celebration == .reveal {
-                // The words are the news: a sealed "guess what" would reveal nothing.
-                if untouched { message = "" }
-                messageFocused = true
-            } else {
-                // Seed the field only when that wouldn't erase hand-typed words —
-                // tapping a preset then is picking its emoji, not a replacement message.
-                if untouched { message = mood.label }
-                messageFocused = false
-            }
+            messageFocused = draft.pick(mood, isPresetLabel: isPresetLabel)
             wordsScrollRequest += 1
             if mood.isCelebration {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -399,7 +362,7 @@ struct MoodPickerView: View {
         guard hasChange, !committed else { return }
         committed = true
         // Words alone go with 💬, as a banner reply does.
-        onSelect(emoji.isEmpty ? "💬" : emoji, message, celebration)
+        onSelect(draft.sentEmoji, draft.message, draft.celebration)
         dismiss()
     }
 }

@@ -1,19 +1,5 @@
 import SwiftUI
 
-/// Home's one-at-a-time notices (`HomeView.activeNotice` picks the most urgent).
-enum HomeNotice: Equatable {
-    case partnerLeft, extraMembers(Int), iCloud(String), freshStartClearing, freshStartStuck, freshStartRequest
-    case notificationsOff(NotificationsNotice), closeLink, widgetTip, recap(RecapPlan.Period)
-
-    /// Urgent ones sit above the partner card; the rest below the send row.
-    var urgent: Bool {
-        switch self {
-        case .partnerLeft, .extraMembers, .iCloud, .freshStartClearing, .freshStartStuck: true
-        case .freshStartRequest, .notificationsOff, .closeLink, .widgetTip, .recap: false
-        }
-    }
-}
-
 /// A notice's words; what its buttons do is Home's.
 struct HomeNoticeView: View, Equatable {
     let notice: HomeNotice

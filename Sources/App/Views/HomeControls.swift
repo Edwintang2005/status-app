@@ -48,63 +48,23 @@ struct OfflineBanner: View {
 /// one still waiting, which taps to retry.
 struct SyncFooter: View, Equatable {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let partnerName: String
-    let showsSent: Bool
-    let isOffline: Bool
-    let lastSyncedAt: Date?
-    let isRefreshing: Bool
-    let needsICloudAttention: Bool
-    let isSending: Bool
-    let pendingCount: Int
-    /// The only thing waiting is the status on screen.
-    let onlyStatusPending: Bool
-    let storageFull: Bool
-    let isParticipant: Bool
-    /// The history is filling in from nothing: "Syncing…" for minutes reads as stuck.
-    var isRestoring = false
-    /// Syncs keep failing: "Synced hours ago" alone looks like nothing's wrong.
-    var syncFailing = false
+    let inputs: SyncFooterLine.Inputs
     let onRetry: () -> Void
     var onSync: () -> Void = {}
 
     nonisolated static func == (lhs: SyncFooter, rhs: SyncFooter) -> Bool {
-        lhs.partnerName == rhs.partnerName && lhs.showsSent == rhs.showsSent && lhs.isOffline == rhs.isOffline
-            && lhs.lastSyncedAt == rhs.lastSyncedAt && lhs.isRefreshing == rhs.isRefreshing
-            && lhs.needsICloudAttention == rhs.needsICloudAttention && lhs.isSending == rhs.isSending
-            && lhs.pendingCount == rhs.pendingCount && lhs.onlyStatusPending == rhs.onlyStatusPending
-            && lhs.storageFull == rhs.storageFull && lhs.isParticipant == rhs.isParticipant
-            && lhs.isRestoring == rhs.isRestoring && lhs.syncFailing == rhs.syncFailing
-    }
-
-    /// Says whose storage is full when that's why sends are stuck — only the owner can fix it.
-    private var pendingLabel: String {
-        if pendingCount == 1, onlyStatusPending, !storageFull {
-            return String(localized: "Your status is waiting to send · tap to retry")
-        }
-        guard storageFull else {
-            return pendingCount == 1
-                ? String(localized: "1 waiting to send · tap to retry")
-                : String(localized: "\(pendingCount) waiting to send · tap to retry")
-        }
-        return isParticipant
-            ? String(localized: "\(partnerName)'s iCloud is full · \(pendingCount) waiting · tap to retry")
-            : String(localized: "Your iCloud is full · \(pendingCount) waiting · tap to retry")
-    }
-
-    /// The retry button is up: combining for VoiceOver would swallow its action.
-    private var showsRetry: Bool {
-        !showsSent && !isOffline && !isRefreshing && !needsICloudAttention && !isSending
-            && (pendingCount > 0 || syncFailing)
+        lhs.inputs == rhs.inputs
     }
 
     var body: some View {
+        let line = SyncFooterLine(inputs)
         HStack(spacing: 6) {
-            if showsSent {
-                Label("Sent to \(partnerName)", systemImage: "checkmark")
+            switch line {
+            case .sent:
+                Label("Sent to \(inputs.partnerName)", systemImage: "checkmark")
                     .modifier(FooterPill(tint: Theme.accentText))
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
-            } else if isOffline {
-                // Ahead of the rest: offline, a refresh fails at once and readiness reads as a network error.
+            case .offline(let lastSyncedAt):
                 Image(systemName: "wifi.slash")
                 // How fresh the screen is; the offline card up top carries what's queued.
                 if let lastSyncedAt {
@@ -112,27 +72,24 @@ struct SyncFooter: View, Equatable {
                 } else {
                     Text("Offline")
                 }
-            } else if isRefreshing {
+            case .syncing(let restoring):
                 ProgressView().controlSize(.mini)
-                Text(isRestoring ? "Restoring your history…" : "Syncing…")
-            } else if needsICloudAttention {
+                Text(restoring ? "Restoring your history…" : "Syncing…")
+            case .iCloudAttention:
                 // The full story is in the notice at the top.
                 Image(systemName: "exclamationmark.icloud")
                 Text("iCloud needs attention")
-            } else if isSending {
+            case .sending:
                 ProgressView().controlSize(.mini)
                 Text("Sending…")
-            } else if pendingCount > 0 {
-                // Ahead of "Synced …", which would mislead while a send is
-                // still sitting on this device.
+            case .waiting(let label, let storageFull):
                 Button(action: onRetry) {
-                    Label(pendingLabel,
-                          systemImage: storageFull ? "exclamationmark.icloud" : "icloud.and.arrow.up")
+                    Label(label, systemImage: storageFull ? "exclamationmark.icloud" : "icloud.and.arrow.up")
                         .modifier(FooterPill(tint: Theme.warmText))
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("Retries the send now")
-            } else if syncFailing {
+            case .failing(let lastSyncedAt):
                 Button(action: onSync) {
                     Group {
                         if let lastSyncedAt {
@@ -145,10 +102,10 @@ struct SyncFooter: View, Equatable {
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("Tries syncing again now")
-            } else if let lastSyncedAt {
+            case .synced(let lastSyncedAt):
                 Image(systemName: "checkmark.icloud")
                 RelativeTime(lastSyncedAt) { Text("Synced \($0)") }
-            } else {
+            case .neverSynced:
                 Image(systemName: "icloud.slash")
                 Text("Not synced yet")
             }
@@ -156,7 +113,7 @@ struct SyncFooter: View, Equatable {
         .font(Theme.rounded(12))
         .foregroundStyle(Theme.mutedText)
         .padding(.top, 4)
-        .accessibilityElement(children: showsRetry ? .contain : .combine)
+        .accessibilityElement(children: line.isButton ? .contain : .combine)
     }
 }
 

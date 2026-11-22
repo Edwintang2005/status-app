@@ -155,19 +155,20 @@ struct HomeView: View {
             if let memo = model.latestReceivedVoiceMemo {
                 voiceMemoRow(memo)
             }
-            SyncFooter(partnerName: partnerName,
-                       showsSent: showsSent,
-                       isOffline: model.isOffline,
-                       lastSyncedAt: model.snapshot.lastSyncedAt,
-                       isRefreshing: model.isRefreshing,
-                       needsICloudAttention: model.readinessMessage != nil,
-                       isSending: model.isRetryingUploads || model.isSendingNow || model.isUploading,
-                       pendingCount: pendingCount,
-                       onlyStatusPending: model.myStatusWaitingToSend,
-                       storageFull: model.storageFullAt != nil,
-                       isParticipant: model.role == .participant,
-                       isRestoring: model.isRestoringHistory,
-                       syncFailing: model.syncKeepsFailing,
+            SyncFooter(inputs: SyncFooterLine.Inputs(
+                           partnerName: partnerName,
+                           showsSent: showsSent,
+                           isOffline: model.isOffline,
+                           lastSyncedAt: model.snapshot.lastSyncedAt,
+                           isRefreshing: model.isRefreshing,
+                           needsICloudAttention: model.readinessMessage != nil,
+                           isSending: model.isRetryingUploads || model.isSendingNow || model.isUploading,
+                           pendingCount: pendingCount,
+                           onlyStatusPending: model.myStatusWaitingToSend,
+                           storageFull: model.storageFullAt != nil,
+                           isParticipant: model.role == .participant,
+                           isRestoring: model.isRestoringHistory,
+                           syncFailing: model.syncKeepsFailing),
                        onRetry: { Task { await model.retryPendingNow() } },
                        onSync: { Task { await model.refresh() } })
                 .equatable()
@@ -254,18 +255,18 @@ struct HomeView: View {
 
     /// At most one at a time, most urgent first.
     private var activeNotice: HomeNotice? {
-        if model.showsPartnerLeftNotice { return .partnerLeft }
-        if let count = model.extraShareMembers { return .extraMembers(count) }
-        // Offline the account check fails as a network error; the offline card covers it.
-        if let problem = model.readinessMessage, !model.isOffline { return .iCloud(problem) }
-        if model.isClearingHistory { return .freshStartClearing }
-        if model.freshStartNeedsAttention { return .freshStartStuck }
-        if model.showsFreshStartRequest { return .freshStartRequest }
-        if let problem = model.notificationsNotice { return .notificationsOff(problem) }
-        if model.showsCloseLinkPrompt { return .closeLink }
-        if model.showsWidgetTip { return .widgetTip }
-        if let period = model.recapPeriodOnHome { return .recap(period) }
-        return nil
+        HomeNotice.pick(from: HomeNotice.Inputs(
+            partnerLeft: model.showsPartnerLeftNotice,
+            extraMembers: model.extraShareMembers,
+            iCloudProblem: model.readinessMessage,
+            offline: model.isOffline,
+            clearingHistory: model.isClearingHistory,
+            freshStartStuck: model.freshStartNeedsAttention,
+            freshStartRequest: model.showsFreshStartRequest,
+            notificationsProblem: model.notificationsNotice,
+            closeLink: model.showsCloseLinkPrompt,
+            widgetTip: model.showsWidgetTip,
+            recap: model.recapPeriodOnHome))
     }
 
     private func noticeView(_ notice: HomeNotice, partnerName: String) -> some View {
@@ -372,14 +373,12 @@ struct HomeView: View {
             if !model.history.contains(where: { $0.id == id }) { model.reload() }
             // A queued index write holds `history` back: the file itself has it.
             // Neither (an unreadable index): the new arrivals.
-            guard let moment = model.history.first(where: { $0.id == id && !$0.isVoice })
-                    ?? MomentIndex.shared.load().first(where: { $0.id == id && !$0.isVoice }) else {
-                carouselQueue = model.carouselMoments
-                return !carouselQueue.isEmpty
-            }
-            let unseen = model.unseenVisualMoments
-            carouselStart = moment
-            carouselQueue = unseen.contains { $0.id == id } ? unseen : [moment]
+            let found = model.history.first(where: { $0.id == id && !$0.isVoice })
+                ?? MomentIndex.shared.load().first(where: { $0.id == id && !$0.isVoice })
+            let plan = CarouselPlan.opening(found, unseen: model.unseenVisualMoments, arrivals: model.carouselMoments)
+            if let start = plan.start { carouselStart = start }
+            carouselQueue = plan.queue
+            return !carouselQueue.isEmpty
         }
         return true
     }
