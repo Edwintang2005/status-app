@@ -260,7 +260,7 @@ struct DiagnosticsView: View {
     private func sweepNow() async {
         securing = true
         defer { securing = false }
-        sweepResult = await model.sweepPublicJoiners()
+        sweepResult = await model.invite.sweepPublicJoiners()
         await reload()
     }
     #endif
@@ -270,7 +270,7 @@ struct DiagnosticsView: View {
     private func secureNow() async {
         securing = true
         defer { securing = false }
-        let problem = await model.secureInviteFromDiagnostics()
+        let problem = await model.invite.secureFromDiagnostics()
         secureResult = problem
             ?? String(localized: "Done — the link is closed. If your partner shows as \u{201C}invited\u{201D} or \u{201C}pending\u{201D} above, they confirm by tapping the invite link once.")
         await reload()

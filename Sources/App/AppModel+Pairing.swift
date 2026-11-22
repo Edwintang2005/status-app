@@ -65,7 +65,7 @@ extension AppModel {
         do {
             try await commit(backend, trimmed)
             reload()
-            await NotificationManager.requestAuthorizationIfNeeded()
+            await environment.requestNotificationAuthorization()
             await refresh()
         } catch {
             reload()
@@ -125,13 +125,13 @@ extension AppModel {
         do {
             let url = try await backend.createPairInvite(displayName: myDisplayName,
                                                          replacingExisting: replacingExisting)
-            setInviteURL(url)
+            invite.adopt(url)
             reload()
             // After `reload()`, which flips `isPaired` and dismisses the pairing screen.
             presentedInvite = InviteLink(url: url)
             // Owed once the link sheet closes — see `RootView`.
             persist(true, \.anniversaryPromptPending, \.anniversaryPromptPending)
-            await NotificationManager.requestAuthorizationIfNeeded()
+            await environment.requestNotificationAuthorization()
         } catch SyncError.existingPairing(let someoneOnIt) {
             // Nothing written: offer Rejoin, or the confirmed replace — asked
             // only once discovery says whether Rejoin is there to offer.
@@ -144,208 +144,6 @@ extension AppModel {
             reload()
             present(error, title: String(localized: "Couldn't create the link"))
         }
-    }
-
-    // MARK: - Invite link posture (manual close only — invariant 9)
-
-    /// Owner side, once the partner is in and the server says the link is still
-    /// open (the cached flag alone goes stale across devices and rejoins).
-    var showsCloseLinkPrompt: Bool {
-        usesLiveShare && isPaired && role == .owner && snapshot.theirs != nil
-            && invitePostureChecked && !inviteClosed
-            && !closeLinkPromptDismissed && extraShareMembers == nil
-    }
-
-    /// More people on the share than the one partner, or `nil`.
-    var extraShareMembers: Int? {
-        guard usesLiveShare, isPaired, role == .owner, let count = shareMemberCount, count > 1 else { return nil }
-        return count
-    }
-
-    /// Demo mode's pairing is fake: the share checks would read (and the close
-    /// would act on) whatever real share the signed-in account has.
-    private var usesLiveShare: Bool {
-        #if DEBUG
-        return !DemoMode.isActive
-        #else
-        return true
-        #endif
-    }
-
-    func dismissCloseLinkPrompt() {
-        persist(true, \.closeLinkPromptDismissed, \.closeLinkPromptDismissed)
-    }
-
-    /// Counts who is on the share and re-reads whether the link is open.
-    /// Throttled from the refresh pass; Settings asks directly. Quiet on
-    /// failure — the last answer stands.
-    /// Returns the invite state it read, for `refreshInviteURL`; `nil` when it
-    /// didn't look, couldn't, or a close or reopen overtook it.
-    @discardableResult
-    func checkShareMembers(throttled: Bool) async -> InviteState? {
-        guard usesLiveShare, isPaired, role == .owner else { return nil }
-        // Open, Home's prompt needs this launch's own look; closed, nobody new can
-        // join, so a look from an earlier launch counts, and daily is enough.
-        let closed = store.inviteClosed
-        let interval = closed ? AppConfig.closedShareCheckInterval : AppConfig.shareMemberCheckInterval
-        if throttled, let last = shareMembersCheckedAt ?? (closed ? store.shareCheckedAt : nil),
-           Date().timeIntervalSince(last) < interval { return nil }
-        let changesBefore = inviteChanges
-        let check: ShareCheck
-        do {
-            check = try await bounded { try await $0.shareCheck() }
-        } catch {
-            log.error("Couldn't read the share: \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
-        shareMemberCount = check.memberCount
-        shareMembersCheckedAt = Date()
-        store.shareCheckedAt = shareMembersCheckedAt
-        let state = check.invite
-        // A close or reopen landed meanwhile: its answer is newer than ours.
-        guard inviteChanges == changesBefore, !isChangingInviteLink else { return nil }
-        switch state {
-        case .open:
-            setInviteClosed(false)
-            invitePostureChecked = true
-        case .closed:
-            setInviteClosed(true)
-            invitePostureChecked = true
-        case .missing:
-            // No share to close: nothing verified.
-            invitePostureChecked = false
-        }
-        return state
-    }
-
-    /// Reconciles the cached invite link against the server. Quiet on failure —
-    /// the cached link still shows, and the next attempt tries again.
-    func refreshInviteURL() async {
-        guard usesLiveShare else {
-            // Demo mode's fake pairing has no share to look at: say so, don't spin.
-            inviteLinkUnavailable = inviteURL == nil
-            return
-        }
-        guard role == .owner, let state = await checkShareMembers(throttled: false) else { return }
-        switch state {
-        case .open(let url):
-            setInviteURL(url)
-            inviteLinkUnavailable = false
-        case .closed(let url):
-            // How this device finds out the invite was closed from another.
-            // The URL is kept: it re-admits the existing partner on a new
-            // phone, and admits nobody else.
-            setInviteURL(url)
-            inviteLinkUnavailable = false
-        case .missing:
-            // No link to offer, but nothing says the partner joined — don't claim closed.
-            setInviteURL(nil)
-            inviteLinkUnavailable = true
-        }
-    }
-
-    private func setInviteClosed(_ closed: Bool) {
-        guard inviteClosed != closed else { return }
-        persist(closed, \.inviteClosed, \.inviteClosed)
-    }
-
-    private func setInviteURL(_ url: URL?) {
-        persist(url, \.inviteURL, \.inviteURL)
-    }
-
-    /// Runs one close or reopen under `isChangingInviteLink`. `inviteChanges` is
-    /// bumped at both ends: a posture check that started mid-change is stale too.
-    private func withInviteChange<T>(_ body: () async -> T) async -> T {
-        isChangingInviteLink = true
-        inviteChanges += 1
-        defer { isChangingInviteLink = false; inviteChanges += 1 }
-        return await body()
-    }
-
-    #if DEBUG
-    /// Diagnostics' sweep, under the same flag: it closes and reopens the share,
-    /// which can evict a link-joined partner.
-    func sweepPublicJoiners() async -> String {
-        guard usesLiveShare else { return "Demo mode: the share isn't touched." }
-        guard !isChangingInviteLink else { return "A close or reopen is already running." }
-        let line = await withInviteChange { await CloudSync.shared.sweepPublicJoiners() }
-        reload()
-        await refreshInviteURL()
-        return line
-    }
-    #endif
-
-    /// Diagnostics' promote-and-close, under the same flag as Settings' so the
-    /// two can't race. Returns the report line (`nil`: done or nothing to do).
-    func secureInviteFromDiagnostics() async -> String? {
-        guard usesLiveShare else { return "Demo mode: the share isn't touched." }
-        guard !isChangingInviteLink else { return "A close or reopen is already running." }
-        let backend = backend
-        return await withInviteChange { await backend.secureInviteIfPartnerJoined() }
-    }
-
-    /// Settings' close. With the partner in, closing re-seats them, which only
-    /// ever runs after the owner confirms (invariant 9).
-    func closeInvite() async {
-        guard usesLiveShare, !isChangingInviteLink else { return }
-        if snapshot.theirs != nil {
-            confirmingInviteReseat = true
-            return
-        }
-        let backend = backend
-        await withInviteChange {
-            do {
-                try await backend.closeUnusedInvite()
-                // The URL is kept — a closed link still re-admits the existing partner.
-                setInviteClosed(true)
-            } catch SyncError.inviteInUse {
-                confirmingInviteReseat = true
-            } catch {
-                present(error, title: String(localized: "Couldn't change the invite link"))
-            }
-        }
-    }
-
-    /// The confirmed re-seat: close the link, re-add the partner privately.
-    func closeInviteReseatingPartner() async {
-        // A second confirmation mid-handshake would race the first's close and re-add.
-        guard usesLiveShare, !isChangingInviteLink, let pairing = store.pairing, pairing.role == .owner else { return }
-        let backend = backend
-        await withInviteChange {
-            do {
-                switch try await backend.lockIfPartnerOnShare(pairing) {
-                case .locked:
-                    inviteNotice = String(localized: "The link is closed. Ask \(partnerNameInSentence) to tap the invite link once more to get back in.")
-                case .nobodyJoined:
-                    // Nobody *accepted*; a pending private partner survives a close,
-                    // which `closeUnusedInvite` would refuse. The full lock handles both.
-                    try await backend.lockPairing()
-                    inviteNotice = String(localized: "The link is closed.")
-                }
-            } catch {
-                present(error, title: String(localized: "Couldn't change the invite link"))
-            }
-        }
-        // After the change has ended: inside it, the posture check refuses to run.
-        reload()
-        await refreshInviteURL()
-    }
-
-    /// Settings' reopen, behind a confirmation: anyone with the link can join again.
-    func reopenInvite() async {
-        guard usesLiveShare, !isChangingInviteLink else { return }
-        let backend = backend
-        await withInviteChange {
-            do {
-                try await backend.reopenInvite()
-                inviteNotice = String(localized: "The link is open again. Anyone who has it can join, so send it only to \(partnerNameInSentence) — if they lost access, they tap it to get back in.")
-            } catch {
-                present(error, title: String(localized: "Couldn't change the invite link"))
-            }
-        }
-        // After the change has ended: inside it, the posture check refuses to run.
-        reload()
-        await refreshInviteURL()
     }
 
     // MARK: - Ending it
@@ -381,11 +179,15 @@ extension AppModel {
         // Until both databases confirm, the ex's writes may keep pushing here.
         store.subscriptionCleanup = .init(userRecordName: store.pairing?.userRecordName, since: Date())
         Task { await cleanUpSubscriptionsIfNeeded() }
-        store.eraseLocalMedia()
+        stores.eraseLocalMedia()
         store.clearPairing(keepingName: !startingOver)
-        inviteURL = nil  // `clearPairing` already cleared the stored copy.
+        invite.forget()
         pendingInvite = nil
         reload()
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
+}
+
+extension AppModel: InviteLinkHost {
+    var partnerIsIn: Bool { snapshot.theirs != nil }
 }

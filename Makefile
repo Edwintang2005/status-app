@@ -28,13 +28,14 @@ build: project
 		-destination 'platform=iOS Simulator,name=$(SIM)' \
 		-configuration Debug CODE_SIGNING_ALLOWED=NO build
 
-## Unit tests. The test bundle compiles Sources/Shared directly (no host app),
-## so this needs neither signing nor the App Group.
+## Unit tests. Both bundles compile their sources directly (no host app):
+## RedStringTests over Sources/Shared, RedStringAppTests over Sources/App too.
+## Neither needs signing nor the App Group.
 test: project
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 		-destination 'platform=iOS Simulator,name=$(SIM)' \
 		-configuration Debug CODE_SIGNING_ALLOWED=NO \
-		-only-testing:RedStringTests test
+		-only-testing:RedStringTests -only-testing:RedStringAppTests test
 
 ## Demo-mode UI smoke + accessibility audit (Tests/RedStringUITests). Signed,
 ## like `make run`: an unsigned app traps on the App Group at launch, which is

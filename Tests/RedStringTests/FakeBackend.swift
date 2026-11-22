@@ -2,7 +2,8 @@ import CloudKit
 import XCTest
 
 /// A `SyncBackend` that records what was asked of it and fails on demand.
-final class FakeBackend: SyncBackend, @unchecked Sendable {
+/// Not final: `RedStringAppTests` adds the pairing half (`FakeAppBackend`).
+class FakeBackend: SyncBackend, @unchecked Sendable {
     private let lock = NSLock()
     private var _published: [(payload: StatusPayload, logged: Bool)] = []
     private var _sent: [String] = []

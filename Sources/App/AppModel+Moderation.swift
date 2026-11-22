@@ -36,11 +36,11 @@ extension AppModel {
         var hidden = store.hiddenMomentIDs
         hidden.insert(moment.id)
         store.hiddenMomentIDs = hidden
-        MomentIndex.shared.remove(id: moment.id)
-        MomentStore.shared.delete(id: moment.id)
+        stores.index.remove(id: moment.id)
+        stores.media.delete(id: moment.id)
         // Reported is gone from every surface, a kept recap included — and no banner says it.
-        RecapStore.shared.removeAll()
-        store.refreshDerived { $0.settleOwed([moment.id]) }
+        stores.recaps.removeAll()
+        store.refreshDerived(index: stores.index) { $0.settleOwed([moment.id]) }
         reload()
         sendReport(Report.Details(kind: moment.noun,
                                   identifier: moment.id,
@@ -55,8 +55,8 @@ extension AppModel {
         guard let theirs = snapshot.theirs else { return }
         // The words' date, so the partner renaming themselves doesn't unhide them.
         persist(theirs.wordsAt, \.hiddenPartnerStatusAt, \.hiddenPartnerStatusAt)
-        RecapStore.shared.removeAll()
-        SharedStore.reloadWidgets()
+        stores.recaps.removeAll()
+        store.requestWidgetReload()
         sendReport(Report.Details(kind: "status",
                                   identifier: "status at \(theirs.updatedAt.formatted(.iso8601))",
                                   senderName: theirs.displayName,
@@ -104,7 +104,7 @@ extension AppModel {
     private func sendReport(_ details: Report.Details) {
         let body = Report.body(for: details)
         guard let url = Report.mailURL(for: details) else { return }
-        UIApplication.shared.open(url) { opened in
+        environment.openURL(url) { opened in
             guard !opened else { return }
             Task { @MainActor in
                 Clipboard.copy(text: body, localOnly: true)

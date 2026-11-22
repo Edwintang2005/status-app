@@ -23,6 +23,20 @@
          </BuildActionEntry>
          <BuildActionEntry
             buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "02E9399249079456B13F8F8A"
+               BuildableName = "RedStringAppTests.xctest"
+               BlueprintName = "RedStringAppTests"
+               ReferencedContainer = "container:RedString.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
             buildForRunning = "YES"
             buildForProfiling = "YES"
             buildForArchiving = "YES"
@@ -89,6 +103,17 @@
                BlueprintIdentifier = "51B3A11B82ED8BD480753065"
                BuildableName = "RedStringTests.xctest"
                BlueprintName = "RedStringTests"
+               ReferencedContainer = "container:RedString.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "02E9399249079456B13F8F8A"
+               BuildableName = "RedStringAppTests.xctest"
+               BlueprintName = "RedStringAppTests"
                ReferencedContainer = "container:RedString.xcodeproj">
             </BuildableReference>
          </TestableReference>

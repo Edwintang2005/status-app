@@ -5,16 +5,16 @@ import os
 extension AppModel {
     /// Not while an archive runs: it copies this phone's files first, and a clear
     /// mid-copy would leave them to fetch from iCloud again (or not at all, unsent).
-    var canClearDownloadedMedia: Bool { archiveProgress == nil && !isClearingMedia }
+    var canClearDownloadedMedia: Bool { archive.progress == nil && !isClearingMedia }
 
     /// Bytes "Clear downloaded media" would free: moment files outside
     /// `Outbox.mediaToKeep`, plus this app's temporary leftovers. `nil` when
     /// the index can't be read.
     func downloadedMediaSize() async -> Int? {
         guard let keep = outbox.mediaToKeep() else { return nil }
-        let spared = archiveToShare
+        let (spared, media) = (archive.toShare, stores.media)
         return await Task.detached(priority: .utility) {
-            MomentStore.shared.downloadedSize(keeping: keep)
+            media.downloadedSize(keeping: keep)
                 + AppModel.leftovers(sparing: spared).reduce(0) { $0 + $1.bytes }
         }.value
     }
@@ -30,11 +30,11 @@ extension AppModel {
             errorMessage = String(localized: "Your history couldn't be read just now, so nothing was removed. Try again in a moment.")
             return nil
         }
-        let spared = archiveToShare
+        let (spared, media) = (archive.toShare, stores.media)
         let freed = await Task.detached(priority: .userInitiated) {
             let leftovers = AppModel.leftovers(sparing: spared)
             let removed = leftovers.filter { (try? FileManager.default.removeItem(at: $0.url)) != nil }
-            return MomentStore.shared.clearDownloaded(keeping: keep) + removed.reduce(0) { $0 + $1.bytes }
+            return media.clearDownloaded(keeping: keep) + removed.reduce(0) { $0 + $1.bytes }
         }.value
         log.notice("Cleared \(freed) bytes of downloaded media.")
         reload()
@@ -43,7 +43,7 @@ extension AppModel {
 
     /// This app's temporary files past the grace window — notification
     /// attachment copies, abandoned recordings, finished archives — except a
-    /// device-only archive still waiting to be shared (`archiveToShare`).
+    /// device-only archive still waiting to be shared (`ArchiveModel.toShare`).
     nonisolated private static func leftovers(sparing archive: URL?,
                                               graceInterval: TimeInterval = 300,
                                               now: Date = Date()) -> [(url: URL, bytes: Int)] {

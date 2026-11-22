@@ -229,6 +229,30 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
 
+  # `AppModel` and its sub-models over fakes, with no host app: `Sources/App`
+  # minus its `@main` entry and resources. Unsigned like `RedStringTests`, so
+  # CI runs it too. Everything is injected — never a `.shared` store here.
+  RedStringAppTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Sources/Shared
+        excludes:
+          - "Resources/**"
+      - path: Sources/App
+        excludes:
+          - "Resources/**"
+          - "RedStringApp.swift"
+      - path: Sources/Widget/SendNudgeIntent.swift
+      - path: Tests/RedStringAppTests
+      - path: Tests/RedStringTests/TestSupport.swift
+      - path: Tests/RedStringTests/FakeBackend.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.edwintang.redstring.apptests
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+
   # Demo-mode smoke over Home and each sheet with `performAccessibilityAudit()`.
   # Needs a *signed* Debug app (unsigned, it traps on the App Group at launch),
   # so it has its own scheme: CI only compiles it, unsigned, and never runs it. `make uitest`.
@@ -254,12 +278,14 @@ schemes:
         RedStringWidgetExtension: all
         RedStringNotificationService: all
         RedStringTests: [test]
+        RedStringAppTests: [test]
     run:
       config: Debug
     test:
       config: Debug
       targets:
         - RedStringTests
+        - RedStringAppTests
     archive:
       config: Release
   RedStringUITests:

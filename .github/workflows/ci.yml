@@ -68,7 +68,7 @@ jobs:
           xcrun simctl boot "$SIM" >/dev/null 2>&1 &
 
       # Unsigned, warnings as errors. One Debug build: the app, all four extensions
-      # and the unit tests. No index store: nothing reads it here, and the same
+      # and both unit-test bundles. No index store: nothing reads it here, and the same
       # settings on the UI-test build keep it from rebuilding these products.
       - name: Build Debug for testing
         run: |
@@ -84,7 +84,7 @@ jobs:
           xcodebuild test-without-building -project RedString.xcodeproj -scheme RedString \
             -destination "platform=iOS Simulator,name=$SIM" \
             -configuration Debug CODE_SIGNING_ALLOWED=NO \
-            -only-testing:RedStringTests \
+            -only-testing:RedStringTests -only-testing:RedStringAppTests \
             -derivedDataPath "$DERIVED_DATA" -resultBundlePath "$RESULTS/unit-tests.xcresult"
 
       # Compiled, not run: the smoke needs a signed app (`make uitest`).

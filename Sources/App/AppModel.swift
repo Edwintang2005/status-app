@@ -14,13 +14,16 @@ final class AppModel {
     @ObservationIgnored static weak var current: AppModel?
 
     let store: SharedStore
+    /// Every store the model files into; `store` is `stores.shared`.
+    @ObservationIgnored let stores: CloudStores
+    @ObservationIgnored let environment: AppEnvironment
     let log = Logger(subsystem: AppConfig.appGroupID, category: "AppModel")
 
     private(set) var snapshot: Snapshot
     private(set) var isPaired: Bool
     private(set) var role: PairRole?
-    /// Owner side: invite revoked from Settings or Diagnostics.
-    var inviteClosed: Bool
+    /// The owner's invite link: its URL, whether it's open, and its changes.
+    @ObservationIgnored let invite: InviteLinkModel
     /// The pairing step under way, named so its screen's spinner sits on the
     /// button that started it.
     enum PairingOperation: Equatable { case joining, creatingInvite, unlinking, blocking }
@@ -62,7 +65,7 @@ final class AppModel {
     /// a fresh start's clear or an archive sleep under it.
     enum KeepAwake: Hashable { case freshStartClear, recap, archive }
     @ObservationIgnored var keepAwake: Set<KeepAwake> = [] {
-        didSet { UIApplication.shared.isIdleTimerDisabled = !keepAwake.isEmpty }
+        didSet { environment.keepScreenAwake(!keepAwake.isEmpty) }
     }
 
     func keepAwake(_ reason: KeepAwake, _ on: Bool) {
@@ -83,15 +86,9 @@ final class AppModel {
     private var statusSendsInFlight = 0
     /// The footer's tap-to-retry is running.
     private(set) var isSendingNow = false
-    /// Owner side: the link to hand to the partner. Kept after the invite
-    /// closes — the same link re-admits the existing partner on a new phone.
-    /// Seeded from the store so it survives a relaunch — see `refreshInviteURL()`.
-    var inviteURL: URL?
     /// A pairing found on the server with no local state — a fresh install on
     /// a new phone. The pairing screen offers it as "Rejoin".
     var rejoinablePairing: (role: PairRole, zoneID: CKRecordZone.ID)?
-    /// The server has no share at all (vs. one that was closed) — keeps Settings from spinning forever.
-    var inviteLinkUnavailable = false
     /// Full moment history, newest first, from `MomentIndex` (the snapshot only carries the newest each way).
     private(set) var history: [Moment] = [] {
         didSet {
@@ -176,11 +173,6 @@ final class AppModel {
     /// `HomeView` has a sheet up. Root-level presentations (the anniversary
     /// prompt) wait for it to close rather than being dropped by SwiftUI.
     var homeSheetShowing = false
-    /// Owner side: people other than the owner on the share, from the last
-    /// check (`checkShareMembers`). More than one is the stranger warning.
-    var shareMemberCount: Int?
-    @ObservationIgnored var shareMembersCheckedAt: Date?
-    var closeLinkPromptDismissed: Bool
     var widgetTipDismissed: Bool
     /// The year whose Home recap card was waved away.
     var recapNoticeDismissed: Int?
@@ -207,7 +199,7 @@ final class AppModel {
             guard oldValue != milestoneRemindersEnabled else { return }
             store.milestoneRemindersEnabled = milestoneRemindersEnabled
             if milestoneRemindersEnabled {
-                Task { await NotificationManager.requestAuthorizationIfNeeded() }
+                Task { await environment.requestNotificationAuthorization() }
             }
             syncMilestoneReminders()
         }
@@ -238,47 +230,32 @@ final class AppModel {
             guard oldValue != contentFilterEnabled else { return }
             store.contentFilterEnabled = contentFilterEnabled
             // A kept recap was drawn under the old setting.
-            RecapStore.shared.removeAll()
-            SharedStore.reloadWidgets()
+            stores.recaps.removeAll()
+            store.requestWidgetReload()
         }
     }
 
     /// The old space the replace dialog would delete has someone on it.
     var replacingSpaceHasPartner = false
-    /// The server's view of the link backs Home's close prompt this launch.
-    var invitePostureChecked = false
-    /// An invite close or reopen is in flight. Its own flag, not `isBusy`: a
-    /// photo send finishing would clear that one mid-handshake and admit a second close.
-    var isChangingInviteLink = false
-    /// Bumped by every close or reopen from here, so a posture check that
-    /// started before one can't write its older answer over it.
-    @ObservationIgnored var inviteChanges = 0
-    /// Settings asks before the re-seat handshake: set when a plain close found
-    /// someone on the share (or the partner is known to be in).
-    var confirmingInviteReseat = false
-    /// Settings' result line after a close or reopen.
-    var inviteNotice: String?
 
-    /// `0...1` while an archive is being written, `nil` otherwise.
-    var archiveProgress: Double?
+    /// "Save memories", its progress and the device-only archive to share.
+    @ObservationIgnored let archive: ArchiveModel
     /// Settings' "Clear downloaded media" is deleting: an archive started now
     /// could find a file on this phone and lose it before copying it.
     var isClearingMedia = false
-    @ObservationIgnored var archiveTask: Task<MemoryArchive.Outcome?, Never>?
-    /// Bumped per archive and by a cancel: a cancelled run winding down in the
-    /// background no longer reports progress or offers a share.
-    @ObservationIgnored var archiveRun = 0
-    /// The last archive that only reached this device — must be offered for sharing before any delete.
-    var archiveToShare: URL?
 
     /// An ask, agree or withdraw is in flight.
     var isChangingFreshStart = false
 
-    /// Only the snapshot store and the backend are injected (`nil` is
-    /// `Backend.current`, looked up per call): the moment index, status log,
-    /// media store and `SyncRunner` stay process-wide, the real App Group even in a preview.
-    init(store: SharedStore = .shared, backend: (any AppBackend)? = nil) {
+    /// `backend` `nil` is `Backend.current`, looked up per call. A test passes its
+    /// own stores and `.detached`. Not yet injected, so not for a test: fetching
+    /// (`SyncRunner`'s banners and `BannerUpkeep`), its recovery pass (notification
+    /// settings, installed widgets) and the default archive writer (`MemoryArchive.write`).
+    init(stores: CloudStores = .live, backend: (any AppBackend)? = nil, environment: AppEnvironment = .live) {
+        let store = stores.shared
         self.store = store
+        self.stores = stores
+        self.environment = environment
         #if DEBUG
         self.sync = SyncCoordinator(ignoresNetwork: DemoMode.isActive)
         #else
@@ -286,16 +263,24 @@ final class AppModel {
         #endif
         let backendProvider: () -> any AppBackend = backend.map { fixed in { fixed } } ?? { Backend.current }
         self.backendProvider = backendProvider
+        #if DEBUG
+        let usesLiveShare = !DemoMode.isActive
+        #else
+        let usesLiveShare = true
+        #endif
+        self.invite = InviteLinkModel(store: store, backend: backendProvider, usesLiveShare: usesLiveShare)
+        self.archive = ArchiveModel(store: store, statusLog: stores.statusLog, backend: backendProvider)
+        let (media, recaps) = (stores.media, stores.recaps)
         self.outbox = Outbox(store: store,
-                             index: .shared,
-                             statusLog: .shared,
+                             index: stores.index,
+                             statusLog: stores.statusLog,
                              backend: { backendProvider() },
-                             hasMedia: { MomentStore.shared.hasMedia(for: $0) },
-                             uploadSize: { MomentStore.shared.uploadSize(for: $0) },
-                             deleteMedia: { MomentStore.shared.delete(id: $0) },
-                             clearRecaps: { RecapStore.shared.removeAll() },
-                             protect: { name, body in try await AppModel.withUploadProtection(name, body) },
-                             indexChanged: { store.refreshDerived() })
+                             hasMedia: { media.hasMedia(for: $0) },
+                             uploadSize: { media.uploadSize(for: $0) },
+                             deleteMedia: { media.delete(id: $0) },
+                             clearRecaps: { recaps.removeAll() },
+                             protect: { name, body in try await AppModel.withUploadProtection(name, in: environment, body) },
+                             indexChanged: { [index = stores.index] in store.refreshDerived(index: index) })
         let log = log
         self.thumbnailFetcher = ThumbnailFetcher { moments in
             let backend = backendProvider()
@@ -304,25 +289,22 @@ final class AppModel {
             } catch {
                 log.error("Couldn't fetch \(moments.count) thumbnail(s): \(error.localizedDescription)")
             }
-            return Set(moments.lazy.map(\.id).filter { MomentStore.shared.hasThumbnail(for: $0) })
+            return Set(moments.lazy.map(\.id).filter { media.hasThumbnail(for: $0) })
         }
         self.snapshot = store.snapshot
         // Now, not after the first fetch: offline that can take minutes, and an
         // empty history greys out the library and hides the moment card.
-        let history = MomentIndex.shared.load()
+        let history = stores.index.load()
         self.history = history
         self.owedCaptionIDs = Self.owedCaptions(in: history)
         self.historyByID = Self.byID(history)
         self.isPaired = store.pairing != nil
         self.role = store.pairing?.role
-        self.inviteClosed = store.inviteClosed
-        self.inviteURL = store.inviteURL
         self.contentFilterEnabled = store.contentFilterEnabled
         self.readReceiptsEnabled = store.readReceiptsEnabled
         self.termsAccepted = store.acceptedTermsVersion >= AppConfig.termsVersion
         self.hiddenPartnerStatusAt = store.hiddenPartnerStatusAt
         self.anniversaryPromptPending = store.anniversaryPromptPending
-        self.closeLinkPromptDismissed = store.closeLinkPromptDismissed
         self.widgetTipDismissed = store.widgetTipDismissed
         self.recapNoticeDismissed = store.recapNoticeDismissed
         self.partnerLeftNoticeDismissed = store.partnerLeftNoticeDismissed
@@ -334,6 +316,8 @@ final class AppModel {
         outbox.linkFreed = { [weak self] in Task { await self?.sendQueued(automatic: true) } }
         refreshRecentStatusesIfNeeded()
         sync.host = self
+        invite.host = self
+        archive.host = self
     }
 
     // MARK: - Derived
@@ -434,7 +418,7 @@ final class AppModel {
         guard let index = history.firstIndex(where: { $0.id == moment.id }) else { return }
         history[index].favouritedAt = favourite ? Date().wholeSeconds : nil
         let id = moment.id
-        writeIndex { MomentIndex.shared.setFavourite(id: id, favourite) }
+        writeIndex { [momentIndex = stores.index] in momentIndex.setFavourite(id: id, favourite) }
         if favourite { Task { _ = await ensureMedia(for: moment) } }
     }
 
@@ -455,11 +439,11 @@ final class AppModel {
         // memo's seen state is drawn (the unheard badge; invariant 6).
         if deferringWidgetReload, moment.isVoice { widgetReloadOwed = true }
         let id = moment.id
-        let store = store
+        let (store, momentIndex) = (store, stores.index)
         writeIndex { [weak self] in
-            MomentIndex.shared.markSeen(ids: [id])
+            momentIndex.markSeen(ids: [id])
             // The widget's unheard-memo badge is a snapshot field; this is what clears it.
-            let refreshed = store.refreshDerived(deferringWidgetReload: deferringWidgetReload) { snapshot in
+            let refreshed = store.refreshDerived(deferringWidgetReload: deferringWidgetReload, index: momentIndex) { snapshot in
                 // A write landing after an unlink owes the new pairing nothing.
                 if owesReceipt, store.pairing != nil { snapshot.receiptsDirty = true }
                 // Seen in the app before any banner said so: none is owed now.
@@ -484,7 +468,7 @@ final class AppModel {
             Task { @MainActor in
                 guard let model = self else { return }
                 model.indexWritesPending -= 1
-                if model.indexWritesPending == 0 { model.update(\.history, MomentIndex.shared.load()) }
+                if model.indexWritesPending == 0 { model.update(\.history, model.stores.index.load()) }
             }
         }
     }
@@ -547,7 +531,7 @@ final class AppModel {
     func reloadFromStore() async {
         reload()
         // A pairing may have just appeared — the first moment the prompt makes sense.
-        await NotificationManager.requestAuthorizationIfNeeded()
+        await environment.requestNotificationAuthorization()
         await refresh()
     }
 
@@ -558,19 +542,11 @@ final class AppModel {
         update(\.snapshot, store.snapshot)
         update(\.isPaired, pairing != nil)
         update(\.role, pairing?.role)
-        update(\.inviteClosed, store.inviteClosed)
-        // The closed link is kept on purpose — see `refreshInviteURL`.
-        update(\.inviteURL, store.inviteURL)
         update(\.hiddenPartnerStatusAt, store.hiddenPartnerStatusAt)
         update(\.anniversaryPromptPending, store.anniversaryPromptPending)
-        update(\.closeLinkPromptDismissed, store.closeLinkPromptDismissed)
-        if !isPaired {
-            update(\.shareMemberCount, nil)
-            shareMembersCheckedAt = nil
-            update(\.invitePostureChecked, false)
-        }
+        invite.reload()
         // A write still queued would be undone here; its landing re-reads instead.
-        if indexWritesPending == 0 { update(\.history, MomentIndex.shared.load()) }
+        if indexWritesPending == 0 { update(\.history, stores.index.load()) }
         refreshRecentStatusesIfNeeded()
         syncMilestoneReminders()
         syncRecapReminder()
@@ -599,7 +575,7 @@ final class AppModel {
 
     /// Older entries keep metadata but not media files; fetches the file back from CloudKit on demand.
     func ensureMedia(for moment: Moment) async -> Bool {
-        if MomentStore.shared.hasMedia(for: moment) { return true }
+        if stores.media.hasMedia(for: moment) { return true }
         #if DEBUG
         if MomentIndex.isPadding(moment.id) { return false }
         #endif
@@ -608,7 +584,7 @@ final class AppModel {
         do {
             // Bounded: CloudKit's own timeout is a week, and the recovery pass's top-up awaits this.
             try await bounded(AppConfig.archiveItemDeadline) { try await $0.fetchMedia(for: moment) }
-            return MomentStore.shared.hasMedia(for: moment)
+            return stores.media.hasMedia(for: moment)
         } catch {
             log.error("Couldn't fetch media for \(moment.id): \(error.localizedDescription)")
             return false
@@ -620,19 +596,19 @@ final class AppModel {
     func padHistory() {
         let room = AppConfig.momentHistoryLimit - history.count
         let padding = MomentIndex.padding(count: room, before: history.last?.sentAt)
-        let store = store
+        let (store, momentIndex) = (store, stores.index)
         writeIndex {
-            MomentIndex.shared.insert(padding)
-            store.refreshDerived()
+            momentIndex.insert(padding)
+            store.refreshDerived(index: momentIndex)
         }
     }
 
     func removePadding() {
         let ids = Set(history.lazy.map(\.id).filter(MomentIndex.isPadding))
-        let store = store
+        let (store, momentIndex) = (store, stores.index)
         writeIndex {
-            MomentIndex.shared.remove(ids: ids)
-            store.refreshDerived()
+            momentIndex.remove(ids: ids)
+            store.refreshDerived(index: momentIndex)
         }
     }
     #endif
@@ -641,7 +617,7 @@ final class AppModel {
     /// copy, a few per pass, so it opens offline as promised.
     func fetchMissingFavourites(now: Date = Date()) async {
         let missing = history.filter { moment in
-            guard moment.isFavourite, moment.kind.isSupported, !MomentStore.shared.hasMedia(for: moment) else { return false }
+            guard moment.isFavourite, moment.kind.isSupported, !stores.media.hasMedia(for: moment) else { return false }
             guard let failed = favouriteFetchFailedAt[moment.id] else { return true }
             return now.timeIntervalSince(failed) >= AppConfig.favouriteRetryInterval
         }
@@ -660,7 +636,7 @@ final class AppModel {
     /// extension), and nothing else would fetch it again.
     func restoreLatestThumbnailIfMissing() async {
         guard let latest = store.snapshot.latestPartnerVisualMoment,
-              !MomentStore.shared.hasThumbnail(for: latest.id) else { return }
+              !stores.media.hasThumbnail(for: latest.id) else { return }
         // The download itself redraws the widgets (`SharedStore.mediaLanded`).
         if await ensureThumbnail(for: latest) { reload() }
     }
@@ -674,13 +650,13 @@ final class AppModel {
     /// This phone only, until a newer picture arrives (`WidgetPicture`); the
     /// widget falls back to the one before, fetched in full for it.
     func setShownInWidget(_ moment: Moment, _ shown: Bool) async {
-        let refreshed = store.refreshDerived { snapshot in
+        let refreshed = store.refreshDerived(index: stores.index) { snapshot in
             snapshot.widgetHiddenMomentIDs.removeAll { $0 == moment.id }
             if !shown { snapshot.widgetHiddenMomentIDs.append(moment.id) }
         }
         snapshot = refreshed.snapshot
         guard let next = refreshed.snapshot.latestPartnerVisualMoment,
-              !MomentStore.shared.hasMedia(for: next) else { return }
+              !stores.media.hasMedia(for: next) else { return }
         _ = await ensureMedia(for: next)
     }
 
@@ -688,7 +664,7 @@ final class AppModel {
     /// as the tile scrolls into view, batched with its neighbours. Bounded per
     /// batch: the recovery pass awaits this. `false` when it still isn't on disk.
     func ensureThumbnail(for moment: Moment) async -> Bool {
-        if MomentStore.shared.hasThumbnail(for: moment.id) { return true }
+        if stores.media.hasThumbnail(for: moment.id) { return true }
         guard !moment.isVoice else { return false }
         #if DEBUG
         // Placeholders have no record to fetch from.
@@ -733,7 +709,7 @@ final class AppModel {
             $0.mine = current
             $0.myStatusPublished = !paired
         }
-        StatusHistoryLog.shared.record(payload, fromMe: true)
+        stores.statusLog.record(payload, fromMe: true)
         reload()
 
         guard paired else { return nil }
@@ -742,7 +718,7 @@ final class AppModel {
         do {
             // The backend marks it published, against the then-current status (invariant 16).
             // Protected like every send: picked, then the phone locked mid-save.
-            try await Self.withUploadProtection("status") {
+            try await Self.withUploadProtection("status", in: environment) {
                 try await bounded { try await $0.publish(payload) }
             }
             outbox.noteSendSucceeded()
@@ -789,7 +765,7 @@ final class AppModel {
         Task { [payload] in
             defer { statusSendsInFlight -= 1 }
             do {
-                try await Self.withUploadProtection("rename") {
+                try await Self.withUploadProtection("rename", in: environment) {
                     try await bounded { try await $0.publish(payload, logged: logged) }
                 }
                 outbox.noteSendSucceeded()
@@ -844,7 +820,7 @@ final class AppModel {
         }
         reload()
         guard isPaired else { return }
-        await Self.withUploadProtection("delete") { _ = await outbox.sendDeletions() }
+        await Self.withUploadProtection("delete", in: environment) { _ = await outbox.sendDeletions() }
         reload()
     }
 
@@ -855,7 +831,7 @@ final class AppModel {
         guard moment.fromMe, words != moment.caption, outbox.editCaption(of: moment.id, to: words) else { return }
         reload()
         guard isPaired else { return }
-        await Self.withUploadProtection("caption") { _ = await outbox.republishCaptions() }
+        await Self.withUploadProtection("caption", in: environment) { _ = await outbox.republishCaptions() }
         reload()
     }
 
@@ -863,10 +839,10 @@ final class AppModel {
     /// A failed upload leaves the local copy in place.
     func sendMoment(image: UIImage, kind: Moment.Kind, caption: String, location: PhotoLocation? = nil) async {
         let moment = newMoment(kind: kind, caption: caption)
-        let id = moment.id
+        let (id, media) = (moment.id, stores.media)
         await send(moment, taskName: "moment-upload",
                    saveFailure: String(localized: "Couldn't save that moment")) {
-            try MomentStore.shared.write(image, id: id, location: location)
+            try media.write(image, id: id, location: location)
         }
     }
 
@@ -876,10 +852,10 @@ final class AppModel {
                        waveform: [Double],
                        caption: String) async {
         let moment = newMoment(kind: .voice, caption: caption, duration: duration, waveform: waveform)
-        let id = moment.id
+        let (id, media) = (moment.id, stores.media)
         await send(moment, taskName: "voice-memo-upload",
                    saveFailure: String(localized: "Couldn't save that voice memo")) {
-            try MomentStore.shared.adoptAudio(from: fileURL, id: id)
+            try media.adoptAudio(from: fileURL, id: id)
         }
     }
 
@@ -903,7 +879,7 @@ final class AppModel {
                       saveFailure: String,
                       saveMedia: @escaping @Sendable () throws -> Void) async {
         do {
-            try await Self.withUploadProtection("moment-save") {
+            try await Self.withUploadProtection("moment-save", in: environment) {
                 try await Task.detached(priority: .userInitiated, operation: saveMedia).value
             }
         } catch {
@@ -922,7 +898,8 @@ final class AppModel {
         // Claimed before it's filed: a retry pass running in the gap would take it,
         // and this send's failure alert would never show.
         if paired { outbox.reserveUpload(moment.id) }
-        await Task.detached(priority: .userInitiated) { store.record(filed) }.value
+        let (index, media) = (stores.index, stores.media)
+        _ = await Task.detached(priority: .userInitiated) { store.record([filed], index: index, media: media) }.value
         reload()
         UINotificationFeedbackGenerator().notificationOccurred(.success)
 
@@ -937,11 +914,10 @@ final class AppModel {
     /// Keeps the process running through an upload so a lock can't suspend it
     /// mid-send. Post-await bookkeeping belongs inside `body` (invariant 19).
     static func withUploadProtection<T>(_ name: String,
+                                        in environment: AppEnvironment,
                                         _ body: () async throws -> T) async rethrows -> T {
-        let assertion = BackgroundAssertion()
-        assertion.id = UIApplication.shared.beginBackgroundTask(withName: name) {
-            assertion.end()
-        }
+        let assertion = BackgroundAssertion(environment: environment)
+        assertion.id = environment.beginBackgroundTask(name) { assertion.end() }
         defer { assertion.end() }
         return try await body()
     }
@@ -983,7 +959,7 @@ final class AppModel {
 
     /// A send of ours is confirmed on the server (the outbox marked it).
     private func noteUploaded() {
-        history = MomentIndex.shared.load()
+        history = stores.index.load()
         sendConfirmedAt = Date()
     }
 
@@ -1084,7 +1060,7 @@ final class AppModel {
     /// a status landing under the picker, isn't anyone looking.
     func markPartnerStatusSeen() {
         guard isPaired, readReceiptsEnabled, !homeSheetShowing, !rootSheetShowing,
-              UIApplication.shared.applicationState == .active else { return }
+              environment.isInFront() else { return }
         // The status this screen shows, not whatever the store has since taken in.
         let shown = snapshot.theirs
         // Reported, or filter-hidden and not revealed: nobody read these words.
@@ -1106,7 +1082,7 @@ final class AppModel {
         // A page seen just before leaving is still being written: it goes too.
         await withCheckedContinuation { done in Self.indexWrites.async { done.resume() } }
         let outbox = outbox
-        await Self.withUploadProtection("receipts") { await outbox.flushReceiptsNow() }
+        await Self.withUploadProtection("receipts", in: environment) { await outbox.flushReceiptsNow() }
     }
 
     // MARK: - Status history
@@ -1123,7 +1099,7 @@ final class AppModel {
                                     clearedBefore: snapshot.freshStart.clearedBefore)
         guard key != recentStatusesKey else { return }
         recentStatusesKey = key
-        update(\.recentStatuses, StatusHistoryEntry.recentOwn(in: StatusHistoryLog.shared.load(),
+        update(\.recentStatuses, StatusHistoryEntry.recentOwn(in: stores.statusLog.load(),
                                                                limit: Self.recentStatusLimit))
     }
 
@@ -1181,7 +1157,7 @@ extension AppModel {
         let previous = reminderSync
         reminderSync = Task {
             await previous?.value
-            await NotificationManager.scheduleMilestoneReminders(plan)
+            await environment.scheduleMilestoneReminders(plan)
         }
     }
 
@@ -1218,7 +1194,7 @@ extension AppModel {
     func flushWidgetReload() {
         guard widgetReloadOwed else { return }
         widgetReloadOwed = false
-        SharedStore.reloadWidgets()
+        store.requestWidgetReload()
     }
 }
 
@@ -1227,10 +1203,15 @@ extension AppModel {
 @MainActor
 private final class BackgroundAssertion {
     var id: UIBackgroundTaskIdentifier = .invalid
+    private let environment: AppEnvironment
+
+    init(environment: AppEnvironment) {
+        self.environment = environment
+    }
 
     func end() {
         guard id != .invalid else { return }
-        UIApplication.shared.endBackgroundTask(id)
+        environment.endBackgroundTask(id)
         id = .invalid
     }
 }
@@ -1248,7 +1229,9 @@ extension AppModel {
                                         pairedAt: Date())
             store.snapshot = .preview
         }
-        return AppModel(store: store)
+        let live = CloudStores.live
+        return AppModel(stores: CloudStores(shared: store, index: live.index, media: live.media,
+                                            statusLog: live.statusLog, recaps: live.recaps))
     }
 }
 #endif

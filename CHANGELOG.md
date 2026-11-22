@@ -8,6 +8,11 @@ Version 1.7.1 (build 87), one heading per day it was built, newest first.
 
 ### 22 November 2026
 
+- **Behind the scenes: the app's model is tested too.** The invite link
+  (its close, re-seat and reopen, one at a time) and "save memories" are each
+  their own piece, and the app's model now takes its stores and what it asks
+  of the phone from outside, so a second set of unit tests runs it over fakes,
+  in CI as well. Nothing looks different.
 - **Behind the scenes: the screens' decisions are tested.** What "save
   memories" allows before an unlink, a wipe or a fresh start deletes anything
   (an incomplete archive never ends anything; moments with no file left are

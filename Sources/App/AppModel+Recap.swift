@@ -31,7 +31,7 @@ extension AppModel {
         let previous = recapReminderSync
         recapReminderSync = Task {
             await previous?.value
-            await NotificationManager.scheduleRecapReminder(plan)
+            await environment.scheduleRecapReminder(plan)
         }
     }
 
@@ -60,7 +60,7 @@ extension AppModel {
         }
         let contents = ArchiveContents.merged(zone: zone,
                                               localMoments: history,
-                                              localStatuses: StatusHistoryLog.shared.load(),
+                                              localStatuses: stores.statusLog.load(),
                                               anniversary: snapshot.anniversary,
                                               hidden: store.hiddenMomentIDs)
         let reportedAt = hiddenPartnerStatusAt

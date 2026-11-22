@@ -20,7 +20,7 @@ struct HomeView: View {
     @State private var voicePlayer = VoicePlayer()
     /// The memo last tapped while its recording was still being fetched.
     @State private var fetchingMemoID: String?
-    /// Local, not `model.confirmingInviteReseat`: Settings hosts that one, and
+    /// Local, not `model.invite.confirmingReseat`: Settings hosts that one, and
     /// two views presenting from one flag collide.
     @State private var confirmingCloseLink = false
     /// Snapshot taken when the carousel opens — paging marks moments seen, so
@@ -74,12 +74,12 @@ struct HomeView: View {
         .closeInviteLinkDialog(isPresented: $confirmingCloseLink)
         // Waits out any sheet (Settings shows its own copy): one presentation
         // per view, so over a sheet it would be dropped.
-        .alert("Invite link", isPresented: Binding(get: { model.inviteNotice != nil && !anySheetShowing
+        .alert("Invite link", isPresented: Binding(get: { model.invite.notice != nil && !anySheetShowing
                                                            && !model.rootSheetShowing },
-                                                   set: { if !$0 { model.inviteNotice = nil } })) {
-            Button("OK", role: .cancel) { model.inviteNotice = nil }
+                                                   set: { if !$0 { model.invite.notice = nil } })) {
+            Button("OK", role: .cancel) { model.invite.notice = nil }
         } message: {
-            Text(model.inviteNotice ?? "")
+            Text(model.invite.notice ?? "")
         }
     }
 
@@ -257,14 +257,14 @@ struct HomeView: View {
     private var activeNotice: HomeNotice? {
         HomeNotice.pick(from: HomeNotice.Inputs(
             partnerLeft: model.showsPartnerLeftNotice,
-            extraMembers: model.extraShareMembers,
+            extraMembers: model.invite.extraMembers,
             iCloudProblem: model.readinessMessage,
             offline: model.isOffline,
             clearingHistory: model.isClearingHistory,
             freshStartStuck: model.freshStartNeedsAttention,
             freshStartRequest: model.showsFreshStartRequest,
             notificationsProblem: model.notificationsNotice,
-            closeLink: model.showsCloseLinkPrompt,
+            closeLink: model.invite.showsClosePrompt,
             widgetTip: model.showsWidgetTip,
             recap: model.recapPeriodOnHome))
     }
@@ -273,7 +273,7 @@ struct HomeView: View {
         HomeNoticeView(notice: notice,
                        partnerName: partnerName,
                        isOwner: model.role == .owner,
-                       busy: model.isChangingInviteLink,
+                       busy: model.invite.isChanging,
                        onAction: { act(on: notice) },
                        onDismiss: { dismiss(notice) })
             .equatable()
@@ -309,7 +309,7 @@ struct HomeView: View {
         case .partnerLeft: model.dismissPartnerLeftNotice()
         case .freshStartRequest: model.dismissFreshStartRequest()
         case .notificationsOff: model.dismissNotificationsNotice()
-        case .closeLink: model.dismissCloseLinkPrompt()
+        case .closeLink: model.invite.dismissClosePrompt()
         case .recap: model.dismissRecapNotice()
         case .extraMembers, .iCloud, .freshStartClearing, .freshStartStuck, .widgetTip: break
         }

@@ -49,6 +49,7 @@ struct SettingsView: View {
 
     var body: some View {
         @Bindable var model = model
+        @Bindable var archive = model.archive
         let partnerName = model.partnerName
 
         NavigationStack {
@@ -101,16 +102,16 @@ struct SettingsView: View {
                     inviteSection
                 }
 
-                if model.hasMemoriesToArchive || model.isPaired {
+                if model.archive.hasMemories || model.isPaired {
                     Section {
-                        if model.hasMemoriesToArchive {
+                        if model.archive.hasMemories {
                             Button {
                                 Task { await saveMemories(then: nil) }
                             } label: {
                                 HStack {
                                     Label("Save memories to iCloud…", systemImage: "square.and.arrow.down")
                                     Spacer(minLength: 12)
-                                    if let progress = model.archiveProgress {
+                                    if let progress = model.archive.progress {
                                         ProgressView(value: progress)
                                             .progressViewStyle(.circular)
                                             .controlSize(.small)
@@ -123,9 +124,9 @@ struct SettingsView: View {
                             }
                             // Primary, not accent: a Form tints buttons, and crimson read as destructive.
                             .tint(.primary)
-                            .disabled(!model.canArchiveMemories || clearingMedia)
-                            if model.archiveProgress != nil {
-                                Button("Cancel saving memories") { model.cancelArchive() }
+                            .disabled(!model.archive.canArchive || clearingMedia)
+                            if model.archive.progress != nil {
+                                Button("Cancel saving memories") { model.archive.cancel() }
                                     .tint(.primary)
                             }
                         }
@@ -151,7 +152,7 @@ struct SettingsView: View {
                     }
                 }
 
-                if model.hasMemoriesToArchive {
+                if model.archive.hasMemories {
                     storageSection
                 }
 
@@ -238,13 +239,13 @@ struct SettingsView: View {
             .presentsModelErrors()
             // The cached link can be closed from another device — confirm it
             // against CloudKit rather than trusting the cached copy.
-            .task { await model.refreshInviteURL() }
+            .task { await model.invite.refreshURL() }
             // Here, not on the invite section: presentations inside a Form's rows don't reliably show.
             .modifier(InviteDialogs(confirmingReopen: $confirmingReopen))
             .confirmationDialog(unlinkTitle,
                                 isPresented: $confirmingUnlink,
                                 titleVisibility: .visible) {
-                if model.hasMemoriesToArchive {
+                if model.archive.hasMemories {
                     Button("Save memories, then unlink") {
                         Task { await saveMemories(then: .unlink) }
                     }
@@ -272,7 +273,7 @@ struct SettingsView: View {
             .confirmationDialog("Delete everything and start over?",
                                 isPresented: $confirmingWipe,
                                 titleVisibility: .visible) {
-                if model.hasMemoriesToArchive {
+                if model.archive.hasMemories {
                     Button("Save memories, then delete") {
                         Task { await saveMemories(then: .wipe) }
                     }
@@ -300,9 +301,9 @@ struct SettingsView: View {
             }
             // Only reachable when iCloud Drive wasn't available; nothing has
             // been deleted yet, so dismissing this can't lose the archive.
-            .sheet(isPresented: $model.archiveToShare.isPresent(),
+            .sheet(isPresented: $archive.toShare.isPresent(),
                    onDismiss: {
-                       model.archiveToShare = nil
+                       model.archive.toShare = nil
                        if let summary = summaryAfterShare {
                            summaryAfterShare = nil
                            archiveSummary = summary
@@ -312,7 +313,7 @@ struct SettingsView: View {
                            confirmingEndingAfterShare = pending
                        }
                    }) {
-                if let url = model.archiveToShare {
+                if let url = model.archive.toShare {
                     ShareSheet(url: url)
                 }
             }
@@ -344,7 +345,7 @@ struct SettingsView: View {
                 Text("Photos, drawings and voice memos stay in iCloud and download again when you open them, which needs a connection. The newest few, and anything not sent yet, stay on this iPhone.")
             }
             // An archive fetches media back, so the figure moves when one ends.
-            .task(id: model.archiveProgress == nil) { await measureMedia() }
+            .task(id: model.archive.progress == nil) { await measureMedia() }
             .alert("Memories saved", isPresented: $archiveSummary.isPresent()) {
                 Button("OK", role: .cancel) { archiveSummary = nil }
             } message: {
@@ -461,11 +462,11 @@ struct SettingsView: View {
     /// screen that created it.
     private var inviteSection: some View {
         Section {
-            if model.inviteClosed {
+            if model.invite.isClosed {
                 LabeledContent("Status", value: String(localized: "Closed"))
                 // Still worth sharing: the closed link re-admits the existing
                 // partner on a new phone, and admits nobody else.
-                if let url = model.inviteURL {
+                if let url = model.invite.url {
                     InviteShareLink(url: url) {
                         Label("Share link", systemImage: "square.and.arrow.up")
                     }
@@ -473,17 +474,17 @@ struct SettingsView: View {
                 }
                 // The way back if a close strands the partner (`inviteLeftClosed`).
                 Button("Reopen the invite link") { confirmingReopen = true }
-                    .disabled(model.isChangingInviteLink)
+                    .disabled(model.invite.isChanging)
             } else {
-                // Absent only until `refreshInviteURL()` returns — a loading
+                // Absent only until `InviteLinkModel.refreshURL()` returns — a loading
                 // state, not an empty one.
-                if let url = model.inviteURL {
+                if let url = model.invite.url {
                     InviteLinkText(url: url)
                     InviteShareLink(url: url) {
                         Label("Share link", systemImage: "square.and.arrow.up")
                     }
                     CopyLinkButton(url: url, prominent: false)
-                } else if model.inviteLinkUnavailable {
+                } else if model.invite.isUnavailable {
                     // No share on the server — say so rather than spin, without
                     // claiming it was closed (nothing here means the partner joined).
                     LabeledContent("Status", value: String(localized: "Unavailable"))
@@ -494,10 +495,10 @@ struct SettingsView: View {
                 }
                 // Not red: it asks first (re-seating the partner), and it reopens.
                 Button("Close the invite link") {
-                    Task { await model.closeInvite() }
+                    Task { await model.invite.close() }
                 }
                 .foregroundStyle(Theme.accentText)
-                .disabled(model.isChangingInviteLink)
+                .disabled(model.invite.isChanging)
             }
         } header: {
             SettingsHeader("Invite link")
@@ -509,7 +510,7 @@ struct SettingsView: View {
     /// The link does *not* close itself once the partner joins (invariant 9),
     /// so the copy says what actually happens in each state.
     private var inviteFooter: String {
-        if model.inviteClosed {
+        if model.invite.isClosed {
             return String(localized: "Closed. Nobody new can use the link you sent, even if it was forwarded or screenshotted. If \(model.partnerNameInSentence) is already in, it still re-admits them on a new phone.")
         }
         // `theirs` is only a hint that they're in (they may have joined and not
@@ -591,7 +592,7 @@ struct SettingsView: View {
     /// iCloud Drive. A device-only archive shows the share sheet, holding the
     /// ending until that sheet closes — see `pendingEndingAfterShare`.
     private func saveMemories(then ending: Ending?) async {
-        guard let outcome = await model.archiveMemories() else { return }
+        guard let outcome = await model.archive.archive() else { return }
         let plan = EndingPlan(outcome, ending: ending != nil)
         endingCheck = plan.check
         switch plan.step {
@@ -603,7 +604,7 @@ struct SettingsView: View {
             // A device-only archive's share sheet is already up; one presentation at a time.
             if plan.sharesFirst { summaryAfterShare = summary } else { archiveSummary = summary }
         case .confirm:
-            // `model.archiveToShare` brings up a device-only archive's share sheet first.
+            // `model.archive.toShare` brings up a device-only archive's share sheet first.
             if plan.sharesFirst { pendingEndingAfterShare = ending } else { confirmingEndingAfterShare = ending }
         case .end:
             if let ending { await end(ending) }
@@ -689,22 +690,22 @@ private struct InviteDialogs: ViewModifier {
     @Binding var confirmingReopen: Bool
 
     func body(content: Content) -> some View {
-        @Bindable var model = model
+        @Bindable var invite = model.invite
 
         content
-            .closeInviteLinkDialog(isPresented: $model.confirmingInviteReseat)
+            .closeInviteLinkDialog(isPresented: $invite.confirmingReseat)
             .confirmationDialog("Reopen the invite link?",
                                 isPresented: $confirmingReopen,
                                 titleVisibility: .visible) {
-                Button("Reopen") { Task { await model.reopenInvite() } }
+                Button("Reopen") { Task { await model.invite.reopen() } }
                 Button("Not now", role: .cancel) {}
             } message: {
                 Text("Anyone who has the link will be able to join again. Reopen it if \(model.partnerNameInSentence) can't get back in.")
             }
-            .alert("Invite link", isPresented: $model.inviteNotice.isPresent()) {
-                Button("OK", role: .cancel) { model.inviteNotice = nil }
+            .alert("Invite link", isPresented: $invite.notice.isPresent()) {
+                Button("OK", role: .cancel) { model.invite.notice = nil }
             } message: {
-                Text(model.inviteNotice ?? "")
+                Text(model.invite.notice ?? "")
             }
     }
 }
@@ -721,7 +722,7 @@ private struct CloseInviteLinkDialog: ViewModifier {
                                 isPresented: $isPresented,
                                 titleVisibility: .visible) {
                 Button("Close and re-seat \(model.partnerName)", role: .destructive) {
-                    Task { await model.closeInviteReseatingPartner() }
+                    Task { await model.invite.closeReseatingPartner() }
                 }
                 Button("Not now", role: .cancel) {}
             } message: {

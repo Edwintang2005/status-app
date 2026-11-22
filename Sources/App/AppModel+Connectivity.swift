@@ -52,7 +52,7 @@ extension AppModel: SyncHost {
         await sendQueued(automatic: true)
         await outbox.flushReceipts(automatic: true)
         topUpMedia()
-        await checkShareMembers(throttled: true)
+        await invite.checkMembers(throttled: true)
         await checkInstalledWidgets()
     }
 
@@ -121,8 +121,8 @@ extension AppModel: SyncHost {
     /// - Returns: whether it asked (only from the front).
     @discardableResult
     func redrawWidgets() -> Bool {
-        guard UIApplication.shared.applicationState == .active else { return false }
-        SharedStore.reloadWidgets()
+        guard environment.isInFront() else { return false }
+        store.requestWidgetReload()
         return true
     }
 }

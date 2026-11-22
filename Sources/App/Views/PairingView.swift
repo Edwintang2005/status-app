@@ -115,7 +115,7 @@ struct PairingView: View {
                 rejoinCard
             }
 
-            if let url = model.inviteURL {
+            if let url = model.invite.url {
                 inviteReady(url: url)
             } else if model.rejoinablePairing != nil {
                 // Not a second primary button beside Rejoin: on a new phone this

@@ -47,12 +47,12 @@ struct FreshStartView: View {
                 // The system footer grey is ~3.6:1 on the cream backdrop; this is AA.
                 .foregroundStyle(Theme.mutedText)
             }
-            if let progress = model.archiveProgress {
+            if let progress = model.archive.progress {
                 Section {
                     LabeledContent("Saving memories") {
                         Text("\(Int(progress * 100))%").monospacedDigit()
                     }
-                    Button("Cancel saving memories") { model.cancelArchive() }
+                    Button("Cancel saving memories") { model.archive.cancel() }
                 }
             }
             actions
@@ -188,12 +188,12 @@ struct FreshStartView: View {
 
     @ViewBuilder
     private var actions: some View {
-        let busy = working || model.isChangingFreshStart || model.archiveProgress != nil
+        let busy = working || model.isChangingFreshStart || model.archive.progress != nil
         switch model.freshStartPhase {
         case .idle, .waitingForPartner:
             Section {
                 Button("Save memories, then ask…") { Task { await saveThen(.ask) } }
-                    .disabled(busy || !model.canArchiveMemories)
+                    .disabled(busy || !model.archive.canArchive)
                 Button("Ask without saving…", role: .destructive) { confirmingSkip = .ask }
                     .disabled(busy)
             }
@@ -205,7 +205,7 @@ struct FreshStartView: View {
         case .theyAsked:
             Section {
                 Button("Save memories, then agree…") { Task { await saveThen(.agree) } }
-                    .disabled(busy || !model.canArchiveMemories)
+                    .disabled(busy || !model.archive.canArchive)
                 Button("Agree without saving…", role: .destructive) { confirmingSkip = .agree }
                     .disabled(busy)
             }
@@ -235,7 +235,7 @@ struct FreshStartView: View {
     private func saveThen(_ action: Action) async {
         working = true
         defer { working = false }
-        guard let outcome = await model.archiveMemories(offeringShare: false) else { return }
+        guard let outcome = await model.archive.archive(offeringShare: false) else { return }
         let saved = outcome.destination == .iCloudDrive
             ? String(localized: "Memories saved to iCloud Drive › \(AppConfig.appName) › \(outcome.folder.lastPathComponent).")
             : String(localized: "Memories saved on this iPhone only.")

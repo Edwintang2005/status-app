@@ -278,7 +278,7 @@ struct MomentComposerView: View {
             Task {
                 // The sheet is gone and the moment has no other copy yet: a kill
                 // mid-render would lose it before the local write (invariant 11).
-                let image = await AppModel.withUploadProtection("moment-render") {
+                let image = await AppModel.withUploadProtection("moment-render", in: .live) {
                     var base = photo
                     if let dualShot {
                         // Flattened first, so strokes land over the inset too.

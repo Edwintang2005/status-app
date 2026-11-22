@@ -8,6 +8,9 @@ enum MemoryArchive {
     private static let log = Logger(subsystem: AppConfig.appGroupID, category: "MemoryArchive")
 
     typealias Outcome = ArchiveOutcome
+    /// `write`'s shape, so `ArchiveModel` can be handed another in a test.
+    typealias Writer = (ArchiveContents, _ myName: String, _ partnerName: String, _ reportedStatusAt: Date?,
+                        _ progress: @escaping @Sendable (Double) -> Void) async throws -> Outcome
 
     enum ArchiveError: LocalizedError {
         case nothingToSave
