@@ -362,7 +362,7 @@ struct CelebrationOverlay: View {
         ZStack {
             VStack(spacing: 12) {
                 // The natural answer to their moment: the heart, then out.
-                HeartBackButton(afterSending: { finish() })
+                HeartBackButton(bursts: false, afterSending: { finish() })
                     .padding(.horizontal, 44)
                 Text("Tap anywhere to close")
                     .font(Theme.rounded(13))

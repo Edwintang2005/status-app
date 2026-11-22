@@ -35,6 +35,9 @@ struct HomeView: View {
     @State private var heartArrivals = 0
     @State private var statusArrivals = 0
     @State private var momentArrivals = 0
+    /// The gallery opened from the moment card zooms out of it.
+    @Namespace private var momentZoom
+    @State private var galleryFromCard = false
     /// "Sent to …" in the footer for a moment after a send is confirmed.
     @State private var showsSent = false
 
@@ -146,11 +149,16 @@ struct HomeView: View {
                            unseenCount: unseen.count,
                            label: MomentCard.label(for: moment, filterEnabled: filterOn),
                            isOffline: model.isOffline,
-                           onOpen: { carouselQueue = model.carouselMoments },
-                           fetchThumbnail: { await model.ensureThumbnail(for: moment) })
+                           onOpen: {
+                               galleryFromCard = true
+                               carouselQueue = model.carouselMoments
+                           },
+                           fetchThumbnail: { await model.ensureThumbnail(for: moment) },
+                           zoom: momentZoom)
                     .equatable()
                     .id(moment.id)
                     .transition(.opacity)
+                    .momentArrival(momentArrivals)
             }
             if let memo = model.latestReceivedVoiceMemo {
                 voiceMemoRow(memo)
@@ -233,7 +241,9 @@ struct HomeView: View {
                    showingFreshStart: $showingFreshStart,
                    recap: $recap,
                    carouselQueue: $carouselQueue,
-                   carouselStart: $carouselStart)
+                   carouselStart: $carouselStart,
+                   galleryFromCard: $galleryFromCard,
+                   momentZoom: momentZoom)
     }
 
     // MARK: - Lifecycle
@@ -364,6 +374,7 @@ struct HomeView: View {
         case .recap(let year):
             recap = RecapRequest(period: .year(year))
         case .newMoments:
+            galleryFromCard = false
             carouselQueue = model.carouselMoments
             return !carouselQueue.isEmpty
         case .moment(let id):
@@ -376,6 +387,8 @@ struct HomeView: View {
             let found = model.history.first(where: { $0.id == id && !$0.isVoice })
                 ?? MomentIndex.shared.load().first(where: { $0.id == id && !$0.isVoice })
             let plan = CarouselPlan.opening(found, unseen: model.unseenVisualMoments, arrivals: model.carouselMoments)
+            // Set on every way in, never as it closes: a change mid-presentation rebuilds it.
+            galleryFromCard = false
             if let start = plan.start { carouselStart = start }
             carouselQueue = plan.queue
             return !carouselQueue.isEmpty
@@ -457,6 +470,7 @@ private struct ComposerRequest: Identifiable {
 /// Home's sheets, apart from its body so neither is one long expression.
 private struct HomeSheets: ViewModifier {
     @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Binding var showingPicker: Bool
     @Binding var showingSettings: Bool
     @Binding var composer: ComposerRequest?
@@ -468,6 +482,19 @@ private struct HomeSheets: ViewModifier {
     @Binding var recap: RecapRequest?
     @Binding var carouselQueue: [Moment]
     @Binding var carouselStart: Moment?
+    @Binding var galleryFromCard: Bool
+    let momentZoom: Namespace.ID
+
+    private struct Carousel: Identifiable {
+        let moments: [Moment]
+        let start: Moment
+        var id: String { start.id }
+    }
+
+    private var carousel: Carousel? {
+        guard let start = carouselStart ?? carouselQueue.first else { return nil }
+        return Carousel(moments: carouselQueue, start: start)
+    }
 
     func body(content: Content) -> some View {
         content
@@ -505,12 +532,14 @@ private struct HomeSheets: ViewModifier {
                 }
                 .presentsModelErrors()
             }
-            .sheet(isPresented: Binding(get: { !carouselQueue.isEmpty },
-                                        set: { if !$0 { carouselQueue = []; carouselStart = nil } })) {
-                if let first = carouselStart ?? carouselQueue.first {
-                    MomentGalleryView(moments: carouselQueue, startAt: first)
-                        .presentsModelErrors()
-                }
+            // By item: closing keeps the pages drawn as it shrinks back into the card.
+            .sheet(item: Binding(get: { carousel },
+                                 set: { if $0 == nil { carouselQueue = []; carouselStart = nil } })) {
+                MomentGalleryView(moments: $0.moments, startAt: $0.start)
+                    .presentsModelErrors()
+                    // From the card only: a banner or the widget opens it with no card to grow from.
+                    .zoomsFrom(MomentMotion.homeCardZoomID, in: momentZoom,
+                               enabled: galleryFromCard && !reduceMotion)
             }
             .sheet(isPresented: $showingLibrary) {
                 MomentLibraryView()

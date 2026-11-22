@@ -256,4 +256,18 @@ final class ViewDecisionTests: XCTestCase {
         XCTAssertNil(missing.start)
         XCTAssertEqual(missing.queue.map(\.id), ["a", "b"], "not filed: the new arrivals stand in")
     }
+
+    // MARK: Moment motion
+
+    func testOnlyAPartnersUnseenPictureDevelopsAndOnlyOnce() {
+        let fresh = Fixtures.moment("p1", seen: false)
+        XCTAssertTrue(MomentMotion.develops(fresh, developed: []))
+        XCTAssertFalse(MomentMotion.develops(fresh, developed: ["p1"]), "once per gallery")
+        XCTAssertFalse(MomentMotion.develops(Fixtures.moment("p2", seen: true), developed: []), "already looked at")
+        XCTAssertFalse(MomentMotion.develops(Fixtures.moment("o1", fromMe: true, seen: false), developed: []),
+                       "your own was never unseen to you")
+        XCTAssertFalse(MomentMotion.develops(Fixtures.moment("v1", kind: .voice, seen: false), developed: []),
+                       "a memo has no picture")
+        XCTAssertTrue(MomentMotion.develops(Fixtures.moment("d1", kind: .drawing, seen: false), developed: []))
+    }
 }

@@ -16,6 +16,9 @@ struct ViewedPhoto: Identifiable {
 /// gallery's page swipe.
 struct PhotoViewer: View {
     let photo: ViewedPhoto
+    /// It zooms out of the gallery (iOS 18): the system's drag down then closes
+    /// it, shrinking it back into its square, and this view's own must stand aside.
+    var zooms = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     /// The full size, if it reached this phone after the gallery handed over a thumbnail.
@@ -27,6 +30,7 @@ struct PhotoViewer: View {
 
     var body: some View {
         ZoomableImage(image: full ?? photo.image,
+                      pullsToClose: !zooms,
                       onPull: { pull = $0 },
                       onDismiss: { dismiss() },
                       // VoiceOver's double-tap arrives as a tap: it mustn't hide the way out.
@@ -82,6 +86,7 @@ struct PhotoViewer: View {
 /// Photos does, which SwiftUI's own gestures can't match.
 private struct ZoomableImage: UIViewRepresentable {
     let image: UIImage
+    var pullsToClose: Bool
     var onPull: (CGFloat) -> Void
     var onDismiss: () -> Void
     var onTap: () -> Void
@@ -94,6 +99,7 @@ private struct ZoomableImage: UIViewRepresentable {
         view.onPull = onPull
         view.onDismiss = onDismiss
         view.onTap = onTap
+        view.pullsToClose = pullsToClose
         view.show(image)
     }
 }
@@ -105,6 +111,11 @@ final class ZoomingScrollView: UIScrollView, UIScrollViewDelegate {
     var onPull: (CGFloat) -> Void = { _ in }
     var onDismiss: () -> Void = {}
     var onTap: () -> Void = {}
+    /// At the whole photo, a vertical drag is the swipe to close. Off while a
+    /// zoom transition's own drag down closes it: the two would fight for it.
+    var pullsToClose = true {
+        didSet { if pullsToClose != oldValue { centre() } }
+    }
 
     /// How far down a drag must pull, at rest, to close.
     private static let dismissDistance: CGFloat = 120
@@ -171,8 +182,7 @@ final class ZoomingScrollView: UIScrollView, UIScrollViewDelegate {
         let horizontal = max(0, (bounds.width - imageView.frame.width) / 2)
         let vertical = max(0, (bounds.height - imageView.frame.height) / 2)
         contentInset = UIEdgeInsets(top: vertical, left: horizontal, bottom: vertical, right: horizontal)
-        // At the whole photo, a vertical drag is the swipe to close.
-        alwaysBounceVertical = atFit
+        alwaysBounceVertical = atFit && pullsToClose
     }
 
     func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
@@ -184,14 +194,14 @@ final class ZoomingScrollView: UIScrollView, UIScrollViewDelegate {
     private var pulledDown: CGFloat { max(0, -(contentOffset.y + contentInset.top)) }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        guard atFit, !dismissing else { return }
+        guard atFit, pullsToClose, !dismissing else { return }
         onPull(min(1, pulledDown / (Self.dismissDistance * 2)))
     }
 
     func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
                                    targetContentOffset: UnsafeMutablePointer<CGPoint>) {
         // Velocity is points per millisecond; negative is a downward flick.
-        guard atFit, pulledDown > Self.dismissDistance || (pulledDown > 24 && velocity.y < -1.2) else { return }
+        guard atFit, pullsToClose, pulledDown > Self.dismissDistance || (pulledDown > 24 && velocity.y < -1.2) else { return }
         dismissing = true
         // The backdrop goes with it rather than freezing mid-fade.
         onPull(1)

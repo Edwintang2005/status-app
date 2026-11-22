@@ -8,6 +8,13 @@ Version 1.7.1 (build 87), one heading per day it was built, newest first.
 
 ### 22 November 2026
 
+- **Moments move like the rest of the app.** A photo arriving while Home is
+  open makes its card glow and settle, like a new status. Tapping the card
+  grows it into the gallery, and tapping a photo grows it to full screen (on
+  iOS 18 and later). A picture you haven't seen yet develops like a print the
+  first time you open it. "Send a heart back" lets a few hearts float up, and
+  when your partner sees your moment, its eye blinks. With Reduce Motion
+  nothing moves: only the card's glow fades in and out.
 - **See the whole photo.** The gallery shows each picture as a square; tap
   it to see all of it, full screen. Pinch or double-tap to zoom, drag to look
   around, and tap Done or swipe down to go back. A single tap hides Done for

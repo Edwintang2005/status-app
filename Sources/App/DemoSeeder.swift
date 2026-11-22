@@ -11,9 +11,11 @@ enum DemoSeeder {
     ]
 
     /// `REDSTRING_DEMO_ARRIVALS=1`: Sam's status lands 4 s after launch and a heart
-    /// 4 s after that, so Home's arrival animations can be watched and recorded.
+    /// 4 s after that; `=2` goes on, 4 s apart, to a photo and Sam's "Seen" on your
+    /// beach photo — so the arrival animations can be watched and recorded.
     @MainActor static func scheduleArrivalsIfRequested() {
-        guard DemoMode.isActive, ProcessInfo.processInfo.environment["REDSTRING_DEMO_ARRIVALS"] == "1" else { return }
+        let staged = ProcessInfo.processInfo.environment["REDSTRING_DEMO_ARRIVALS"]
+        guard DemoMode.isActive, staged == "1" || staged == "2" else { return }
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(4))
             arrive { theirs, now in
@@ -27,6 +29,16 @@ enum DemoSeeder {
                 theirs.nudgeCount += 1
                 theirs.lastNudgeAt = now
             }
+            guard staged == "2" else { return }
+            try? await Task.sleep(for: .seconds(4))
+            _ = try? MomentStore.shared.write(skyPhoto(), id: "demo-arrival")
+            SharedStore.shared.record(Moment(id: "demo-arrival", kind: .photo, caption: "the sky again 🌅",
+                                             senderName: "Sam", sentAt: Date().wholeSeconds,
+                                             fromMe: false, seen: false))
+            NotificationCenter.default.post(name: .snapshotDidChange, object: nil)
+            try? await Task.sleep(for: .seconds(4))
+            _ = MomentIndex.shared.applyPartnerReceipts(["demo-beach": Date().wholeSeconds])
+            NotificationCenter.default.post(name: .snapshotDidChange, object: nil)
         }
     }
 

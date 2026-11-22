@@ -344,6 +344,8 @@ struct MomentCard: View, Equatable {
     let onOpen: () -> Void
     /// Fetches the thumbnail when it isn't on this iPhone; `false` if it still isn't.
     let fetchThumbnail: () async -> Bool
+    /// What the gallery zooms out of.
+    let zoom: Namespace.ID
 
     nonisolated static func == (lhs: MomentCard, rhs: MomentCard) -> Bool {
         lhs.moment == rhs.moment && lhs.unseenCount == rhs.unseenCount
@@ -380,6 +382,7 @@ struct MomentCard: View, Equatable {
             }
             .clipShape(Theme.cardShape)
             .card(shape: Theme.cardShape)
+            .zoomSource(id: MomentMotion.homeCardZoomID, in: zoom, cornerRadius: Theme.cardCornerRadius)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(unseenCount > 1

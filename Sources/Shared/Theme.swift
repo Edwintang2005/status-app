@@ -106,8 +106,9 @@ struct SquareFill<Content: View>: View {
 // MARK: - Card
 
 extension Theme {
+    static let cardCornerRadius: CGFloat = 26
     /// The card's outline — also for overlays that trace a card.
-    static var cardShape: RoundedRectangle { RoundedRectangle(cornerRadius: 26, style: .continuous) }
+    static var cardShape: RoundedRectangle { RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous) }
 }
 
 private struct CardSurface<S: InsettableShape>: ViewModifier {

@@ -385,6 +385,20 @@ their new status blurs in and the emoji pops, the "… ago" line rolls, your own
 row's change and its "Seen"/"Not sent yet" line slide in, and a celebration you
 send plays a small burst of its pieces from your row once it reaches iCloud.
 
+Moments share the family (`MomentMotion`, `MomentMotionViews`): a moment
+landing while Home is in front gives its card the status card's glow and a
+settle from just below; tapping the card zooms it into the gallery, and a
+gallery photo zooms into the full-screen viewer and back (iOS 18's zoom
+transition — iOS 17 keeps the sheet and the cover — off under Reduce Motion,
+and from the card only: a banner or the widget has no card to grow from;
+where the viewer zooms, the system's drag down closes it, shrinking it back
+into its square, and the viewer's own swipe stands aside so the two never
+fight). The
+partner's picture you haven't seen develops on its first look, washed out to
+full colour once the zoom has landed; "Send a heart back" lets three hearts
+rise; and your moment's "Seen" arrives with the eye blinking and a soft tap.
+`REDSTRING_DEMO_ARRIVALS=2` stages a photo arriving and a receipt landing.
+
 ## Photos and doodles
 
 ### Two ways in: what's waiting, and everything

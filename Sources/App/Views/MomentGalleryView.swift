@@ -36,8 +36,17 @@ struct MomentGalleryView: View {
     @State private var starTaps = 0
     /// Where each page's picture was taken, once named (`PlaceNames`).
     @State private var places: [String: String] = [:]
-    /// The photo open full screen (`PhotoViewer`).
+    /// The photo open full screen (`PhotoViewer`), zooming out of its page.
     @State private var viewing: ViewedPhoto?
+    @Namespace private var photoZoom
+    /// Pictures that have developed on their first look (`MomentMotion.develops`).
+    @State private var developed: Set<String> = []
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var zoomsIntoViewer: Bool {
+        guard #available(iOS 18, *) else { return false }
+        return !reduceMotion
+    }
 
     private enum ReplyKind: String, Identifiable {
         case moment, voiceMemo
@@ -203,7 +212,10 @@ struct MomentGalleryView: View {
             }
             // Gone from the history, so the pager moves on (`settle`), as after a delete.
             .reportMomentDialog($reporting, model: model) { reported.insert($0.id) }
-            .fullScreenCover(item: $viewing) { PhotoViewer(photo: $0) }
+            .fullScreenCover(item: $viewing) { photo in
+                PhotoViewer(photo: photo, zooms: zoomsIntoViewer)
+                    .zoomsFrom(photo.id, in: photoZoom, enabled: zoomsIntoViewer)
+            }
             .deleteMomentDialog($deleting, model: model)
             .onChange(of: pages.map(\.id)) { _, ids in settle(on: ids) }
             .onChange(of: model.isOffline) { _, offline in
@@ -324,7 +336,11 @@ struct MomentGalleryView: View {
                                  summary: String(localized: "\(moment.noun) from \(attribution)"),
                                  isLoading: loading.contains(moment.id),
                                  isUnavailable: unavailable.contains(moment.id),
-                                 isOffline: model.isOffline) { viewing = $0 }
+                                 isOffline: model.isOffline,
+                                 develops: opened.first { $0.id == moment.id }
+                                     .map { MomentMotion.develops($0, developed: developed) } ?? false,
+                                 zoom: photoZoom,
+                                 onDeveloped: { developed.insert(moment.id) }) { viewing = $0 }
                     // A pinched photo covers the caption and heart below it, not the reverse.
                     .raisedWhilePinched()
             }
@@ -371,10 +387,22 @@ struct MomentGalleryView: View {
                 if let place = places[moment.id] {
                     PlaceLine(place: place)
                 }
-                if let seen = seenLine(moment) {
-                    Label(seen, systemImage: "eye.fill")
+                if moment.fromMe, model.readReceiptsEnabled {
+                    // Held in place before it's seen, so the eye can blink as "Seen"
+                    // arrives rather than appear unanimated with its row.
+                    let seen = seenLine(moment)
+                    Label(seen ?? String(localized: "Seen"), systemImage: "eye.fill")
                         .font(Theme.rounded(12))
                         .foregroundStyle(Theme.mutedText)
+                        // Only the fade and the blink move: the hidden stand-in's words swap outright.
+                        .contentTransition(.identity)
+                        .symbolEffect(.bounce, value: seen != nil)
+                        .opacity(seen == nil ? 0 : 1)
+                        .accessibilityHidden(seen == nil)
+                        .animation(Theme.Motion.settle, value: seen != nil)
+                        .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.5), trigger: seen != nil) { old, new in
+                            !old && new && moment.id == selection
+                        }
                 }
                 // Answer what you're looking at: the banner's "Send a heart back", here
                 // too, or a moment back.
@@ -403,8 +431,16 @@ struct MomentGalleryView: View {
         let isLoading: Bool
         let isUnavailable: Bool
         let isOffline: Bool
+        /// Its first look: it develops like a print as it loads.
+        let develops: Bool
+        /// What the full-screen viewer zooms out of.
+        let zoom: Namespace.ID
+        let onDeveloped: () -> Void
         /// A tap: the whole photo, full screen.
         let onOpen: (ViewedPhoto) -> Void
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+        /// `0` washed out, `1` developed.
+        @State private var development = 1.0
         @State private var image: UIImage?
         @State private var isPreview = false
 
@@ -416,8 +452,12 @@ struct MomentGalleryView: View {
                     // Always the centred square, whatever frame the file keeps.
                     SquareFill {
                         Image(uiImage: image).resizable().scaledToFill()
+                            .saturation(0.15 + 0.85 * development)
+                            .brightness(0.3 * (1 - development))
+                            .blur(radius: 10 * (1 - development))
                     }
                         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                        .zoomSource(id: momentID, in: zoom, cornerRadius: 28)
                         // On the clipped square: the filled image's own frame overhangs it.
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel(summary)
@@ -472,8 +512,14 @@ struct MomentGalleryView: View {
                     return (MomentStore.shared.thumbnail(for: id), true)
                 }.value
                 guard !Task.isCancelled else { return }
+                let firstLook = image == nil && loaded.0 != nil && develops
+                if firstLook, !reduceMotion { development = 0 }
                 image = loaded.0
                 isPreview = loaded.0 != nil && loaded.1
+                guard firstLook else { return }
+                onDeveloped()
+                // The picture arrives (zooming in, from Home's card), then develops.
+                withAnimation(.easeOut(duration: 1.4).delay(0.35)) { development = 1 }
             }
         }
 
@@ -709,15 +755,19 @@ struct UnsupportedMomentView: View {
 struct HeartBackButton: View {
     /// The celebration's main button, or a quieter one under a photo.
     var prominent = true
+    /// Hearts rise from it once sent — not where the screen closes on sending.
+    var bursts = true
     var afterSending: () -> Void = {}
 
     @Environment(AppModel.self) private var model
     @State private var remaining: TimeInterval = 0
+    @State private var burstCount = 0
 
     var body: some View {
         Button {
             Task {
-                await model.sendNudge()
+                // Only a heart that went: a refused tap (the cooldown) sends nothing.
+                if await model.sendNudge() == true, bursts { burstCount += 1 }
                 afterSending()
             }
         } label: {
@@ -730,6 +780,7 @@ struct HeartBackButton: View {
         .buttonStyle(styled)
         .disabled(remaining > 0 || !model.canNudge || model.isSendingNudge)
         .nudgeCooldown(after: model.snapshot.lastNudgeSentAt, remaining: $remaining)
+        .overlay(alignment: .top) { HeartBurst(trigger: burstCount) }
     }
 
     private var styled: AnyButtonStyle {

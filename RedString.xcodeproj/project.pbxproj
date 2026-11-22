@@ -13,6 +13,7 @@
 		0288B73F30A15A622B1F66F0 /* Outbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43901C1F14515E19C12B247B /* Outbox.swift */; };
 		028B8F8CAD368DDE8865D4A4 /* FillPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30293DAE1AC61B058AF172CD /* FillPlan.swift */; };
 		028BB0CD20FA86BFB046516E /* CelebrationMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = B58CB040B9BDFEC6EEBFB2D7 /* CelebrationMotion.swift */; };
+		0304D49AFC33B8C247C5AE96 /* MomentMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32467A284D9BA1ADB103CFA5 /* MomentMotion.swift */; };
 		039E569FBB182EB93043172F /* NudgeCooldownPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86AE5F9B7090F65A1371C0C1 /* NudgeCooldownPolicy.swift */; };
 		042977FCE278E95D115F4D64 /* SyncFooterLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1383B9B69D115F06D929A51E /* SyncFooterLine.swift */; };
 		0493F1F13A5457BD2B687763 /* SyncCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01B61D6FC9043E350EF8B62C /* SyncCoordinator.swift */; };
@@ -205,6 +206,7 @@
 		39A5F79D6DCDE13827838B2F /* FreshStartView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC66F8DF7E4C387D433B9974 /* FreshStartView.swift */; };
 		39D96F3FC636CDE67581D713 /* Moderation.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE27AE24C06FB3BD67B08794 /* Moderation.swift */; };
 		39E4948A9B234862A983DB4F /* RetryPacing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A841CBF9F5011C68F024762A /* RetryPacing.swift */; };
+		3A112DA12712FCD466058E66 /* MomentMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32467A284D9BA1ADB103CFA5 /* MomentMotion.swift */; };
 		3A34B2B1CA836639D707AD2A /* FoundationExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 949D3E6BEADE2BC0D69AF39B /* FoundationExtensions.swift */; };
 		3A57DED1B8B64700FA931F30 /* WidgetContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = D786D9C6CCC80CFC6E30D289 /* WidgetContent.swift */; };
 		3A5A6D62BF6480AF7966DC4A /* NotificationPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = E507FC304602064A1FA27FB4 /* NotificationPreferences.swift */; };
@@ -243,6 +245,7 @@
 		428D4D4FFDA8636490AA991F /* CloudDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8466C7C9528F65B29D3B5CA8 /* CloudDiagnostics.swift */; };
 		42BC3ACA69DDE592953F274F /* CloudSyncSeamTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0887CB9045FEB9AD1463F590 /* CloudSyncSeamTests.swift */; };
 		437E1764669AD090F5B1897C /* CelebrationMotionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79E3FAEDC6FDFB84F001302A /* CelebrationMotionTests.swift */; };
+		43B2BAB5BB973C8449ED4A8E /* MomentMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32467A284D9BA1ADB103CFA5 /* MomentMotion.swift */; };
 		43B380FDA2D05EEAC6CFEF91 /* CarouselPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2B8221CFB8D9070E816221 /* CarouselPlan.swift */; };
 		43C7783CAF2D55CBD2950575 /* CameraModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFA692EC349C579B9D6CA6B8 /* CameraModel.swift */; };
 		4470234A75231F25BEAEB5E0 /* AppConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 448B77B119777B4A4B476563 /* AppConfig.swift */; };
@@ -468,6 +471,7 @@
 		8643D05A150C3CAA88F8542A /* UserNotificationsUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3BB271F0CE4C2E939F2C6290 /* UserNotificationsUI.framework */; };
 		86761DCCC8814B1B133A9713 /* TieTheStringView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6D8E9381A68B07E3D63B706 /* TieTheStringView.swift */; };
 		869DC99F43266494142D233F /* RefreshDelta.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29F12D897F3E160F3E1473C5 /* RefreshDelta.swift */; };
+		86A508CB9409684921BBC556 /* MomentMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32467A284D9BA1ADB103CFA5 /* MomentMotion.swift */; };
 		87014B01311F84E02199017A /* FillPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30293DAE1AC61B058AF172CD /* FillPlan.swift */; };
 		87804DA7AC4F9C5151BED560 /* SyncRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45122838AA83A9E6E36D9853 /* SyncRunner.swift */; };
 		8788C9B52FF0EB08066E58BE /* ParsedDelta.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8E6509B289B14274CAA370E /* ParsedDelta.swift */; };
@@ -532,6 +536,7 @@
 		99ED7EB24C851D18C41D8B9D /* CrashReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16412F5A913637BE9583B6A8 /* CrashReport.swift */; };
 		9A3965DC39454EAEA0DCC5D6 /* StatusPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CC659D2468D19E1EC8CC267 /* StatusPayload.swift */; };
 		9AA238042CE17C70C99F07EC /* ZoneGonePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D416A6596D79BB28B6C43B59 /* ZoneGonePolicy.swift */; };
+		9AAB8356F71C4F737C259289 /* MomentMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32467A284D9BA1ADB103CFA5 /* MomentMotion.swift */; };
 		9AC69BD39356877B38CED1D1 /* FreshStartPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00333B4E1E750DC645D9A528 /* FreshStartPolicyTests.swift */; };
 		9B3AACFC96B7B1D496915DB3 /* SendFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CB4B6A3FE9343DC12049588 /* SendFailure.swift */; };
 		9B7E88954EB8BBD1B81076C4 /* SharedStore+Unreadable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E090B0D29F9874A6B8BED5F /* SharedStore+Unreadable.swift */; };
@@ -720,12 +725,14 @@
 		D5E29F0C459C10C4DB025EFB /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B010D0666534AA91EF320B6F /* Assets.xcassets */; };
 		D63A2CA49158C82E759695E0 /* ZoneClearPlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 936894BD16E8E9DB2263627E /* ZoneClearPlanTests.swift */; };
 		D63E8A55A71D9849DDCC3CE3 /* FreshStart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BA6E324BAF55B121E8C70A3 /* FreshStart.swift */; };
+		D66304DE0B822D7A905F8850 /* MomentMotionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 373909709B2B3B0FB79E8A99 /* MomentMotionViews.swift */; };
 		D672C59051F7854872677B23 /* SyncFooterLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1383B9B69D115F06D929A51E /* SyncFooterLine.swift */; };
 		D689E604775DA8D9A7111063 /* CloudSync+Unpairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C104D5AA639FECFA2F13289 /* CloudSync+Unpairing.swift */; };
 		D6C27806930803840D09E275 /* SharedStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FA4F7953C3F1ED24AAB950F /* SharedStore.swift */; };
 		D6F4D6DC249EC8796EE49659 /* MomentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9908897AF8F96D8BAF86FB0D /* MomentIndex.swift */; };
 		D702C7134013100F5AD72053 /* CloudSync+Refresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 454E5380DC54A9F8544890BC /* CloudSync+Refresh.swift */; };
 		D7298C734A59C022CDB1BB90 /* SharedStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F104BF6934A17073D0A6B46 /* SharedStoreTests.swift */; };
+		D745FDF1689C6935073532B5 /* MomentMotionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 373909709B2B3B0FB79E8A99 /* MomentMotionViews.swift */; };
 		D74C66A40E973E4378714CC5 /* Waveform.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B642C800ACD0FE5CC306C9C /* Waveform.swift */; };
 		D8B1F294F1EDD650072406DD /* RecapStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A424DDAA387D05EF68CD5728 /* RecapStore.swift */; };
 		D971427CB4417564EFCADD69 /* TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C975F4AB3B2F7C241B1F83F /* TestSupport.swift */; };
@@ -739,6 +746,7 @@
 		DCD886CF031BC285848020AD /* CrashReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16412F5A913637BE9583B6A8 /* CrashReport.swift */; };
 		DCF22EC7C2CAB5BEE3188339 /* PinchToZoom.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88CFEE9BF9F2D4F1C4724B57 /* PinchToZoom.swift */; };
 		DD0E8E9C724D8A27692EFD09 /* CloudSync+Receipts.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9A1F8165BD76031FD581B32 /* CloudSync+Receipts.swift */; };
+		DD76A8EB6F16C3F46420B17C /* MomentMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32467A284D9BA1ADB103CFA5 /* MomentMotion.swift */; };
 		DDD16ED7CF60B01B5D2C2502 /* UploadPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F4F1C5AA06E13B7DE1694F /* UploadPolicy.swift */; };
 		DDD6C60EAEDCDBE2087B3BE8 /* MomentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 337B972E15547CDA25869529 /* MomentStore.swift */; };
 		DE2A3B37FC37BE33AE44297E /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B03E98F17074A937C65922F /* AppModel.swift */; };
@@ -809,6 +817,7 @@
 		F5A7649414AA1B27AD0C9734 /* PushBannerBypassTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3736AEF5FC4FC5EDD158B46 /* PushBannerBypassTests.swift */; };
 		F5F4A42419AD647318A44E41 /* CloudSync+Anniversary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 851D2E9C67B74FB7F781DCC0 /* CloudSync+Anniversary.swift */; };
 		F62F317716AB2FE28B1E91D8 /* Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7B72EE6C19F670FF1A8BC39 /* Notifications.swift */; };
+		F65E448B0E0B16A31F61BF24 /* MomentMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32467A284D9BA1ADB103CFA5 /* MomentMotion.swift */; };
 		F6788A09AE3EDEC81B356461 /* CrossProcessLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E0BAB580172AC55C2EEAC42 /* CrossProcessLock.swift */; };
 		F72506618B27A762C3C1F938 /* ArchiveModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CDEA48EA6554C7B09773DC0 /* ArchiveModel.swift */; };
 		F772C105BE1E39B7821C9105 /* SyncRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45122838AA83A9E6E36D9853 /* SyncRunner.swift */; };
@@ -952,10 +961,12 @@
 		30D8E86092F4D16270481EB1 /* CloudSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSync.swift; sourceTree = "<group>"; };
 		313EE59900F57DAD9730C81F /* PhotosSaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotosSaver.swift; sourceTree = "<group>"; };
 		3164BCEFDC39A3844EB96DD8 /* SingleFlight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SingleFlight.swift; sourceTree = "<group>"; };
+		32467A284D9BA1ADB103CFA5 /* MomentMotion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentMotion.swift; sourceTree = "<group>"; };
 		337B972E15547CDA25869529 /* MomentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentStore.swift; sourceTree = "<group>"; };
 		33ABA1C95A999EB2373B05EF /* RedStringShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedStringShortcuts.swift; sourceTree = "<group>"; };
 		34BCEF784AA8E17FAB64AAE7 /* MomentComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentComposerView.swift; sourceTree = "<group>"; };
 		34F3D813228830FD69F5F5E5 /* CloudSync+Pairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSync+Pairing.swift"; sourceTree = "<group>"; };
+		373909709B2B3B0FB79E8A99 /* MomentMotionViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentMotionViews.swift; sourceTree = "<group>"; };
 		376380F8C309E5139C50678C /* TokenAdvancePolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenAdvancePolicyTests.swift; sourceTree = "<group>"; };
 		38BBD7EFD0638376B2339E02 /* StatusDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusDraft.swift; sourceTree = "<group>"; };
 		3A110A20BEB7070266D1F73E /* WidgetRedrawTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetRedrawTests.swift; sourceTree = "<group>"; };
@@ -1456,6 +1467,7 @@
 				F3CC51BCEB461A742932BF5B /* LayoutGlitch.swift */,
 				EA68F3769B7B000DE4551E6C /* MilestoneReminderPlan.swift */,
 				BE27AE24C06FB3BD67B08794 /* Moderation.swift */,
+				32467A284D9BA1ADB103CFA5 /* MomentMotion.swift */,
 				E507FC304602064A1FA27FB4 /* NotificationPreferences.swift */,
 				B7B72EE6C19F670FF1A8BC39 /* Notifications.swift */,
 				9FCB97E445CA6B0B05D9FEDC /* NotificationsNotice.swift */,
@@ -1561,6 +1573,7 @@
 				34BCEF784AA8E17FAB64AAE7 /* MomentComposerView.swift */,
 				652B3CE8C44B5FDA32C9E0F1 /* MomentGalleryView.swift */,
 				D7555940C8F32AD881C18D9E /* MomentLibraryView.swift */,
+				373909709B2B3B0FB79E8A99 /* MomentMotionViews.swift */,
 				210847458004C670433D6EC5 /* MoodPickerView.swift */,
 				AAF80F7994B39BDEC9BA087D /* PairingView.swift */,
 				16707900A835DFDBC0502381 /* PhotoViewer.swift */,
@@ -1972,6 +1985,7 @@
 				823127B9377782013EE1FDD3 /* Moment.swift in Sources */,
 				112CAE7C7E33D7F89DE27FF4 /* MomentAttachment.swift in Sources */,
 				095F833A0A6A5C0F7115CB4F /* MomentIndex.swift in Sources */,
+				43B2BAB5BB973C8449ED4A8E /* MomentMotion.swift in Sources */,
 				DDD6C60EAEDCDBE2087B3BE8 /* MomentStore.swift in Sources */,
 				E867833652B47E703D9FF79F /* Mood.swift in Sources */,
 				EF5A5C8CDC23BEAEA775EB81 /* NotificationPreferences.swift in Sources */,
@@ -2094,6 +2108,7 @@
 				8F3FF7AE4D728C9185F65CB8 /* MomentAttachment.swift in Sources */,
 				0D89E0F44D9EE1787120B12B /* MomentIndex.swift in Sources */,
 				82F5E6EDD5924EBA4E89D9E0 /* MomentIndexTests.swift in Sources */,
+				3A112DA12712FCD466058E66 /* MomentMotion.swift in Sources */,
 				6C950C76172A9BC24534CC66 /* MomentStore.swift in Sources */,
 				D1D3318485BEA9D6F8A0A376 /* MomentStoreTests.swift in Sources */,
 				2CBE04CAE2F2E7098FB86CB0 /* Mood.swift in Sources */,
@@ -2222,6 +2237,7 @@
 				858761241AE9D5E8289E0AEE /* Moment.swift in Sources */,
 				5A54F47DF957F6D26C307B34 /* MomentAttachment.swift in Sources */,
 				D6F4D6DC249EC8796EE49659 /* MomentIndex.swift in Sources */,
+				0304D49AFC33B8C247C5AE96 /* MomentMotion.swift in Sources */,
 				5DFB02121CF8D5A69D0350E3 /* MomentStore.swift in Sources */,
 				F2A5E32FABBFA130BE0D864C /* Mood.swift in Sources */,
 				CB457D8A5C8B304261AD1E2C /* NotificationPreferences.swift in Sources */,
@@ -2315,6 +2331,7 @@
 				3BD894C43931E9A7AA2DD51D /* Moment.swift in Sources */,
 				63A2D81E9FD8220E46E75D00 /* MomentAttachment.swift in Sources */,
 				F7E17C09D9C64309FA7FC0F4 /* MomentIndex.swift in Sources */,
+				86A508CB9409684921BBC556 /* MomentMotion.swift in Sources */,
 				E696A1C2A7A8CDF08713D020 /* MomentStore.swift in Sources */,
 				665513B46F4C596B2470B72A /* Mood.swift in Sources */,
 				79010963D12E73545631B1E7 /* NotificationPreferences.swift in Sources */,
@@ -2453,6 +2470,8 @@
 				AAED86EC8574070A20578EF8 /* MomentGalleryView.swift in Sources */,
 				A4BB5071B4A2AF5879D101EA /* MomentIndex.swift in Sources */,
 				5527D08239C83EA3CA6D94D3 /* MomentLibraryView.swift in Sources */,
+				F65E448B0E0B16A31F61BF24 /* MomentMotion.swift in Sources */,
+				D66304DE0B822D7A905F8850 /* MomentMotionViews.swift in Sources */,
 				6BEFC285CDF3EA2CC269D934 /* MomentStore.swift in Sources */,
 				079DFF2A9A5F2F371C0A80E6 /* Mood.swift in Sources */,
 				5A61CC506870DE2601EFDA68 /* MoodPickerView.swift in Sources */,
@@ -2579,6 +2598,7 @@
 				8ADE7197DB875520795066CE /* Moment.swift in Sources */,
 				0FE3E7AFADBD02CEF113168E /* MomentAttachment.swift in Sources */,
 				C3B31205EA967ED6F11B974F /* MomentIndex.swift in Sources */,
+				9AAB8356F71C4F737C259289 /* MomentMotion.swift in Sources */,
 				9F5960E94435AD5851A96BB9 /* MomentStore.swift in Sources */,
 				E108C281D4DC9B873BBC8D3F /* MomentWidget.swift in Sources */,
 				6CC827F12FF3AC4B570ABF73 /* Mood.swift in Sources */,
@@ -2717,6 +2737,8 @@
 				CB80FEFB3AD61E6C6180E327 /* MomentGalleryView.swift in Sources */,
 				771E1EFC0E178EF3BF722FC1 /* MomentIndex.swift in Sources */,
 				A45966300B70B89E854FB9FB /* MomentLibraryView.swift in Sources */,
+				DD76A8EB6F16C3F46420B17C /* MomentMotion.swift in Sources */,
+				D745FDF1689C6935073532B5 /* MomentMotionViews.swift in Sources */,
 				FC090B3B8207967F6386C487 /* MomentStore.swift in Sources */,
 				8CAAADECAA4216974AE366E6 /* Mood.swift in Sources */,
 				3B5136FE91AE81C436D6C951 /* MoodPickerView.swift in Sources */,

@@ -366,6 +366,18 @@ Not picked yet:
   constrained (Low Data Mode) or recent sends failed — roughly 3–4× smaller —
   at the cost of permanent quality unless paired with an upgrade later.
 
+### More moment motion — the rest of the November list (S each, M10 M) ★★
+Built: the arrival glow, the zooms into the gallery and the viewer, develop on
+first look, the heart burst and the "Seen" blink (`MomentMotion`). Not picked
+yet, each with its default:
+- **M11** — several new moments: Home's card shows two or three fanned behind it, the count on the stack.
+- **M9** — a new voice memo's row breathes once: the waveform bars rise in sequence.
+- **M13** — the photo widget pushes a new picture up rather than swapping it (a widget entry transition).
+- **M12** — the library pops new tiles in and reflows smoothly on a filter change.
+- **M8** — starring a moment sparkles (a bounce and a few sparks; nothing on unstar).
+- **M5** — the "Sent to Sam" pill carries a tiny thumbnail of what you sent.
+- **M10** — watch a drawing being drawn: on first view it replays its strokes. Needs the strokes sent (a new asset field on `Moment` — a schema release, deployed before the build that reads it).
+
 ### Finer detail in doodles: pinch to zoom (S–M) ★★
 A fingertip covers too much of a 362 pt canvas for small writing. `PKCanvasView`
 is a scroll view with zoom built in: two fingers zoom/pan, one draws; the
