@@ -66,7 +66,9 @@ final class TogetherCountdownTests: XCTestCase {
         XCTAssertEqual(progress, 73.5 / 83, accuracy: 0.001, "73½ of the 83 days between them")
 
         let first = TogetherCountdown(began, at: sydneyDate(2026, 6, 20))
-        XCTAssertEqual(first.since, "5 Jun", "before any milestone, the day it began")
+        // In the phone's own order: "5 Jun" here, "Jun 5" on CI's US English.
+        XCTAssertTrue(first.since.contains("Jun") && first.since.contains("5"),
+                      "before any milestone, the day it began: \(first.since)")
         XCTAssertEqual(first.nextShortLine, "1 mo · 15 days")
     }
 
