@@ -6,17 +6,46 @@ struct TogetherCountdown: Equatable, Sendable {
     var days: Int
     /// A milestone landing today, on the owner's calendar.
     var today: String?
-    var next: (title: String, daysLeft: Int)?
+    var next: (title: String, short: String, daysLeft: Int)?
+    /// The red string: how far from the last milestone (or the start) to the
+    /// next, 0...1 — whole on the day itself. `nil` past the last milestone.
+    var progress: Double?
+    /// The string's left knot: the last milestone, or the day it began ("5 Jun").
+    var since: String
 
     init(_ anniversary: Anniversary, at now: Date) {
         days = anniversary.elapsed(at: now).days
-        today = anniversary.milestoneToday(now)?.title
-        next = anniversary.nextMilestone(after: now).map { ($0.title, anniversary.daysUntil($0.date, from: now)) }
+        let today = anniversary.milestoneToday(now)
+        self.today = today?.title
+        let next = anniversary.nextMilestone(after: now)
+        self.next = next.map { ($0.title, $0.shortTitle, anniversary.daysUntil($0.date, from: now)) }
+        let last = anniversary.milestones().last { $0.date <= now && $0 != today }
+        since = today?.shortTitle ?? last?.shortTitle
+            ?? anniversary.startsAt.formatted(Date.FormatStyle(timeZone: anniversary.timeZone).day().month(.abbreviated))
+        if today != nil {
+            progress = 1
+        } else if let next {
+            let from = last?.date ?? anniversary.startsAt
+            let span = next.date.timeIntervalSince(from)
+            progress = span > 0 ? min(max(now.timeIntervalSince(from) / span, 0), 1) : 0
+        }
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.days == rhs.days && lhs.today == rhs.today
+        lhs.days == rhs.days && lhs.today == rhs.today && lhs.since == rhs.since
             && lhs.next?.title == rhs.next?.title && lhs.next?.daysLeft == rhs.next?.daysLeft
+            && lhs.progress == rhs.progress
+    }
+
+    /// The string's right knot: "6 mo · 9 days", "6 mo · tomorrow", "6 months today".
+    var nextShortLine: String? {
+        if let today { return String(localized: "\(today) today") }
+        guard let next else { return nil }
+        switch next.daysLeft {
+        case 0: return String(localized: "\(next.short) · later today")
+        case 1: return String(localized: "\(next.short) · tomorrow")
+        default: return String(localized: "\(next.short) · \(next.daysLeft) days")
+        }
     }
 
     var daysTogether: String {

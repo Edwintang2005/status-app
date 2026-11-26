@@ -1,7 +1,7 @@
 import SwiftUI
 import WidgetKit
 
-/// Days together and the next milestone (`TogetherCountdown`); a tap opens the count.
+/// Days together, and the red string to the next milestone (`TogetherCountdown`); a tap opens the count.
 struct TogetherWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: AppConfig.togetherWidgetKind, provider: TogetherProvider()) { entry in
@@ -80,23 +80,37 @@ struct TogetherWidgetView: View {
             case .accessoryInline:
                 Text(countdown.daysTogether)
             case .accessoryCircular:
-                VStack(spacing: -2) {
+                VStack(spacing: 0) {
+                    RedThreadView(progress: countdown.progress, bead: 3, knot: 2.5, lineWidth: 2)
+                        .frame(width: 38, height: 18)
                     Text(countdown.days.formatted())
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
                         .minimumScaleFactor(0.6)
-                    Text(countdown.days == 1 ? "day" : "days").font(.system(size: 10, weight: .medium, design: .rounded))
+                        .lineLimit(1)
                 }
-                .accessibilityElement(children: .combine)
+                .padding(.horizontal, 6)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(accessibilityText(countdown))
             case .accessoryRectangular:
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(countdown.daysTogether)
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .widgetAccentable()
-                    if let line = countdown.nextLine {
-                        Text(line).font(.system(size: 13, design: .rounded)).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(countdown.days == 1 ? "1 day" : "\(countdown.days.formatted()) days")
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .widgetAccentable()
+                        Spacer(minLength: 4)
+                        if let line = countdown.nextShortLine {
+                            Text(line)
+                                .font(.system(size: 11, design: .rounded))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                        }
                     }
+                    RedThreadView(progress: countdown.progress, bead: 4, knot: 3, lineWidth: 2)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(accessibilityText(countdown))
             default:
                 small(countdown)
             }
@@ -105,30 +119,45 @@ struct TogetherWidgetView: View {
         }
     }
 
+    /// The count, then the string from the last milestone to the next, a bead where you are.
     private func small(_ countdown: TogetherCountdown) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 0) {
             Text("TOGETHER")
                 .font(.system(.caption2, design: .rounded, weight: .bold))
                 .tracking(0.8)
                 .foregroundStyle(.secondary)
-            Spacer(minLength: 0)
             Text(countdown.days.formatted())
                 .font(.system(size: 44, weight: .bold, design: .rounded))
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
-            Text(countdown.days == 1 ? "day" : "days").font(.system(.subheadline, design: .rounded, weight: .semibold))
-            Spacer(minLength: 0)
-            if let line = countdown.nextLine {
-                Label(line, systemImage: countdown.today == nil ? "sparkles" : "heart.fill")
-                    .font(.system(.caption, design: .rounded, weight: .medium))
-                    .foregroundStyle(countdown.today == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(Theme.accentText))
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.85)
+                .padding(.top, 2)
+            Text(countdown.days == 1 ? "day" : "days")
+                .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 4)
+            RedThreadView(progress: countdown.progress, bead: 5.5, knot: 4, lineWidth: 2.5)
+                .frame(height: 26)
+            HStack {
+                Text(countdown.since)
+                Spacer(minLength: 4)
+                if let line = countdown.nextShortLine {
+                    Text(line)
+                        .foregroundStyle(countdown.today == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(Theme.accentText))
+                }
             }
+            .font(.system(size: 11, weight: .medium, design: .rounded))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .dynamicTypeSize(...DynamicTypeSize.xLarge)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityText(countdown))
+    }
+
+    private func accessibilityText(_ countdown: TogetherCountdown) -> String {
+        [countdown.daysTogether, countdown.nextLine].compactMap { $0 }.joined(separator: ". ")
     }
 
     @ViewBuilder
@@ -156,4 +185,64 @@ struct TogetherWidgetView: View {
     TogetherWidget()
 } timeline: {
     TogetherEntry.sample
+}
+
+/// The red string from the last milestone to the next: tied at the start, the
+/// travelled part drawn solid, a bead where you are; on the day, it's tied off.
+/// Accent-tinted on the home screen, the vibrant tint on the lock screen.
+struct RedThreadView: View {
+    var progress: Double?
+    var bead: CGFloat
+    var knot: CGFloat
+    var lineWidth: CGFloat
+    @Environment(\.widgetRenderingMode) private var renderingMode
+
+    var body: some View {
+        let done = progress ?? 0
+        let tint: Color = renderingMode == .fullColor ? Theme.accent : .primary
+        let beadTint: Color = renderingMode == .fullColor ? Theme.warm : .primary
+        GeometryReader { proxy in
+            let rect = CGRect(origin: .zero, size: proxy.size).insetBy(dx: knot + 1, dy: bead)
+            let thread = RedThread().path(in: rect)
+            let style = StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+            ZStack {
+                thread.stroke(tint.opacity(0.3), style: style)
+                thread.trimmedPath(from: 0, to: done).stroke(tint, style: style)
+                    .widgetAccentable()
+                Circle().fill(tint)
+                    .frame(width: knot * 2, height: knot * 2)
+                    .position(RedThread.start(in: rect))
+                Circle()
+                    .strokeBorder(tint, lineWidth: max(1, lineWidth * 0.7))
+                    .background(Circle().fill(done >= 1 ? tint : .clear))
+                    .frame(width: knot * 2, height: knot * 2)
+                    .position(RedThread.end(in: rect))
+                if progress != nil, done < 1 {
+                    Circle().fill(beadTint)
+                        .frame(width: bead * 2, height: bead * 2)
+                        .position(thread.trimmedPath(from: 0, to: max(done, 0.001)).currentPoint ?? RedThread.start(in: rect))
+                        .widgetAccentable()
+                }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// A slack thread: one gentle wave between its two knots.
+struct RedThread: Shape {
+    static func start(in rect: CGRect) -> CGPoint { CGPoint(x: rect.minX, y: rect.minY + rect.height * 0.6) }
+    static func end(in rect: CGRect) -> CGPoint { CGPoint(x: rect.maxX, y: rect.minY + rect.height * 0.6) }
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: Self.start(in: rect))
+        path.addCurve(to: CGPoint(x: rect.minX + rect.width * 0.55, y: rect.minY + rect.height * 0.35),
+                      control1: CGPoint(x: rect.minX + rect.width * 0.2, y: rect.minY - rect.height * 0.1),
+                      control2: CGPoint(x: rect.minX + rect.width * 0.35, y: rect.maxY + rect.height * 0.1))
+        path.addCurve(to: Self.end(in: rect),
+                      control1: CGPoint(x: rect.minX + rect.width * 0.75, y: rect.minY - rect.height * 0.15),
+                      control2: CGPoint(x: rect.minX + rect.width * 0.9, y: rect.minY + rect.height * 0.2))
+        return path
+    }
 }

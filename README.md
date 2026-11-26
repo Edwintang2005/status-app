@@ -34,7 +34,8 @@ Widgets:
   picture arrives.
 - **Quick status** — `systemSmall` / `systemMedium` on the home screen: your
   four most recent statuses as buttons; a tap sets one without opening the app.
-- **Together** — days together and the next milestone ("6 months in 9 days"),
+- **Together** — days together, and a red string from your last milestone to
+  the next with a bead where you are ("6 mo · 9 days"),
   on the lock screen (`accessoryRectangular`, `accessoryCircular`,
   `accessoryInline`) and the home screen (`systemSmall`). A tap opens the count.
 

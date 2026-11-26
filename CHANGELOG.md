@@ -8,6 +8,10 @@ Version 1.8 (build 88), one heading per day it was built, newest first.
 
 ### 27 November 2026
 
+- **The Together widget, redrawn as a red string.** It runs from your last
+  milestone to the next, tied at the start, with a bead showing how far along
+  you are — "100 d" to "6 mo · 9 days". On the day itself it's tied off. The
+  same string on the lock screen, in both sizes.
 - **Drawing on a photo keeps the whole photo.** You still draw on the square
   you see, but the sides it hides are kept — it used to be cut to that square.
   Cards and widgets show the middle, as before; open it to see the lot.

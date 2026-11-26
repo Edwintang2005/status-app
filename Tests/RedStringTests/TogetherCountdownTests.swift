@@ -56,6 +56,36 @@ final class TogetherCountdownTests: XCTestCase {
             .contains(sydneyDate(2026, 9, 13, 23, 2)), "the widget turns over with it")
     }
 
+    /// The red string runs from the last milestone to the next.
+    func testTheStringRunsFromTheLastMilestoneToTheNext() throws {
+        // 26 Nov: 100 days was 13 Sep, 6 months is 5 Dec at 11:02 pm.
+        let countdown = TogetherCountdown(began, at: sydneyDate(2026, 11, 26))
+        XCTAssertEqual(countdown.since, "100 d")
+        XCTAssertEqual(countdown.nextShortLine, "6 mo · 9 days")
+        let progress = try XCTUnwrap(countdown.progress)
+        XCTAssertEqual(progress, 73.5 / 83, accuracy: 0.001, "73½ of the 83 days between them")
+
+        let first = TogetherCountdown(began, at: sydneyDate(2026, 6, 20))
+        XCTAssertEqual(first.since, "5 Jun", "before any milestone, the day it began")
+        XCTAssertEqual(first.nextShortLine, "1 mo · 15 days")
+    }
+
+    func testOnTheDayTheStringIsTiedOff() {
+        let day = TogetherCountdown(began, at: sydneyDate(2026, 12, 5, 9))
+        XCTAssertEqual(day.progress, 1)
+        XCTAssertEqual(day.since, "6 mo")
+        XCTAssertEqual(day.nextShortLine, "6 months today")
+        XCTAssertEqual(TogetherCountdown(began, at: sydneyDate(2026, 12, 6)).progress ?? 1, 0, accuracy: 0.05,
+                       "the next morning a new string starts")
+    }
+
+    func testShortTitles() {
+        let all = began.milestones()
+        XCTAssertEqual(all.first { $0.mark == .months(12) }?.shortTitle, "1 yr")
+        XCTAssertEqual(all.first { $0.mark == .days(1_000) }?.shortTitle, "1,000 d")
+        XCTAssertEqual(all.first { $0.mark == .hours(10_000) }?.shortTitle, "10,000 h")
+    }
+
     func testOneDayIsSingular() {
         let yesterday = Anniversary(startsAt: sydneyDate(2026, 11, 25, 9), timeZoneID: sydney.identifier)
         XCTAssertEqual(TogetherCountdown(yesterday, at: sydneyDate(2026, 11, 26, 10)).daysTogether, "1 day together")

@@ -71,6 +71,16 @@ struct Anniversary: Codable, Hashable, Sendable {
             }
         }
 
+        /// For a widget's tight corners: "6 mo", "1 yr", "100 d", "10,000 h".
+        var shortTitle: String {
+            switch mark {
+            case .months(let months) where months % 12 == 0: String(localized: "\(months / 12) yr")
+            case .months(let months): String(localized: "\(months) mo")
+            case .days(let days): String(localized: "\(days.formatted()) d")
+            case .hours(let hours): String(localized: "\(hours.formatted()) h")
+            }
+        }
+
         var title: String {
             switch mark {
             case .months(let months) where months % 12 == 0:
