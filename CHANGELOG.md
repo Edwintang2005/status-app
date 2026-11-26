@@ -8,9 +8,9 @@ Version 1.8 (build 88), one heading per day it was built, newest first.
 
 ### 27 November 2026
 
-- **Drawing on a photo keeps the whole photo.** The composer shows all of it,
-  and what you draw is laid over all of it, in its own shape — it used to be
-  cut to a square. Cards and widgets still show its middle; open it to see the lot.
+- **Drawing on a photo keeps the whole photo.** You still draw on the square
+  you see, but the sides it hides are kept — it used to be cut to that square.
+  Cards and widgets show the middle, as before; open it to see the lot.
 
 ### 26 November 2026
 

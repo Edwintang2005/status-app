@@ -2,8 +2,9 @@ import PhotosUI
 import SwiftUI
 
 /// Compose a photo, a doodle, or a doodle over a photo, and send it to the
-/// other person's widget. A doodle is square, like the small widget and the
-/// in-app tiles; a photo keeps its own shape (they show its centre), drawn on or not.
+/// other person's widget. Composed in a square, like the small widget and the
+/// in-app tiles; the medium widget shows a centre band of it. A photo is sent
+/// whole, drawn on or not: the square is its centre.
 struct MomentComposerView: View {
     /// Straight into the camera, as a banner's "Reply with a photo" asks.
     var opensCamera = false
@@ -149,10 +150,40 @@ struct MomentComposerView: View {
     private var square: some View {
         SquareFill {
             ZStack {
-                // Behind a photo, the bars beside it: the whole shot is what's drawn on and sent.
-                Rectangle().fill(photo == nil ? controller.backdrop.color : .black)
-                canvasArea
-                    .aspectRatio(photo.map { DrawingController.aspect(of: $0.size) } ?? 1, contentMode: .fit)
+                Rectangle().fill(controller.backdrop.color)
+
+                if let photo {
+                    // Sized by the square, not the photo: a bare `scaledToFill`
+                    // image reports its overflow, the ZStack grows to it, and the
+                    // canvas underneath rasterises strokes from a non-square bounds.
+                    Color.clear
+                        .overlay { Image(uiImage: photo).resizable().scaledToFill() }
+                        .clipped()
+                    if let dualShot {
+                        DualInsetOverlay(shot: dualShot, isMovable: !isDrawing) { placement in
+                            self.dualShot?.placement = placement
+                        }
+                    }
+                } else if !isDrawing && controller.strokeCount == 0 {
+                    // Only on a genuinely blank square, so the placeholder
+                    // never draws over a finished doodle.
+                    VStack(spacing: 10) {
+                        Image(systemName: "photo.on.rectangle.angled")
+                            .font(.system(size: 34))
+                            .accessibilityHidden(true)
+                        Text("Pick a photo, or start drawing")
+                            .font(Theme.rounded(14))
+                    }
+                    .foregroundStyle(controller.backdrop.isDark
+                                     ? Color.white.opacity(0.6)
+                                     : Color.secondary)
+                }
+
+                // Always mounted so strokes survive toggling the palette. Takes
+                // touches while drawing is on — or on a blank square, which the
+                // placeholder invites to draw on; a photo needs Draw first.
+                DrawingCanvas(controller: controller)
+                    .allowsHitTesting(isDrawing || (photo == nil && controller.strokeCount == 0))
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
@@ -170,43 +201,6 @@ struct MomentComposerView: View {
         // A blank square starts drawing with a stroke, which the fill tool doesn't take.
         .onChange(of: isDrawing) { _, drawing in
             if !drawing, controller.tool == .fill { controller.tool = .pen }
-        }
-    }
-
-    /// The photo's shape (a doodle's square): the canvas over it is exactly what's exported.
-    private var canvasArea: some View {
-        ZStack {
-            if let photo {
-                // Sized by the frame, not the image: an image's own size would
-                // grow the ZStack, and the canvas would rasterise another shape.
-                Color.clear
-                    .overlay { Image(uiImage: photo).resizable().scaledToFill() }
-                    .clipped()
-                if let dualShot {
-                    DualInsetOverlay(shot: dualShot, isMovable: !isDrawing) { placement in
-                        self.dualShot?.placement = placement
-                    }
-                }
-            } else if !isDrawing && controller.strokeCount == 0 {
-                // Only on a genuinely blank square, so the placeholder
-                // never draws over a finished doodle.
-                VStack(spacing: 10) {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .font(.system(size: 34))
-                        .accessibilityHidden(true)
-                    Text("Pick a photo, or start drawing")
-                        .font(Theme.rounded(14))
-                }
-                .foregroundStyle(controller.backdrop.isDark
-                                 ? Color.white.opacity(0.6)
-                                 : Color.secondary)
-            }
-
-            // Always mounted so strokes survive toggling the palette. Takes
-            // touches while drawing is on — or on a blank square, which the
-            // placeholder invites to draw on; a photo needs Draw first.
-            DrawingCanvas(controller: controller)
-                .allowsHitTesting(isDrawing || (photo == nil && controller.strokeCount == 0))
         }
     }
 
@@ -275,8 +269,9 @@ struct MomentComposerView: View {
         sent = true
         let location = PhotoLocation.forSend(hasPhoto: photo != nil, photo: photoLocation,
                                              fromCamera: photoFromCamera) { LocationStamp.shared.current }
-        // An undrawn photo travels as it is; strokes are flattened over the whole
-        // shot. Every surface shows its centred square; the viewer and "Save to Photos" the lot.
+        // A photo travels in its own frame: every surface shows the centred
+        // square regardless, and the viewer and "Save to Photos" return the whole
+        // shot. Strokes were laid over that square, and land on its centre.
         if controller.strokeCount == 0, dualShot == nil, let photo {
             onSend(photo, kind, caption, location)
         } else {
@@ -303,7 +298,7 @@ struct MomentComposerView: View {
 }
 
 /// A two-camera shot's inset, still movable: dragged anywhere inside the
-/// photo's centred square — all of which the thumbnail shows — pinched bigger or smaller
+/// square — all of which the thumbnail shows — pinched bigger or smaller
 /// anywhere on it, and flattened only on Send.
 private struct DualInsetOverlay: View {
     let shot: DualShot

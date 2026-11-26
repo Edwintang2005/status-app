@@ -202,17 +202,17 @@ final class DrawingController {
         replaceDrawing(with: PKDrawing())
     }
 
-    /// Flattens photo (if any) and strokes into one image — the whole photo, in
-    /// its own shape, or a square doodle — its long side the stored full size,
-    /// off the main thread: a 2048-pixel composite takes a while.
+    /// Flattens photo (if any) and strokes into one image — the whole photo in
+    /// its own shape, the strokes on the centred square the composer showed of
+    /// it; or a square doodle — its long side the stored full size, off the
+    /// main thread: a 2048-pixel composite takes a while.
     func render(size: CGFloat = MomentStore.fullMaxDimension, over photo: UIImage?) async -> UIImage {
-        let aspect = photo.map { Self.aspect(of: $0.size) } ?? 1
-        // The composer lays the canvas out in the photo's shape; should layout
-        // round it off, export that shape's centre, not a stretch of the whole.
-        let bounds = Self.centred(aspect: aspect, in: canvas.bounds)
+        // The composer shows the centred square of the canvas; should the canvas
+        // ever be laid out wider or taller, export that square, not a stretch of the whole.
+        let bounds = Self.centred(aspect: 1, in: canvas.bounds)
         let drawing = canvas.drawing
         let ground = backdrop.color
-        let output = Self.exportSize(aspect: aspect, longSide: size)
+        let output = Self.exportSize(aspect: photo.map { Self.aspect(of: $0.size) } ?? 1, longSide: size)
         return await Task.detached(priority: .userInitiated) {
             Self.composite(drawing, bounds: bounds, backdrop: ground, photo: photo, size: output)
         }.value
@@ -221,6 +221,7 @@ final class DrawingController {
     private nonisolated static func composite(_ drawing: PKDrawing, bounds: CGRect, backdrop: Color,
                                               photo: UIImage?, size: CGSize) -> UIImage {
         let rect = CGRect(origin: .zero, size: size)
+        let square = centred(aspect: 1, in: rect)
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
         format.opaque = true
@@ -235,8 +236,8 @@ final class DrawingController {
             // light because `PKDrawing.image` reads current traits and inverts ink in dark mode.
             UITraitCollection(userInterfaceStyle: .light).performAsCurrent {
                 drawing
-                    .image(from: bounds, scale: size.width / bounds.width)
-                    .draw(in: rect)
+                    .image(from: bounds, scale: square.width / bounds.width)
+                    .draw(in: square)
             }
         }
     }

@@ -1,6 +1,6 @@
 import XCTest
 
-/// Drawing on a photo keeps the whole photo, in its own shape.
+/// Drawing on a photo keeps the whole photo, the strokes where they were drawn.
 final class DrawingExportTests: XCTestCase {
     func testAPhotoIsExportedInItsOwnShape() {
         let portrait = DrawingController.aspect(of: CGSize(width: 1536, height: 2048))
@@ -11,14 +11,12 @@ final class DrawingExportTests: XCTestCase {
                        "a doodle stays square")
     }
 
-    func testTheStrokesAreReadFromThatShape() {
-        let canvas = CGRect(x: 0, y: 0, width: 335, height: 447)
-        let rect = DrawingController.centred(aspect: 3.0 / 4.0, in: canvas)
-        XCTAssertEqual(rect.width, 335, accuracy: 0.01)
-        XCTAssertEqual(rect.height, 446.67, accuracy: 0.01, "layout's rounding is trimmed, not stretched")
-        XCTAssertEqual(rect.midY, canvas.midY, accuracy: 0.01)
-        XCTAssertEqual(DrawingController.centred(aspect: 1, in: CGRect(x: 0, y: 0, width: 300, height: 400)),
-                       CGRect(x: 0, y: 50, width: 300, height: 300))
+    /// The composer shows a photo's centred square: the strokes land there, the sides are kept.
+    func testTheStrokesLandOnThePhotosCentreSquare() {
+        let photo = CGRect(origin: .zero, size: CGSize(width: 1365, height: 2048))
+        XCTAssertEqual(DrawingController.centred(aspect: 1, in: photo), CGRect(x: 0, y: 341.5, width: 1365, height: 1365))
+        let wide = CGRect(origin: .zero, size: CGSize(width: 2048, height: 1152))
+        XCTAssertEqual(DrawingController.centred(aspect: 1, in: wide), CGRect(x: 448, y: 0, width: 1152, height: 1152))
     }
 
     func testADegenerateSizeCountsAsSquare() {

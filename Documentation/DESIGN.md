@@ -835,12 +835,11 @@ the next fill tells them from lines. A doodle's canvas is square because the wid
 composing in the destination's shape means nothing gets unexpectedly cropped later.
 Strokes are rasterised at export resolution, not upscaled from the on-screen
 canvas. A photo keeps its **own frame**, drawn on or not: the composer shows
-the whole shot (bars beside it in the square), the canvas takes its shape,
-and the strokes are flattened over all of it. Every surface still shows the
-centred square (the thumbnail *is* that square), but the viewer, "Save to
-Photos" and the archive hand back the whole shot — a doodled one used to be
-cut to the square. A two-camera shot's inset stays inside that centred square,
-so every surface shows it.
+and draws on its centred square, as every surface shows it (the thumbnail *is*
+that square), and the strokes land there on the whole shot — the sides it
+hides are kept, for the viewer, "Save to Photos" and the archive. A doodled
+photo used to be cut to the square. A two-camera shot's inset stays inside
+that square, so every surface shows it.
 
 ## Known limitations
 
