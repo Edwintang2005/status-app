@@ -6,6 +6,12 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 Version 1.8 (build 88), one heading per day it was built, newest first.
 
+### 27 November 2026
+
+- **Drawing on a photo keeps the whole photo.** The composer shows all of it,
+  and what you draw is laid over all of it, in its own shape — it used to be
+  cut to a square. Cards and widgets still show its middle; open it to see the lot.
+
 ### 26 November 2026
 
 - **Set your status without opening the app.** Ask Siri ("Set my Red String

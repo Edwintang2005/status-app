@@ -202,22 +202,25 @@ final class DrawingController {
         replaceDrawing(with: PKDrawing())
     }
 
-    /// Flattens photo (if any) and strokes into one square image at the stored
-    /// full size, off the main thread: a 2048-pixel composite takes a while.
+    /// Flattens photo (if any) and strokes into one image — the whole photo, in
+    /// its own shape, or a square doodle — its long side the stored full size,
+    /// off the main thread: a 2048-pixel composite takes a while.
     func render(size: CGFloat = MomentStore.fullMaxDimension, over photo: UIImage?) async -> UIImage {
-        // The composer shows the centred square of the canvas; should the canvas
-        // ever be laid out wider or taller, export that square, not a stretch of the whole.
-        let bounds = Self.centredSquare(in: canvas.bounds)
+        let aspect = photo.map { Self.aspect(of: $0.size) } ?? 1
+        // The composer lays the canvas out in the photo's shape; should layout
+        // round it off, export that shape's centre, not a stretch of the whole.
+        let bounds = Self.centred(aspect: aspect, in: canvas.bounds)
         let drawing = canvas.drawing
         let ground = backdrop.color
+        let output = Self.exportSize(aspect: aspect, longSide: size)
         return await Task.detached(priority: .userInitiated) {
-            Self.composite(drawing, bounds: bounds, backdrop: ground, photo: photo, size: size)
+            Self.composite(drawing, bounds: bounds, backdrop: ground, photo: photo, size: output)
         }.value
     }
 
     private nonisolated static func composite(_ drawing: PKDrawing, bounds: CGRect, backdrop: Color,
-                                              photo: UIImage?, size: CGFloat) -> UIImage {
-        let rect = CGRect(x: 0, y: 0, width: size, height: size)
+                                              photo: UIImage?, size: CGSize) -> UIImage {
+        let rect = CGRect(origin: .zero, size: size)
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
         format.opaque = true
@@ -232,15 +235,29 @@ final class DrawingController {
             // light because `PKDrawing.image` reads current traits and inverts ink in dark mode.
             UITraitCollection(userInterfaceStyle: .light).performAsCurrent {
                 drawing
-                    .image(from: bounds, scale: size / bounds.width)
+                    .image(from: bounds, scale: size.width / bounds.width)
                     .draw(in: rect)
             }
         }
     }
 
-    nonisolated static func centredSquare(in bounds: CGRect) -> CGRect {
-        let side = min(bounds.width, bounds.height)
-        return CGRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
+    /// Width over height; a degenerate size counts as square.
+    nonisolated static func aspect(of size: CGSize) -> CGFloat {
+        size.width > 0 && size.height > 0 ? size.width / size.height : 1
+    }
+
+    /// The largest rect of `aspect` centred in `bounds`.
+    nonisolated static func centred(aspect: CGFloat, in bounds: CGRect) -> CGRect {
+        let width = min(bounds.width, bounds.height * aspect)
+        let height = width / aspect
+        return CGRect(x: bounds.midX - width / 2, y: bounds.midY - height / 2, width: width, height: height)
+    }
+
+    /// Whole pixels, the long side `longSide`.
+    nonisolated static func exportSize(aspect: CGFloat, longSide: CGFloat) -> CGSize {
+        aspect >= 1
+            ? CGSize(width: longSide, height: max(1, (longSide / aspect).rounded()))
+            : CGSize(width: max(1, (longSide * aspect).rounded()), height: longSide)
     }
 }
 

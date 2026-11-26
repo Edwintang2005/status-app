@@ -831,13 +831,16 @@ under the lines so no paper shows at the edge, and lays back-and-forth
 points short still holds — a narrower space falls back to a smaller radius,
 so it fills too. Tapping a line with the bucket recolours that line instead. Being ink, fills need
 nothing new from undo, the eraser, the export or sync; the ink type is how
-the next fill tells them from lines. The canvas is square because the widget is square — composing
-in the destination's shape means nothing gets unexpectedly cropped later.
+the next fill tells them from lines. A doodle's canvas is square because the widget is square —
+composing in the destination's shape means nothing gets unexpectedly cropped later.
 Strokes are rasterised at export resolution, not upscaled from the on-screen
-canvas. A photo with no strokes is stored in its **own frame**, though: every
-surface still shows the centred square (the thumbnail *is* that square), but
-"Save to Photos" and the archive hand back the whole shot. A doodled photo
-flattens to the square the strokes were drawn over.
+canvas. A photo keeps its **own frame**, drawn on or not: the composer shows
+the whole shot (bars beside it in the square), the canvas takes its shape,
+and the strokes are flattened over all of it. Every surface still shows the
+centred square (the thumbnail *is* that square), but the viewer, "Save to
+Photos" and the archive hand back the whole shot — a doodled one used to be
+cut to the square. A two-camera shot's inset stays inside that centred square,
+so every surface shows it.
 
 ## Known limitations
 

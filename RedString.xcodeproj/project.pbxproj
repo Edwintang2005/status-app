@@ -710,6 +710,7 @@
 		CC1E9322386F0241AF7A33D9 /* Waveform.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B642C800ACD0FE5CC306C9C /* Waveform.swift */; };
 		CC3292933259B5E3083F0A93 /* StatusHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 847AF10E5065B62CDA9C5D89 /* StatusHistoryView.swift */; };
 		CCB18AF54E3459C5A281EDA9 /* QuickStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = E90782EE6C7BC87818EACC0E /* QuickStatus.swift */; };
+		CCEE2E104D59A5E1F14707C8 /* DrawingExportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D831EDF76F2EA8267E61F68 /* DrawingExportTests.swift */; };
 		CD80774A6D4C612330CD58DA /* StatusDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38BBD7EFD0638376B2339E02 /* StatusDraft.swift */; };
 		CDE41656D5548893F3A93EA7 /* ShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB81BD9590AB73959572A67 /* ShareSheet.swift */; };
 		CE0ED22F777CE954F462BDCD /* SendFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CB4B6A3FE9343DC12049588 /* SendFailure.swift */; };
@@ -1028,6 +1029,7 @@
 		5A83FEA2BD3E31257DCBBA03 /* RedStringNotificationService.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = RedStringNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		5BCA5FEECD892983ED73394C /* AnniversaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnniversaryView.swift; sourceTree = "<group>"; };
 		5C1410D0F32D82BCE03DE437 /* UploadPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadPolicyTests.swift; sourceTree = "<group>"; };
+		5D831EDF76F2EA8267E61F68 /* DrawingExportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingExportTests.swift; sourceTree = "<group>"; };
 		5FCAF221553AA030FF7D660D /* IngestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngestTests.swift; sourceTree = "<group>"; };
 		5FE608924F8A4B942BB4CE1C /* ArchiveFetch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveFetch.swift; sourceTree = "<group>"; };
 		6051E3CBE17BD094E42610C1 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
@@ -1584,6 +1586,7 @@
 				3AC15B47F94E88ED89B94605 /* AppModelTests.swift */,
 				C6037E737D5AAE960033C795 /* AppTestSupport.swift */,
 				F8B7B07DB474D2761EA10F6E /* ArchiveModelTests.swift */,
+				5D831EDF76F2EA8267E61F68 /* DrawingExportTests.swift */,
 				8AFFA0455DD246630AD1C292 /* FakeAppBackend.swift */,
 				6EE1EFDA6DD43DDAC859A9FD /* InviteLinkModelTests.swift */,
 			);
@@ -2486,6 +2489,7 @@
 				7B730305B1FCAF5C8C457A05 /* DemoSeeder.swift in Sources */,
 				1A5E7C17C66F4E21D7C49FD4 /* DiagnosticsView.swift in Sources */,
 				37814ECDFC779D5435E0405B /* DrawingCanvas.swift in Sources */,
+				CCEE2E104D59A5E1F14707C8 /* DrawingExportTests.swift in Sources */,
 				AE3F74047669BC6421C13CC7 /* DualCameraEngine.swift in Sources */,
 				945DA122E4C47955DE8B2B7B /* DualShotComposer.swift in Sources */,
 				10A89D369B547B8538515D9C /* FakeAppBackend.swift in Sources */,
