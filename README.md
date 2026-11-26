@@ -32,6 +32,15 @@ Widgets:
   voice memo is waiting. "Hide from widget" in the gallery takes that one off
   (the one before shows instead) on this phone only, until their next
   picture arrives.
+- **Quick status** — `systemSmall` / `systemMedium` on the home screen: your
+  four most recent statuses as buttons; a tap sets one without opening the app.
+- **Together** — days together and the next milestone ("6 months in 9 days"),
+  on the lock screen (`accessoryRectangular`, `accessoryCircular`,
+  `accessoryInline`) and the home screen (`systemSmall`). A tap opens the count.
+
+Siri and Shortcuts: "Send a heart", "Set my Red String status (to …)", "What's
+my partner up to", "How long have we been together". Each asks you to unlock
+first.
 
 The photo widget is home screen only, and drawing happens in the app rather
 than on the widget. Both are platform limits, not omissions: lock screen
@@ -155,4 +164,5 @@ and statuses below that set, so the library and status history scroll;
 pairing — "Create invite link" pairs locally); `SIMCTL_CHILD_REDSTRING_DEMO_CELEBRATION=reveal`
 (or another style) for Sam's status to arrive as a celebration;
 `SIMCTL_CHILD_REDSTRING_DEMO_ARRIVALS=1` for Sam's status to land 4 s after
-launch and a heart 4 s later, so Home's arrival animations can be watched.
+launch and a heart 4 s later, so Home's arrival animations can be watched; `SIMCTL_CHILD_REDSTRING_DEMO_MILESTONE=1` for a date six months back, so
+Home shows the milestone day.

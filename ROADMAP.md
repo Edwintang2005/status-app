@@ -108,32 +108,31 @@ intrusive": each person says how open they are *before* anyone reaches out.
 - Open question: whether the battery should decay ("charged 6 h ago") or stay
   until changed. Recommendation: stay, show its age.
 
-### Set status from Shortcuts, Focus and Siri, plus a quick-status widget (S–M) ★★★
-A parameterised `SetStatusIntent` (an `AppEntity` over presets and Recent) as
-App Shortcuts and a `SetFocusFilterIntent` ("Sleep Focus → 😴"), Siri read-back
-("What's Sam up to?" through the moderation helpers), and an interactive widget
-whose buttons are your recent statuses. Publishes through the existing offline
-queue; on failure the widget leaves `myStatusPublished` down for the app's
-republish. No schema.
-- ✓ Probed: App Intents get about 30 s (an Apple engineer: "30 seconds of CPU
-  runtime… network requests… should be fine"), so one CloudKit save fits.
-  - **Shortcuts and Siri** run in the app: no new target.
-  - **Interactive widget buttons** run in the widget extension and reload its
-    timeline when `perform()` returns. iOS may suspend the extension mid-request
-    — hold an expiring activity, as `CrossProcessLock` does. On a *locked*
-    phone, widget buttons are inactive until the person unlocks, so the
-    quick-status widget always saves unlocked (its encrypted fields are safe).
-  - **The Focus filter** runs `perform()` only for Focuses the user added the
-    filter to, and needs a new **App Intents extension** target to run while the
-    app isn't (Apple's sample) — iCloud and App Group entitlements, so invariant
-    12 applies. It never learns the Focus's name, only its parameters ("set
-    this status", "share that I'm silenced"). iOS 18 had reports of it not
-    firing in the background (FB14715113).
-- 🔬 Still to probe: the Focus filter extension cold-launched on a **locked**
-  phone — it writes a status's *encrypted* fields, and this app already sees
-  extensions read encrypted fields as empty while locked; whether the save
-  works is unproven. Fallback: queue it in the store and let the app or the
-  next unlocked refresh publish it (`myStatusPublished` down).
+### Focus filters: "Sleep Focus → 😴" (S–M) ★★
+Built (1.8): your status from Siri and Shortcuts, their status and the days
+together read aloud, and the quick-status widget. Left: a `SetFocusFilterIntent`
+that sets a status when a Focus turns on. It needs a new **App Intents
+extension** target to run while the app isn't (Apple's sample) — iCloud and App
+Group entitlements, so invariant 12 applies. It only ever learns the Focus's
+parameters, never its name. iOS 18 had reports of it not firing in the
+background (FB14715113).
+- 🔬 Still to probe: the extension cold-launched on a **locked** phone — it
+  writes a status's *encrypted* fields, and this app already sees extensions
+  read encrypted fields as empty while locked. Fallback: queue it in the store
+  and let the app or the next unlocked refresh publish it (`myStatusPublished`
+  down, as `QuickStatus` leaves a send that missed).
+
+### More for your date (S each unless marked) ★★
+Built (1.8): round-number milestones (100 to 10,000 days, 10,000 and 100,000
+hours), the day itself on Home with its hearts, the Together widget, and "How
+long have we been together?". Not built yet, each with its default:
+- **A2** — offer the milestone reminders to both of you when a date is set or arrives, rather than leaving the toggle in Settings.
+- **A10** — a heads-up 3 days before a yearly anniversary, its own opt-in.
+- **A4** — "a year ago today" on the count screen: the moment you shared that day, from this phone's history.
+- **A6** — on the day, a "Happy 6 months!" status with a celebration in the picker; the reminder's action opens it.
+- **A5** — a keepsake: the year-in-review video, made for the stretch since the last milestone (M).
+- **A13** — the year in review opens with the count ("365 days tied together").
+- Schema release: **A7** more than one date (first date, moved in, engaged), each with its milestones; **A8** each other's birthdays, inside A7; **A11** "you both opened it today" on the count (M each).
 
 ### Super nudge — escalate when they spam the heart (S–M) ★★
 When one side taps the heart repeatedly in a short window, the other side gets

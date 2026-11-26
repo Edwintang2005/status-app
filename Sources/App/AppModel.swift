@@ -174,6 +174,7 @@ final class AppModel {
     /// prompt) wait for it to close rather than being dropped by SwiftUI.
     var homeSheetShowing = false
     var widgetTipDismissed: Bool
+    var milestoneNoticeDismissed: String?
     /// The year whose Home recap card was waved away.
     var recapNoticeDismissed: Int?
     /// Diagnostics' "Show the recap card on Home": the twelve-month card, any month.
@@ -306,6 +307,7 @@ final class AppModel {
         self.hiddenPartnerStatusAt = store.hiddenPartnerStatusAt
         self.anniversaryPromptPending = store.anniversaryPromptPending
         self.widgetTipDismissed = store.widgetTipDismissed
+        self.milestoneNoticeDismissed = store.milestoneNoticeDismissed
         self.recapNoticeDismissed = store.recapNoticeDismissed
         self.partnerLeftNoticeDismissed = store.partnerLeftNoticeDismissed
         self.milestoneRemindersEnabled = store.milestoneRemindersEnabled
@@ -684,31 +686,11 @@ final class AppModel {
     /// - Returns: why it didn't reach iCloud now (it's kept and sent later), or `nil` when it did.
     @discardableResult
     func setStatus(emoji: String, message: String, celebration: CelebrationStyle? = nil) async -> SendFailure? {
-        let payload = StatusPayload(
-            emoji: emoji,
-            // Capped here too: the banner reply bypasses the composer's field.
-            message: String(message.trimmingCharacters(in: .whitespacesAndNewlines)
-                                .prefix(AppConfig.statusMessageMaxLength)),
-            displayName: snapshot.mine?.displayName ?? "",
-            updatedAt: statusTimestamp(),
-            nudgeCount: snapshot.mine?.nudgeCount ?? 0,
-            lastNudgeAt: snapshot.mine?.lastNudgeAt,
-            isCelebration: celebration != nil,
-            celebrationStyle: celebration
-        )
-
-        // Show it immediately; marked unpublished in the same mutate so a crash
-        // between the two writes can't strand a status that looks delivered.
-        // The nudge fields are the store's: the lock-screen heart may have
-        // written them since this model last read it.
+        // From the store's copy: the stamp must follow its newest status.
+        let payload = StatusPayload.composed(emoji: emoji, message: message, celebration: celebration,
+                                             after: store.snapshot.mine)
         let paired = isPaired
-        store.mutate {
-            var current = payload
-            current.nudgeCount = $0.mine?.nudgeCount ?? payload.nudgeCount
-            current.lastNudgeAt = $0.mine?.lastNudgeAt ?? payload.lastNudgeAt
-            $0.mine = current
-            $0.myStatusPublished = !paired
-        }
+        store.mutate { $0.adoptOwnStatus(payload, paired: paired) }
         stores.statusLog.record(payload, fromMe: true)
         reload()
 

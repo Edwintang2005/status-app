@@ -60,6 +60,10 @@ enum DemoSeeder {
         // `REDSTRING_DEMO_BULK=1`: weeks of older history below the screenshot set,
         // so the library and status history are long enough to scroll.
         let bulk = ProcessInfo.processInfo.environment["REDSTRING_DEMO_BULK"] == "1"
+        let milestoneToday = ProcessInfo.processInfo.environment["REDSTRING_DEMO_MILESTONE"] == "1"
+        // The day's card and hearts are per device: shown afresh every demo launch.
+        store.milestoneNoticeDismissed = nil
+        store.milestoneCelebrated = nil
 
         // `REDSTRING_DEMO_UNPAIRED=1`: a first launch — terms, name, then pairing.
         if ProcessInfo.processInfo.environment["REDSTRING_DEMO_UNPAIRED"] == "1" {
@@ -159,6 +163,10 @@ enum DemoSeeder {
             sydney.timeZone = TimeZone(identifier: "Australia/Sydney")!
             if let began = sydney.date(from: DateComponents(year: 2026, month: 6, day: 5, hour: 23, minute: 2)) {
                 snapshot.anniversary = Anniversary(startsAt: began, timeZoneID: "Australia/Sydney")
+            }
+            // `REDSTRING_DEMO_MILESTONE=1`: six months ago today, so Home shows the milestone day.
+            if milestoneToday, let began = Calendar.current.date(byAdding: .month, value: -6, to: now) {
+                snapshot.anniversary = Anniversary(startsAt: began, timeZoneID: TimeZone.current.identifier)
             }
             snapshot.lastNotifiedMomentID = "demo-heart"
             // Sam saw the current status a few minutes after it was set.

@@ -102,9 +102,7 @@ extension SharedStore {
         guard !Self.isRunningInWidgetExtension else { return }
         guard Self.reloadHolds.withLock({ $0 }) == 0 else { return }
         widgetReloadRequestedAt = widgetNeedsFetch ? nil : Date()
-        WidgetCenter.shared.reloadTimelines(ofKind: AppConfig.widgetKind)
-        WidgetCenter.shared.reloadTimelines(ofKind: AppConfig.momentWidgetKind)
-        WidgetCenter.shared.reloadTimelines(ofKind: AppConfig.nudgeWidgetKind)
+        AppConfig.widgetKinds.forEach { WidgetCenter.shared.reloadTimelines(ofKind: $0) }
         #endif
     }
 

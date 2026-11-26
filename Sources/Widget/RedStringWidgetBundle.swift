@@ -7,5 +7,7 @@ struct RedStringWidgetBundle: WidgetBundle {
         StatusWidget()
         NudgeWidget()
         MomentWidget()
+        QuickStatusWidget()
+        TogetherWidget()
     }
 }

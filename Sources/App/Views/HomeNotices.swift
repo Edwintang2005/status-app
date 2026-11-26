@@ -84,6 +84,14 @@ struct HomeNoticeView: View, Equatable {
                            busy: busy,
                            onDismiss: onDismiss,
                            action: onAction)
+        case .milestone(let day):
+            HomeNoticeCard(systemImage: "heart.circle.fill",
+                           title: "\(day.title) today 💛",
+                           message: "A day to mark, you and \(partnerName). Your count is waiting.",
+                           actionTitle: "See it",
+                           dismissTitle: "Not now",
+                           onDismiss: onDismiss,
+                           action: onAction)
         case .widgetTip:
             HomeNoticeCard(systemImage: "lock.iphone",
                            title: "Put \(partnerName) on your Lock Screen",

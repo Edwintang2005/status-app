@@ -132,25 +132,12 @@ final class Outbox {
     }
 
     private func republishStatusPass(automatic: Bool, now: Date) async -> Bool {
-        guard store.pairing != nil else { return false }
-        let snapshot = store.snapshot
-        guard let mine = snapshot.mine else { return false }
-        // Logged only if this status's log record isn't confirmed yet: a
-        // retried rename must not log its old words as a new status.
-        let logged = snapshot.myStatusLoggedAt != mine.wordsAt
-        guard !snapshot.myStatusPublished || (logged && mine.updatedAt > .distantPast) else { return false }
+        guard store.pairing != nil, let owed = store.snapshot.owedStatus else { return false }
         if automatic {
             guard pacing.allowsAutomatic(.status, now: now) else { return false }
         }
-        let backend = backend()
         do {
-            try await withDeadline(AppConfig.publishDeadline) { try await backend.publish(mine, logged: logged) }
-            store.mutate {
-                $0.markStatusPublished(mine)
-                // A logged publish that returned wrote the log; with a null mark
-                // meaning "owed", nothing else may be left to claim it landed.
-                if logged { $0.recordLogged(mine) }
-            }
+            try await QuickStatus.resend(owed, store: store, backend: backend(), deadline: AppConfig.publishDeadline)
             noteSendSucceeded()
             pacing.clear(.status)
             log.info("Republished the offline status update")
@@ -654,6 +641,8 @@ final class Outbox {
                 purge.momentIDs.forEach(deleteMedia)
                 statusLog.remove(fromMe: true, at: purge.myLogs)
                 statusLog.remove(fromMe: false, at: purge.theirLogs)
+                // The quick-status widget's recents come from the log, not `WidgetContent`.
+                if !purge.myLogs.isEmpty { store.requestWidgetReload() }
                 indexChanged()
                 // A recap shows the cleared history.
                 clearRecaps()

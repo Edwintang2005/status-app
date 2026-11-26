@@ -69,6 +69,13 @@ enum AppConfig {
     /// apart — a kind that never gets reloaded shows stale pairing state for
     /// up to an hour.
     static let nudgeWidgetKind = "RedStringNudgeWidget"
+    /// Your recent statuses as buttons (`QuickStatusWidget`).
+    static let quickStatusWidgetKind = "RedStringQuickStatusWidget"
+    /// Days together and the next milestone (`TogetherWidget`).
+    static let togetherWidgetKind = "RedStringTogetherWidget"
+    /// Every kind, for `SharedStore.requestWidgetReload`.
+    static let widgetKinds = [widgetKind, momentWidgetKind, nudgeWidgetKind,
+                              quickStatusWidgetKind, togetherWidgetKind]
 
     /// Entries kept in the on-device history index. Metadata only (~230 bytes
     /// each: 5,000 is ~1.1 MB, decoded in tens of ms), so it can be generous —
@@ -156,6 +163,9 @@ enum AppConfig {
     /// Ceiling on any CloudKit call made from a widget or its intent — WidgetKit
     /// kills the process past its budget, and a kill mid-write leaves claims unreleased.
     static let widgetDeadline: TimeInterval = 8
+    /// The widget's resend of a status Siri or its button couldn't send: only
+    /// after a refresh that left room (`owedRetryExtensionBudget`), and within it.
+    static let owedStatusWidgetDeadline: TimeInterval = 4
 
     /// Ceilings on waiting for an upload and on refreshes. CloudKit's own resource
     /// timeout is seven days, so on bad signal an operation can sit for hours —

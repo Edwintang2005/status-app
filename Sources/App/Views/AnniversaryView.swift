@@ -356,7 +356,8 @@ struct AnniversaryView: View {
                     .foregroundStyle(Theme.mutedText)
             }
             Spacer(minLength: 0)
-            Text("in ^[\(daysLeft) day](inflect: true)")
+            // A round number reached later today: the count above turns over at its moment.
+            Text(daysLeft == 0 ? "later today" : "in ^[\(daysLeft) day](inflect: true)")
                 .font(Theme.rounded(13, .semibold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 10)

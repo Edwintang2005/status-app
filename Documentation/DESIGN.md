@@ -399,6 +399,13 @@ full colour once the zoom has landed; "Send a heart back" lets three hearts
 rise; and your moment's "Seen" arrives with the eye blinking and a soft tap.
 `REDSTRING_DEMO_ARRIVALS=2` stages a photo arriving and a receipt landing.
 
+A calendar mark ("6 months") is a date and is celebrated all day; a round number
+("100 days") is a moment, celebrated from when the count reaches it — before then
+it's "100 days later today" — so the count never reads 99 under "Happy 100 days".
+Its reminder waits for it too, if that's after 9 am. A milestone day puts a card on Home on both phones the first time the app opens that day, its
+hearts rising once per phone; it leads to the count, and "Not now" puts it away
+for the day. `REDSTRING_DEMO_MILESTONE=1` seeds a date six months back to see it.
+
 ## Photos and doodles
 
 ### Two ways in: what's waiting, and everything
@@ -572,6 +579,10 @@ the easter egg, and tying the string reaches the count — on purpose, the tie
 is the only way in. They're rescheduled whenever the app runs and the date or the
 setting changed, and removed on unlink — a date changed while the app hasn't
 run since is picked up on its next launch. No schema change.
+
+The Together widget and Siri's "How long have we been together?" show the count
+outside the tie, by choice (26 November 2026): you add the widget yourself, and
+Siri asks you to unlock first. The tie still guards the count screen itself.
 
 ### Read receipts
 

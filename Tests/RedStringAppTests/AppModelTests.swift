@@ -91,3 +91,40 @@ final class AppModelTests: XCTestCase {
         XCTAssertNil(model.invite.url)
     }
 }
+
+/// The milestone day on Home (A1).
+@MainActor
+final class MilestoneDayTests: XCTestCase {
+    func testTheDayShowsOnHomeUntilWavedAwayAndItsHeartsRiseOnce() throws {
+        let (model, _, stores) = makeModel()
+        // Six calendar months ago, in this phone's own zone: today is the mark.
+        let began = Anniversary(startsAt: Calendar.current.date(byAdding: .month, value: -6, to: Date())!,
+                                timeZoneID: TimeZone.current.identifier)
+        // On the 29th to 31st, six months back can clamp to a shorter month and miss today.
+        try XCTSkipUnless(began.milestoneToday(Date())?.mark == .months(6), "no six-month mark lands today")
+        stores.shared.mutate { $0.anniversary = began }
+        model.reload()
+
+        let day = try XCTUnwrap(model.milestoneOnHome())
+        XCTAssertEqual(day.title, "6 months")
+        XCTAssertTrue(model.claimMilestoneCelebration(day), "the first time it shows")
+        XCTAssertFalse(model.claimMilestoneCelebration(day), "and only that once")
+
+        model.dismissMilestoneNotice(day)
+        XCTAssertNil(model.milestoneOnHome(), "waved away for the day")
+    }
+
+    func testNoDateNoDay() {
+        let (model, _, _) = makeModel()
+        XCTAssertNil(model.milestoneOnHome())
+    }
+
+    /// Waved away after midnight: it's the card that was shown that goes, not
+    /// whatever today is by then.
+    func testNotNowActsOnTheDayItWasShownFor() {
+        let (model, _, _) = makeModel()
+        let shown = HomeNotice.MilestoneDay(title: "6 months", key: "1700000000:6")
+        model.dismissMilestoneNotice(shown)
+        XCTAssertEqual(model.milestoneNoticeDismissed, shown.key)
+    }
+}

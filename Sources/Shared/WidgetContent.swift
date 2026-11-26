@@ -37,6 +37,8 @@ struct WidgetContent: Hashable {
     var lastNudgeSentAt: Date?
     var lastNudgeFailedAt: Date?
     var lastNudgeIssuedAt: Date?
+    /// The countdown widget's date.
+    var anniversary: Anniversary?
 
     init(snapshot: Snapshot, reportedAt: Date?, filterEnabled: Bool) {
         isPaired = snapshot.isPaired
@@ -57,6 +59,7 @@ struct WidgetContent: Hashable {
         lastNudgeSentAt = snapshot.lastNudgeSentAt
         lastNudgeFailedAt = snapshot.lastNudgeFailedAt
         lastNudgeIssuedAt = snapshot.lastNudgeIssuedAt
+        anniversary = snapshot.anniversary
     }
 
     /// What `mutate` compares, before and after. The word filter is left out:

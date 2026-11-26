@@ -13,10 +13,10 @@ final class AnniversaryTests: XCTestCase {
         return Anniversary(startsAt: date, timeZoneID: sydney.identifier)
     }
 
-    private func sydneyDate(_ year: Int, _ month: Int, _ day: Int, _ hour: Int = 12) -> Date {
+    private func sydneyDate(_ year: Int, _ month: Int, _ day: Int, _ hour: Int = 12, _ minute: Int = 0) -> Date {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = sydney
-        return calendar.date(from: DateComponents(year: year, month: month, day: day, hour: hour))!
+        return calendar.date(from: DateComponents(year: year, month: month, day: day, hour: hour, minute: minute))!
     }
 
     func testStartIsStoredInWholeSeconds() {
@@ -32,7 +32,7 @@ final class AnniversaryTests: XCTestCase {
 
     func testMilestonesAscendAndKeepTheWallClock() {
         let milestones = began.milestones()
-        XCTAssertEqual(milestones.prefix(6).map(\.months), [1, 2, 3, 6, 9, 12])
+        XCTAssertEqual(milestones.compactMap(\.months).prefix(6), [1, 2, 3, 6, 9, 12])
         XCTAssertEqual(milestones.map(\.date), milestones.map(\.date).sorted())
         // Six months lands on 5 December at 11:02 pm Sydney time — daylight
         // saving has started by then, and the wall clock must not drift.
@@ -49,10 +49,10 @@ final class AnniversaryTests: XCTestCase {
     func testMilestoneDayCelebratesAllDayAndNextSkipsIt() {
         let morningOfTheDay = sydneyDate(2026, 12, 5, 8)
         XCTAssertEqual(began.milestoneToday(morningOfTheDay)?.months, 6)
-        XCTAssertEqual(began.nextMilestone(after: morningOfTheDay)?.months, 9,
+        XCTAssertEqual(began.nextMilestone(after: morningOfTheDay)?.mark, .days(200),
                        "today's milestone is the headline, not what's next")
         XCTAssertNil(began.milestoneToday(sydneyDate(2026, 12, 6)))
-        XCTAssertEqual(began.nextMilestone(after: sydneyDate(2026, 12, 6))?.months, 9)
+        XCTAssertEqual(began.nextMilestone(after: sydneyDate(2026, 12, 6))?.mark, .days(200), "22 December, before 9 months")
     }
 
     func testMonthsAndDaysCountCalendarDates() {
@@ -82,5 +82,31 @@ final class AnniversaryTests: XCTestCase {
         XCTAssertEqual(elapsed.days, 2)
         XCTAssertEqual(elapsed.seconds, 30 * 60)
         XCTAssertEqual(anniversary.elapsed(at: start.addingTimeInterval(-60)).days, 0, "before it began")
+    }
+
+    func testRoundNumbersSitBetweenTheCalendarMarks() {
+        let all = began.milestones()
+        XCTAssertEqual(all.map(\.date), all.map(\.date).sorted(), "in date order")
+        XCTAssertEqual(all.firstIndex { $0.mark == .days(100) }, all.firstIndex { $0.mark == .months(3) }.map { $0 + 1 },
+                       "100 days (13 September) comes after 3 months (5 September)")
+        let thousand = all.first { $0.mark == .days(1_000) }!
+        XCTAssertEqual(thousand.title, "1,000 days")
+        XCTAssertEqual(began.daysUntil(thousand.date, from: began.startsAt), 1_000)
+        XCTAssertEqual(all.first { $0.mark == .hours(10_000) }?.title, "10,000 hours")
+        XCTAssertEqual(began.nextMilestone(after: sydneyDate(2026, 9, 6))?.mark, .days(100))
+    }
+
+    func testARoundNumberWaitsForItsMoment() {
+        let morning = sydneyDate(2026, 9, 13, 9)
+        XCTAssertNil(began.milestoneToday(morning), "99 days until 11:02 pm")
+        XCTAssertEqual(began.nextMilestone(after: morning)?.mark, .days(100), "still to come today")
+        XCTAssertEqual(began.milestoneToday(sydneyDate(2026, 9, 13, 23, 30))?.mark, .days(100))
+    }
+
+    /// The round numbers are chosen to sit weeks from any calendar mark: one celebration a day.
+    func testNoDayCarriesTwoMilestones() {
+        let all = began.milestones()
+        let days = all.map { began.calendar.startOfDay(for: $0.date) }
+        XCTAssertEqual(Set(days).count, days.count, "one celebration a day")
     }
 }

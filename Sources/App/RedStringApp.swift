@@ -32,7 +32,11 @@ struct RedStringApp: App {
                 // The text shade: system-tinted controls are mostly words (toolbar
                 // buttons, Form rows), and `accent` itself is 4.25:1 on cream.
                 .tint(Theme.accentText)
-                .task { await model.onLaunch() }
+                .task {
+                    await model.onLaunch()
+                    // Siri learns "Set my status to …" for your recent statuses.
+                    RedStringShortcuts.updateAppShortcutParameters()
+                }
                 .onChange(of: scenePhase) { _, phase in
                     switch phase {
                     case .active:
@@ -52,6 +56,8 @@ struct RedStringApp: App {
                         Task { await model.refreshOnForeground() }
                     case .background:
                         returningFromBackground = true
+                        // The statuses set this time are the recent ones Siri should know.
+                        RedStringShortcuts.updateAppShortcutParameters()
                         // Receipts wait out a short debounce; leaving sends them now.
                         Task { await model.flushReceiptsForBackground() }
                     default:
@@ -88,6 +94,9 @@ struct RedStringApp: App {
                     case "moment":
                         let id = url.lastPathComponent
                         model.pendingRoute = id.isEmpty || id == "/" ? .newMoments : .moment(id)
+                    case "together":
+                        // The countdown widget's tap: the count, through the tie.
+                        model.pendingRoute = .anniversary
                     default:
                         break
                     }

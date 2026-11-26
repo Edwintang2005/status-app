@@ -4,7 +4,27 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 ## Unreleased
 
-Version 1.7.1 (build 87), one heading per day it was built, newest first.
+Version 1.8 (build 88), one heading per day it was built, newest first.
+
+### 26 November 2026
+
+- **Set your status without opening the app.** Ask Siri ("Set my Red String
+  status to Sleeping") or use Shortcuts, which offer your recent statuses and
+  the everyday ones. Or add the new Quick status widget: your four latest
+  statuses as buttons, one tap to set (unlock first). Each is sent at once, or
+  kept and sent as soon as iCloud can be reached — by the widgets' own refresh,
+  without waiting for you to open the app; the widget says "Not sent yet" meanwhile.
+- **Ask Siri about them.** "What's my partner up to?" reads their status and
+  how long ago they set it — never words you've reported or the filter hides,
+  and never an unopened surprise. Both ask you to unlock first.
+- **Your date, more often.** Round numbers are milestones now — 100 days,
+  1,000 days, 10,000 hours — with the same reminder, which for a round number
+  comes when your count actually reaches it. On a milestone day, Home
+  says so ("6 months today 💛") the first time you open the app, with a few
+  hearts, and takes you to your count. A new Together widget shows your days
+  and the next milestone on the lock screen or home screen, and Siri answers
+  "How long have we been together?".
+- **Version 1.8.**
 
 ### 22 November 2026
 

@@ -94,8 +94,14 @@ struct StatusProvider: TimelineProvider {
         }
         return await refreshFlight.run {
             do {
+                let started = Date()
                 // WidgetKit gives the provider a limited budget; give up well before it.
                 let result = try await withDeadline(AppConfig.widgetDeadline) { try await Backend.current.refresh() }
+                // Online, and time to spare: a status Siri or the quick-status button
+                // couldn't send goes now, not whenever the app next runs (invariant 11).
+                if Date().timeIntervalSince(started) < AppConfig.owedRetryExtensionBudget {
+                    await QuickStatus.sendOwed()
+                }
                 // Often the first of ours to run after an unlock: it rewords what a
                 // locked phone's pushes couldn't. Bounded, like everything here.
                 try? await withDeadline(3) { await BannerUpkeep.run(caughtUp: result.isWholeDelta) }

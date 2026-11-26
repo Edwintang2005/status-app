@@ -78,11 +78,11 @@ final class ViewDecisionTests: XCTestCase {
     func testHomeShowsTheMostUrgentNotice() {
         var all = HomeNotice.Inputs(partnerLeft: true, extraMembers: 1, iCloudProblem: "signed out",
                                     clearingHistory: true, freshStartStuck: true, freshStartRequest: true,
-                                    notificationsProblem: .off, closeLink: true, widgetTip: true,
-                                    recap: .year(2026))
+                                    milestone: .init(title: "6 months", key: "0:6"), notificationsProblem: .off, closeLink: true,
+                                    widgetTip: true, recap: .year(2026))
         let order: [HomeNotice] = [.partnerLeft, .extraMembers(1), .iCloud("signed out"), .freshStartClearing,
-                                   .freshStartStuck, .freshStartRequest, .notificationsOff(.off), .closeLink,
-                                   .widgetTip, .recap(.year(2026))]
+                                   .freshStartStuck, .freshStartRequest, .milestone(.init(title: "6 months", key: "0:6")),
+                                   .notificationsOff(.off), .closeLink, .widgetTip, .recap(.year(2026))]
         for expected in order {
             XCTAssertEqual(HomeNotice.pick(from: all), expected)
             switch expected {
@@ -92,6 +92,7 @@ final class ViewDecisionTests: XCTestCase {
             case .freshStartClearing: all.clearingHistory = false
             case .freshStartStuck: all.freshStartStuck = false
             case .freshStartRequest: all.freshStartRequest = false
+            case .milestone: all.milestone = nil
             case .notificationsOff: all.notificationsProblem = nil
             case .closeLink: all.closeLink = false
             case .widgetTip: all.widgetTip = false

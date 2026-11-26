@@ -26,6 +26,29 @@ extension AppModel {
         notificationsNotice = nil
     }
 
+    // MARK: - The milestone day
+
+    /// Today's milestone, for Home's card — until waved away. Both phones, unlike
+    /// the opt-in reminders: you're here, so it's no interruption.
+    func milestoneOnHome(now: Date = Date()) -> HomeNotice.MilestoneDay? {
+        guard isPaired, !snapshot.partnerHasLeft, let anniversary = snapshot.anniversary,
+              let today = anniversary.milestoneToday(now) else { return nil }
+        let key = today.dayKey(of: anniversary)
+        return key == milestoneNoticeDismissed ? nil : HomeNotice.MilestoneDay(title: today.title, key: key)
+    }
+
+    func dismissMilestoneNotice(_ day: HomeNotice.MilestoneDay) {
+        persist(day.key, \.milestoneNoticeDismissed, \.milestoneNoticeDismissed)
+    }
+
+    /// `true` the first time this milestone shows on this iPhone: its hearts rise once.
+    func claimMilestoneCelebration(_ day: HomeNotice.MilestoneDay) -> Bool {
+        let key = day.key
+        guard store.milestoneCelebrated != key else { return false }
+        store.milestoneCelebrated = key
+        return true
+    }
+
     // MARK: - Lock-screen widget tip
 
     var showsWidgetTip: Bool { isPaired && snapshot.theirs != nil && !widgetTipDismissed }

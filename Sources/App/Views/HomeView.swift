@@ -35,6 +35,7 @@ struct HomeView: View {
     @State private var heartArrivals = 0
     @State private var statusArrivals = 0
     @State private var momentArrivals = 0
+    @State private var milestoneBursts = 0
     /// The gallery opened from the moment card zooms out of it.
     @Namespace private var momentZoom
     @State private var galleryFromCard = false
@@ -273,6 +274,7 @@ struct HomeView: View {
             clearingHistory: model.isClearingHistory,
             freshStartStuck: model.freshStartNeedsAttention,
             freshStartRequest: model.showsFreshStartRequest,
+            milestone: model.milestoneOnHome(),
             notificationsProblem: model.notificationsNotice,
             closeLink: model.invite.showsClosePrompt,
             widgetTip: model.showsWidgetTip,
@@ -287,6 +289,12 @@ struct HomeView: View {
                        onAction: { act(on: notice) },
                        onDismiss: { dismiss(notice) })
             .equatable()
+            // The day's hearts rise once on each phone, the first time its card shows.
+            .overlay(alignment: .top) { HeartBurst(trigger: milestoneBursts) }
+            .sensoryFeedback(.success, trigger: milestoneBursts)
+            .onAppear {
+                if case .milestone(let day) = notice, model.claimMilestoneCelebration(day) { milestoneBursts += 1 }
+            }
     }
 
     private func act(on notice: HomeNotice) {
@@ -308,6 +316,8 @@ struct HomeView: View {
             confirmingCloseLink = true
         case .widgetTip:
             model.dismissWidgetTip()
+        case .milestone:
+            showingAnniversary = true
         case .recap(let period):
             recap = RecapRequest(period: period)
             model.dismissRecapNotice()
@@ -321,6 +331,7 @@ struct HomeView: View {
         case .notificationsOff: model.dismissNotificationsNotice()
         case .closeLink: model.invite.dismissClosePrompt()
         case .recap: model.dismissRecapNotice()
+        case .milestone(let day): model.dismissMilestoneNotice(day)
         case .extraMembers, .iCloud, .freshStartClearing, .freshStartStuck, .widgetTip: break
         }
     }

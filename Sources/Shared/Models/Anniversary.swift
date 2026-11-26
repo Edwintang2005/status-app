@@ -37,41 +37,86 @@ struct Anniversary: Codable, Hashable, Sendable {
         return calendar
     }
 
-    struct Milestone: Hashable {
-        let months: Int
+    struct Milestone: Hashable, Sendable {
+        /// A calendar mark (months, then years) or a round number of days or hours.
+        enum Mark: Hashable, Sendable {
+            case months(Int)
+            case days(Int)
+            case hours(Int)
+        }
+
+        let mark: Mark
         let date: Date
 
+        /// The month count for a calendar mark; `nil` for a round number.
+        var months: Int? {
+            if case .months(let count) = mark { count } else { nil }
+        }
+
+        /// A round number is reached at its moment, when the count ticks over —
+        /// a calendar mark is a date, "3 months today" all day.
+        var isMoment: Bool { months == nil }
+
+        /// This milestone of this date: a changed date is a new one.
+        func dayKey(of anniversary: Anniversary) -> String {
+            "\(Int(anniversary.startsAt.timeIntervalSince1970)):\(key)"
+        }
+
+        /// Stable per milestone, for its reminder (`MilestoneReminderPlan`).
+        var key: String {
+            switch mark {
+            case .months(let count): "\(count)"
+            case .days(let count): "d\(count)"
+            case .hours(let count): "h\(count)"
+            }
+        }
+
         var title: String {
-            if months % 12 == 0 {
+            switch mark {
+            case .months(let months) where months % 12 == 0:
                 let years = months / 12
                 return years == 1 ? String(localized: "1 year") : String(localized: "\(years) years")
+            case .months(let months):
+                return months == 1 ? String(localized: "1 month") : String(localized: "\(months) months")
+            case .days(let days):
+                return String(localized: "\(days.formatted()) days")
+            case .hours(let hours):
+                return String(localized: "\(hours.formatted()) hours")
             }
-            return months == 1 ? String(localized: "1 month") : String(localized: "\(months) months")
         }
     }
 
-    /// Monthly to a year, then yearly; ascending, so the first date past `now`
-    /// is the next one.
+    /// Round numbers worth a moment of their own, between the calendar marks.
+    static let roundDays = [100, 200, 300, 500, 1_000, 1_500, 2_000, 2_500, 3_000, 4_000,
+                            5_000, 6_000, 7_000, 8_000, 9_000, 10_000]
+    static let roundHours = [10_000, 100_000]
+
+    /// Monthly to a year, then yearly, with the round numbers between; in date
+    /// order. None share a day (the nearest pair is weeks apart; a test keeps it so).
     func milestones() -> [Milestone] {
         let months = [1, 2, 3, 6, 9, 12] + stride(from: 24, through: 12 * 60, by: 12)
         let calendar = self.calendar
-        return months.compactMap { count in
-            calendar.date(byAdding: .month, value: count, to: startsAt)
-                .map { Milestone(months: count, date: $0) }
+        let marks = months.compactMap { count in
+            calendar.date(byAdding: .month, value: count, to: startsAt).map { Milestone(mark: .months(count), date: $0) }
         }
+        let round = Self.roundDays.compactMap { count in
+            calendar.date(byAdding: .day, value: count, to: startsAt).map { Milestone(mark: .days(count), date: $0) }
+        } + Self.roundHours.map { Milestone(mark: .hours($0), date: startsAt.addingTimeInterval(Double($0) * 3_600)) }
+        return (marks + round).sorted { $0.date < $1.date }
     }
 
-    /// From tomorrow: today's milestone is the headline, not what's next.
+    /// Today's milestone is the headline, not what's next; a round number later
+    /// today is still to come.
     func nextMilestone(after now: Date) -> Milestone? {
         guard let tomorrow = calendar.date(byAdding: .day, value: 1,
                                            to: calendar.startOfDay(for: now)) else { return nil }
-        return milestones().first { $0.date >= tomorrow }
+        return milestones().first { $0.date >= tomorrow || ($0.isMoment && $0.date > now) }
     }
 
-    /// The milestone landing today (the owner's day), if any — the whole day
-    /// celebrates, not just the minute.
+    /// The milestone being celebrated (the owner's day), if any: a calendar
+    /// mark all day, a round number from its moment — so the count under it agrees.
     func milestoneToday(_ now: Date) -> Milestone? {
-        milestones().first { calendar.isDate($0.date, inSameDayAs: now) }
+        milestones().first { calendar.isDate($0.date, inSameDayAs: now) && (!$0.isMoment || $0.date <= now) }
     }
 
     /// Calendar months and days between the two *dates*, which is how people

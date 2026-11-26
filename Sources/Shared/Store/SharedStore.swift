@@ -46,6 +46,8 @@ final class SharedStore: @unchecked Sendable {
         static let closeLinkPromptDismissed = "closeLinkPromptDismissed"
         static let widgetTipDismissed = "widgetTipDismissed"
         static let recapNoticeDismissed = StoreKey<Int>("recapNoticeDismissed")
+        static let milestoneNoticeDismissed = StoreKey<String>("milestoneNoticeDismissed")
+        static let milestoneCelebrated = StoreKey<String>("milestoneCelebrated")
         static let partnerLeftNoticeDismissed = StoreKey<Date>("partnerLeftNoticeDismissed")
         static let subscriptionsVerified = StoreKey<Date>("subscriptionsVerifiedAt")
         static let widgetReloadRequestedAt = StoreKey<Date>("widgetReloadRequestedAt")
@@ -309,6 +311,18 @@ final class SharedStore: @unchecked Sendable {
     var recapNoticeDismissed: Int? {
         get { self[Key.recapNoticeDismissed] }
         set { self[Key.recapNoticeDismissed] = newValue }
+    }
+
+    /// Today's milestone card was waved away (`Anniversary.Milestone.dayKey`). Per device.
+    var milestoneNoticeDismissed: String? {
+        get { self[Key.milestoneNoticeDismissed] }
+        set { self[Key.milestoneNoticeDismissed] = newValue }
+    }
+
+    /// The milestone whose hearts already rose on this iPhone: once each.
+    var milestoneCelebrated: String? {
+        get { self[Key.milestoneCelebrated] }
+        set { self[Key.milestoneCelebrated] = newValue }
     }
 
     /// The `partnerLeftAt` whose Home notice was waved away; a later departure shows again.

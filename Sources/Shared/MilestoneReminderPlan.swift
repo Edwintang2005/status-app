@@ -1,7 +1,7 @@
 import Foundation
 
 /// The opt-in milestone reminders: a local notification on the morning of each
-/// coming milestone (`Anniversary.milestones()`), on both phones. Worded so the
+/// coming milestone (`Anniversary.milestones()`, round numbers included), on both phones. Worded so the
 /// lock screen doesn't give the count away; opening it leads through the tie
 /// to the count, which names the milestone.
 /// Pure — `NotificationManager.scheduleMilestoneReminders` hands it to the system.
@@ -14,9 +14,10 @@ enum MilestoneReminderPlan {
 
     struct Reminder: Equatable, Sendable {
         var identifier: String
-        var months: Int
+        var mark: Anniversary.Milestone.Mark
         /// Floating wall-clock: 9 am on the milestone's day — the owner's calendar
-        /// date, like the count screen's "today" — wherever this phone is.
+        /// date, like the count screen's "today" — wherever this phone is; a
+        /// round number reached later that day, at its moment, when the count shows it.
         var fireAt: DateComponents
     }
 
@@ -31,11 +32,13 @@ enum MilestoneReminderPlan {
         let owner = anniversary.calendar
         var reminders: [Reminder] = []
         for milestone in anniversary.milestones() {
-            let day = owner.dateComponents([.year, .month, .day], from: milestone.date)
-            let fireAt = DateComponents(year: day.year, month: day.month, day: day.day, hour: hour, minute: 0)
+            let day = owner.dateComponents([.year, .month, .day, .hour, .minute], from: milestone.date)
+            let later = milestone.isMoment && (day.hour ?? 0) >= hour
+            let fireAt = DateComponents(year: day.year, month: day.month, day: day.day,
+                                        hour: later ? day.hour : hour, minute: later ? day.minute : 0)
             guard let fires = local.date(from: fireAt), fires > now else { continue }
-            reminders.append(Reminder(identifier: "\(identifierPrefix)\(milestone.months)",
-                                      months: milestone.months,
+            reminders.append(Reminder(identifier: "\(identifierPrefix)\(milestone.key)",
+                                      mark: milestone.mark,
                                       fireAt: fireAt))
             if reminders.count == limit { break }
         }

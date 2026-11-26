@@ -19,11 +19,11 @@ settings:
   base:
     # Version lives here, not in Xcode's UI: `make build`/`make device` run
     # xcodegen first, which regenerates the project and overwrites anything
-    # set in Xcode. Build numbers are monotonic across marketing versions; last used: 86.
+    # set in Xcode. Build numbers are monotonic across marketing versions; last used: 87.
     # Every target inherits both; App Store Connect rejects an extension whose
     # version differs from the app's (ITMS-90473).
-    MARKETING_VERSION: "1.7.1"
-    CURRENT_PROJECT_VERSION: "87"
+    MARKETING_VERSION: "1.8"
+    CURRENT_PROJECT_VERSION: "88"
     # Language mode 5 under the Swift 6 compiler, with complete checking: without
     # SWIFT_STRICT_CONCURRENCY the level is minimal and most diagnostics never appear.
     SWIFT_VERSION: "5.0"
@@ -83,6 +83,8 @@ targets:
         buildPhase: none
       # The lock-screen heart's intent, also exposed to Siri/Shortcuts by the app.
       - path: Sources/Widget/SendNudgeIntent.swift
+      # The quick-status widget's buttons, the same way.
+      - path: Sources/Widget/SetQuickStatusIntent.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.edwintang.redstring
