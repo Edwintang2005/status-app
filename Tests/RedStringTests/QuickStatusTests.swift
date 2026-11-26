@@ -69,6 +69,26 @@ final class QuickStatusTests: XCTestCase {
         XCTAssertEqual(long.message.count, AppConfig.statusMessageMaxLength)
     }
 
+    // MARK: What Siri heard
+
+    private let choices: [SpokenStatus.Choice] = [("☕️", "Coffee break"), ("😴", "Sleeping"),
+                                                  ("🏠", "Home"), ("😴", "Sleeping in")]
+
+    func testSiriTakesYourWordsAsOneStatus() {
+        XCTAssertEqual(SpokenStatus.match("sleeping.", among: choices)?.message, "Sleeping", "not a list with Sleeping in")
+        XCTAssertEqual(SpokenStatus.match("Café break", among: [("☕️", "Cafe break")])?.emoji, "☕️")
+        XCTAssertEqual(SpokenStatus.match("I'm on a coffee break", among: choices)?.message, "Coffee break")
+        XCTAssertEqual(SpokenStatus.match("coffee", among: choices)?.message, "Coffee break")
+        XCTAssertEqual(SpokenStatus.match("🏠", among: choices)?.message, "Home")
+    }
+
+    func testWordsThatArentYoursBecomeTheStatus() {
+        let new = SpokenStatus.match("stuck in traffic.", among: choices)
+        XCTAssertEqual(new?.emoji, "💬")
+        XCTAssertEqual(new?.message, "Stuck in traffic")
+        XCTAssertNil(SpokenStatus.match("  ", among: choices))
+    }
+
     // MARK: Spoken lines
 
     private func snapshot(_ theirs: StatusPayload?) -> Snapshot {

@@ -103,6 +103,42 @@ enum QuickStatus {
     }
 }
 
+/// What Siri heard, as one status — never a list to tap through: the same
+/// words, else the closest of yours that holds them (or that they hold), else
+/// the words themselves, as a status of their own.
+enum SpokenStatus {
+    typealias Choice = (emoji: String, message: String)
+
+    /// `options` most recent first: a tie goes to the one you used last.
+    static func match(_ spoken: String, among options: [Choice]) -> Choice? {
+        let trimmed = spoken.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let emoji = options.first(where: { $0.emoji == trimmed }) { return emoji }
+        let said = normalised(spoken)
+        guard !said.isEmpty else { return nil }
+        if let exact = options.first(where: { normalised($0.message) == said }) { return exact }
+        let near = options.filter {
+            let words = normalised($0.message)
+            return !words.isEmpty && (words.contains(said) || said.contains(words))
+        }
+        if let closest = near.min(by: { distance($0, said) < distance($1, said) }) { return closest }
+        let words = trimmed.trimmingCharacters(in: .punctuationCharacters).prefix(AppConfig.statusMessageMaxLength)
+        guard let first = words.first else { return nil }
+        return ("💬", first.uppercased() + words.dropFirst())
+    }
+
+    /// Case, accents and punctuation aside: dictation adds a full stop, Siri a capital.
+    static func normalised(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
+    private static func distance(_ choice: Choice, _ said: String) -> Int {
+        abs(normalised(choice.message).count - said.count)
+    }
+}
+
 /// What Siri says, from the store as it is — through the moderation rules
 /// (invariant 20), the filter switch read once by the caller.
 enum SpokenLines {

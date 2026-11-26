@@ -11,9 +11,11 @@ struct StatusOption: AppEntity {
     /// The status itself: a recent one and the preset it came from are one choice.
     var id: String { "\(emoji)\u{1F}\(message)" }
 
+    /// Siri matches what's said against the title: the words alone, the emoji beside them.
     var displayRepresentation: DisplayRepresentation {
-        // Spoken without the emoji: "…to Sleeping", not "…to sleeping face Sleeping".
-        DisplayRepresentation(title: "\(emoji) \(message)", synonyms: message.isEmpty ? [] : ["\(message)"])
+        message.isEmpty
+            ? DisplayRepresentation(title: "\(emoji)")
+            : DisplayRepresentation(title: "\(message)", subtitle: "\(emoji)")
     }
 
     init(emoji: String, message: String) {
@@ -49,8 +51,10 @@ struct StatusOptionQuery: EntityStringQuery {
         Self.options()
     }
 
+    /// One answer, so Siri sets it rather than asking you to tap one (`SpokenStatus`).
     func entities(matching string: String) async throws -> [StatusOption] {
-        Self.options().filter { $0.message.localizedCaseInsensitiveContains(string) || $0.emoji == string }
+        let choices = Self.options().map { (emoji: $0.emoji, message: $0.message) }
+        return SpokenStatus.match(string, among: choices).map { [StatusOption(emoji: $0.emoji, message: $0.message)] } ?? []
     }
 }
 
@@ -61,7 +65,8 @@ struct SetStatusIntent: AppIntent {
     // Its words are encrypted on the way out; and a locked phone isn't yours to speak for.
     static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
 
-    @Parameter(title: "Status")
+    // Asked aloud, answered aloud: "Set my Red String status" → "What's your status?" → "Sleeping".
+    @Parameter(title: "Status", requestValueDialog: IntentDialog("What's your status?"))
     var status: StatusOption
 
     static var parameterSummary: some ParameterSummary {

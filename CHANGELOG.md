@@ -9,8 +9,9 @@ Version 1.8 (build 88), one heading per day it was built, newest first.
 ### 26 November 2026
 
 - **Set your status without opening the app.** Ask Siri ("Set my Red String
-  status to Sleeping") or use Shortcuts, which offer your recent statuses and
-  the everyday ones. Or add the new Quick status widget: your four latest
+  status to Sleeping"), or just "Set my Red String status" and answer when it
+  asks — your words match one of your statuses, or become a new one, with
+  nothing to tap. Shortcuts offer your recent statuses and the everyday ones. Or add the new Quick status widget: your four latest
   statuses as buttons, one tap to set (unlock first). Each is sent at once, or
   kept and sent as soon as iCloud can be reached — by the widgets' own refresh,
   without waiting for you to open the app; the widget says "Not sent yet" meanwhile.
