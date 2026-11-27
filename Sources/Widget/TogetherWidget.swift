@@ -81,8 +81,8 @@ struct TogetherWidgetView: View {
                 Text(countdown.daysTogether)
             case .accessoryCircular:
                 VStack(spacing: 0) {
-                    RedThreadView(progress: countdown.progress, bead: 3, knot: 2.5, lineWidth: 2)
-                        .frame(width: 38, height: 18)
+                    RedThreadView(progress: countdown.progress, seed: entry.date, bead: 3, knot: 2.5, lineWidth: 2)
+                        .frame(width: 40, height: 20)
                     Text(countdown.days.formatted())
                         .font(.system(size: 18, weight: .bold, design: .rounded))
                         .minimumScaleFactor(0.6)
@@ -106,7 +106,7 @@ struct TogetherWidgetView: View {
                                 .minimumScaleFactor(0.8)
                         }
                     }
-                    RedThreadView(progress: countdown.progress, bead: 4, knot: 3, lineWidth: 2)
+                    RedThreadView(progress: countdown.progress, seed: entry.date, bead: 4, knot: 3, lineWidth: 2)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 .accessibilityElement(children: .ignore)
@@ -135,8 +135,8 @@ struct TogetherWidgetView: View {
                 .font(.system(.subheadline, design: .rounded, weight: .semibold))
                 .foregroundStyle(.secondary)
             Spacer(minLength: 4)
-            RedThreadView(progress: countdown.progress, bead: 5.5, knot: 4, lineWidth: 2.5)
-                .frame(height: 26)
+            RedThreadView(progress: countdown.progress, seed: entry.date, bead: 5.5, knot: 4, lineWidth: 2.5)
+                .frame(height: 32)
             HStack {
                 Text(countdown.since)
                 Spacer(minLength: 4)
@@ -189,9 +189,12 @@ struct TogetherWidgetView: View {
 
 /// The red string from the last milestone to the next: tied at the start, the
 /// travelled part drawn solid, a bead where you are; on the day, it's tied off.
-/// Accent-tinted on the home screen, the vibrant tint on the lock screen.
+/// Accent-tinted on the home screen, the vibrant tint on the lock screen. Each
+/// entry hangs it a little differently (`seed`), like a real thread would.
 struct RedThreadView: View {
     var progress: Double?
+    /// The entry's date: the same entry always draws the same slack.
+    var seed: Date
     var bead: CGFloat
     var knot: CGFloat
     var lineWidth: CGFloat
@@ -201,48 +204,50 @@ struct RedThreadView: View {
         let done = progress ?? 0
         let tint: Color = renderingMode == .fullColor ? Theme.accent : .primary
         let beadTint: Color = renderingMode == .fullColor ? Theme.warm : .primary
-        GeometryReader { proxy in
-            let rect = CGRect(origin: .zero, size: proxy.size).insetBy(dx: knot + 1, dy: bead)
-            let thread = RedThread().path(in: rect)
-            let style = StrokeStyle(lineWidth: lineWidth, lineCap: .round)
-            ZStack {
-                thread.stroke(tint.opacity(0.3), style: style)
-                thread.trimmedPath(from: 0, to: done).stroke(tint, style: style)
+        let slack = ThreadSlack(seed: seed)
+        // Room for the bead and knots; every slack keeps its swing inside the frame.
+        let inset = CGSize(width: knot + 1, height: bead + 1)
+        let style = StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+        ZStack {
+            RedThread(slack: slack, inset: inset).stroke(tint.opacity(0.3), style: style)
+            RedThread(slack: slack, inset: inset, progress: done).stroke(tint, style: style)
+                .widgetAccentable()
+            RedThread.Dot(slack: slack, inset: inset, at: 0, radius: knot).fill(tint)
+            RedThread.Dot(slack: slack, inset: inset, at: 1, radius: knot)
+                .fill(done >= 1 ? tint : .clear)
+                .overlay(RedThread.Dot(slack: slack, inset: inset, at: 1, radius: knot - lineWidth * 0.35)
+                    .stroke(tint, lineWidth: max(1, lineWidth * 0.7)))
+            if progress != nil, done < 1 {
+                RedThread.Dot(slack: slack, inset: inset, at: done, radius: bead).fill(beadTint)
                     .widgetAccentable()
-                Circle().fill(tint)
-                    .frame(width: knot * 2, height: knot * 2)
-                    .position(RedThread.start(in: rect))
-                Circle()
-                    .strokeBorder(tint, lineWidth: max(1, lineWidth * 0.7))
-                    .background(Circle().fill(done >= 1 ? tint : .clear))
-                    .frame(width: knot * 2, height: knot * 2)
-                    .position(RedThread.end(in: rect))
-                if progress != nil, done < 1 {
-                    Circle().fill(beadTint)
-                        .frame(width: bead * 2, height: bead * 2)
-                        .position(thread.trimmedPath(from: 0, to: max(done, 0.001)).currentPoint ?? RedThread.start(in: rect))
-                        .widgetAccentable()
-                }
             }
         }
         .accessibilityHidden(true)
     }
 }
 
-/// A slack thread: one gentle wave between its two knots.
+/// A slack thread: one wave between its two knots, drawn to `progress`.
 struct RedThread: Shape {
-    static func start(in rect: CGRect) -> CGPoint { CGPoint(x: rect.minX, y: rect.minY + rect.height * 0.6) }
-    static func end(in rect: CGRect) -> CGPoint { CGPoint(x: rect.maxX, y: rect.minY + rect.height * 0.6) }
+    var slack: ThreadSlack
+    var inset: CGSize = .zero
+    var progress: Double = 1
 
     func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: Self.start(in: rect))
-        path.addCurve(to: CGPoint(x: rect.minX + rect.width * 0.55, y: rect.minY + rect.height * 0.35),
-                      control1: CGPoint(x: rect.minX + rect.width * 0.2, y: rect.minY - rect.height * 0.1),
-                      control2: CGPoint(x: rect.minX + rect.width * 0.35, y: rect.maxY + rect.height * 0.1))
-        path.addCurve(to: Self.end(in: rect),
-                      control1: CGPoint(x: rect.minX + rect.width * 0.75, y: rect.minY - rect.height * 0.15),
-                      control2: CGPoint(x: rect.minX + rect.width * 0.9, y: rect.minY + rect.height * 0.2))
-        return path
+        let whole = slack.wave(in: rect.insetBy(dx: inset.width, dy: inset.height))
+        return progress >= 1 ? whole : whole.trimmedPath(from: 0, to: max(progress, 0))
+    }
+
+    /// A knot or the bead, `at` its share along the thread.
+    struct Dot: Shape {
+        var slack: ThreadSlack
+        var inset: CGSize
+        var at: Double
+        var radius: CGFloat
+
+        func path(in rect: CGRect) -> Path {
+            let wave = slack.wave(in: rect.insetBy(dx: inset.width, dy: inset.height))
+            let point = wave.trimmedPath(from: 0, to: min(max(at, 0.001), 1)).currentPoint ?? .zero
+            return Path(ellipseIn: CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2))
+        }
     }
 }
