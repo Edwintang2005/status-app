@@ -12,6 +12,8 @@ class FakeBackend: SyncBackend, @unchecked Sendable {
     private var _receipts: [[String: Date]] = []
     private var _statusSeen: [StatusSeen?] = []
     private var _anniversaries: [Anniversary?] = []
+    private var _statusLogs: [[StatusHistoryEntry]] = []
+    private var _anniversaryStamps: [Date?] = []
     private var _requests: [Date] = []
     private var _freshStartIntents: [FreshStartIntent] = []
     private var _clears: [(epoch: Date, keep: Date?)] = []
@@ -132,6 +134,14 @@ class FakeBackend: SyncBackend, @unchecked Sendable {
         duringCaption?()
         lock.withLock { _captions.append((moment.id, moment.caption)) }
     }
+    /// Every `publishStatusLogs` batch, in order.
+    var statusLogs: [[StatusHistoryEntry]] { lock.withLock { _statusLogs } }
+    func publishStatusLogs(_ entries: [StatusHistoryEntry]) async throws -> [Date] {
+        try check("publishStatusLogs")
+        lock.withLock { _statusLogs.append(entries) }
+        return entries.map(\.at)
+    }
+
     func publishAnniversary(_ anniversary: Anniversary?) async throws {
         try check("anniversary")
         duringAnniversary?()

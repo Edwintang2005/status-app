@@ -681,7 +681,7 @@ extension CloudSync {
         // two lines above, so a status and its log record collapse into one.
         // Re-judged inside each store's lock against the epoch as it is then.
         let created = Self.serverCreationTimes(changes.records, mineRole: pairing.role)
-        self.stores.statusLog.record(parsed.logEntries) {
+        self.stores.statusLog.record(parsed.logEntries, fromLogRecords: true) {
             let epoch = self.stores.shared.snapshot.freshStart.clearedBefore
             let isCleared = FreshStartPolicy.clearedFilter(createdAt: created.logs, epoch: epoch)
             return { isCleared(FreshStartPolicy.LogKey(fromMe: $0.fromMe, at: $0.at)) }

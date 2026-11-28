@@ -1,3 +1,4 @@
+import CloudKit
 import XCTest
 
 /// Status history dedups by `(fromMe, whole-second wordsAt)` across its two
@@ -120,5 +121,68 @@ final class StatusHistoryLogTests: XCTestCase {
         XCTAssertEqual(here.load().map(\.fromMe), [false])
         there.clear()
         XCTAssertEqual(here.load(), [])
+    }
+
+    // MARK: Owed log records (statuses set offline)
+
+    func testOursAreOwedUntilALogRecordConfirmsThem() {
+        let (log, _) = makeLog()
+        log.record(Fixtures.status("☕️", "coffee", at: Fixtures.t0), fromMe: true, unlogged: true)
+        log.record(Fixtures.status("💼", "work", at: Fixtures.date(60)), fromMe: true, unlogged: true)
+        XCTAssertEqual(log.unloggedOwn(limit: 10, excluding: nil, after: nil).map(\.message), ["work", "coffee"])
+        XCTAssertEqual(log.unloggedOwn(limit: 10, excluding: Fixtures.date(60), after: nil).map(\.message), ["coffee"],
+                       "never the current status: its own publish logs it")
+        XCTAssertEqual(log.unloggedOwn(limit: 10, excluding: nil, after: Fixtures.date(30)).map(\.message), ["work"],
+                       "never from before a fresh start")
+
+        log.markLogged(at: [Fixtures.date(60)])
+        XCTAssertEqual(log.unloggedOwn(limit: 10, excluding: nil, after: nil).map(\.message), ["coffee"])
+        // Its record arriving from the zone (another device of ours, a resync) settles it too.
+        log.record([StatusHistoryEntry(Fixtures.status("☕️", "coffee", at: Fixtures.t0), fromMe: true)], fromLogRecords: true)
+        XCTAssertTrue(log.unloggedOwn(limit: 10, excluding: nil, after: nil).isEmpty)
+    }
+
+    /// The current `Status` record's entry is no proof its log landed.
+    func testOnlyALogRecordSettlesAnEntry() {
+        let (log, _) = makeLog()
+        let coffee = Fixtures.status("☕️", "coffee", at: Fixtures.t0)
+        log.record(coffee, fromMe: true, unlogged: true)
+        log.record(coffee, fromMe: true)
+        XCTAssertEqual(log.unloggedOwn(limit: 10, excluding: nil, after: nil).count, 1)
+    }
+
+    func testOnlyTheNewestTheCloudKeepsAreOwed() {
+        let (log, _) = makeLog()
+        for second in 0..<(AppConfig.statusLogLimit + 5) {
+            log.record(Fixtures.status("☕️", "\(second)", at: Fixtures.date(Double(second))), fromMe: true, unlogged: true)
+        }
+        let owed = log.unloggedOwn(limit: 1_000, excluding: nil, after: nil)
+        XCTAssertEqual(owed.count, AppConfig.statusLogLimit, "older ones would be pruned on arrival")
+        XCTAssertEqual(owed.first?.message, "\(AppConfig.statusLogLimit + 4)", "newest first")
+    }
+
+    /// Hand-written Codable (invariant 5): old files read as logged, and a logged entry writes as before.
+    func testTheMarkIsOptionalOnDisk() throws {
+        let old = Data(#"[{"emoji":"☕️","message":"coffee","isCelebration":false,"at":"2026-01-01T00:00:00Z","fromMe":true}]"#.utf8)
+        let decoded = try JSONDecoder.shared.decode([StatusHistoryEntry].self, from: old)
+        XCTAssertEqual(decoded.first?.unlogged, false)
+        let written = try JSONEncoder.shared.encode(decoded)
+        XCTAssertFalse(String(decoding: written, as: UTF8.self).contains("unlogged"))
+        var owed = decoded[0]
+        owed.unlogged = true
+        let roundTrip = try JSONDecoder.shared.decode(StatusHistoryEntry.self, from: JSONEncoder.shared.encode(owed))
+        XCTAssertTrue(roundTrip.unlogged)
+    }
+
+    /// An earlier status's log is the same record its own publish would have
+    /// written: same name, same fields, so a resend overwrites itself.
+    func testAnEarlierStatusesLogRecordIsTheOneItsPublishWouldWrite() {
+        let coffee = Fixtures.status("☕️", "coffee", at: Fixtures.t0)
+        let fromEntry = CloudSync.statusLogRecord(StatusHistoryEntry(coffee, fromMe: true, unlogged: true),
+                                                  role: .owner, zone: Fixtures.zone)
+        let fromPayload = CloudSync.statusLogRecord(coffee, role: .owner, zone: Fixtures.zone)
+        XCTAssertEqual(fromEntry.recordID, fromPayload.recordID)
+        XCTAssertEqual(fromEntry.encryptedValues[CloudSync.Field.message] as? String, "coffee")
+        XCTAssertEqual(fromEntry[CloudSync.Field.updatedAt] as? Date, Fixtures.t0)
     }
 }

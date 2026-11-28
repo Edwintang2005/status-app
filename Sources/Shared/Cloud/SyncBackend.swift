@@ -114,6 +114,8 @@ protocol SyncBackend: Sendable {
     func readiness() async -> BackendReadiness
     /// `logged: false` for a rename — the status didn't change, so no `StatusLog` record.
     func publish(_ payload: StatusPayload, logged: Bool) async throws
+    /// `StatusLog` records for these of ours that never got one; returns the dates confirmed saved.
+    func publishStatusLogs(_ entries: [StatusHistoryEntry]) async throws -> [Date]
     @discardableResult func refresh() async throws -> RefreshResult
     /// `false` when the cooldown blocked it.
     @discardableResult func sendNudge() async throws -> Bool
@@ -435,6 +437,7 @@ struct DemoBackend: AppBackend {
         ArchiveContents.Zone(moments: [], statuses: [], unreadable: 0)
     }
     func publishReceipts(_ seen: [String: Date], statusSeen: StatusSeen?) async throws {}
+    func publishStatusLogs(_ entries: [StatusHistoryEntry]) async throws -> [Date] { entries.map(\.at) }
     func publishAnniversary(_ anniversary: Anniversary?) async throws {}
     func publishAnniversaryRequest(at date: Date) async throws {}
     /// No partner to agree: an ask simply stands, stamped now.

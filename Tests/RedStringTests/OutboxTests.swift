@@ -59,6 +59,53 @@ final class OutboxTests: XCTestCase {
         XCTAssertEqual(backend.published.count, 1)
     }
 
+    // MARK: Statuses set offline (every one logged, not only the last)
+
+    /// Coffee at 9:00, At work at 9:30, both offline: back online, the status is
+    /// At work, and Coffee's log record goes too, in its own place.
+    func testEveryStatusSetOfflineIsLoggedNotOnlyTheLast() async {
+        let coffee = Fixtures.status("☕️", "coffee", at: Fixtures.t0)
+        let work = Fixtures.status("💼", "at work", at: Fixtures.date(30 * 60))
+        statusLog.record(coffee, fromMe: true, unlogged: true)
+        statusLog.record(work, fromMe: true, unlogged: true)
+        store.mutate { $0.mine = work; $0.myStatusPublished = false }
+
+        await outbox.republishStatus()
+        let changed = await outbox.republishStatusHistory()
+        XCTAssertTrue(changed)
+        XCTAssertEqual(backend.published.map(\.payload.message), ["at work"], "the status is the last one, once")
+        XCTAssertEqual(backend.statusLogs.map { $0.map(\.message) }, [["coffee"]],
+                       "the earlier one's log, and not the current status's twice")
+        XCTAssertEqual(backend.statusLogs.first?.first?.at, Fixtures.t0, "at 9:00, when it was set")
+        XCTAssertFalse(statusLog.load().first { $0.message == "coffee" }!.unlogged)
+
+        let again = await outbox.republishStatusHistory()
+        XCTAssertFalse(again, "settled: never sent twice")
+        XCTAssertEqual(backend.statusLogs.count, 1)
+    }
+
+    func testAnEarlierStatusThatCantSendStaysOwed() async {
+        statusLog.record(Fixtures.status("☕️", "coffee", at: Fixtures.t0), fromMe: true, unlogged: true)
+        store.mutate { $0.mine = Fixtures.status("💼", "at work", at: Fixtures.date(1_800)) }
+        backend.fail("publishStatusLogs", with: CKError(.networkUnavailable))
+
+        let changed = await outbox.republishStatusHistory()
+        XCTAssertFalse(changed)
+        XCTAssertTrue(statusLog.load().first { $0.message == "coffee" }!.unlogged, "kept for the next pass")
+        await outbox.republishStatusHistory()
+        XCTAssertEqual(backend.statusLogs.count, 1, "sent once the network's back")
+    }
+
+    func testAFullICloudHoldsTheHistoryLikeEverythingElse() async {
+        statusLog.record(Fixtures.status("☕️", "coffee", at: Fixtures.t0), fromMe: true, unlogged: true)
+        store.mutate { $0.mine = Fixtures.status("💼", "at work", at: Fixtures.date(1_800)) }
+        backend.fail("publishStatusLogs", with: quota)
+        await outbox.republishStatusHistory()
+        let held = await outbox.republishStatusHistory(automatic: true)
+        XCTAssertFalse(held)
+        XCTAssertEqual(backend.statusLogs.count, 0, "an automatic pass waits out the full iCloud")
+    }
+
     /// A rename retried offline must not log its old words as a new status.
     func testRetriedRenameIsNotLogged() async {
         let mine = Fixtures.status("🍜", "lunch")
@@ -117,6 +164,19 @@ final class OutboxTests: XCTestCase {
         await outbox.republishAnniversary()
         XCTAssertEqual(backend.anniversaries, [first, second])
         XCTAssertTrue(store.snapshot.anniversaryPublished)
+    }
+
+    /// A clear judges records by when they were created: none made for an older
+    /// status while a fresh start is under way.
+    func testEarlierStatusesWaitOutAFreshStart() async {
+        statusLog.record(Fixtures.status("☕️", "coffee", at: Fixtures.t0), fromMe: true, unlogged: true)
+        store.mutate {
+            $0.mine = Fixtures.status("💼", "at work", at: Fixtures.date(1_800))
+            $0.freshStart.theirs = FreshStartRecord(stage: .asking, epoch: Fixtures.date(3_600))
+        }
+        let sent = await outbox.republishStatusHistory()
+        XCTAssertFalse(sent)
+        XCTAssertTrue(backend.statusLogs.isEmpty)
     }
 
     func testTheOwnerNeverAsksForTheDate() async {

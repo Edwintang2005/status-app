@@ -8,11 +8,12 @@ import Foundation
 /// In memory: after a relaunch, one try finds out again. A tap never asks.
 struct RetryPacing: Equatable, Sendable {
     /// What a per-send hold is about — refused uploads and caption edits by moment,
-    /// the status as one.
+    /// the status as one, earlier statuses' logs as another.
     enum Subject: Hashable, Sendable {
         case upload(String)
         case caption(String)
         case status
+        case history
     }
 
     private(set) var storageFullAt: Date?

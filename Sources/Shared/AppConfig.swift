@@ -117,6 +117,8 @@ enum AppConfig {
     /// record, so this caps the zone's growth; the publisher deletes its own
     /// oldest entries past it, and both devices drop them from the local log.
     static let statusLogLimit = 150
+    /// Earlier statuses of ours sent a log record per pass (`Outbox.republishStatusHistory`).
+    static let statusLogBackfillBatch = 50
 
     /// Seen-moments carried in a read-receipt record. Covers everything a
     /// sender could still be wondering about without growing unboundedly.

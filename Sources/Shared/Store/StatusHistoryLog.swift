@@ -11,28 +11,33 @@ struct StatusHistoryEntry: Codable, Hashable, Identifiable {
     /// date never equals its own stored copy (invariant 14).
     var at: Date
     var fromMe: Bool
+    /// Ours, set while paired, its `StatusLog` record not yet confirmed in the
+    /// zone. Local only; `Outbox.republishStatusHistory` sends it.
+    var unlogged = false
 
     var id: String { "\(fromMe ? "me" : "them")-\(at.timeIntervalSince1970)" }
 
-    init(emoji: String, message: String, isCelebration: Bool, at: Date, fromMe: Bool) {
+    init(emoji: String, message: String, isCelebration: Bool, at: Date, fromMe: Bool, unlogged: Bool = false) {
         self.emoji = emoji
         self.message = message
         self.isCelebration = isCelebration
         self.at = at.wholeSeconds
         self.fromMe = fromMe
+        self.unlogged = unlogged
     }
 
-    init(_ payload: StatusPayload, fromMe: Bool) {
+    init(_ payload: StatusPayload, fromMe: Bool, unlogged: Bool = false) {
         self.init(emoji: payload.emoji,
                   message: payload.message,
                   isCelebration: payload.isCelebration,
                   // When the words were set, like the `StatusLog` record's name.
                   at: payload.wordsAt,
-                  fromMe: fromMe)
+                  fromMe: fromMe,
+                  unlogged: unlogged)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case emoji, message, isCelebration, at, fromMe
+        case emoji, message, isCelebration, at, fromMe, unlogged
     }
 
     init(from decoder: Decoder) throws {
@@ -42,6 +47,18 @@ struct StatusHistoryEntry: Codable, Hashable, Identifiable {
         isCelebration = try container.decodeIfPresent(Bool.self, forKey: .isCelebration) ?? false
         at = try container.decodeIfPresent(Date.self, forKey: .at) ?? .distantPast
         fromMe = try container.decodeIfPresent(Bool.self, forKey: .fromMe) ?? false
+        unlogged = try container.decodeIfPresent(Bool.self, forKey: .unlogged) ?? false
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(emoji, forKey: .emoji)
+        try container.encode(message, forKey: .message)
+        try container.encode(isCelebration, forKey: .isCelebration)
+        try container.encode(at, forKey: .at)
+        try container.encode(fromMe, forKey: .fromMe)
+        // Only when set: a logged entry writes no key.
+        if unlogged { try container.encode(unlogged, forKey: .unlogged) }
     }
 }
 
@@ -101,18 +118,22 @@ final class StatusHistoryLog: @unchecked Sendable {
 
     /// Appends the payload unless an entry with the same `(fromMe, wordsAt)`
     /// is already there — safe to call from repeated deltas and full resyncs.
-    func record(_ payload: StatusPayload, fromMe: Bool) {
+    /// `unlogged`: one of ours just set while paired, its `StatusLog` record owed.
+    func record(_ payload: StatusPayload, fromMe: Bool, unlogged: Bool = false) {
         // Skip placeholders that were never a real status.
         guard payload.updatedAt > .distantPast else { return }
         // Built as an entry so both sides of the dedup carry the same
         // whole-second timestamp — see `StatusHistoryEntry.at`.
-        record([StatusHistoryEntry(payload, fromMe: fromMe)])
+        record([StatusHistoryEntry(payload, fromMe: fromMe, unlogged: unlogged)])
     }
 
     /// Batch form, one lock for a whole delta (a resync delivers the entire
     /// cloud log at once). Same dedup; existing entries win.
     /// `cleared` is built inside the lock, like `MomentIndex.insertReadable`'s.
-    func record(_ entries: [StatusHistoryEntry], cleared: (() -> (StatusHistoryEntry) -> Bool)? = nil) {
+    /// `fromLogRecords`: these came from `StatusLog` records, so any of ours they
+    /// match is logged now.
+    func record(_ entries: [StatusHistoryEntry], fromLogRecords: Bool = false,
+                cleared: (() -> (StatusHistoryEntry) -> Bool)? = nil) {
         guard !entries.isEmpty else { return }
         lock.lock()
         defer { lock.unlock() }
@@ -126,10 +147,48 @@ final class StatusHistoryLog: @unchecked Sendable {
                 all.append(entry)
                 changed = true
             }
+            if fromLogRecords {
+                let landed = Set(entries.filter(\.fromMe).map(\.id))
+                changed = Self.settle(&all, landed) || changed
+            }
             guard changed else { return }
             all.sort { $0.at > $1.at }
             saveUnlocked(all)
         }
+    }
+
+    /// Our entries whose `StatusLog` records are confirmed in the zone.
+    func markLogged(at dates: [Date]) {
+        guard !dates.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        crossLock.withLock {
+            var all = loadUnlocked(writing: true)
+            let landed = Set(dates.map { StatusHistoryEntry(emoji: "", message: "", isCelebration: false,
+                                                            at: $0, fromMe: true).id })
+            if Self.settle(&all, landed) { saveUnlocked(all) }
+        }
+    }
+
+    /// Our entries still owed a `StatusLog` record, newest first, at most `limit`:
+    /// only among the newest `AppConfig.statusLogLimit` of ours (the cloud log's
+    /// cap would prune the rest at once), never `excluding` (the current status,
+    /// which its own publish logs), never from before `after` (a fresh start).
+    func unloggedOwn(limit: Int, excluding current: Date?, after epoch: Date?) -> [StatusHistoryEntry] {
+        let current = current?.wholeSeconds
+        return load().filter(\.fromMe).prefix(AppConfig.statusLogLimit)
+            .filter { $0.unlogged && $0.at != current && $0.at > (epoch ?? .distantPast) }
+            .prefix(limit).map { $0 }
+    }
+
+    /// Clears `unlogged` on our entries in `landed` (by id); whether any changed.
+    private static func settle(_ all: inout [StatusHistoryEntry], _ landed: Set<String>) -> Bool {
+        var changed = false
+        for index in all.indices where all[index].unlogged && landed.contains(all[index].id) {
+            all[index].unlogged = false
+            changed = true
+        }
+        return changed
     }
 
     /// Drops entries by dedup key — how a `StatusLog` record's deletion (the

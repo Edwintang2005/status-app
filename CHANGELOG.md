@@ -15,6 +15,10 @@ Version 1.8 (build 88), one heading per day it was built, newest first.
 - **The milestone card arrives on time,** even with the app already open at
   midnight or when a round number like 100 days ticks over.
 - The tests now pass whatever language and region the Mac is set to.
+- **Every status you set offline reaches your shared history,** not only the
+  last one: set "coffee" then "at work" on a train, and once you're back
+  online "coffee" appears in its place in both histories (quietly, no banner)
+  and comes back after a reinstall.
 
 ### 27 November 2026
 

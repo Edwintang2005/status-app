@@ -128,3 +128,14 @@ final class MilestoneDayTests: XCTestCase {
         XCTAssertEqual(model.milestoneNoticeDismissed, shown.key)
     }
 }
+/// Every status set while paired is owed its log record until one's confirmed.
+@MainActor
+final class StatusHistoryOwedTests: XCTestCase {
+    func testASetStatusIsOwedItsLogUntilConfirmed() async {
+        let (model, backend, stores) = makeModel()
+        backend.fail("publish", with: CKError(.networkUnavailable))
+        _ = await model.setStatus(emoji: "☕️", message: "coffee")
+        XCTAssertEqual(stores.statusLog.load().first?.unlogged, true, "offline: owed until a log record lands")
+    }
+}
+

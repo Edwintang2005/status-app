@@ -54,6 +54,7 @@ extension CloudSync {
             await MainActor.run {
                 _ = self.stores.shared.mutate { $0.recordLogged(payload) }
             }
+            self.stores.statusLog.markLogged(at: [payload.wordsAt])
             noteStatusLogsPruned(removed)
             let foldedNames = Set(folded.map(\.id.recordName))
             stale.removeAll { foldedNames.contains($0.id.recordName) }
@@ -86,13 +87,46 @@ extension CloudSync {
 
     /// A log record for `payload`, fresh each attempt (a conflict retry rebuilds it).
     static func statusLogRecord(_ payload: StatusPayload, role: PairRole, zone: CKRecordZone.ID) -> CKRecord {
-        let recordID = CKRecord.ID(recordName: role.statusLogRecordName(at: payload.wordsAt), zoneID: zone)
+        statusLogRecord(StatusHistoryEntry(payload, fromMe: true), role: role, zone: zone)
+    }
+
+    /// The same record for a history entry of ours, named by when its words were set.
+    static func statusLogRecord(_ entry: StatusHistoryEntry, role: PairRole, zone: CKRecordZone.ID) -> CKRecord {
+        let recordID = CKRecord.ID(recordName: role.statusLogRecordName(at: entry.at), zoneID: zone)
         let record = CKRecord(recordType: RecordType.statusLog, recordID: recordID)
-        record.encryptedValues[Field.emoji] = payload.emoji
-        record.encryptedValues[Field.message] = payload.message
-        record.encryptedValues[Field.isCelebration] = payload.isCelebration ? 1 : 0
-        record[Field.updatedAt] = payload.wordsAt as CKRecordValue
+        record.encryptedValues[Field.emoji] = entry.emoji
+        record.encryptedValues[Field.message] = entry.message
+        record.encryptedValues[Field.isCelebration] = entry.isCelebration ? 1 : 0
+        record[Field.updatedAt] = entry.at as CKRecordValue
         return record
+    }
+
+    /// Fixed names, so a resend overwrites itself; each record confirmed by its
+    /// own result (invariant 22). The caller settles the history entries.
+    func publishStatusLogs(_ entries: [StatusHistoryEntry]) async throws -> [Date] {
+        let own = entries.filter(\.fromMe)
+        guard !own.isEmpty else { return [] }
+        let pairing = try await requirePairing()
+        let database = self.database(for: pairing)
+        let zone = zoneID(for: pairing)
+        let records = own.map { Self.statusLogRecord($0, role: pairing.role, zone: zone) }
+        // Judged inside the zone recovery, so a gone zone on every item is the zone gone.
+        return try await withZoneRecovery(pairing) {
+            let result = try await database.waited { try await $0.modifyRecords(saving: records, deleting: [],
+                                                                                savePolicy: .allKeys, atomically: false) }
+            var saved: [Date] = []
+            var firstFailure: Error?
+            for (entry, record) in zip(own, records) {
+                switch result.saveResults[record.recordID] {
+                case .success?: saved.append(entry.at)
+                case .failure(let error)?: firstFailure = firstFailure ?? error
+                case nil: firstFailure = firstFailure ?? SyncError.saveUnconfirmed
+                }
+            }
+            // None landed: the failure, classified by the caller (a full iCloud, a throttle).
+            if saved.isEmpty, let firstFailure { throw firstFailure }
+            return saved
+        }
     }
 
     /// The per-change history record. Named by when the words were set (not a

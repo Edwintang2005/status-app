@@ -86,6 +86,8 @@ extension AppModel: SyncHost {
     /// a while (each one confirms itself through `noteUploaded`), and after them.
     func sendQueued(automatic: Bool) async {
         var changed = await outbox.republishStatus(automatic: automatic)
+        // After the status, whose own log goes with it.
+        if await outbox.republishStatusHistory(automatic: automatic) { changed = true }
         if await outbox.republishAnniversary(automatic: automatic) { changed = true }
         if await outbox.republishAnniversaryRequest(automatic: automatic) { changed = true }
         // Before the upload retry: the clear and a retry never overlap.

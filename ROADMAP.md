@@ -691,13 +691,7 @@ Ranked by harm: data loss and trust first. Numbers like #5 are the September
    partner"**: `recordBlockedPartner` needs the share's participant list from
    the network, so an owner who blocks offline records nobody; cache the
    participant record names on each successful refresh (or `shareCheck()`). (S)
-3. **Statuses set while offline only log the last one** (S). Set A then B
-   offline: the reconnect republishes `mine` (B) and logs B, so A stays in this
-   phone's `StatusHistoryLog` but never gets a `StatusLog` record — the
-   partner's history skips it and a reinstall loses it. Fix: a local-only
-   "unlogged" mark on own `StatusHistoryEntry`s and a capped republish of their
-   `StatusLog` records.
-4. **#14 A failed account lookup at pairing** leaves `userRecordName` nil, which
+3. **#14 A failed account lookup at pairing** leaves `userRecordName` nil, which
    disables the different-account guard for good. (S)
 5. **An anniversary save or delete abandoned at its deadline** can land after a
    newer edit (a late delete removes the new date on both phones). (S)

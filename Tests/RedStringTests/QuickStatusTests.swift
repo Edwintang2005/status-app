@@ -28,6 +28,13 @@ final class QuickStatusTests: XCTestCase {
         XCTAssertFalse(store.snapshot.myStatusPublished, "only the backend marks it sent, against what's current then")
         XCTAssertEqual(backend.published.map(\.payload.message), ["coffee"])
         XCTAssertEqual(log.load().first?.message, "coffee")
+        XCTAssertEqual(log.load().first?.unlogged, true, "owed its log record until CloudKit confirms one")
+    }
+
+    func testUnpairedStatusesOweNoLog() async {
+        let (store, log) = makeStore(paired: false)
+        _ = await QuickStatus.set(emoji: "☕️", message: "coffee", store: store, statusLog: log, backend: { FakeBackend() })
+        XCTAssertEqual(log.load().first?.unlogged, false, "no zone to log to yet")
     }
 
     func testAdoptingKeepsTheStoresHeart() {

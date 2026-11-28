@@ -54,6 +54,7 @@ final class Outbox {
     /// One run of each loop at a time; a caller arriving mid-run is dropped
     /// (`.skipIfBusy`) — the run in progress sends what it was asked to.
     @ObservationIgnored private let statusGate = RunGate()
+    @ObservationIgnored private let historyGate = RunGate()
     @ObservationIgnored private let anniversaryGate = RunGate()
     @ObservationIgnored private let requestGate = RunGate()
     @ObservationIgnored private let captionGate = RunGate()
@@ -145,6 +146,41 @@ final class Outbox {
         } catch {
             if noteSendFailed(error, now: now) != .offline { pacing.backOff(.status, now: now) }
             log.error("Status republish failed: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
+    /// Our statuses set offline and replaced before they could send: their
+    /// `StatusLog` records, so both histories and a reinstall keep them. Newest
+    /// first, `AppConfig.statusLogBackfillBatch` a pass; history, never news.
+    @discardableResult
+    func republishStatusHistory(automatic: Bool = false, now: Date = Date()) async -> Bool {
+        await historyGate.run(.skipIfBusy) { await self.republishStatusHistoryPass(automatic: automatic, now: now) } ?? false
+    }
+
+    private func republishStatusHistoryPass(automatic: Bool, now: Date) async -> Bool {
+        guard store.pairing != nil else { return false }
+        let snapshot = store.snapshot
+        // A clear judges records by when they were created: one made now for an
+        // older status would outlive a fresh start under way.
+        let freshStart = snapshot.freshStart
+        guard (freshStart.mine?.stage ?? .idle) == .idle, (freshStart.theirs?.stage ?? .idle) == .idle else { return false }
+        let owed = statusLog.unloggedOwn(limit: AppConfig.statusLogBackfillBatch,
+                                         excluding: snapshot.mine?.wordsAt,
+                                         after: snapshot.freshStart.clearedBefore)
+        guard !owed.isEmpty else { return false }
+        if automatic, !pacing.allowsAutomatic(.history, now: now) { return false }
+        let backend = backend()
+        do {
+            let saved = try await withDeadline(AppConfig.publishDeadline) { try await backend.publishStatusLogs(owed) }
+            statusLog.markLogged(at: saved)
+            noteSendSucceeded()
+            pacing.clear(.history)
+            log.info("Logged \(saved.count) earlier status(es)")
+            return !saved.isEmpty
+        } catch {
+            if noteSendFailed(error, now: now) != .offline { pacing.backOff(.history, now: now) }
+            log.error("Status history publish failed: \(error.localizedDescription, privacy: .public)")
             return false
         }
     }

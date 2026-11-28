@@ -691,7 +691,7 @@ final class AppModel {
                                              after: store.snapshot.mine)
         let paired = isPaired
         store.mutate { $0.adoptOwnStatus(payload, paired: paired) }
-        stores.statusLog.record(payload, fromMe: true)
+        stores.statusLog.record(payload, fromMe: true, unlogged: paired)
         reload()
 
         guard paired else { return nil }

@@ -56,7 +56,7 @@ enum QuickStatus {
         let paired = store.pairing != nil
         let payload = StatusPayload.composed(emoji: emoji, message: message, after: store.snapshot.mine)
         store.mutate { $0.adoptOwnStatus(payload, paired: paired) }
-        statusLog.record(payload, fromMe: true)
+        statusLog.record(payload, fromMe: true, unlogged: paired)
         // In the app (Siri) the model holds its own copy: a re-read, not a fetch.
         NotificationCenter.default.post(name: .snapshotDidChange, object: nil)
         guard paired else { return nil }
