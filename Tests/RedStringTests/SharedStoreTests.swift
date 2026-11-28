@@ -93,7 +93,7 @@ final class SharedStoreTests: XCTestCase {
         let pass = SharedStore.BannerPass(at: Fixtures.date(0), outcome: .timedOut, seconds: 29.6, detail: nil)
         store.lastBannerPass = pass
         XCTAssertEqual(store.lastBannerPass, pass)
-        XCTAssertTrue(pass.summary.contains("29.6"))
+        XCTAssertTrue(pass.summary.contains(29.6.formatted()), pass.summary)
         store.lastBannerPass = SharedStore.BannerPass(at: Fixtures.date(0), outcome: .failed, seconds: 3,
                                                       detail: "The Internet connection appears to be offline.")
         XCTAssertTrue(store.lastBannerPass?.summary.contains("offline") == true)

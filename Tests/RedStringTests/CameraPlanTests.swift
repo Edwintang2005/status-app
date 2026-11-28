@@ -55,7 +55,8 @@ final class CameraPlanTests: XCTestCase {
     }
 
     func testLabels() {
-        XCTAssertEqual(CameraLensPlan.label(0.5), "0.5×")
+        // The phone's decimal mark: "0.5×", "0,5×".
+        XCTAssertEqual(CameraLensPlan.label(0.5), "\(0.5.formatted())×")
         XCTAssertEqual(CameraLensPlan.label(1), "1×")
         XCTAssertEqual(CameraLensPlan.label(2.04), "2×")
     }

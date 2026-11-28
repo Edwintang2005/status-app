@@ -36,6 +36,8 @@ struct HomeView: View {
     @State private var statusArrivals = 0
     @State private var momentArrivals = 0
     @State private var milestoneBursts = 0
+    /// Bumped when a milestone day can begin or end, so Home looks again while open.
+    @State private var milestoneCheck = 0
     /// The gallery opened from the moment card zooms out of it.
     @Namespace private var momentZoom
     @State private var galleryFromCard = false
@@ -75,6 +77,13 @@ struct HomeView: View {
         }
         .modifier(sheets)
         .modifier(lifecycle(unseenCount: unseen.count))
+        // The day's card comes at the owner's midnight, or a round number's moment,
+        // with Home already open. The continuous clock runs on through a suspension.
+        .task(id: milestoneCheck) {
+            guard let change = model.snapshot.anniversary?.milestoneTodayChanges(after: Date()) else { return }
+            try? await Task.sleep(until: .now + .seconds(max(1, change.timeIntervalSinceNow)), clock: .continuous)
+            if !Task.isCancelled { milestoneCheck += 1 }
+        }
         .closeInviteLinkDialog(isPresented: $confirmingCloseLink)
         // Waits out any sheet (Settings shows its own copy): one presentation
         // per view, so over a sheet it would be dropped.
@@ -266,7 +275,8 @@ struct HomeView: View {
 
     /// At most one at a time, most urgent first.
     private var activeNotice: HomeNotice? {
-        HomeNotice.pick(from: HomeNotice.Inputs(
+        _ = milestoneCheck  // Read, so the day changing redraws this.
+        return HomeNotice.pick(from: HomeNotice.Inputs(
             partnerLeft: model.showsPartnerLeftNotice,
             extraMembers: model.invite.extraMembers,
             iCloudProblem: model.readinessMessage,

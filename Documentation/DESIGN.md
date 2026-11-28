@@ -404,7 +404,17 @@ A calendar mark ("6 months") is a date and is celebrated all day; a round number
 it's "100 days later today" — so the count never reads 99 under "Happy 100 days".
 Its reminder waits for it too, if that's after 9 am. A milestone day puts a card on Home on both phones the first time the app opens that day, its
 hearts rising once per phone; it leads to the count, and "Not now" puts it away
-for the day. `REDSTRING_DEMO_MILESTONE=1` seeds a date six months back to see it.
+for the day. With Home already open, the card arrives on time: Home sleeps until
+`Anniversary.milestoneTodayChanges` (the owner's midnight, or a round number's moment)
+and looks again. `REDSTRING_DEMO_MILESTONE=1` seeds a date six months back to see it.
+
+The Together widget counts days for the first year, then years and days ("10 years,
+364 days"): a four- or five-digit day count reads as trivia, and shrinks in the
+lock screen's circle. The years come from the same yearly marks as the milestones,
+so a 29 February start reads "1 year" on the 28 February it's celebrated, and the
+count turns over at the owner's midnight with "today". The count screen behind the
+tie stays in days: its ticking number is the point. `REDSTRING_DEMO_MILESTONE=decade`
+seeds "10 years, 364 days".
 
 ## Photos and doodles
 

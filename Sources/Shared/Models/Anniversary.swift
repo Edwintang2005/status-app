@@ -149,6 +149,30 @@ struct Anniversary: Codable, Hashable, Sendable {
         return (max(0, parts.day ?? 0), max(0, seconds))
     }
 
+    /// When `milestoneToday` can next change: a round number arriving later
+    /// today, or else the owner's next midnight.
+    func milestoneTodayChanges(after now: Date) -> Date? {
+        let calendar = self.calendar
+        guard let midnight = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) else { return nil }
+        return milestones().first { $0.isMoment && $0.date > now && $0.date < midnight }?.date ?? midnight
+    }
+
+    /// Whole years by the yearly marks — `milestones()`'s own, so a 29 February
+    /// start turns a year on 28 February — and calendar days since the last.
+    /// Both turn over at the owner's midnight, with "today" on the widget.
+    func yearsAndDays(at now: Date) -> (years: Int, days: Int) {
+        let calendar = self.calendar
+        let today = calendar.startOfDay(for: now)
+        var years = 0
+        var lastMark = calendar.startOfDay(for: startsAt)
+        while let mark = calendar.date(byAdding: .month, value: 12 * (years + 1), to: startsAt).map(calendar.startOfDay),
+              mark <= today {
+            years += 1
+            lastMark = mark
+        }
+        return (years, max(0, calendar.dateComponents([.day], from: lastMark, to: today).day ?? 0))
+    }
+
     /// Whole days from today to `date`, both taken as calendar days.
     func daysUntil(_ date: Date, from now: Date) -> Int {
         calendar.dateComponents([.day],

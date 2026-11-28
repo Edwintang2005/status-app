@@ -60,7 +60,8 @@ enum DemoSeeder {
         // `REDSTRING_DEMO_BULK=1`: weeks of older history below the screenshot set,
         // so the library and status history are long enough to scroll.
         let bulk = ProcessInfo.processInfo.environment["REDSTRING_DEMO_BULK"] == "1"
-        let milestoneToday = ProcessInfo.processInfo.environment["REDSTRING_DEMO_MILESTONE"] == "1"
+        let milestoneDemo = ProcessInfo.processInfo.environment["REDSTRING_DEMO_MILESTONE"]
+        let milestoneToday = milestoneDemo == "1"
         // The day's card and hearts are per device: shown afresh every demo launch.
         store.milestoneNoticeDismissed = nil
         store.milestoneCelebrated = nil
@@ -166,6 +167,11 @@ enum DemoSeeder {
             }
             // `REDSTRING_DEMO_MILESTONE=1`: six months ago today, so Home shows the milestone day.
             if milestoneToday, let began = Calendar.current.date(byAdding: .month, value: -6, to: now) {
+                snapshot.anniversary = Anniversary(startsAt: began, timeZoneID: TimeZone.current.identifier)
+            }
+            // `=decade`: eleven years ago tomorrow, so the widget counts "10 years, 364 days".
+            if milestoneDemo == "decade", let eleven = Calendar.current.date(byAdding: .year, value: -11, to: now),
+               let began = Calendar.current.date(byAdding: .day, value: 1, to: eleven) {
                 snapshot.anniversary = Anniversary(startsAt: began, timeZoneID: TimeZone.current.identifier)
             }
             snapshot.lastNotifiedMomentID = "demo-heart"

@@ -164,8 +164,12 @@ enum SpokenLines {
         guard let anniversary else {
             return String(localized: "You haven't set your date yet. Add it in \(AppConfig.appName)'s Settings.")
         }
-        let days = anniversary.elapsed(at: now).days
-        let count = days == 1 ? String(localized: "1 day") : String(localized: "\(days.formatted()) days")
+        // As the widget counts: days in the first year, then years and days.
+        let countdown = TogetherCountdown(anniversary, at: now)
+        guard countdown.years > 0 || countdown.days > 0 else {
+            return String(localized: "Today's your first day together.")
+        }
+        let count = countdown.countLine
         if let today = anniversary.milestoneToday(now) {
             return String(localized: "Happy \(today.title)! You've been together \(count).")
         }

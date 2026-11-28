@@ -6,6 +6,16 @@ What shipped, newest first. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 Version 1.8 (build 88), one heading per day it was built, newest first.
 
+### 28 November 2026
+
+- **The Together widget counts in years after your first anniversary:** "10
+  years, 364 days" rather than 4,016 days, and "10y 364d" on the lock screen.
+  The first year still counts days, and the first day says "Day one". Siri
+  answers the same way.
+- **The milestone card arrives on time,** even with the app already open at
+  midnight or when a round number like 100 days ticks over.
+- The tests now pass whatever language and region the Mac is set to.
+
 ### 27 November 2026
 
 - **The Together widget, redrawn as a red string.** It runs from your last

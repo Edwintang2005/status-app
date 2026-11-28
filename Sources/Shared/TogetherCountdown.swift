@@ -1,9 +1,13 @@
 import Foundation
 
-/// What the countdown widget says: days together — the count screen's own,
-/// ticking at the hour you began — and the next milestone, or today's.
+/// What the countdown widget says: days together in the first year — the count
+/// screen's own, ticking at the hour you began — then years and days; and the
+/// next milestone, or today's.
 struct TogetherCountdown: Equatable, Sendable {
     var days: Int
+    /// From the first anniversary, the count is in years (`Anniversary.yearsAndDays`).
+    var years: Int
+    var daysIntoYear: Int
     /// A milestone landing today, on the owner's calendar.
     var today: String?
     var next: (title: String, short: String, daysLeft: Int)?
@@ -15,6 +19,7 @@ struct TogetherCountdown: Equatable, Sendable {
 
     init(_ anniversary: Anniversary, at now: Date) {
         days = anniversary.elapsed(at: now).days
+        (years, daysIntoYear) = anniversary.yearsAndDays(at: now)
         let today = anniversary.milestoneToday(now)
         self.today = today?.title
         let next = anniversary.nextMilestone(after: now)
@@ -32,7 +37,8 @@ struct TogetherCountdown: Equatable, Sendable {
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.days == rhs.days && lhs.today == rhs.today && lhs.since == rhs.since
+        lhs.days == rhs.days && lhs.years == rhs.years && lhs.daysIntoYear == rhs.daysIntoYear
+            && lhs.today == rhs.today && lhs.since == rhs.since
             && lhs.next?.title == rhs.next?.title && lhs.next?.daysLeft == rhs.next?.daysLeft
             && lhs.progress == rhs.progress
     }
@@ -48,8 +54,46 @@ struct TogetherCountdown: Equatable, Sendable {
         }
     }
 
+    private var isDayOne: Bool { years == 0 && days == 0 }
+
+    private var yearsWord: String {
+        years == 1 ? String(localized: "1 year") : String(localized: "\(years) years")
+    }
+
+    private var daysWord: String {
+        daysIntoYear == 1 ? String(localized: "1 day") : String(localized: "\(daysIntoYear) days")
+    }
+
+    /// The home screen's headline and the line under it: "173" / "days" in the
+    /// first year, "10" / "years, 364 days" after it, "Day one" on the first.
+    var headline: (count: String, unit: String?) {
+        if years > 0 {
+            let unit = years == 1 ? String(localized: "year") : String(localized: "years")
+            return ("\(years)", daysIntoYear == 0 ? unit : String(localized: "\(unit), \(daysWord)"))
+        }
+        if isDayOne { return (String(localized: "Day one"), nil) }
+        return (days.formatted(), days == 1 ? String(localized: "day") : String(localized: "days"))
+    }
+
+    /// One line: "173 days", "10 years, 364 days", "11 years", "Day one".
+    var countLine: String {
+        if years > 0 { return daysIntoYear == 0 ? yearsWord : String(localized: "\(yearsWord), \(daysWord)") }
+        if isDayOne { return String(localized: "Day one") }
+        return days == 1 ? String(localized: "1 day") : String(localized: "\(days.formatted()) days")
+    }
+
+    /// The lock screen's circle: "173", "10y" over "364d", "11y" over "today".
+    var compact: (count: String, under: String?) {
+        if years > 0 {
+            return (String(localized: "\(years)y"),
+                    daysIntoYear > 0 ? String(localized: "\(daysIntoYear)d") : today.map { _ in String(localized: "today") })
+        }
+        if isDayOne { return (String(localized: "Day"), String(localized: "one")) }
+        return (days.formatted(), nil)
+    }
+
     var daysTogether: String {
-        days == 1 ? String(localized: "1 day together") : String(localized: "\(days.formatted()) days together")
+        isDayOne ? String(localized: "Day one together") : String(localized: "\(countLine) together")
     }
 
     /// "6 months today", "100 days later today", "6 months tomorrow", "6 months in 9 days".

@@ -165,5 +165,5 @@ and statuses below that set, so the library and status history scroll;
 pairing — "Create invite link" pairs locally); `SIMCTL_CHILD_REDSTRING_DEMO_CELEBRATION=reveal`
 (or another style) for Sam's status to arrive as a celebration;
 `SIMCTL_CHILD_REDSTRING_DEMO_ARRIVALS=1` for Sam's status to land 4 s after
-launch and a heart 4 s later, so Home's arrival animations can be watched; `SIMCTL_CHILD_REDSTRING_DEMO_MILESTONE=1` for a date six months back, so
+launch and a heart 4 s later, so Home's arrival animations can be watched; `SIMCTL_CHILD_REDSTRING_DEMO_MILESTONE=1` (or `=decade`, for the Together widget's "10 years, 364 days") for a date six months back, so
 Home shows the milestone day.

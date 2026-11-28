@@ -103,7 +103,9 @@ final class QuickStatusTests: XCTestCase {
                                              reportedAt: nil, filterEnabled: true,
                                              now: Fixtures.t0.addingTimeInterval(20 * 60))
         XCTAssertTrue(line.hasPrefix("Sam: 😴 asleep, "), line)
-        XCTAssertTrue(line.contains("20 minutes ago"), line)
+        // In the phone's language: "20 minutes ago", "vor 20 Minuten".
+        let ago = RelativeDateTimeFormatter().localizedString(for: Fixtures.t0, relativeTo: Fixtures.t0.addingTimeInterval(20 * 60))
+        XCTAssertTrue(line.contains(ago), line)
     }
 
     func testSiriNeverSaysWhatTheScreenWouldHide() {
@@ -140,6 +142,8 @@ final class QuickStatusTests: XCTestCase {
         let day = calendar.date(from: DateComponents(year: 2026, month: 12, day: 5, hour: 9))!
         XCTAssertTrue(SpokenLines.together(began, now: day).hasPrefix("Happy 6 months!"))
         XCTAssertTrue(SpokenLines.together(nil).contains("haven't set your date"))
+        let decade = calendar.date(from: DateComponents(year: 2037, month: 6, day: 4, hour: 12))!
+        XCTAssertEqual(SpokenLines.together(began, now: decade), "You've been together 10 years, 364 days. 11 years tomorrow.")
         // 100 days lands at 11:02 pm on 13 September: until then, it's still to come.
         let hundred = calendar.date(from: DateComponents(year: 2026, month: 9, day: 13, hour: 9))!
         XCTAssertEqual(SpokenLines.together(began, now: hundred), "You've been together 99 days. 100 days later today.")

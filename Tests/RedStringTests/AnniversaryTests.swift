@@ -90,9 +90,9 @@ final class AnniversaryTests: XCTestCase {
         XCTAssertEqual(all.firstIndex { $0.mark == .days(100) }, all.firstIndex { $0.mark == .months(3) }.map { $0 + 1 },
                        "100 days (13 September) comes after 3 months (5 September)")
         let thousand = all.first { $0.mark == .days(1_000) }!
-        XCTAssertEqual(thousand.title, "1,000 days")
+        XCTAssertEqual(thousand.title, "\(1_000.formatted()) days", "grouped as the phone groups it")
         XCTAssertEqual(began.daysUntil(thousand.date, from: began.startsAt), 1_000)
-        XCTAssertEqual(all.first { $0.mark == .hours(10_000) }?.title, "10,000 hours")
+        XCTAssertEqual(all.first { $0.mark == .hours(10_000) }?.title, "\(10_000.formatted()) hours")
         XCTAssertEqual(began.nextMilestone(after: sydneyDate(2026, 9, 6))?.mark, .days(100))
     }
 
@@ -101,6 +101,14 @@ final class AnniversaryTests: XCTestCase {
         XCTAssertNil(began.milestoneToday(morning), "99 days until 11:02 pm")
         XCTAssertEqual(began.nextMilestone(after: morning)?.mark, .days(100), "still to come today")
         XCTAssertEqual(began.milestoneToday(sydneyDate(2026, 9, 13, 23, 30))?.mark, .days(100))
+    }
+
+    /// Home looks again when the day's milestone can change.
+    func testTheMilestoneDayChangesAtMidnightOrARoundNumbersMoment() {
+        XCTAssertEqual(began.milestoneTodayChanges(after: sydneyDate(2026, 11, 26)), sydneyDate(2026, 11, 27, 0))
+        XCTAssertEqual(began.milestoneTodayChanges(after: sydneyDate(2026, 9, 13, 9)), sydneyDate(2026, 9, 13, 23, 2),
+                       "100 days arrives tonight")
+        XCTAssertEqual(began.milestoneTodayChanges(after: sydneyDate(2026, 9, 13, 23, 30)), sydneyDate(2026, 9, 14, 0))
     }
 
     /// The round numbers are chosen to sit weeks from any calendar mark: one celebration a day.

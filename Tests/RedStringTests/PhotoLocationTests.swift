@@ -216,14 +216,14 @@ final class ShareLaunchTests: XCTestCase {
     func testALaunchThatNeverReachedTheScreenSaysSo() {
         let launch = ShareLaunch(processStartedAt: start, loadedAt: start.addingTimeInterval(2.4))
         XCTAssertTrue(launch.summary.contains("never on screen"))
-        XCTAssertTrue(launch.summary.contains("2.4 s"))
+        XCTAssertTrue(launch.summary.contains("\(2.4.formatted()) s"), launch.summary)
     }
 
     func testAShownLaunchSaysHowLongAndHowItEnded() {
         var launch = ShareLaunch(processStartedAt: start, loadedAt: start.addingTimeInterval(0.6))
         launch.shown(at: start.addingTimeInterval(1.3))
         launch.outcome = .sent
-        XCTAssertTrue(launch.summary.contains("on screen in 1.3 s · sent"), launch.summary)
+        XCTAssertTrue(launch.summary.contains("on screen in \(1.3.formatted()) s · sent"), launch.summary)
         launch.outcome = nil
         XCTAssertTrue(launch.summary.contains("closed without an outcome"))
     }

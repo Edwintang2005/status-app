@@ -66,9 +66,9 @@ final class TogetherCountdownTests: XCTestCase {
         XCTAssertEqual(progress, 73.5 / 83, accuracy: 0.001, "73½ of the 83 days between them")
 
         let first = TogetherCountdown(began, at: sydneyDate(2026, 6, 20))
-        // In the phone's own order: "5 Jun" here, "Jun 5" on CI's US English.
-        XCTAssertTrue(first.since.contains("Jun") && first.since.contains("5"),
-                      "before any milestone, the day it began: \(first.since)")
+        // In the phone's own words and order: "5 Jun", "Jun 5", "5 juin".
+        XCTAssertEqual(first.since, began.startsAt.formatted(Date.FormatStyle(timeZone: sydney).day().month(.abbreviated)),
+                       "before any milestone, the day it began")
         XCTAssertEqual(first.nextShortLine, "1 mo · 15 days")
     }
 
@@ -84,8 +84,63 @@ final class TogetherCountdownTests: XCTestCase {
     func testShortTitles() {
         let all = began.milestones()
         XCTAssertEqual(all.first { $0.mark == .months(12) }?.shortTitle, "1 yr")
-        XCTAssertEqual(all.first { $0.mark == .days(1_000) }?.shortTitle, "1,000 d")
-        XCTAssertEqual(all.first { $0.mark == .hours(10_000) }?.shortTitle, "10,000 h")
+        XCTAssertEqual(all.first { $0.mark == .days(1_000) }?.shortTitle, "\(1_000.formatted()) d")
+        XCTAssertEqual(all.first { $0.mark == .hours(10_000) }?.shortTitle, "\(10_000.formatted()) h")
+    }
+
+    // MARK: Years and days
+
+    func testTheFirstYearCountsDays() {
+        let countdown = TogetherCountdown(began, at: sydneyDate(2026, 11, 26))
+        XCTAssertEqual(countdown.years, 0)
+        XCTAssertEqual(countdown.headline.count, "173")
+        XCTAssertEqual(countdown.headline.unit, "days")
+        XCTAssertEqual(countdown.countLine, "173 days")
+        XCTAssertNil(countdown.compact.under)
+    }
+
+    func testAfterTheFirstAnniversaryItCountsYearsAndDays() {
+        let countdown = TogetherCountdown(began, at: sydneyDate(2037, 6, 4))
+        XCTAssertEqual(countdown.years, 10)
+        XCTAssertEqual(countdown.daysIntoYear, 364)
+        XCTAssertEqual(countdown.headline.count, "10")
+        XCTAssertEqual(countdown.headline.unit, "years, 364 days")
+        XCTAssertEqual(countdown.daysTogether, "10 years, 364 days together")
+        XCTAssertEqual(countdown.compact.count, "10y")
+        XCTAssertEqual(countdown.compact.under, "364d")
+        XCTAssertEqual(countdown.since, "\(4_000.formatted()) d", "the round number since the 10th")
+        XCTAssertEqual(countdown.nextShortLine, "11 yr · tomorrow")
+    }
+
+    /// From the owner's midnight, hours before 11:02 pm: the count and the string agree.
+    func testOnTheAnniversaryItIsWholeYears() {
+        let countdown = TogetherCountdown(began, at: sydneyDate(2037, 6, 5, 8))
+        XCTAssertEqual(countdown.countLine, "11 years")
+        XCTAssertEqual(countdown.headline.unit, "years")
+        XCTAssertEqual(countdown.compact.under, "today")
+        XCTAssertEqual(countdown.nextShortLine, "11 years today")
+        XCTAssertEqual(TogetherCountdown(began, at: sydneyDate(2027, 6, 6)).countLine, "1 year, 1 day")
+    }
+
+    /// The years come from the same yearly marks as the milestones.
+    func testALeapDayStartTurnsAYearWithItsMilestone() {
+        let leap = Anniversary(startsAt: sydneyDate(2024, 2, 29, 20), timeZoneID: sydney.identifier)
+        XCTAssertEqual(TogetherCountdown(leap, at: sydneyDate(2025, 2, 28)).countLine, "1 year")
+        XCTAssertEqual(TogetherCountdown(leap, at: sydneyDate(2025, 2, 28)).today, "1 year")
+        XCTAssertEqual(TogetherCountdown(leap, at: sydneyDate(2025, 3, 1)).countLine, "1 year, 1 day")
+        XCTAssertEqual(TogetherCountdown(leap, at: sydneyDate(2028, 2, 28)).countLine, "3 years, 365 days",
+                       "the year before a leap anniversary runs a day long")
+        XCTAssertEqual(TogetherCountdown(leap, at: sydneyDate(2028, 2, 29)).countLine, "4 years")
+    }
+
+    func testTheFirstDayIsDayOne() {
+        let today = Anniversary(startsAt: sydneyDate(2026, 11, 26, 9), timeZoneID: sydney.identifier)
+        let countdown = TogetherCountdown(today, at: sydneyDate(2026, 11, 26, 18))
+        XCTAssertEqual(countdown.headline.count, "Day one")
+        XCTAssertNil(countdown.headline.unit)
+        XCTAssertEqual(countdown.daysTogether, "Day one together")
+        XCTAssertEqual(countdown.compact.count, "Day")
+        XCTAssertEqual(TogetherCountdown(today, at: sydneyDate(2026, 11, 27, 10)).countLine, "1 day")
     }
 
     func testOneDayIsSingular() {

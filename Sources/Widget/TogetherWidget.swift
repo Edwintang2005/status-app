@@ -1,7 +1,8 @@
 import SwiftUI
 import WidgetKit
 
-/// Days together, and the red string to the next milestone (`TogetherCountdown`); a tap opens the count.
+/// Days together (years and days after the first anniversary), and the red
+/// string to the next milestone (`TogetherCountdown`); a tap opens the count.
 struct TogetherWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: AppConfig.togetherWidgetKind, provider: TogetherProvider()) { entry in
@@ -82,23 +83,33 @@ struct TogetherWidgetView: View {
             case .accessoryCircular:
                 VStack(spacing: 0) {
                     RedThreadView(progress: countdown.progress, seed: entry.date, bead: 3, knot: 2.5, lineWidth: 2)
-                        .frame(width: 40, height: 20)
-                    Text(countdown.days.formatted())
+                        .frame(width: 40, height: countdown.compact.under == nil ? 20 : 16)
+                    Text(countdown.compact.count)
                         .font(.system(size: 18, weight: .bold, design: .rounded))
                         .minimumScaleFactor(0.6)
                         .lineLimit(1)
+                    if let under = countdown.compact.under {
+                        Text(under)
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
                 .padding(.horizontal, 6)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(accessibilityText(countdown))
             case .accessoryRectangular:
-                VStack(alignment: .leading, spacing: 2) {
+                // Years and days take the whole top line, so the next milestone goes under the string.
+                let roomy = countdown.years == 0
+                VStack(alignment: .leading, spacing: 1) {
                     HStack(alignment: .firstTextBaseline) {
-                        Text(countdown.days == 1 ? "1 day" : "\(countdown.days.formatted()) days")
+                        Text(countdown.countLine)
                             .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                             .widgetAccentable()
-                        Spacer(minLength: 4)
-                        if let line = countdown.nextShortLine {
+                        if roomy, let line = countdown.nextShortLine {
+                            Spacer(minLength: 4)
                             Text(line)
                                 .font(.system(size: 11, design: .rounded))
                                 .foregroundStyle(.secondary)
@@ -107,6 +118,14 @@ struct TogetherWidgetView: View {
                         }
                     }
                     RedThreadView(progress: countdown.progress, seed: entry.date, bead: 4, knot: 3, lineWidth: 2)
+                    if !roomy, let line = countdown.nextShortLine {
+                        Text(line)
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 .accessibilityElement(children: .ignore)
@@ -126,14 +145,18 @@ struct TogetherWidgetView: View {
                 .font(.system(.caption2, design: .rounded, weight: .bold))
                 .tracking(0.8)
                 .foregroundStyle(.secondary)
-            Text(countdown.days.formatted())
+            Text(countdown.headline.count)
                 .font(.system(size: 44, weight: .bold, design: .rounded))
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
                 .padding(.top, 2)
-            Text(countdown.days == 1 ? "day" : "days")
-                .font(.system(.subheadline, design: .rounded, weight: .semibold))
-                .foregroundStyle(.secondary)
+            if let unit = countdown.headline.unit {
+                Text(unit)
+                    .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
             Spacer(minLength: 4)
             RedThreadView(progress: countdown.progress, seed: entry.date, bead: 5.5, knot: 4, lineWidth: 2.5)
                 .frame(height: 32)
