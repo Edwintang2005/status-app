@@ -14,6 +14,8 @@ struct MomentWidget: Widget {
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
         // Overlay pieces sit close to the edges, placed per family in `Placement`.
         .contentMarginsDisabled()
+        // The photo is the background: StandBy would remove it and leave the caption on black.
+        .containerBackgroundRemovable(false)
     }
 }
 
