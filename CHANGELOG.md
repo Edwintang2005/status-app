@@ -23,6 +23,9 @@ Version 1.8 (build 88), one heading per day it was built, newest first.
   date timed out and you changed it again, the late change no longer
   overwrites the newer date; a late removal puts the newer date straight back.
   On an owner's second iPhone, the newer date is taken rather than overwritten.
+- **Their status says "New"** on the card, with a glow, when it changed since you
+  last looked — even if you weren't in the app when it came. It works with
+  read receipts off, and tells them nothing.
 - **The photo widget keeps its photo in StandBy,** where it used to show just
   the caption on black.
 - **"iCloud is full" stays until a photo actually fits.** A status getting

@@ -175,6 +175,7 @@ final class AppModel {
     var homeSheetShowing = false
     var widgetTipDismissed: Bool
     var milestoneNoticeDismissed: String?
+    var partnerStatusShownAt: Date?
     /// The year whose Home recap card was waved away.
     var recapNoticeDismissed: Int?
     /// Diagnostics' "Show the recap card on Home": the twelve-month card, any month.
@@ -308,6 +309,7 @@ final class AppModel {
         self.anniversaryPromptPending = store.anniversaryPromptPending
         self.widgetTipDismissed = store.widgetTipDismissed
         self.milestoneNoticeDismissed = store.milestoneNoticeDismissed
+        self.partnerStatusShownAt = store.partnerStatusShownAt
         self.recapNoticeDismissed = store.recapNoticeDismissed
         self.partnerLeftNoticeDismissed = store.partnerLeftNoticeDismissed
         self.milestoneRemindersEnabled = store.milestoneRemindersEnabled
@@ -1041,6 +1043,30 @@ final class AppModel {
     /// status read receipt. Driven by the home screen, and only while the app
     /// is actually in front with nothing covering it: a background refresh, or
     /// a status landing under the picker, isn't anyone looking.
+    /// Their status changed since it was last on this screen: the card says
+    /// "New". Only words you could read count — not reported, filter-hidden or a
+    /// sealed surprise — and nothing before the first look (an upgrade isn't news).
+    var partnerStatusIsNew: Bool {
+        guard isPaired, let theirs = snapshot.theirs, partnerWordsShown(theirs),
+              let shown = partnerStatusShownAt else { return false }
+        return theirs.wordsAt > shown
+    }
+
+    /// Their status has been on screen a moment with Home in front. Local only:
+    /// unlike `markPartnerStatusSeen`, never a receipt, so it runs with receipts off.
+    func markPartnerStatusShown() {
+        guard isPaired, !homeSheetShowing, !rootSheetShowing, environment.isInFront(),
+              let theirs = snapshot.theirs, partnerWordsShown(theirs),
+              (partnerStatusShownAt ?? .distantPast) < theirs.wordsAt else { return }
+        persist(theirs.wordsAt, \.partnerStatusShownAt, \.partnerStatusShownAt)
+    }
+
+    private func partnerWordsShown(_ theirs: StatusPayload) -> Bool {
+        theirs.updatedAt > .distantPast && !snapshot.partnerStatusSealed
+            && theirs.wordsShown(reportedAt: hiddenPartnerStatusAt, revealed: partnerStatusRevealed,
+                                 sealed: snapshot.partnerStatusSealed, filterEnabled: contentFilterEnabled)
+    }
+
     func markPartnerStatusSeen() {
         guard isPaired, readReceiptsEnabled, !homeSheetShowing, !rootSheetShowing,
               environment.isInFront() else { return }

@@ -125,6 +125,7 @@ struct HomeView: View {
                         wordsAt: theirs?.wordsAt ?? .distantPast,
                         lastHeartAt: theirs?.lastNudgeAt,
                         partnerHasLeft: model.partnerHasLeft,
+                        isNew: model.partnerStatusIsNew,
                         statusArrivals: statusArrivals,
                         heartArrivals: heartArrivals,
                         onOpen: { showingStatusHistory = true },
@@ -658,8 +659,13 @@ private struct HomeLifecycle: ViewModifier {
             .onChange(of: model.snapshot.theirs?.lastNudgeAt) { old, new in
                 if let new, new > old ?? .distantPast, homeInFront { heartArrivals += 1 }
             }
-            .onChange(of: model.snapshot.theirs?.wordsAt) { old, new in
-                if let new, new > old ?? .distantPast, homeInFront { statusArrivals += 1 }
+            // Their status, new since it was last on this screen — landing now or
+            // waiting since you were away: the glow once, then it counts as shown.
+            .task(id: "\(model.snapshot.theirs?.wordsAt.timeIntervalSince1970 ?? 0)-\(homeInFront)") {
+                guard homeInFront, model.snapshot.theirs != nil else { return }
+                if model.partnerStatusIsNew { statusArrivals += 1 }
+                try? await Task.sleep(for: .seconds(1.2))
+                if !Task.isCancelled { model.markPartnerStatusShown() }
             }
             .onChange(of: unseenCount) { old, new in
                 if new > old, homeInFront { momentArrivals += 1 }

@@ -47,6 +47,7 @@ final class SharedStore: @unchecked Sendable {
         static let widgetTipDismissed = "widgetTipDismissed"
         static let recapNoticeDismissed = StoreKey<Int>("recapNoticeDismissed")
         static let milestoneNoticeDismissed = StoreKey<String>("milestoneNoticeDismissed")
+        static let partnerStatusShownAt = StoreKey<Date>("partnerStatusShownAt")
         static let milestoneCelebrated = StoreKey<String>("milestoneCelebrated")
         static let partnerLeftNoticeDismissed = StoreKey<Date>("partnerLeftNoticeDismissed")
         static let subscriptionsVerified = StoreKey<Date>("subscriptionsVerifiedAt")
@@ -311,6 +312,13 @@ final class SharedStore: @unchecked Sendable {
     var recapNoticeDismissed: Int? {
         get { self[Key.recapNoticeDismissed] }
         set { self[Key.recapNoticeDismissed] = newValue }
+    }
+
+    /// The `wordsAt` of their status as last had on this screen — local, read
+    /// receipts or not: what the card's "New" compares against.
+    var partnerStatusShownAt: Date? {
+        get { self[Key.partnerStatusShownAt] }
+        set { self[Key.partnerStatusShownAt] = newValue }
     }
 
     /// Today's milestone card was waved away (`Anniversary.Milestone.dayKey`). Per device.

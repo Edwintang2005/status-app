@@ -128,6 +128,51 @@ final class MilestoneDayTests: XCTestCase {
         XCTAssertEqual(model.milestoneNoticeDismissed, shown.key)
     }
 }
+
+/// The partner card's "New": their status changed since it was last on screen.
+@MainActor
+final class NewPartnerStatusTests: XCTestCase {
+    func testAStatusThatChangedSinceItWasLastShownIsNewUntilShown() {
+        let (model, _, stores) = makeModel()
+        stores.shared.mutate { $0.isPaired = true; $0.theirs = Fixtures.status("😴", "asleep", at: Fixtures.t0) }
+        model.reload()
+        XCTAssertFalse(model.partnerStatusIsNew, "before the first look, nothing is news")
+        model.markPartnerStatusShown()
+        XCTAssertEqual(stores.shared.partnerStatusShownAt, Fixtures.t0)
+
+        stores.shared.mutate { $0.theirs = Fixtures.status("☕️", "coffee", at: Fixtures.date(600)) }
+        model.reload()
+        XCTAssertTrue(model.partnerStatusIsNew, "changed while you were away")
+        model.markPartnerStatusShown()
+        XCTAssertFalse(model.partnerStatusIsNew, "shown once, not new again")
+    }
+
+    /// Local, not a receipt: it works with read receipts off and sends nothing.
+    func testItWorksWithReadReceiptsOff() {
+        let (model, backend, stores) = makeModel()
+        model.readReceiptsEnabled = false
+        stores.shared.mutate { $0.isPaired = true; $0.theirs = Fixtures.status(at: Fixtures.t0) }
+        model.reload()
+        model.markPartnerStatusShown()
+        stores.shared.mutate { $0.theirs = Fixtures.status("☕️", "coffee", at: Fixtures.date(600)) }
+        model.reload()
+        XCTAssertTrue(model.partnerStatusIsNew)
+        XCTAssertNil(stores.shared.snapshot.partnerStatusSeen, "no receipt stamped")
+        XCTAssertTrue(backend.receipts.isEmpty)
+    }
+
+    func testAReportedStatusIsNeverNew() {
+        let (model, _, stores) = makeModel()
+        stores.shared.mutate { $0.isPaired = true; $0.theirs = Fixtures.status(at: Fixtures.t0) }
+        model.reload()
+        model.markPartnerStatusShown()
+        stores.shared.mutate { $0.theirs = Fixtures.status("😤", "words", at: Fixtures.date(600)) }
+        stores.shared.hiddenPartnerStatusAt = Fixtures.date(600)
+        model.reload()
+        XCTAssertFalse(model.partnerStatusIsNew, "its words were never on screen")
+    }
+}
+
 /// Every status set while paired is owed its log record until one's confirmed.
 @MainActor
 final class StatusHistoryOwedTests: XCTestCase {

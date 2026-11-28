@@ -408,6 +408,13 @@ for the day. With Home already open, the card arrives on time: Home sleeps until
 `Anniversary.milestoneTodayChanges` (the owner's midnight, or a round number's moment)
 and looks again. `REDSTRING_DEMO_MILESTONE=1` seeds a date six months back to see it.
 
+The partner card says "New" — and glows once — when their status changed since
+it was last on this screen (`AppModel.partnerStatusIsNew`, a local watermark,
+`SharedStore.partnerStatusShownAt`, apart from the read receipt so it works with
+receipts off). Only the app counts: a banner glimpse isn't a look. It clears after
+the status has been on screen with Home in front for a second; a reported,
+filter-hidden or sealed status is never "new".
+
 The Together widget counts days for the first year, then years and days ("10 years,
 364 days"): a four- or five-digit day count reads as trivia, and shrinks in the
 lock screen's circle. The years come from the same yearly marks as the milestones,

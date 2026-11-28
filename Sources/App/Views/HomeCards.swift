@@ -11,6 +11,8 @@ struct PartnerCard: View, Equatable {
     let wordsAt: Date
     let lastHeartAt: Date?
     let partnerHasLeft: Bool
+    /// Their status changed since it was last on this screen.
+    let isNew: Bool
     /// Bumped as a status or heart lands while Home is in front: the flourish.
     let statusArrivals: Int
     let heartArrivals: Int
@@ -28,7 +30,7 @@ struct PartnerCard: View, Equatable {
 
     nonisolated static func == (lhs: PartnerCard, rhs: PartnerCard) -> Bool {
         lhs.partnerName == rhs.partnerName && lhs.status == rhs.status && lhs.wordsAt == rhs.wordsAt
-            && lhs.lastHeartAt == rhs.lastHeartAt && lhs.partnerHasLeft == rhs.partnerHasLeft
+            && lhs.lastHeartAt == rhs.lastHeartAt && lhs.partnerHasLeft == rhs.partnerHasLeft && lhs.isNew == rhs.isNew
             && lhs.statusArrivals == rhs.statusArrivals && lhs.heartArrivals == rhs.heartArrivals
     }
 
@@ -84,6 +86,17 @@ struct PartnerCard: View, Equatable {
         .accessibilityActions { moderationActions }
         .reportStatusDialog(isPresented: $confirmingReport, onReport: onReport,
                             reveal: canReveal ? onReveal : nil)
+    }
+
+    /// Clears once the status has been on screen a moment (`markPartnerStatusShown`).
+    private var newBadge: some View {
+        Text("New")
+            .font(Theme.rounded(11, .bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Theme.accent, in: Capsule())
+            .accessibilityHidden(true)
     }
 
     private var hasModerationActions: Bool {
@@ -142,6 +155,7 @@ struct PartnerCard: View, Equatable {
         }
         let words = status.message.text.isEmpty ? "" : " \(status.message.text)"
         var summary = "\(partnerName): \(status.emoji)\(words), \(wordsAt.relativeWording(asOf: now))"
+        if isNew { summary = String(localized: "New. \(summary)") }
         if let heartAt {
             summary += String(localized: ". Sent you a heart \(heartAt.relativeWording(asOf: now))")
         }
@@ -162,7 +176,11 @@ struct PartnerCard: View, Equatable {
                     .transition(swap)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(partnerName).eyebrow()
+                    HStack(spacing: 6) {
+                        Text(partnerName).eyebrow()
+                        if isNew { newBadge.transition(.opacity) }
+                    }
+                    .animation(.smooth, value: isNew)
                     if !status.message.text.isEmpty {
                         Text(status.message.text)
                             .font(Theme.rounded(20, .semibold))
