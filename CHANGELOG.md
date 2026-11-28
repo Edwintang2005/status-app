@@ -23,6 +23,27 @@ Version 1.8 (build 88), one heading per day it was built, newest first.
   date timed out and you changed it again, the late change no longer
   overwrites the newer date; a late removal puts the newer date straight back.
   On an owner's second iPhone, the newer date is taken rather than overwritten.
+- **Fixes from a review of this release:**
+  - Siri never sets the opposite of what you said: "not tired" sets "Not
+    tired", never 🥱 Tired; "left work" isn't 💼 Work; "home" isn't "Not home".
+  - The Quick status widget stops saying "Not sent yet" once it has sent, and
+    sends an unsent status itself, never racing the app's own send.
+  - Milestone reminders never arrive before the milestone has begun, however
+    far east of your partner you are.
+  - The photo widget's Favourites sharpens as each starred photo downloads,
+    includes stars made before the update, and turns the day over cleanly.
+  - "Don't send" on a photo that finished sending meanwhile deletes it for
+    both of you, rather than nothing happening.
+  - A date change from a phone whose clock is behind still counts as the newest.
+  - "New" on their status: no longer stuck after showing hidden words, reset
+    when you unlink, and their very first status glows.
+  - "Send now" is always on the waiting list, even when the app thinks it's offline.
+  - A full iCloud that refused a photo holds back only photos and memos;
+    statuses, receipts and deletes keep going. Once even a status is refused,
+    everything but deletes waits an hour, rather than retrying on every refresh.
+  - Siri forgets your status suggestions however the link ends (never just
+    because the phone hasn't been unlocked yet), and typed banner replies aren't
+    taken for your routine.
 - **Siri learns your routine.** Statuses you set in the app teach Siri
   Suggestions and Spotlight when you tend to set them, so "At work" can be
   waiting as a suggestion around nine. Unlinking forgets them.

@@ -789,6 +789,40 @@ Ranked by harm: data loss and trust first. Numbers like #5 are the September
     change token to expire re-queues the moment on its next full fetch
     (`requeueMissingUploads` checks only `clearedBefore`); a guard like the
     fresh start's would close it.
+17. **From the November 2026 review of 1.8 (S each unless marked):**
+    - A save that timed out can bring back a date deleted since: a delete
+      leaves nothing to compare a late save with. Needs a "deleted" marker
+      record (schema).
+    - The status-log catch-up waits, invisibly, behind any fresh start that
+      isn't idle, including an ask never answered; owed logs aren't counted
+      in the footer. The zone-gone path also clears the log, dropping owed ones.
+    - The Together widget and Siri keep counting after the partner has left.
+    - Siri reads ages with the numeric formatter ("in 0 seconds", "1 day ago")
+      where the screen says "just now" / "yesterday".
+    - The small quick-status widget shows emoji only, so recents sharing one
+      (all the 💬 replies) look the same; a tap gives no feedback on a slow
+      link, and a tap on the current status re-sends it.
+    - On a milestone day both ends of the red string name the milestone.
+    - Favourites keep up to 100 whole moments in the snapshot; the widget needs
+      only id, kind, caption and name.
+    - Starring changes the day's favourite mid-day; a starred picture can't be
+      taken off the widget except by unstarring.
+    - Drawing export always makes the long side 2048 px, upscaling a smaller
+      photo, and draws a panorama's strokes coarsely.
+    - A date edit stamped under a clock far ahead keeps outranking a second
+      owner device's newer edits until real time catches up (local stamps
+      aren't capped like `heldStamp`), and an edit made before a fetch on a
+      slow clock is still superseded at publish.
+    - Siri's guard catches opposites only by word ("not", "left", "off", …):
+      "back from work" can still set 💼 Work.
+    - A reminder's trigger is floating wall-clock time: after flying across
+      time zones without opening the app it can ring before the milestone.
+    - Tests that test less than they claim: `DrawingExportTests` never renders,
+      `CloudSync.publish`'s `markLogged` and the refresh's `fromLogRecords`
+      aren't covered, `MilestoneDayTests` reads the wall clock. `onLaunch`
+      (the launch-time derive, the unpaired forget) has no test: it reads
+      `InviteInbox.shared`, which a test may not; and the Quick status
+      widget's own send is untested.
 
 ## Privacy, safety and App Review — ranked
 

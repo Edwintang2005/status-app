@@ -40,6 +40,8 @@ struct WidgetContent: Hashable {
     /// The store can't be read yet (before first unlock): neither paired nor unlinked.
     var isLocked = false
     var mine: Status?
+    /// Yours hasn't reached iCloud: the quick-status widget says "Not sent yet".
+    var mineUnsent = false
     /// Reported → no words; a message the filter hides → a stand-in that fits a tile.
     var partner: Status?
     /// Only once they've published one — "Partner" reads cold as a heading.
@@ -60,6 +62,7 @@ struct WidgetContent: Hashable {
     init(snapshot: Snapshot, reportedAt: Date?, filterEnabled: Bool) {
         isPaired = snapshot.isPaired
         mine = snapshot.mine.map { Status(emoji: $0.emoji, message: $0.message) }
+        mineUnsent = snapshot.isPaired && snapshot.mine != nil && !snapshot.myStatusPublished
         let theirs = snapshot.theirs?.moderated(reportedAt: reportedAt,
                                                 sealed: snapshot.partnerStatusSealed,
                                                 filteredText: String(localized: "Hidden"),

@@ -96,14 +96,14 @@ final class OutboxTests: XCTestCase {
         XCTAssertEqual(backend.statusLogs.count, 1, "sent once the network's back")
     }
 
-    func testAFullICloudHoldsTheHistoryLikeEverythingElse() async {
+    func testAFailingHistoryBacksOff() async {
         statusLog.record(Fixtures.status("☕️", "coffee", at: Fixtures.t0), fromMe: true, unlogged: true)
         store.mutate { $0.mine = Fixtures.status("💼", "at work", at: Fixtures.date(1_800)) }
         backend.fail("publishStatusLogs", with: quota)
         await outbox.republishStatusHistory()
         let held = await outbox.republishStatusHistory(automatic: true)
         XCTAssertFalse(held)
-        XCTAssertEqual(backend.statusLogs.count, 0, "an automatic pass waits out the full iCloud")
+        XCTAssertEqual(backend.statusLogs.count, 0, "an automatic pass waits out the backoff")
     }
 
     /// A rename retried offline must not log its old words as a new status.
@@ -230,16 +230,6 @@ final class OutboxTests: XCTestCase {
         XCTAssertTrue(backend.statusLogs.isEmpty)
     }
 
-    func testAnEmptyDeleteProvesNoRoom() async {
-        queue(["a"])
-        backend.fail("send", with: quota)
-        await outbox.retryPendingUploads(automatic: true)
-        backend.deletesNothing = true
-        store.pendingMomentDeletions = ["gone"]
-        await outbox.sendDeletions()
-        XCTAssertNotNil(outbox.storageFullAt, "nothing deleted, nothing freed")
-    }
-
     func testTheOwnerNeverAsksForTheDate() async {
         store.mutate { $0.anniversaryRequestedAt = Fixtures.t0; $0.anniversaryRequestPublished = false }
         await outbox.republishAnniversaryRequest()
@@ -344,24 +334,40 @@ final class OutboxTests: XCTestCase {
         XCTAssertNil(outbox.storageFullAt, "a landed send proves there's room")
     }
 
-    /// A status landing doesn't mean a photo fits: the full iCloud stands until
-    /// an upload lands, or a delete frees room.
-    func testOnlyAnUploadOrADeleteEndsAFullICloud() async {
+    /// A full iCloud holds the photo, not the few bytes: the status goes, the
+    /// photo waits, and only an upload landing ends it ("already gone" deletes too).
+    func testAFullICloudHoldsOnlyUploads() async {
         queue(["a"])
         backend.fail("send", with: quota)
         await outbox.retryPendingUploads(automatic: true)
         XCTAssertNotNil(outbox.storageFullAt)
 
         store.mutate { $0.mine = Fixtures.status("🍜", "lunch"); $0.myStatusPublished = false }
-        await outbox.republishStatus()
-        XCTAssertTrue(store.snapshot.myStatusPublished)
-        XCTAssertNotNil(outbox.storageFullAt, "a few bytes fit where a photo doesn't")
+        await outbox.republishStatus(automatic: true)
+        XCTAssertTrue(store.snapshot.myStatusPublished, "a status still goes, automatically")
+        XCTAssertNotNil(outbox.storageFullAt, "and proves nothing about a photo")
         await outbox.retryPendingUploads(automatic: true)
         XCTAssertTrue(backend.sent.isEmpty, "the photo still waits out the full iCloud")
 
         store.pendingMomentDeletions = ["old"]
-        await outbox.sendDeletions()
-        XCTAssertNil(outbox.storageFullAt, "a delete frees room")
+        await outbox.sendDeletions(automatic: true)
+        XCTAssertTrue(store.pendingMomentDeletions.isEmpty, "the delete that frees room isn't held")
+        XCTAssertNotNil(outbox.storageFullAt, "but is no proof of room either")
+    }
+
+    /// Over quota, even a few bytes are refused: the small writes wait it out too, the deletes don't.
+    func testAWriteRefusedForSpaceHoldsTheWritesButNotTheDeletes() async {
+        store.mutate { $0.mine = Fixtures.status("🍜", "lunch"); $0.myStatusPublished = false }
+        backend.fail("publish", with: quota)
+        await outbox.republishStatus(automatic: true)
+        store.mutate { $0.receiptsDirty = true }
+        await outbox.flushReceipts(automatic: true)
+        XCTAssertTrue(backend.receipts.isEmpty, "a receipt waits out the full iCloud")
+        XCTAssertTrue(store.snapshot.receiptsDirty)
+
+        store.pendingMomentDeletions = ["old"]
+        await outbox.sendDeletions(automatic: true)
+        XCTAssertTrue(store.pendingMomentDeletions.isEmpty, "the delete that frees room goes")
     }
 
     /// A send iCloud refuses outright isn't re-uploaded on every refresh, but

@@ -107,14 +107,13 @@ final class Outbox {
     /// Stamps a full iCloud or a throttle, which hold automatic retries (and a
     /// full iCloud changes the wording).
     @discardableResult
-    func noteSendFailed(_ error: Error, now: Date = Date()) -> SendFailure {
-        pacing.noteFailure(error, now: now)
+    func noteSendFailed(_ error: Error, sending: RetryPacing.Send = .write, now: Date = Date()) -> SendFailure {
+        pacing.noteFailure(error, sending: sending, now: now)
     }
 
-    /// Anything landing proves we're let through; only an upload or a delete
-    /// (`provesRoom`) that iCloud has room again (`RetryPacing.noteSuccess`).
-    func noteSendSucceeded(provesRoom: Bool = false) {
-        pacing.noteSuccess(provesRoom: provesRoom)
+    /// What its landing proves about throttles and space (`RetryPacing.noteSuccess`).
+    func noteSendSucceeded(_ sent: RetryPacing.Send = .write) {
+        pacing.noteSuccess(sent)
     }
 
     private func automaticRetryAllowed(now: Date) -> Bool {
@@ -345,7 +344,7 @@ final class Outbox {
 
     private func sendDeletionsPass(automatic: Bool, now: Date) async -> Bool {
         guard store.pairing != nil, !store.pendingMomentDeletions.isEmpty else { return false }
-        if automatic, !automaticRetryAllowed(now: now) { return false }
+        if automatic, !pacing.allowsAutomaticDeletes(now: now) { return false }
         await adoptBackgroundUploads()
         let shared = store.shareUploadClaims
         let owed = store.pendingMomentDeletions.subtracting(uploadsInFlight)
@@ -358,11 +357,11 @@ final class Outbox {
             }
             store.pendingMomentDeletions.subtract(done)
             owedDeletionCount = store.pendingMomentDeletions.count
-            noteSendSucceeded(provesRoom: !done.isEmpty)
+            noteSendSucceeded(.delete)
             return !done.isEmpty
         } catch {
             log.error("Moment delete failed: \(error.localizedDescription, privacy: .public)")
-            _ = noteSendFailed(error, now: now)
+            _ = noteSendFailed(error, sending: .delete, now: now)
             return false
         }
     }
@@ -400,7 +399,7 @@ final class Outbox {
                 if landed != nil { confirm(moment) }
             } catch {
                 uploadsInFlight.remove(moment.id)
-                if caller.isWaiting { caller.failure = error } else { noteSendFailed(error) }
+                if caller.isWaiting { caller.failure = error } else { noteSendFailed(error, sending: .upload) }
                 throw error
             }
         }
@@ -432,7 +431,7 @@ final class Outbox {
     }
 
     private func confirm(_ moment: Moment) {
-        noteSendSucceeded(provesRoom: true)
+        noteSendSucceeded(.upload)
         // Deleted while it flew: no "Sent", and the freed link sends the delete.
         if !store.pendingMomentDeletions.contains(moment.id) { uploaded(moment) }
         freeLinkIfIdle()
@@ -484,12 +483,12 @@ final class Outbox {
                         confirm(moment)
                     } else if landed != nil {
                         // Landed, if not first: still proof a photo fits.
-                        noteSendSucceeded(provesRoom: true)
+                        noteSendSucceeded(.upload)
                         freeLinkIfIdle()
                     }
                 } catch {
                     uploadsInFlight.remove(id)
-                    noteSendFailed(error)
+                    noteSendFailed(error, sending: .upload)
                     log.error("Background upload of \(id, privacy: .public) didn't finish: \(error.localizedDescription, privacy: .public)")
                 }
             }
@@ -505,7 +504,7 @@ final class Outbox {
     func retryPendingUploads(automatic: Bool, now: Date = Date()) async -> Bool {
         // Not while clearing: a send the clear is deleting would come straight back.
         guard store.pairing != nil, !isRetryingUploads, !isClearingHistory else { return false }
-        if automatic, !automaticRetryAllowed(now: now) { return false }
+        if automatic, !pacing.allowsAutomaticUploads(now: now) { return false }
         await adoptBackgroundUploads()
         guard !isRetryingUploads, !isClearingHistory else { return false }
         let salvaged = !index.salvagePendingUploads(hasMedia: hasMedia).isEmpty
@@ -555,7 +554,7 @@ final class Outbox {
             } catch {
                 log.error("Retry upload of \(moment.id, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
                 // The rest would hit the same full iCloud, throttle or missing route.
-                switch noteSendFailed(error, now: now) {
+                switch noteSendFailed(error, sending: .upload, now: now) {
                 case .storageFull, .offline, .throttled: return changed
                 case .rejected:
                     pacing.hold(.upload(moment.id), for: AppConfig.rejectedUploadRetryInterval, now: now)

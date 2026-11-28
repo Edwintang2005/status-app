@@ -59,13 +59,20 @@ enum WidgetReloadPolicy {
     static let siblingReloadWindow: TimeInterval = 2 * 60
 
     static func shouldFetch(lastSyncedAt: Date?, reloadRequestedAt: Date? = nil, now: Date = Date()) -> Bool {
-        if let requested = reloadRequestedAt, requested <= now,
-           now.timeIntervalSince(requested) < siblingReloadWindow {
-            return false
-        }
+        if followsSibling(reloadRequestedAt: reloadRequestedAt, now: now) { return false }
         guard let lastSyncedAt else { return true }
         return now.timeIntervalSince(lastSyncedAt) >= sharedFetchWindow || lastSyncedAt > now
     }
+
+    /// This run answers the app's or the service's reload: they're mid-send or just
+    /// synced, so a widget sending too would race them.
+    static func followsSibling(reloadRequestedAt: Date?, now: Date = Date()) -> Bool {
+        guard let requested = reloadRequestedAt, requested <= now else { return false }
+        return now.timeIntervalSince(requested) < siblingReloadWindow
+    }
+
+    /// An unsent status: look again soon, as a send landing in the widget process can't reload.
+    static let whileUnsent: TimeInterval = 15 * 60
 }
 
 /// One `getTimeline` answer: the entry dates (all rendering the same snapshot)

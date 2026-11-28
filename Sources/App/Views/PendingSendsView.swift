@@ -47,7 +47,8 @@ struct PendingSendsView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
-                if !model.isOffline, !pending.isEmpty {
+                // Offline too: that flag can be stale, and a tap always tries at once.
+                if !pending.isEmpty {
                     ToolbarItem(placement: .bottomBar) {
                         Button("Send now") { Task { await model.retryPendingNow() } }
                             .font(Theme.rounded(16, .semibold))

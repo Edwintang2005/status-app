@@ -671,8 +671,9 @@ private struct HomeLifecycle: ViewModifier {
             }
             // Their status, new since it was last on this screen — landing now or
             // waiting since you were away: the glow once, then it counts as shown.
-            .task(id: "\(model.snapshot.theirs?.wordsAt.timeIntervalSince1970 ?? 0)-\(homeInFront)") {
-                guard homeInFront, model.snapshot.theirs != nil else { return }
+            // Keyed on "new" too: revealing hidden words makes them new, and seen.
+            .task(id: "\(model.snapshot.theirs?.wordsAt.timeIntervalSince1970 ?? 0)-\(homeInFront)-\(model.partnerStatusIsNew)") {
+                guard homeInFront else { return }
                 if model.partnerStatusIsNew { statusArrivals += 1 }
                 try? await Task.sleep(for: .seconds(1.2))
                 if !Task.isCancelled { model.markPartnerStatusShown() }

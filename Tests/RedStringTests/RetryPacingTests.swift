@@ -1,31 +1,49 @@
 import CloudKit
 import XCTest
 
-/// Every automatic retry's holds in one place (`RetryPacing`): a full iCloud and
-/// a throttle hold every pass; a refused send waits; a failing one backs off.
+/// Every automatic retry's holds in one place (`RetryPacing`): a throttle holds
+/// every pass, a full iCloud what it refused; a refused send waits; a failing one backs off.
 final class RetryPacingTests: XCTestCase {
-    func testAFullICloudHoldsEveryAutomaticPassForItsInterval() {
+    func testAPhotoRefusedForSpaceHoldsOnlyUploads() {
         var pacing = RetryPacing()
         let interval = AppConfig.storageFullRetryInterval
-        XCTAssertTrue(pacing.allowsAutomatic(now: Fixtures.t0))
+        XCTAssertTrue(pacing.allowsAutomaticUploads(now: Fixtures.t0))
+        pacing.noteFailure(CKError(.quotaExceeded), sending: .upload, now: Fixtures.t0)
+        XCTAssertFalse(pacing.allowsAutomaticUploads(now: Fixtures.date(interval - 1)))
+        XCTAssertFalse(pacing.allowsAutomatic(.upload("m"), now: Fixtures.date(interval - 1)), "per send too")
+        XCTAssertTrue(pacing.allowsAutomatic(now: Fixtures.date(60)), "a few bytes still go")
+        XCTAssertTrue(pacing.allowsAutomatic(.status, now: Fixtures.date(60)))
+        XCTAssertTrue(pacing.allowsAutomaticUploads(now: Fixtures.date(interval)))
+        XCTAssertTrue(pacing.allowsAutomaticUploads(now: Fixtures.date(-60)), "a stamp ahead of the clock doesn't hold")
+        pacing.noteSuccess(.upload)
+        XCTAssertNil(pacing.storageFullAt, "an upload landing proves there's room")
+    }
+
+    /// Even a few bytes refused: every write waits the interval out, never the deletes that free room.
+    func testAWriteRefusedForSpaceHoldsEveryWrite() {
+        var pacing = RetryPacing()
+        let interval = AppConfig.storageFullRetryInterval
         pacing.noteFailure(CKError(.quotaExceeded), now: Fixtures.t0)
         XCTAssertFalse(pacing.allowsAutomatic(now: Fixtures.date(interval - 1)))
-        XCTAssertFalse(pacing.allowsAutomatic(.upload("m"), now: Fixtures.date(interval - 1)), "per send too")
+        XCTAssertFalse(pacing.allowsAutomaticUploads(now: Fixtures.date(interval - 1)))
+        XCTAssertTrue(pacing.allowsAutomaticDeletes(now: Fixtures.date(60)))
         XCTAssertTrue(pacing.allowsAutomatic(now: Fixtures.date(interval)))
-        XCTAssertTrue(pacing.allowsAutomatic(now: Fixtures.date(-60)), "a stamp ahead of the clock doesn't hold")
-        pacing.noteSuccess(provesRoom: true)
-        XCTAssertNil(pacing.storageFullAt, "an upload landing proves there's room")
+        pacing.noteSuccess(.delete)
+        XCTAssertNotNil(pacing.nothingFitsAt, "a delete proves no room")
+        pacing.noteSuccess(.write)
+        XCTAssertNil(pacing.nothingFitsAt)
+        XCTAssertNotNil(pacing.storageFullAt, "still full for a photo")
     }
 
     /// A status is a few bytes: it fits where a photo still doesn't.
     func testASmallSendLiftsAThrottleButNotAFullICloud() {
         var pacing = RetryPacing()
-        pacing.noteFailure(CKError(.quotaExceeded), now: Fixtures.t0)
+        pacing.noteFailure(CKError(.quotaExceeded), sending: .upload, now: Fixtures.t0)
         pacing.noteFailure(CKError(.requestRateLimited, userInfo: [CKErrorRetryAfterKey: 120.0]), now: Fixtures.t0)
-        pacing.noteSuccess(provesRoom: false)
+        pacing.noteSuccess(.write)
         XCTAssertNil(pacing.throttledUntil, "it went through: not throttled now")
         XCTAssertEqual(pacing.storageFullAt, Fixtures.t0, "still full for a photo")
-        XCTAssertFalse(pacing.allowsAutomatic(now: Fixtures.date(60)))
+        XCTAssertFalse(pacing.allowsAutomaticUploads(now: Fixtures.date(60)))
     }
 
     func testAThrottleHoldsUntilItsRetryAfterAndTheLatestWins() {

@@ -113,29 +113,53 @@ enum SpokenStatus {
     static func match(_ spoken: String, among options: [Choice]) -> Choice? {
         let trimmed = spoken.trimmingCharacters(in: .whitespacesAndNewlines)
         if let emoji = options.first(where: { $0.emoji == trimmed }) { return emoji }
-        let said = normalised(spoken)
+        let said = words(spoken)
         guard !said.isEmpty else { return nil }
-        if let exact = options.first(where: { normalised($0.message) == said }) { return exact }
-        let near = options.filter {
-            let words = normalised($0.message)
-            return !words.isEmpty && (words.contains(said) || said.contains(words))
+        if let exact = options.first(where: { words($0.message) == said }) { return exact }
+        // Whole words, never past a "not" on either side, never on filler alone: "not
+        // tired" isn't 🥱 tired, "home" isn't "Not home", "unhappy" isn't happy, "out of milk" isn't "Out".
+        if !said.contains(where: negations.contains) {
+            let near = options.filter {
+                let option = words($0.message)
+                guard !option.contains(where: negations.contains) else { return false }
+                let run = option.isRun(in: said) ? option : said.isRun(in: option) ? said : []
+                return run.contains { !fillers.contains($0) }
+            }
+            if let closest = near.min(by: { distance($0, said) < distance($1, said) }) { return closest }
         }
-        if let closest = near.min(by: { distance($0, said) < distance($1, said) }) { return closest }
-        let words = trimmed.trimmingCharacters(in: .punctuationCharacters).prefix(AppConfig.statusMessageMaxLength)
-        guard let first = words.first else { return nil }
-        return ("💬", first.uppercased() + words.dropFirst())
+        let text = trimmed.trimmingCharacters(in: .punctuationCharacters).prefix(AppConfig.statusMessageMaxLength)
+        guard let first = text.first else { return nil }
+        return ("💬", first.uppercased() + text.dropFirst())
     }
 
-    /// Case, accents and punctuation aside: dictation adds a full stop, Siri a capital.
-    static func normalised(_ text: String) -> String {
+    /// Case, accents, apostrophes and punctuation aside: dictation adds a full
+    /// stop, Siri a capital, and "don't" is one word.
+    static func words(_ text: String) -> [String] {
         text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            .replacingOccurrences(of: "'", with: "").replacingOccurrences(of: "\u{2019}", with: "")
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { !$0.isEmpty }
-            .joined(separator: " ")
     }
 
-    private static func distance(_ choice: Choice, _ said: String) -> Int {
-        abs(normalised(choice.message).count - said.count)
+    /// Words that say the opposite of what follows, or that it's over: "left work" isn't 💼.
+    private static let negations: Set = ["not", "no", "never", "nothing", "none", "nor", "neither", "without",
+                                         "dont", "doesnt", "didnt", "isnt", "arent", "wasnt", "werent", "aint",
+                                         "cant", "cannot", "couldnt", "wont", "wouldnt", "shouldnt", "havent",
+                                         "hasnt", "hadnt", "off", "left", "leaving", "done", "finished", "over",
+                                         "quit", "skipped", "missed"]
+    private static let fillers: Set = ["a", "an", "the", "in", "on", "at", "to", "of", "for", "and", "my",
+                                       "i", "im", "is", "am", "so", "just", "out", "up", "it"]
+
+    private static func distance(_ choice: Choice, _ said: [String]) -> Int {
+        abs(words(choice.message).joined(separator: " ").count - said.joined(separator: " ").count)
+    }
+}
+
+private extension Array where Element == String {
+    /// These words appear in `other`, together and in order.
+    func isRun(in other: [String]) -> Bool {
+        guard !isEmpty, count <= other.count else { return false }
+        return (0...(other.count - count)).contains { Array(other[$0..<($0 + count)]) == self }
     }
 }
 

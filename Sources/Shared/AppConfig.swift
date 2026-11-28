@@ -218,8 +218,8 @@ enum AppConfig {
     /// Wi-Fi↔cellular handoff drops it for under a second.
     static let offlineCardDelay: TimeInterval = 1.5
 
-    /// After a send fails on a full iCloud, automatic retries wait this long;
-    /// the home footer's tap still retries at once.
+    /// After an upload fails on a full iCloud, automatic upload retries wait this
+    /// long; "Send now" still tries at once.
     static let storageFullRetryInterval: TimeInterval = 60 * 60
     /// How long an automatic retry pass skips a send iCloud refused outright (`SendFailure.rejected`).
     static let rejectedUploadRetryInterval: TimeInterval = 6 * 60 * 60

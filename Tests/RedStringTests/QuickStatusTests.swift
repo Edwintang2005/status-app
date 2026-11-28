@@ -96,6 +96,30 @@ final class QuickStatusTests: XCTestCase {
         XCTAssertNil(SpokenStatus.match("  ", among: choices))
     }
 
+    /// Never the opposite, and never a word inside another: the partner's push goes at once.
+    func testSiriNeverGuessesAcrossANotOrInsideAWord() {
+        let presets: [SpokenStatus.Choice] = [("🥱", "Tired"), ("😊", "Happy"), ("📝", "Exam"), ("🍽️", "Dinner"),
+                                              ("💼", "In a meeting")]
+        XCTAssertEqual(SpokenStatus.match("not tired", among: presets)?.message, "Not tired", "said as said")
+        XCTAssertEqual(SpokenStatus.match("I'm not happy", among: presets)?.emoji, "💬")
+        XCTAssertEqual(SpokenStatus.match("Unhappy", among: presets)?.message, "Unhappy", "not 😊 happy")
+        XCTAssertEqual(SpokenStatus.match("exams are over", among: presets)?.emoji, "💬", "exams isn't exam")
+        XCTAssertEqual(SpokenStatus.match("in", among: presets)?.emoji, "💬", "filler alone matches nothing")
+        XCTAssertEqual(SpokenStatus.match("I don't know", among: [("🤷", "Know")])?.emoji, "💬")
+        XCTAssertEqual(SpokenStatus.match("so tired", among: presets)?.message, "Tired", "a whole word still matches")
+        XCTAssertEqual(SpokenStatus.match("meeting", among: presets)?.message, "In a meeting")
+    }
+
+    func testSiriNeverSetsTheOpposite() {
+        let options: [SpokenStatus.Choice] = [("🚪", "Not home"), ("😴", "Sleep"), ("💼", "Work"), ("🛒", "Out")]
+        XCTAssertEqual(SpokenStatus.match("home", among: options)?.emoji, "💬", "not \"Not home\"")
+        XCTAssertEqual(SpokenStatus.match("Didn't sleep", among: options)?.emoji, "💬")
+        XCTAssertEqual(SpokenStatus.match("left work", among: options)?.emoji, "💬")
+        XCTAssertEqual(SpokenStatus.match("out of milk", among: options)?.emoji, "💬", "a filler-only overlap")
+        XCTAssertEqual(SpokenStatus.match("not home", among: options)?.message, "Not home", "its exact words still do")
+        XCTAssertEqual(SpokenStatus.match("at work", among: options)?.message, "Work")
+    }
+
     // MARK: Spoken lines
 
     private func snapshot(_ theirs: StatusPayload?) -> Snapshot {

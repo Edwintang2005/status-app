@@ -1,12 +1,17 @@
 import Foundation
 
 /// When automatic retries may go again — every send loop's backoff in one place
-/// (`Outbox`). Two holds stop every automatic pass: a full iCloud (for
-/// `storageFullRetryInterval`, or until an upload lands or a delete frees
-/// room) and a throttle (until iCloud's retry-after, or anything landing). Then per send: one iCloud refused outright waits a fixed
-/// interval (`hold`), and one failing repeatedly backs off, doubling (`backOff`).
-/// In memory: after a relaunch, one try finds out again. A tap never asks.
+/// (`Outbox`). A throttle holds every automatic pass until its retry-after or
+/// anything landing. A full iCloud holds, for `storageFullRetryInterval`, the
+/// uploads it refused — and every write once even a few bytes were refused; never
+/// deletes, which free room. Per send, one refused outright waits (`hold`) and
+/// one failing repeatedly backs off (`backOff`). In memory; a tap never asks.
 struct RetryPacing: Equatable, Sendable {
+    /// What was sent, for what its landing or refusal says about space.
+    enum Send: Sendable {
+        case delete, write, upload
+    }
+
     /// What a per-send hold is about — refused uploads and caption edits by moment,
     /// the status as one, earlier statuses' logs as another.
     enum Subject: Hashable, Sendable {
@@ -17,41 +22,60 @@ struct RetryPacing: Equatable, Sendable {
     }
 
     private(set) var storageFullAt: Date?
+    /// A write of a few bytes was refused for space too: nothing fits.
+    private(set) var nothingFitsAt: Date?
     private(set) var throttledUntil: Date?
     private var notBefore: [Subject: Date] = [:]
     private var failures: [Subject: Int] = [:]
 
-    /// Neither a full iCloud nor a throttle holds automatic passes now. A full
-    /// stamp from the future (a clock change) doesn't hold.
+    /// Deletes: only a throttle holds them.
+    func allowsAutomaticDeletes(now: Date) -> Bool {
+        guard let until = throttledUntil else { return true }
+        return now >= until
+    }
+
+    /// Writes also wait out a full iCloud that refused one.
     func allowsAutomatic(now: Date) -> Bool {
-        if let until = throttledUntil, now < until { return false }
-        guard let full = storageFullAt, full <= now else { return true }
+        allowsAutomaticDeletes(now: now) && Self.waitedOut(nothingFitsAt, now: now)
+    }
+
+    /// Uploads also wait out a full iCloud that refused a photo.
+    func allowsAutomaticUploads(now: Date) -> Bool {
+        allowsAutomatic(now: now) && Self.waitedOut(storageFullAt, now: now)
+    }
+
+    /// A stamp from the future (a clock change) doesn't hold.
+    private static func waitedOut(_ full: Date?, now: Date) -> Bool {
+        guard let full, full <= now else { return true }
         return now.timeIntervalSince(full) >= AppConfig.storageFullRetryInterval
     }
 
     /// The pass-wide holds, then this send's own.
     func allowsAutomatic(_ subject: Subject, now: Date) -> Bool {
-        allowsAutomatic(now: now) && now >= (notBefore[subject] ?? .distantPast)
+        let passes = if case .upload = subject { allowsAutomaticUploads(now: now) } else { allowsAutomatic(now: now) }
+        return passes && now >= (notBefore[subject] ?? .distantPast)
     }
 
     /// Stamps a full iCloud or a throttle; returns the failure, classified.
     @discardableResult
-    mutating func noteFailure(_ error: Error, now: Date) -> SendFailure {
+    mutating func noteFailure(_ error: Error, sending: Send = .write, now: Date) -> SendFailure {
         let failure = SendFailure(error, now: now)
         switch failure {
-        case .storageFull: storageFullAt = now
+        case .storageFull:
+            storageFullAt = now
+            if sending != .upload { nothingFitsAt = now }
         case .throttled(let until): throttledUntil = max(throttledUntil ?? .distantPast, until)
         case .offline, .rejected, .transient: break
         }
         return failure
     }
 
-    /// Anything landing proves we're let through. Only `provesRoom` — an
-    /// upload landing, a delete freeing space — says iCloud has room: a status
-    /// is a few bytes, and fits where a photo still doesn't.
-    mutating func noteSuccess(provesRoom: Bool) {
-        if provesRoom { storageFullAt = nil }
+    /// Anything landing proves we're let through; a write that a few bytes fit, an
+    /// upload that a photo does. A delete, often of something already gone, proves no room.
+    mutating func noteSuccess(_ sent: Send) {
         throttledUntil = nil
+        if sent != .delete { nothingFitsAt = nil }
+        if sent == .upload { storageFullAt = nil }
     }
 
     /// Refused outright: automatic passes skip it for `interval`.

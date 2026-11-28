@@ -13,6 +13,8 @@ struct RefreshDelta: Sendable, Equatable {
 
     /// The anniversary record, when it arrived readable.
     var anniversary: Anniversary?
+    /// When that date was edited (`CloudSync.heldStamp`): the next edit here stamps after it.
+    var anniversaryEditedAt: Date?
     var anniversaryErased = false
 
     /// The partner's receipt record arrived readable; `statusSeen` is then
@@ -112,6 +114,8 @@ struct RefreshDelta: Sendable, Equatable {
             }
         } else if snapshot.anniversaryPublished, let anniversary {
             snapshot.anniversary = anniversary
+            // A phone whose clock runs behind would otherwise stamp its next edit older.
+            if let stamp = anniversaryEditedAt { snapshot.anniversaryEditedAt = max(snapshot.anniversaryEditedAt ?? stamp, stamp) }
         }
 
         if receiptReadable {

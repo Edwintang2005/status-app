@@ -45,7 +45,7 @@ final class WidgetRedrawTests: XCTestCase {
             "lastNudgeSentAt": (true, { $0.lastNudgeSentAt = later }),
             "lastNudgeFailedAt": (true, { $0.lastNudgeFailedAt = later }),
             "lastNudgeIssuedAt": (true, { $0.lastNudgeIssuedAt = later }),
-            "myStatusPublished": (false, { $0.myStatusPublished = false }),
+            "myStatusPublished": (true, { $0.myStatusPublished = false }),
             "myStatusLoggedAt": (false, { $0.myStatusLoggedAt = later }),
             "lastBreakthroughNudgeAt": (false, { $0.lastBreakthroughNudgeAt = later }),
             "latestPartnerMoment": (false, { $0.latestPartnerMoment = other }),
@@ -170,6 +170,40 @@ final class WidgetRedrawTests: XCTestCase {
         XCTAssertNil(store.widgetReloadRequestedAt)
         store.mediaLanded(for: ["older", "p1"])
         XCTAssertNotNil(store.widgetReloadRequestedAt, "the drawn picture sharpens")
+    }
+
+    /// Today's and tomorrow's favourites are drawn pictures too; the rest of the stars aren't.
+    func testTheDaysFavouritesFileRedraws() {
+        let store = SharedStore(defaults: temporaryDefaults())
+        let stars = (0..<5).map { i in
+            var moment = Fixtures.moment("s\(i)", at: Fixtures.date(TimeInterval(i)), seen: true)
+            moment.favouritedAt = Fixtures.date(TimeInterval(10 + i))
+            return moment
+        }
+        store.mutate { $0 = self.base; $0.latestPartnerVisualMoment?.seen = true; $0.widgetFavourites = stars }
+        let calendar = Calendar(identifier: .gregorian)
+        let now = Fixtures.t0
+        let content = WidgetContent(drawing: store.snapshot)
+        let drawn = [now, now.addingTimeInterval(86_400)].compactMap {
+            content.picture(favourites: true, on: $0, calendar: calendar)?.id
+        }
+        let undrawn = stars.map(\.id).filter { !drawn.contains($0) }
+        store.widgetReloadRequestedAt = nil
+        store.mediaLanded(for: undrawn, now: now, calendar: calendar)
+        XCTAssertNil(store.widgetReloadRequestedAt, "a star not picked for these two days")
+        store.mediaLanded(for: [drawn[0]], now: now, calendar: calendar)
+        XCTAssertNotNil(store.widgetReloadRequestedAt)
+    }
+
+    /// What launch runs (`AppModel.onLaunch`): stars an older build left in the index reach the widget.
+    func testStarsAlreadyInTheIndexAreDerived() {
+        let store = SharedStore(defaults: temporaryDefaults())
+        let index = MomentIndex(fileURL: temporaryFile("moments-index.json"), onCorrupt: {})
+        var starred = Fixtures.moment("starred", at: Fixtures.date(1))
+        starred.favouritedAt = Fixtures.date(2)
+        index.insert([starred])
+        store.refreshDerived(index: index)
+        XCTAssertEqual(store.snapshot.widgetFavourites.map(\.id), ["starred"])
     }
 
     /// The gallery's paging: the reload is owed to the caller, not spent per page.

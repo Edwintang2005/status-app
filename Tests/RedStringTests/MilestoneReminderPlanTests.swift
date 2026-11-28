@@ -85,4 +85,31 @@ final class MilestoneReminderPlanTests: XCTestCase {
         XCTAssertEqual(earlyPlan.first { $0.mark == .days(100) }?.fireAt,
                        DateComponents(year: 2026, month: 9, day: 13, hour: 9, minute: 0))
     }
+
+    /// Owner in London, the phone in Sydney, nine hours ahead: 100 days reached at
+    /// 11:02 pm London is 8:02 am Sydney the next day — never reminded before that.
+    func testAPhoneEastOfTheOwnerHearsOnlyOnceItsBegun() {
+        let londonCalendar = calendar(london)
+        let began = Anniversary(startsAt: londonCalendar.date(from: DateComponents(year: 2026, month: 6, day: 5,
+                                                                                    hour: 23, minute: 2, second: 30))!,
+                                timeZoneID: london.identifier)
+        let hundred = began.milestones().first { $0.mark == .days(100) }!
+        let phone = calendar(sydney)
+        let reminder = MilestoneReminderPlan.reminders(for: began, enabled: true, paired: true,
+                                                       now: began.startsAt, calendar: phone)
+            .first { $0.mark == .days(100) }!
+        let fires = phone.date(from: reminder.fireAt)!
+        XCTAssertGreaterThanOrEqual(fires, hundred.date, "the count shows 100 by then, to the second")
+        XCTAssertEqual(began.milestoneToday(fires)?.mark, .days(100), "and the count screen names it")
+    }
+
+    /// Every milestone, on phones either side of the owner: begun by the time it fires.
+    func testNoReminderComesBeforeItsMilestone() {
+        for zone in [sydney, london, TimeZone(identifier: "America/Los_Angeles")!, TimeZone(identifier: "Asia/Tokyo")!] {
+            for milestone in began.milestones().prefix(20) {
+                let fires = MilestoneReminderPlan.fireDate(milestone, of: began, local: calendar(zone))!
+                XCTAssertEqual(began.milestoneToday(fires)?.key, milestone.key, "\(milestone.key) on \(zone.identifier)")
+            }
+        }
+    }
 }

@@ -35,8 +35,8 @@ struct QuickStatusEntry: TimelineEntry {
                                                    Choice(emoji: "🏠", message: "Home")])
 }
 
-/// Reads the store, never the network: every status you set reloads it
-/// (`SharedStore.requestWidgetReload`), so there's nothing to fetch.
+/// Reads the store: a status set or sent reloads it (`WidgetContent.mineUnsent`).
+/// Its one network call sends yours if it's owed (invariant 11).
 struct QuickStatusProvider: TimelineProvider {
     static let choiceCount = 4
 
@@ -47,11 +47,21 @@ struct QuickStatusProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<QuickStatusEntry>) -> Void) {
-        let entry = Self.entry()
-        // Locked before first unlock: look again soon, as nothing else reloads this kind
-        // then. Otherwise a backstop: a status set on another of your devices arrives by sync.
-        let wait = entry.isLocked ? WidgetReloadPolicy.whileLocked : 6 * 3_600
-        completion(Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(wait))))
+        nonisolated(unsafe) let completion = completion
+        Task {
+            // The only widget someone may have: it can't leave sending to the others.
+            let store = SharedStore.shared
+            if Self.entry().unsent, !store.fetchWaitsOutThrottle(),
+               !WidgetReloadPolicy.followsSibling(reloadRequestedAt: store.widgetReloadRequestedAt) {
+                await QuickStatus.sendOwed()
+            }
+            let entry = Self.entry()
+            // Locked before first unlock, nothing else reloads this kind. Otherwise a
+            // backstop: a status set on another of your devices arrives by sync.
+            let wait = entry.isLocked ? WidgetReloadPolicy.whileLocked
+                : entry.unsent ? WidgetReloadPolicy.whileUnsent : 6 * 3_600
+            completion(Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(wait))))
+        }
     }
 
     static func entry(now: Date = Date()) -> QuickStatusEntry {
@@ -67,7 +77,7 @@ struct QuickStatusProvider: TimelineProvider {
         }
         return QuickStatusEntry(date: now, isPaired: store.snapshot.isPaired && !store.isLockedOut,
                                 isLocked: store.isLockedOut, current: mine,
-                                unsent: mine != nil && !store.snapshot.myStatusPublished, choices: choices)
+                                unsent: WidgetContent(drawing: store.snapshot).mineUnsent, choices: choices)
     }
 }
 

@@ -143,7 +143,7 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
         case NotificationCategory.Action.replyStatus:
             let message = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !message.isEmpty else { return }
-            if let failure = await AppModel.current?.setStatus(emoji: "💬", message: message) {
+            if let failure = await AppModel.current?.setStatus(emoji: "💬", message: message, routine: false) {
                 await NotificationManager.postActionFailed(Self.replyNotSent(failure))
             }
         case NotificationCategory.Action.replyPhoto:

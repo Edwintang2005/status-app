@@ -457,6 +457,8 @@ final class SharedStore: @unchecked Sendable {
             inviteURL = nil
             closeLinkPromptDismissed = false
             hiddenPartnerStatusAt = nil
+            // The next partner's statuses aren't judged against this one's.
+            partnerStatusShownAt = nil
             anniversaryPromptPending = false
             zoneGoneSeenAt = nil
             shareCheckedAt = nil

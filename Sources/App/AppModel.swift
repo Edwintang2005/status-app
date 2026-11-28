@@ -411,10 +411,10 @@ final class AppModel {
                             status: myStatusWaitingToSend ? snapshot.mine : nil, waiting: pendingSendCount)
     }
 
-    /// "Don't send": an unsent moment of ours, not uploading, off this phone —
-    /// and told to iCloud too, in case an upload landed unheard (`deleteMoment`).
+    /// "Don't send", confirmed: off this phone and iCloud (`deleteMoment`). The copy the
+    /// list showed is still unsent, so one that landed while the dialog was up goes for both.
     func cancelSend(_ moment: Moment) async {
-        guard let item = pendingSends.moments.first(where: { $0.id == moment.id }), !item.sending else { return }
+        guard moment.fromMe else { return }
         await deleteMoment(moment)
     }
 
@@ -528,7 +528,11 @@ final class AppModel {
         // fetch until it ends is a resync: news only what the server created
         // since the last complete fetch (`Snapshot.newsAfter`), older history filed seen.
         if HistoryCoverage.needsSweep(store.historyCoverage) { store.clearChangeTokens() }
+        // Derived fields catch up with an index written by an older build (`widgetFavourites`).
+        writeIndex { [store, index = stores.index] in store.refreshDerived(index: index) }
         guard isPaired else {
+            // Unlinked while closed; a pairing locked away until first unlock isn't (invariant 15).
+            if case .unpaired = store.pairingState { forgetStatusSuggestions() }
             await sync.checkReadiness()
             return
         }
@@ -562,8 +566,11 @@ final class AppModel {
     /// assignment invalidates whatever Home view reads it, and this runs after nearly everything.
     func reload() {
         let pairing = store.pairing
+        // However it ended — here, or the partner leaving, seen by any process.
+        if isPaired, pairing == nil, case .unpaired = store.pairingState { forgetStatusSuggestions() }
         update(\.snapshot, store.snapshot)
         update(\.isPaired, pairing != nil)
+        update(\.partnerStatusShownAt, store.partnerStatusShownAt)
         update(\.role, pairing?.role)
         update(\.hiddenPartnerStatusAt, store.hiddenPartnerStatusAt)
         update(\.anniversaryPromptPending, store.anniversaryPromptPending)
@@ -704,9 +711,17 @@ final class AppModel {
         StatusPayload.nextStamp(after: store.snapshot.mine?.updatedAt)
     }
 
+    /// Statuses set for one partner aren't Siri Suggestions for the next.
+    func forgetStatusSuggestions() {
+        let forget = environment.donateStatus
+        Task { await forget(nil) }
+    }
+
     /// - Returns: why it didn't reach iCloud now (it's kept and sent later), or `nil` when it did.
+    /// `routine: false` for a typed banner reply: a one-off, not a Siri Suggestion.
     @discardableResult
-    func setStatus(emoji: String, message: String, celebration: CelebrationStyle? = nil) async -> SendFailure? {
+    func setStatus(emoji: String, message: String, celebration: CelebrationStyle? = nil,
+                   routine: Bool = true) async -> SendFailure? {
         // From the store's copy: the stamp must follow its newest status.
         let payload = StatusPayload.composed(emoji: emoji, message: message, celebration: celebration,
                                              after: store.snapshot.mine)
@@ -715,7 +730,7 @@ final class AppModel {
         stores.statusLog.record(payload, fromMe: true, unlogged: paired)
         reload()
         // Your routine, for Siri Suggestions — not a celebration, which is an occasion.
-        if paired, celebration == nil {
+        if paired, routine, celebration == nil {
             let donate = environment.donateStatus
             Task { await donate(StatusOption(emoji: payload.emoji, message: payload.message)) }
         }
@@ -915,7 +930,7 @@ final class AppModel {
         do {
             try await outbox.upload(moment, taskName: taskName, reserved: true)
         } catch {
-            presentSendFailure(error, noun: moment.noun)
+            presentSendFailure(error, noun: moment.noun, sending: .upload)
         }
     }
 
@@ -981,7 +996,8 @@ final class AppModel {
         store.mutate {
             $0.anniversary = anniversary
             $0.anniversaryPublished = false
-            $0.anniversaryEditedAt = Date().wholeSeconds
+            // Always after the last edit, here or folded in: a clock gone back can't make it older.
+            $0.anniversaryEditedAt = max(Date().wholeSeconds, ($0.anniversaryEditedAt ?? .distantPast).addingTimeInterval(1))
             // Setting a date answers any standing ask, so it can't resurface
             // if the date is later removed.
             if let asked = $0.anniversaryRequestedAt { $0.anniversaryRequestDismissedAt = asked }
@@ -1034,7 +1050,7 @@ final class AppModel {
 
     // MARK: - Pending uploads
 
-    /// The home footer's tap-to-retry: what the next refresh would send, without
+    /// The waiting list's "Send now": what the next refresh would send, without
     /// waiting for one. Says so when it didn't all go — silence read as a dead button.
     func retryPendingNow() async {
         guard !isSendingNow else { return }
@@ -1063,10 +1079,6 @@ final class AppModel {
         }
     }
 
-    /// Records that the partner's current status has been on screen — the
-    /// status read receipt. Driven by the home screen, and only while the app
-    /// is actually in front with nothing covering it: a background refresh, or
-    /// a status landing under the picker, isn't anyone looking.
     /// Their status changed since it was last on this screen: the card says
     /// "New". Only words you could read count — not reported, filter-hidden or a
     /// sealed surprise — and nothing before the first look (an upgrade isn't news).
@@ -1079,8 +1091,12 @@ final class AppModel {
     /// Their status has been on screen a moment with Home in front. Local only:
     /// unlike `markPartnerStatusSeen`, never a receipt, so it runs with receipts off.
     func markPartnerStatusShown() {
-        guard isPaired, !homeSheetShowing, !rootSheetShowing, environment.isInFront(),
-              let theirs = snapshot.theirs, partnerWordsShown(theirs),
+        guard isPaired, !homeSheetShowing, !rootSheetShowing, environment.isInFront() else { return }
+        // No status yet: looked all the same, so their first one is new.
+        if snapshot.theirs == nil, partnerStatusShownAt == nil {
+            persist(Date(timeIntervalSince1970: 0), \.partnerStatusShownAt, \.partnerStatusShownAt)
+        }
+        guard let theirs = snapshot.theirs, partnerWordsShown(theirs),
               (partnerStatusShownAt ?? .distantPast) < theirs.wordsAt else { return }
         persist(theirs.wordsAt, \.partnerStatusShownAt, \.partnerStatusShownAt)
     }
@@ -1091,6 +1107,10 @@ final class AppModel {
                                  sealed: snapshot.partnerStatusSealed, filterEnabled: contentFilterEnabled)
     }
 
+    /// Records that the partner's current status has been on screen — the
+    /// status read receipt. Driven by the home screen, and only while the app
+    /// is actually in front with nothing covering it: a background refresh, or
+    /// a status landing under the picker, isn't anyone looking.
     func markPartnerStatusSeen() {
         guard isPaired, readReceiptsEnabled, !homeSheetShowing, !rootSheetShowing,
               environment.isInFront() else { return }
@@ -1149,10 +1169,10 @@ final class AppModel {
     /// A failed send is filed locally and retried, and Home shows it waiting
     /// (the status row, the footer): no alert. A full iCloud is the exception —
     /// only someone can fix it — once per automatic-retry back-off.
-    private func presentSendFailure(_ error: Error, noun: String) {
+    private func presentSendFailure(_ error: Error, noun: String, sending: RetryPacing.Send = .write) {
         log.error("Send failed: \(Self.codePrefix(error), privacy: .public)\(error.localizedDescription, privacy: .public)")
         let alreadyFull = outbox.storageFullAt
-        guard outbox.noteSendFailed(error) == .storageFull else { return }
+        guard outbox.noteSendFailed(error, sending: sending) == .storageFull else { return }
         if let alreadyFull, Date().timeIntervalSince(alreadyFull) < AppConfig.storageFullRetryInterval { return }
         // Whose storage it is decides who can fix it: the zone lives in the owner's iCloud.
         errorTitle = String(localized: "iCloud is full")

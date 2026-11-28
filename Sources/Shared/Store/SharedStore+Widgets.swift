@@ -63,11 +63,15 @@ extension SharedStore {
         return (redraws, snapshot)
     }
 
-    /// A download wrote these moments' files: the widgets redraw if one is the
-    /// picture they show — its file isn't in the snapshot (invariant 6). Every
-    /// fetch into the media store ends here, whichever process or path made it.
-    func mediaLanded(for ids: [String]) {
-        guard let drawn = snapshot.latestPartnerVisualMoment?.id, ids.contains(drawn) else { return }
+    /// A download wrote these moments' files: the widgets redraw if one is a
+    /// picture they show — the latest, or today's or tomorrow's favourite — whose
+    /// file isn't in the snapshot (invariant 6). Every fetch into the media store ends here.
+    func mediaLanded(for ids: [String], now: Date = Date(), calendar: Calendar = .current) {
+        let content = WidgetContent(drawing: snapshot)
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: now) ?? now
+        let drawn = Set([content.photo?.id, content.picture(favourites: true, on: now, calendar: calendar)?.id,
+                         content.picture(favourites: true, on: tomorrow, calendar: calendar)?.id].compactMap { $0 })
+        guard ids.contains(where: drawn.contains) else { return }
         requestWidgetReload()
     }
 

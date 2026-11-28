@@ -202,8 +202,10 @@ final class ParsedDeltaTests: XCTestCase {
         anniversary.encryptedValues[CloudSync.Field.timeZone] = "Australia/Sydney"
         let request = record(CloudSync.RecordType.anniversaryRequest, CloudSync.anniversaryRequestRecordName)
         request.encryptedValues[CloudSync.Field.requestedAt] = Fixtures.date(0.6)
+        anniversary[CloudSync.Field.updatedAt] = Fixtures.date(-60)
         let fold = outcome(parse([anniversary, request])).fold
         XCTAssertEqual(fold.anniversary?.startsAt, Fixtures.t0)
+        XCTAssertEqual(fold.anniversaryEditedAt, Fixtures.date(-60), "its edit stamp comes with it (invariant 16)")
         XCTAssertEqual(fold.anniversaryRequestedAt, Fixtures.t0, "whole seconds")
 
         let erased = parse([], deleted: [CloudSync.anniversaryRequestRecordName, CloudSync.anniversaryRecordName])

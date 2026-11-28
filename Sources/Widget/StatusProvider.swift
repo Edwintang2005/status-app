@@ -56,13 +56,24 @@ struct StatusProvider: TimelineProvider {
         let store = SharedStore.shared
         store.lastWidgetRun = .recorded(after: store.lastWidgetRun, at: Date(), outcome: refresh.outcome,
                                         detail: refresh.detail, nextReload: plan.nextReload)
-        let drawn = entry(at: Date(), size: size)
-        var entries = plan.entries.map { StatusEntry(date: $0, content: drawn.content, photo: drawn.photo) }
+        var dates = plan.entries
         // Tomorrow's favourite takes over at midnight without a reload.
         if favourites, let midnight = Calendar.current.date(byAdding: .day, value: 1,
                                                             to: Calendar.current.startOfDay(for: Date())) {
-            entries.append(entry(at: midnight, size: size))
-            entries.sort { $0.date < $1.date }
+            dates = (dates + [midnight]).sorted()
+        }
+        // One store read; each entry its own day's picture, each picture decoded once.
+        let content = WidgetContent(store: SharedStore.shared)
+        var decoded: [String: UIImage] = [:]
+        let entries = dates.map { date in
+            var drawn = content
+            drawn.photo = content.picture(favourites: favourites, on: date)
+            var photo: UIImage?
+            if drawsPhoto, let picture = drawn.photo {
+                photo = decoded[picture.id] ?? WidgetPhoto.image(for: picture, pointSize: size)
+                decoded[picture.id] = photo
+            }
+            return StatusEntry(date: date, content: drawn, photo: photo)
         }
         return Timeline(entries: entries, policy: .after(plan.nextReload))
     }

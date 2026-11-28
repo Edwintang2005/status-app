@@ -161,6 +161,28 @@ final class NewPartnerStatusTests: XCTestCase {
         XCTAssertTrue(backend.receipts.isEmpty)
     }
 
+    /// Looked before they'd set anything: their first status is new, and glows.
+    func testTheirFirstStatusIsNew() {
+        let (model, _, stores) = makeModel()
+        stores.shared.mutate { $0.isPaired = true }
+        model.reload()
+        model.markPartnerStatusShown()
+        stores.shared.mutate { $0.theirs = Fixtures.status("👋", "hi", at: Fixtures.date(60)) }
+        model.reload()
+        XCTAssertTrue(model.partnerStatusIsNew)
+    }
+
+    /// The next partner isn't judged against the last one's watermark.
+    func testUnlinkingForgetsWhatWasShown() {
+        let (model, _, stores) = makeModel()
+        stores.shared.mutate { $0.isPaired = true; $0.theirs = Fixtures.status(at: Fixtures.date(9_000)) }
+        model.reload()
+        model.markPartnerStatusShown()
+        stores.shared.clearPairing(keepingName: true)
+        model.reload()
+        XCTAssertNil(model.partnerStatusShownAt)
+    }
+
     func testAReportedStatusIsNeverNew() {
         let (model, _, stores) = makeModel()
         stores.shared.mutate { $0.isPaired = true; $0.theirs = Fixtures.status(at: Fixtures.t0) }
@@ -200,14 +222,19 @@ final class CancelSendTests: XCTestCase {
         XCTAssertTrue(model.pendingSends.moments.isEmpty)
     }
 
-    func testOneAlreadySentIsNotTakenBackHere() async {
-        let (model, _, stores) = makeModel()
-        var photo = Fixtures.moment("p1", fromMe: true)
-        photo.uploaded = true
-        stores.index.insert([photo])
+    /// Landed while the dialog was up: still taken back, for both, inside the window.
+    func testOneThatLandedMeanwhileIsDeletedForBoth() async {
+        let (model, backend, stores) = makeModel()
+        let shown = Fixtures.moment("p1", fromMe: true, uploaded: false)
+        var landed = shown
+        landed.uploaded = true
+        stores.index.insert([landed])
         model.reload()
-        await model.cancelSend(photo)
-        XCTAssertEqual(stores.index.load().map(\.id), ["p1"], "\"Delete for both of you\" is for that")
+        // The dialog holds the copy the list drew, from before it landed, sent long ago.
+        await model.cancelSend(shown)
+        XCTAssertTrue(stores.index.load().isEmpty)
+        XCTAssertEqual(backend.deleted.flatMap { $0 }, ["p1"], "and from iCloud")
+        XCTAssertNil(model.errorTitle)
     }
 }
 
@@ -228,19 +255,52 @@ final class StatusDonationTests: XCTestCase {
         return AppModel(stores: makeStores(paired: .owner), backend: FakeAppBackend(), environment: environment)
     }
 
-    func testAStatusSetHereIsToldToSiriButNotACelebration() async throws {
+    func testAStatusSetHereIsToldToSiriButNotACelebration() async {
         let donations = Donations()
         let model = makeModel(donations)
         _ = await model.setStatus(emoji: "☕️", message: "coffee")
         _ = await model.setStatus(emoji: "🎉", message: "surprise", celebration: .confetti)
-        try await waitUntil { donations.all == ["☕️ coffee"] }
+        await waitUntil { donations.all == ["☕️ coffee"] }
+    }
+
+    func testABannerReplyIsntARoutine() async {
+        let donations = Donations()
+        let model = makeModel(donations)
+        _ = await model.setStatus(emoji: "💬", message: "see you at 7", routine: false)
+        _ = await model.setStatus(emoji: "☕️", message: "coffee")
+        await waitUntil { donations.all == ["☕️ coffee"] }
+    }
+
+    /// The partner ending it, seen by another process: forgotten all the same.
+    func testThePartnerEndingItForgetsThemToo() async {
+        let donations = Donations()
+        let stores = makeStores(paired: .owner)
+        var environment = AppEnvironment.detached
+        environment.donateStatus = { donations.add($0) }
+        let model = AppModel(stores: stores, backend: FakeAppBackend(), environment: environment)
+        stores.shared.clearPairing(keepingName: true)
+        model.reload()
+        await waitUntil { donations.all == [nil] }
     }
 
     /// Statuses set for them aren't suggestions for whoever comes next.
-    func testUnlinkingForgetsThem() async throws {
+    func testUnlinkingForgetsThem() async {
         let donations = Donations()
         let model = makeModel(donations)
         model.forceLocalReset(startingOver: false)
-        try await waitUntil { donations.all == [nil] }
+        await waitUntil { donations.all == [nil] }
+    }
+}
+
+/// A date edit is always stamped after the last, whatever the clock says.
+@MainActor
+final class AnniversaryStampTests: XCTestCase {
+    func testAnEditIsStampedAfterTheLastEvenWithTheClockBehind() async {
+        let (model, _, stores) = makeModel()
+        let ahead = Date().addingTimeInterval(3 * 3_600).wholeSeconds
+        stores.shared.mutate { $0.anniversaryEditedAt = ahead }
+        model.reload()
+        await model.setAnniversary(Anniversary(startsAt: Fixtures.date(1_000), timeZoneID: "UTC"))
+        XCTAssertGreaterThan(stores.shared.snapshot.anniversaryEditedAt!, ahead)
     }
 }

@@ -1,10 +1,7 @@
 import Foundation
 
-/// The opt-in milestone reminders: a local notification on the morning of each
-/// coming milestone (`Anniversary.milestones()`, round numbers included), on both phones. Worded so the
-/// lock screen doesn't give the count away; opening it leads through the tie
-/// to the count, which names the milestone.
-/// Pure — `NotificationManager.scheduleMilestoneReminders` hands it to the system.
+/// The opt-in milestone reminders, on both phones: one per coming milestone, worded
+/// so the lock screen doesn't give the count away. Pure — `NotificationManager` schedules them.
 enum MilestoneReminderPlan {
     static let identifierPrefix = "milestone-"
     /// iOS keeps 64 pending requests per app; the rest of ours are immediate.
@@ -15,9 +12,7 @@ enum MilestoneReminderPlan {
     struct Reminder: Equatable, Sendable {
         var identifier: String
         var mark: Anniversary.Milestone.Mark
-        /// Floating wall-clock: 9 am on the milestone's day — the owner's calendar
-        /// date, like the count screen's "today" — wherever this phone is; a
-        /// round number reached later that day, at its moment, when the count shows it.
+        /// This phone's wall-clock time (`fireDate`).
         var fireAt: DateComponents
     }
 
@@ -29,19 +24,31 @@ enum MilestoneReminderPlan {
                           now: Date = Date(),
                           calendar local: Calendar = .current) -> [Reminder] {
         guard enabled, paired, let anniversary else { return [] }
-        let owner = anniversary.calendar
         var reminders: [Reminder] = []
         for milestone in anniversary.milestones() {
-            let day = owner.dateComponents([.year, .month, .day, .hour, .minute], from: milestone.date)
-            let later = milestone.isMoment && (day.hour ?? 0) >= hour
-            let fireAt = DateComponents(year: day.year, month: day.month, day: day.day,
-                                        hour: later ? day.hour : hour, minute: later ? day.minute : 0)
-            guard let fires = local.date(from: fireAt), fires > now else { continue }
+            guard let exact = fireDate(milestone, of: anniversary, local: local) else { continue }
+            // Up to the whole minute the trigger holds: a moment at 23:02:30 never rings at 23:02.
+            let fires = Date(timeIntervalSinceReferenceDate: (exact.timeIntervalSinceReferenceDate / 60).rounded(.up) * 60)
+            guard fires > now else { continue }
+            let fireAt = local.dateComponents([.year, .month, .day, .hour, .minute], from: fires)
             reminders.append(Reminder(identifier: "\(identifierPrefix)\(milestone.key)",
                                       mark: milestone.mark,
                                       fireAt: fireAt))
             if reminders.count == limit { break }
         }
         return reminders
+    }
+
+    /// 9 am on this phone, but only once the milestone has begun — the owner's day for
+    /// a calendar mark, its moment for a round number — and before the owner's day ends;
+    /// failing both, the moment it begins.
+    static func fireDate(_ milestone: Anniversary.Milestone, of anniversary: Anniversary, local: Calendar) -> Date? {
+        let owner = anniversary.calendar
+        let day = owner.startOfDay(for: milestone.date)
+        guard let end = owner.date(byAdding: .day, value: 1, to: day) else { return nil }
+        let start = milestone.isMoment ? milestone.date : day
+        let morning = local.date(bySettingHour: hour, minute: 0, second: 0, of: start)
+        let nextMorning = morning.flatMap { local.date(byAdding: .day, value: 1, to: $0) }
+        return [morning, nextMorning].compactMap { $0 }.first { $0 >= start && $0 < end } ?? start
     }
 }

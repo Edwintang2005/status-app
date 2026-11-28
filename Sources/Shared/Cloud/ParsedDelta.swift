@@ -282,6 +282,7 @@ struct ParsedDelta {
             theirs: theirs,
             partnerErased: partnerErased,
             anniversary: anniversaryRecord.flatMap { CloudSync.anniversary(from: $0, now: now) },
+            anniversaryEditedAt: anniversaryRecord.flatMap(CloudSync.heldStamp),
             anniversaryErased: anniversaryErased,
             receiptReadable: theirReceipts != nil,
             statusSeen: theirReceipts.flatMap(CloudSync.statusSeen(from:)),

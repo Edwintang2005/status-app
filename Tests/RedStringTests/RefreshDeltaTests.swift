@@ -219,4 +219,14 @@ final class RefreshDeltaTests: XCTestCase {
         RefreshDelta(anniversaryErased: true).fold(into: &snapshot, now: Fixtures.date(60))
         XCTAssertNil(snapshot.anniversary)
     }
+
+    /// Another device's later stamp comes in with its date, so the next edit here beats it.
+    func testAnIncomingDateBringsItsStamp() {
+        var snapshot = Snapshot.empty
+        snapshot.anniversaryEditedAt = Fixtures.date(100)
+        RefreshDelta(anniversary: date, anniversaryEditedAt: Fixtures.date(500)).fold(into: &snapshot)
+        XCTAssertEqual(snapshot.anniversaryEditedAt, Fixtures.date(500))
+        RefreshDelta(anniversary: date, anniversaryEditedAt: Fixtures.date(300)).fold(into: &snapshot)
+        XCTAssertEqual(snapshot.anniversaryEditedAt, Fixtures.date(500), "never moved back")
+    }
 }
