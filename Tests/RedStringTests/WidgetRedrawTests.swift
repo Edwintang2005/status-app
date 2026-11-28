@@ -55,6 +55,7 @@ final class WidgetRedrawTests: XCTestCase {
             "owedMoments": (false, { $0.owedMoments = [other] }),
             "newsAfter": (false, { $0.newsAfter = later }),
             "latestPartnerVisualMoment": (true, { $0.latestPartnerVisualMoment = other }),
+            "widgetFavourites": (true, { $0.widgetFavourites = [other] }),
             // The marks alone: the picture they move is `latestPartnerVisualMoment`.
             "widgetHiddenMomentIDs": (false, { $0.widgetHiddenMomentIDs = ["p1"] }),
             "removalNotices": (false, { $0.removalNotices = ["p1"] }),

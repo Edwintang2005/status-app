@@ -416,13 +416,17 @@ final class AppModel {
         return [latestVisualMoment].compactMap { $0 }
     }
 
-    /// This phone only: nothing drawn on a widget, nothing sent. Shown at once,
+    /// This phone only: nothing sent; the photo widget's Favourites draws it. Shown at once,
     /// written behind (`writeIndex`); a full copy is fetched so it opens offline.
     func setFavourite(_ moment: Moment, _ favourite: Bool) {
         guard let index = history.firstIndex(where: { $0.id == moment.id }) else { return }
         history[index].favouritedAt = favourite ? Date().wholeSeconds : nil
         let id = moment.id
-        writeIndex { [momentIndex = stores.index] in momentIndex.setFavourite(id: id, favourite) }
+        writeIndex { [momentIndex = stores.index, store] in
+            momentIndex.setFavourite(id: id, favourite)
+            // The photo widget's Favourites draws them (`WidgetFavourites`).
+            store.refreshDerived(index: momentIndex)
+        }
         if favourite { Task { _ = await ensureMedia(for: moment) } }
     }
 

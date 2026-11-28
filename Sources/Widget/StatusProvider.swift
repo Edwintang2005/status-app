@@ -16,6 +16,8 @@ struct StatusProvider: TimelineProvider {
 
     /// Only the photo widget pays for decoding a picture.
     var drawsPhoto = false
+    /// The photo widget's Favourites setting: a starred picture a day.
+    var favourites = false
 
     func placeholder(in context: Context) -> StatusEntry {
         StatusEntry(date: Date(), content: .preview)
@@ -34,29 +36,42 @@ struct StatusProvider: TimelineProvider {
         // WidgetKit calls it once, from whichever thread; it just isn't marked `Sendable`.
         nonisolated(unsafe) let completion = completion
         let size = context.displaySize
-        Task {
-            let refresh = await Self.refreshIfPossible()
-            let snapshot = SharedStore.shared.snapshot
-            // The tally, not this refresh's result: a push the NSE couldn't read
-            // is still held even when this refresh failed outright.
-            let plan = TimelinePlan(lastNudgeSentAt: snapshot.lastNudgeSentAt,
-                                    lastNudgeFailedAt: snapshot.lastNudgeFailedAt,
-                                    lastNudgeIssuedAt: snapshot.lastNudgeIssuedAt,
-                                    heldSince: SharedStore.shared.unreadableTally.heldSince,
-                                    incomplete: refresh.result?.incomplete ?? false,
-                                    offline: refresh.offline,
-                                    locked: refresh.locked || SharedStore.shared.isLockedOut)
-            let store = SharedStore.shared
-            store.lastWidgetRun = .recorded(after: store.lastWidgetRun, at: Date(), outcome: refresh.outcome,
-                                            detail: refresh.detail, nextReload: plan.nextReload)
-            let drawn = entry(at: Date(), size: size)
-            let entries = plan.entries.map { StatusEntry(date: $0, content: drawn.content, photo: drawn.photo) }
-            completion(Timeline(entries: entries, policy: .after(plan.nextReload)))
-        }
+        Task { completion(await timeline(size: size)) }
     }
 
+    /// The timeline itself: a refresh if one's due, then the store drawn — and
+    /// with Favourites on, tomorrow's picture from midnight.
+    func timeline(size: CGSize) async -> Timeline<StatusEntry> {
+        let refresh = await Self.refreshIfPossible()
+        let snapshot = SharedStore.shared.snapshot
+        // The tally, not this refresh's result: a push the NSE couldn't read
+        // is still held even when this refresh failed outright.
+        let plan = TimelinePlan(lastNudgeSentAt: snapshot.lastNudgeSentAt,
+                                lastNudgeFailedAt: snapshot.lastNudgeFailedAt,
+                                lastNudgeIssuedAt: snapshot.lastNudgeIssuedAt,
+                                heldSince: SharedStore.shared.unreadableTally.heldSince,
+                                incomplete: refresh.result?.incomplete ?? false,
+                                offline: refresh.offline,
+                                locked: refresh.locked || SharedStore.shared.isLockedOut)
+        let store = SharedStore.shared
+        store.lastWidgetRun = .recorded(after: store.lastWidgetRun, at: Date(), outcome: refresh.outcome,
+                                        detail: refresh.detail, nextReload: plan.nextReload)
+        let drawn = entry(at: Date(), size: size)
+        var entries = plan.entries.map { StatusEntry(date: $0, content: drawn.content, photo: drawn.photo) }
+        // Tomorrow's favourite takes over at midnight without a reload.
+        if favourites, let midnight = Calendar.current.date(byAdding: .day, value: 1,
+                                                            to: Calendar.current.startOfDay(for: Date())) {
+            entries.append(entry(at: midnight, size: size))
+            entries.sort { $0.date < $1.date }
+        }
+        return Timeline(entries: entries, policy: .after(plan.nextReload))
+    }
+
+    func entry(size: CGSize) -> StatusEntry { entry(at: Date(), size: size) }
+
     private func entry(at date: Date, size: CGSize) -> StatusEntry {
-        let content = WidgetContent(store: SharedStore.shared)
+        var content = WidgetContent(store: SharedStore.shared)
+        content.photo = content.picture(favourites: favourites, on: date)
         let photo = drawsPhoto ? content.photo.flatMap { WidgetPhoto.image(for: $0, pointSize: size) } : nil
         return StatusEntry(date: date, content: content, photo: photo)
     }

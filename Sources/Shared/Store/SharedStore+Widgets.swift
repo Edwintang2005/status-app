@@ -81,6 +81,7 @@ extension SharedStore {
                                            hidden: snapshot.widgetHiddenMomentIDs)
         snapshot.latestPartnerVisualMoment = picture.shown
         snapshot.widgetHiddenMomentIDs = picture.stillHidden
+        snapshot.widgetFavourites = WidgetFavourites.derive(from: all, hidden: picture.stillHidden)
         snapshot.unheardVoiceMemoCount = all
             .filter { !$0.fromMe && $0.isVoice && !$0.seen }
             .count

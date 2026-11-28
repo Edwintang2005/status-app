@@ -257,6 +257,7 @@ final class SnapshotCodableTests: XCTestCase {
         snapshot.owedMoments = [moment]
         snapshot.newsAfter = Fixtures.date(6)
         snapshot.latestPartnerVisualMoment = moment
+        snapshot.widgetFavourites = [moment]
         snapshot.unheardVoiceMemoCount = 2
         snapshot.lastCelebratedAt = Fixtures.date(7)
         snapshot.lastAnnouncedPartnerStatusAt = Fixtures.date(8)

@@ -26,6 +26,9 @@ Version 1.8 (build 88), one heading per day it was built, newest first.
 - **Their status says "New"** on the card, with a glow, when it changed since you
   last looked — even if you weren't in the app when it came. It works with
   read receipts off, and tells them nothing.
+- **Favourites on the photo widget.** Edit the widget and choose Show:
+  Favourites for a different starred moment each day. A new picture from them
+  still shows first.
 - **The photo widget keeps its photo in StandBy,** where it used to show just
   the caption on black.
 - **"iCloud is full" stays until a photo actually fits.** A status getting

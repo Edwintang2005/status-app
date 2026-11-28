@@ -1,21 +1,64 @@
 import SwiftUI
+import AppIntents
 import WidgetKit
 
-/// The last picture your partner sent, filling the tile. Voice memos show as a
-/// badge, never the tile (widgets can't play audio). Home screen only —
-/// accessory families render monochrome and too small for a photo.
+/// The last picture your partner sent, or a favourite a day, filling the tile.
+/// Voice memos show as a badge, never the tile (widgets can't play audio). Home
+/// screen only — accessory families render monochrome and too small for a photo.
 struct MomentWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: AppConfig.momentWidgetKind, provider: StatusProvider(drawsPhoto: true)) { entry in
+        // Same kind as when it had no settings: placed widgets carry on, on Latest.
+        AppIntentConfiguration(kind: AppConfig.momentWidgetKind, intent: PhotoWidgetIntent.self,
+                               provider: MomentProvider()) { entry in
             MomentWidgetView(entry: entry)
         }
         .configurationDisplayName("Their photo")
-        .description("The last photo or doodle they sent you, and a badge when a voice memo is waiting.")
+        .description("The last photo or doodle they sent you, or a favourite a day: star moments in the app to fill it.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
         // Overlay pieces sit close to the edges, placed per family in `Placement`.
         .contentMarginsDisabled()
         // The photo is the background: StandBy would remove it and leave the caption on black.
         .containerBackgroundRemovable(false)
+    }
+}
+
+/// The photo widget's one setting.
+struct PhotoWidgetIntent: WidgetConfigurationIntent {
+    static let title: LocalizedStringResource = "Their photo"
+    static let description = IntentDescription("Choose what the photo widget shows.")
+
+    @Parameter(title: "Show", default: .latest)
+    var show: PhotoWidgetChoice
+}
+
+enum PhotoWidgetChoice: String, AppEnum {
+    case latest, favourites
+
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Picture"
+    static let caseDisplayRepresentations: [PhotoWidgetChoice: DisplayRepresentation] = [
+        .latest: "Latest",
+        .favourites: DisplayRepresentation(title: "Favourites", subtitle: "A different starred moment each day"),
+    ]
+}
+
+/// `StatusProvider`'s timeline, with the setting: in Favourites, a starred picture a day.
+struct MomentProvider: AppIntentTimelineProvider {
+    func placeholder(in context: Context) -> StatusEntry {
+        StatusProvider(drawsPhoto: true).placeholder(in: context)
+    }
+
+    func snapshot(for configuration: PhotoWidgetIntent, in context: Context) async -> StatusEntry {
+        // The gallery has no data of its own: the sample, as `StatusProvider`'s.
+        context.isPreview ? StatusEntry(date: Date(), content: .preview)
+            : provider(for: configuration).entry(size: context.displaySize)
+    }
+
+    func timeline(for configuration: PhotoWidgetIntent, in context: Context) async -> Timeline<StatusEntry> {
+        await provider(for: configuration).timeline(size: context.displaySize)
+    }
+
+    private func provider(for configuration: PhotoWidgetIntent) -> StatusProvider {
+        StatusProvider(drawsPhoto: true, favourites: configuration.show == .favourites)
     }
 }
 

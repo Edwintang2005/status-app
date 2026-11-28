@@ -317,6 +317,9 @@ struct Snapshot: Codable, Hashable {
     /// Local only: pictures this phone took off the photo widget, newest first —
     /// cleared by the next picture to arrive (`WidgetPicture`).
     var widgetHiddenMomentIDs: [String] = []
+    /// Starred pictures, either side's, oldest star first — the photo widget's
+    /// Favourites setting draws one a day. Derived from the index, local only.
+    var widgetFavourites: [Moment] = []
     /// Partner moments they deleted soon after sending, not yet announced: filed
     /// by whichever process folds the delta, claimed by the NSE or the app
     /// (`AnnouncementPolicy.claimRemovals`). The widget never announces.
@@ -403,7 +406,7 @@ struct Snapshot: Codable, Hashable {
     enum CodingKeys: String, CodingKey, CaseIterable {
         case mine, theirs, isPaired, lastSyncedAt, lastSeenPartnerNudgeCount
         case lastNudgeSentAt, latestPartnerMoment, latestOwnMoment
-        case lastNotifiedMomentID, latestPartnerVisualMoment, unheardVoiceMemoCount
+        case lastNotifiedMomentID, latestPartnerVisualMoment, widgetFavourites, unheardVoiceMemoCount
         case lastCelebratedAt, notifiedMomentIDs, owedMoments
         case lastNudgeFailedAt, lastNudgeIssuedAt, myStatusPublished
         case lastAnnouncedPartnerStatusAt
@@ -447,6 +450,7 @@ struct Snapshot: Codable, Hashable {
             // Legacy fallback: pre-voice-memo, every moment was a picture.
             latestPartnerVisualMoment = latestPartnerMoment.flatMap { $0.isVoice ? nil : $0 }
         }
+        widgetFavourites = value([Moment].self, .widgetFavourites) ?? []
         unheardVoiceMemoCount = value(Int.self, .unheardVoiceMemoCount) ?? 0
         lastCelebratedAt = value(Date.self, .lastCelebratedAt)
         notifiedMomentIDs = value([String].self, .notifiedMomentIDs) ?? []
@@ -502,6 +506,7 @@ struct Snapshot: Codable, Hashable {
         try container.encodeIfPresent(latestPartnerMoment, forKey: .latestPartnerMoment)
         try container.encodeIfPresent(latestOwnMoment, forKey: .latestOwnMoment)
         try container.encodeIfPresent(lastNotifiedMomentID, forKey: .lastNotifiedMomentID)
+        if !widgetFavourites.isEmpty { try container.encode(widgetFavourites, forKey: .widgetFavourites) }
         if let latestPartnerVisualMoment {
             try container.encode(latestPartnerVisualMoment, forKey: .latestPartnerVisualMoment)
         } else {

@@ -31,7 +31,9 @@ Widgets:
   screen, showing the last photo or doodle they sent, with a badge when a
   voice memo is waiting. "Hide from widget" in the gallery takes that one off
   (the one before shows instead) on this phone only, until their next
-  picture arrives.
+  picture arrives. Its setting "Show: Favourites" draws a starred moment a
+  day instead — any new picture from them still first — and it keeps the
+  photo in StandBy.
 - **Quick status** — `systemSmall` / `systemMedium` on the home screen: your
   four most recent statuses as buttons; a tap sets one without opening the app.
 - **Together** — days together, and a red string from your last milestone to
