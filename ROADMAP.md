@@ -287,6 +287,25 @@ Recent statuses ranked by time of day and weekday ("☕️" at 8 am, "🚗" at 5
 pm), on device from the status log, so the most common send is one tap. No
 schema.
 
+### Small touches (S each) ★★
+From the November 2026 "tasteful additions" list; none needs a schema change.
+Siri learning your status routine was built (1.8).
+- **A status that's getting old softens** — after ~12 h unchanged, the partner
+  card and status widgets show it slightly faded with "since yesterday": a
+  gentle "may not be current" without the sender choosing an expiry.
+- **Home Screen quick actions** — long-press the icon: Send a heart (with their
+  name), Set my status, Send a moment, through Home's own paths.
+- **A heart that sounds like the app** — a short plucked-string sound for their
+  hearts, set by the notification service, under the per-kind sound setting
+  and the silent switch. Hearts only.
+- **The string tugs when hearts cross** — the thread under Home's title tugs
+  from your side as you send a heart, from theirs as one lands. Still under
+  Reduce Motion.
+- **The picker remembers your words per emoji** — picking ☕️ fills in what you
+  last wrote with it.
+- **"2 days ago" on the photo widget** — a small age in the corner, hidden
+  when the picture is from today.
+
 ### On this day / Memories (M) ★★ — shelved
 **Shelved, November 2026:** the shape isn't settled yet. A quiet Home card (and
 optionally a widget state, or a morning note) for both: the photo you shared a
