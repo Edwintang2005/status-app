@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		00E65A5FC3B0B7414D8E4847 /* ArchiveContents.swift in Sources */ = {isa = PBXBuildFile; fileRef = F35D5FAB414191EF2F679766 /* ArchiveContents.swift */; };
+		017F48446E9794216F1F3201 /* PendingSends.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DBBE6E12DC17FB5F236FB04 /* PendingSends.swift */; };
 		01E737544D6AC1DF7D7B81FC /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68217B2049E1E37F4824759E /* Theme.swift */; };
 		02773FC73B56C03FB2691A60 /* Celebration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 170BBF360ABFF11110F48279 /* Celebration.swift */; };
 		0288B73F30A15A622B1F66F0 /* Outbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43901C1F14515E19C12B247B /* Outbox.swift */; };
@@ -153,11 +154,13 @@
 		2B908EBAE8F1C137F34F97B8 /* AppModel+Archive.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD339086E4C778C2DB8D4EFA /* AppModel+Archive.swift */; };
 		2BC182AF25BF8959EF08EA0D /* Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7B72EE6C19F670FF1A8BC39 /* Notifications.swift */; };
 		2BE8CDE3A550497B1F92EFE8 /* FillPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30293DAE1AC61B058AF172CD /* FillPlan.swift */; };
+		2C3BE5F15065CFDD965E2218 /* PendingSends.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DBBE6E12DC17FB5F236FB04 /* PendingSends.swift */; };
 		2C483611E05ADF94C033A60E /* CelebrationEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 172A34614380AF462ADCB49F /* CelebrationEffects.swift */; };
 		2CA96A02F4B017757D8B837A /* Anniversary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7561BA90FD6BA87B3BD03EB9 /* Anniversary.swift */; };
 		2CBE04CAE2F2E7098FB86CB0 /* Mood.swift in Sources */ = {isa = PBXBuildFile; fileRef = A03BCF2BEA397F562EA752CA /* Mood.swift */; };
 		2D16C5199E0CF87E6D54A4B8 /* CloudDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8466C7C9528F65B29D3B5CA8 /* CloudDiagnostics.swift */; };
 		2D1E6EC3CE9E262A3FA51EB0 /* StatusProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B92EA7DEDAAF90C46953F00D /* StatusProvider.swift */; };
+		2D6FC3DA42C7A0DE442282B3 /* PendingSends.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DBBE6E12DC17FB5F236FB04 /* PendingSends.swift */; };
 		2DCCB2958633B0E5A37491D7 /* CloudSync+Unpairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C104D5AA639FECFA2F13289 /* CloudSync+Unpairing.swift */; };
 		2DEA0B41D921062E9BB3ED5E /* SharedStore+Diagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ED79C7299B228A3D11C8A99 /* SharedStore+Diagnostics.swift */; };
 		2E53E81590DBE727AD02F3B8 /* PushBannerContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B4E5BFA57DB5830361FD06C /* PushBannerContent.swift */; };
@@ -349,6 +352,7 @@
 		5FB705F57AA2E86ED5223EA2 /* BannerUpkeep.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5DDDDA1F4202FB27F2E5E3F /* BannerUpkeep.swift */; };
 		5FEC12437D7492FB04C86A27 /* FillPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30293DAE1AC61B058AF172CD /* FillPlan.swift */; };
 		6009622FF0E22A5C52EF3E97 /* HomeNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC6715C301D80285A8903E05 /* HomeNotice.swift */; };
+		602E85FE2284A7AE30692894 /* PendingSends.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DBBE6E12DC17FB5F236FB04 /* PendingSends.swift */; };
 		607F9729AFED3A89869DAD95 /* StatusIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD59A6BE26BE67D6FAE6C1D0 /* StatusIntents.swift */; };
 		6103C4237534005E282D6EF8 /* RecapStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A424DDAA387D05EF68CD5728 /* RecapStore.swift */; };
 		618933A9443EEC688F4CA955 /* FillPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30293DAE1AC61B058AF172CD /* FillPlan.swift */; };
@@ -367,6 +371,7 @@
 		665513B46F4C596B2470B72A /* Mood.swift in Sources */ = {isa = PBXBuildFile; fileRef = A03BCF2BEA397F562EA752CA /* Mood.swift */; };
 		665AABBA2EEBF65777C4CB7A /* MilestoneReminderPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA68F3769B7B000DE4551E6C /* MilestoneReminderPlan.swift */; };
 		6692AEA64BB93D75DEE6F834 /* ZoneClearPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0099539F20F083E709EDD344 /* ZoneClearPlan.swift */; };
+		66A6AE75D80A2FFBB4DB8963 /* PendingSends.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DBBE6E12DC17FB5F236FB04 /* PendingSends.swift */; };
 		6859A39D8DA277DE2E5787CA /* CarouselPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2B8221CFB8D9070E816221 /* CarouselPlan.swift */; };
 		6896F58413E1F1B4E1AAB34A /* RecapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66762B326CD0592475C6A26D /* RecapView.swift */; };
 		691E10874DBCD0FD680565B8 /* StatusSavePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C038FB27A912580C3D9CBAD /* StatusSavePolicy.swift */; };
@@ -378,6 +383,7 @@
 		6A9ACDA35D36C43CAFB2D6F9 /* CameraModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFA692EC349C579B9D6CA6B8 /* CameraModel.swift */; };
 		6AE12D9E290E59F46492D450 /* RecapStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A424DDAA387D05EF68CD5728 /* RecapStore.swift */; };
 		6AE5F351B3C923F3B7E84E63 /* UploadPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F4F1C5AA06E13B7DE1694F /* UploadPolicy.swift */; };
+		6BBC389E7BE94E4520FF97DB /* PendingSends.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DBBE6E12DC17FB5F236FB04 /* PendingSends.swift */; };
 		6BEFC285CDF3EA2CC269D934 /* MomentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 337B972E15547CDA25869529 /* MomentStore.swift */; };
 		6C61F1B3697080BBDF2E6401 /* SendFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CB4B6A3FE9343DC12049588 /* SendFailure.swift */; };
 		6C950C76172A9BC24534CC66 /* MomentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 337B972E15547CDA25869529 /* MomentStore.swift */; };
@@ -536,6 +542,7 @@
 		948E7D0C1097132668177F99 /* FakeBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6536106D58AB93DF24538794 /* FakeBackend.swift */; };
 		94AB2A2B1C718D00FC52CA92 /* CloudSync+Pairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34F3D813228830FD69F5F5E5 /* CloudSync+Pairing.swift */; };
 		9536899B42B683F98CC54B64 /* CrashReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5745F8E587C24E2CB55766F /* CrashReporter.swift */; };
+		955A82EC112F02DEE75E80EB /* PendingSendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A55C93F04F5119E90ED1F8D5 /* PendingSendsView.swift */; };
 		957B6E7649D04038BFE8A51A /* RetryPacing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A841CBF9F5011C68F024762A /* RetryPacing.swift */; };
 		959B2ECD4C6A1F9E89912A56 /* Anniversary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7561BA90FD6BA87B3BD03EB9 /* Anniversary.swift */; };
 		95EFC5A2DDFF9625A8436314 /* TogetherCountdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEB7973E215805C072A624E3 /* TogetherCountdown.swift */; };
@@ -679,6 +686,7 @@
 		C250A708710CB333E5F14370 /* RedStringNotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5A83FEA2BD3E31257DCBBA03 /* RedStringNotificationService.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		C26F1287A9516183268EBFDD /* CloudSync+Subscriptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A3B711D3B8D03E8650F67E /* CloudSync+Subscriptions.swift */; };
 		C272B08DC620EC321A65F7FB /* SendFailureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94E3D8DBF0C69996D8556792 /* SendFailureTests.swift */; };
+		C2A54A5DB8564A26CC287CE5 /* PendingSendsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88E2CF107CFF39E3A7B107E /* PendingSendsTests.swift */; };
 		C2AD865907A85B7379CAD582 /* ZoneGonePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D416A6596D79BB28B6C43B59 /* ZoneGonePolicy.swift */; };
 		C2E245463AED723CDC3E4213 /* SharedStore+Widgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 065CEAC1A1D7D4C48005E567 /* SharedStore+Widgets.swift */; };
 		C3988E560B18936EE41EA055 /* FreshStart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BA6E324BAF55B121E8C70A3 /* FreshStart.swift */; };
@@ -798,6 +806,7 @@
 		E1D3B6CE0A3B5263CFC06009 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68217B2049E1E37F4824759E /* Theme.swift */; };
 		E28AD32E49BFCEF976BE150A /* Anniversary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7561BA90FD6BA87B3BD03EB9 /* Anniversary.swift */; };
 		E2A6707635D27E4FD4C1F6EC /* SingleFlight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3164BCEFDC39A3844EB96DD8 /* SingleFlight.swift */; };
+		E2C1E2F28B111C2F739ACE4A /* PendingSendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A55C93F04F5119E90ED1F8D5 /* PendingSendsView.swift */; };
 		E2F7F4DD62E4FBBC4BC9027D /* FakeBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6536106D58AB93DF24538794 /* FakeBackend.swift */; };
 		E447968BC1B5D75988B10939 /* Anniversary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7561BA90FD6BA87B3BD03EB9 /* Anniversary.swift */; };
 		E456F287872CA66F321765EF /* BannerUpkeepPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 257737EBCF333DF37EF28BE4 /* BannerUpkeepPolicy.swift */; };
@@ -860,6 +869,7 @@
 		F922B592036B3664F85B6147 /* ThreadSlack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 829FA2C4BB19987C2B991405 /* ThreadSlack.swift */; };
 		F970346588F9D0D7FB96B537 /* LayoutGlitch.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3CC51BCEB461A742932BF5B /* LayoutGlitch.swift */; };
 		F97C581A7E606CADA2112A61 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0735BF6C334D81F3D615111 /* ShareViewController.swift */; };
+		FA3CE239AC2AC02775F3CDF9 /* PendingSends.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DBBE6E12DC17FB5F236FB04 /* PendingSends.swift */; };
 		FA63866A0E8F7B2516642A86 /* RunGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72CCDCCD0F6D41ED5F986F17 /* RunGate.swift */; };
 		FA6508F82289E04820961BC6 /* CloudSync+Unpairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C104D5AA639FECFA2F13289 /* CloudSync+Unpairing.swift */; };
 		FA95BFC03355DB804DC63B17 /* CrashReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16412F5A913637BE9583B6A8 /* CrashReport.swift */; };
@@ -1057,6 +1067,7 @@
 		6C6FCE78CD3E0FF5BA35E7AD /* SaveConfirmationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveConfirmationTests.swift; sourceTree = "<group>"; };
 		6CB4B6A3FE9343DC12049588 /* SendFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SendFailure.swift; sourceTree = "<group>"; };
 		6CDEA48EA6554C7B09773DC0 /* ArchiveModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveModel.swift; sourceTree = "<group>"; };
+		6DBBE6E12DC17FB5F236FB04 /* PendingSends.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingSends.swift; sourceTree = "<group>"; };
 		6DF6930F6BBA189BC0377B8D /* ModelCodableTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelCodableTests.swift; sourceTree = "<group>"; };
 		6E23A358C70DAF7AF20FB864 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		6EE1EFDA6DD43DDAC859A9FD /* InviteLinkModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InviteLinkModelTests.swift; sourceTree = "<group>"; };
@@ -1123,9 +1134,11 @@
 		A2026FF39691181D5CB16D14 /* ShareIntake.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareIntake.swift; sourceTree = "<group>"; };
 		A424DDAA387D05EF68CD5728 /* RecapStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecapStore.swift; sourceTree = "<group>"; };
 		A483F1777349733FC40F21BB /* ShareModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareModel.swift; sourceTree = "<group>"; };
+		A55C93F04F5119E90ED1F8D5 /* PendingSendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingSendsView.swift; sourceTree = "<group>"; };
 		A5DDDDA1F4202FB27F2E5E3F /* BannerUpkeep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BannerUpkeep.swift; sourceTree = "<group>"; };
 		A7AB64341F25133945EE1C3E /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		A841CBF9F5011C68F024762A /* RetryPacing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RetryPacing.swift; sourceTree = "<group>"; };
+		A88E2CF107CFF39E3A7B107E /* PendingSendsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingSendsTests.swift; sourceTree = "<group>"; };
 		A91BE14CA5679FBA0E82631C /* TokenAdvancePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenAdvancePolicy.swift; sourceTree = "<group>"; };
 		AAF80F7994B39BDEC9BA087D /* PairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingView.swift; sourceTree = "<group>"; };
 		AC155C3E136DF4423C65E036 /* ScrubbableWaveform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrubbableWaveform.swift; sourceTree = "<group>"; };
@@ -1318,6 +1331,7 @@
 				EFAA0FEB80367A2775BEF05C /* PairRoleTests.swift */,
 				28E4F1EEC29EF8348CFB526E /* ParsedDeltaTests.swift */,
 				58DBC18AF3EE65EFA0A605BF /* PartnerLeftTests.swift */,
+				A88E2CF107CFF39E3A7B107E /* PendingSendsTests.swift */,
 				C8EC571FA49D6B53A87D34A7 /* PhotoLocationTests.swift */,
 				C3736AEF5FC4FC5EDD158B46 /* PushBannerBypassTests.swift */,
 				71323DB86292F376B381D8AB /* PushBannerPolicyTests.swift */,
@@ -1524,6 +1538,7 @@
 				B7B72EE6C19F670FF1A8BC39 /* Notifications.swift */,
 				9FCB97E445CA6B0B05D9FEDC /* NotificationsNotice.swift */,
 				86AE5F9B7090F65A1371C0C1 /* NudgeCooldownPolicy.swift */,
+				6DBBE6E12DC17FB5F236FB04 /* PendingSends.swift */,
 				0B4E5BFA57DB5830361FD06C /* PushBannerContent.swift */,
 				C154094576CEFD18DB54ABD0 /* PushBannerPolicy.swift */,
 				E90782EE6C7BC87818EACC0E /* QuickStatus.swift */,
@@ -1632,6 +1647,7 @@
 				373909709B2B3B0FB79E8A99 /* MomentMotionViews.swift */,
 				210847458004C670433D6EC5 /* MoodPickerView.swift */,
 				AAF80F7994B39BDEC9BA087D /* PairingView.swift */,
+				A55C93F04F5119E90ED1F8D5 /* PendingSendsView.swift */,
 				16707900A835DFDBC0502381 /* PhotoViewer.swift */,
 				88CFEE9BF9F2D4F1C4724B57 /* PinchToZoom.swift */,
 				67DBFE6DD088CE95DC14170A /* PlaceLine.swift */,
@@ -2051,6 +2067,7 @@
 				039E569FBB182EB93043172F /* NudgeCooldownPolicy.swift in Sources */,
 				B072067CF79C10A9B9541C99 /* Outbox.swift in Sources */,
 				72E8831B78089E9426E4ABE3 /* ParsedDelta.swift in Sources */,
+				2C3BE5F15065CFDD965E2218 /* PendingSends.swift in Sources */,
 				AF213F7ABD93A1D01BCA48D8 /* PhotoLocation.swift in Sources */,
 				422FE205BA7B6D9E379A9B8B /* PushBannerContent.swift in Sources */,
 				37E8FDEDDFAE84012FDC84F3 /* PushBannerPolicy.swift in Sources */,
@@ -2185,6 +2202,8 @@
 				8788C9B52FF0EB08066E58BE /* ParsedDelta.swift in Sources */,
 				8D6538FB8900CC75D2EF77B0 /* ParsedDeltaTests.swift in Sources */,
 				39631148D84B9C06A8466D00 /* PartnerLeftTests.swift in Sources */,
+				6BBC389E7BE94E4520FF97DB /* PendingSends.swift in Sources */,
+				C2A54A5DB8564A26CC287CE5 /* PendingSendsTests.swift in Sources */,
 				8DA6DD0AAFA967154EB361A5 /* PhotoLocation.swift in Sources */,
 				695B445539028FCB430E7BE2 /* PhotoLocationTests.swift in Sources */,
 				F5A7649414AA1B27AD0C9734 /* PushBannerBypassTests.swift in Sources */,
@@ -2312,6 +2331,7 @@
 				EA2EE5B16BE842B4ACB0C43E /* NudgeCooldownPolicy.swift in Sources */,
 				34A6BA35D95DC99E8EE1DA4F /* Outbox.swift in Sources */,
 				0F08DFD647EB7CD92BC864B5 /* ParsedDelta.swift in Sources */,
+				66A6AE75D80A2FFBB4DB8963 /* PendingSends.swift in Sources */,
 				DC5A3B6ACC68FF756CA3987A /* PhotoLocation.swift in Sources */,
 				2E53E81590DBE727AD02F3B8 /* PushBannerContent.swift in Sources */,
 				187E1722568F0C7BFA31931A /* PushBannerPolicy.swift in Sources */,
@@ -2410,6 +2430,7 @@
 				49AFDABB70E0D2CEEF83DA55 /* NudgeCooldownPolicy.swift in Sources */,
 				520BEA9B7645BFDCA09F3035 /* Outbox.swift in Sources */,
 				DFBCCAA64F243802E8A715C7 /* ParsedDelta.swift in Sources */,
+				2D6FC3DA42C7A0DE442282B3 /* PendingSends.swift in Sources */,
 				D3BC7C194A6B0AD3BA0EB5D6 /* PhotoLocation.swift in Sources */,
 				C483FCE9A39CDEAA31D8C9BE /* PushBannerContent.swift in Sources */,
 				D438D6B82F1830D58ACFD873 /* PushBannerPolicy.swift in Sources */,
@@ -2556,6 +2577,8 @@
 				97023AC9C5979E6E95F72ED0 /* Outbox.swift in Sources */,
 				19C069A4CC445DCE8F9ECB67 /* PairingView.swift in Sources */,
 				335A6C6A5EF08AEB31781341 /* ParsedDelta.swift in Sources */,
+				602E85FE2284A7AE30692894 /* PendingSends.swift in Sources */,
+				E2C1E2F28B111C2F739ACE4A /* PendingSendsView.swift in Sources */,
 				4196C4B343A424863A3F97DF /* PhotoLocation.swift in Sources */,
 				BC6570449C15AC59FC2C1EAF /* PhotoViewer.swift in Sources */,
 				FCFDF9ED172CC02132FD06D1 /* PhotosSaver.swift in Sources */,
@@ -2685,6 +2708,7 @@
 				8D144965CB526F5EFD94DD4D /* NudgeCooldownPolicy.swift in Sources */,
 				0288B73F30A15A622B1F66F0 /* Outbox.swift in Sources */,
 				7DD3297D00F7ABD6287DC8E9 /* ParsedDelta.swift in Sources */,
+				017F48446E9794216F1F3201 /* PendingSends.swift in Sources */,
 				38DE4F5C2CF9AF9E5D2C0815 /* PhotoLocation.swift in Sources */,
 				05957276502E0AF6F9EAB47C /* PushBannerContent.swift in Sources */,
 				AA1D312CE641482239496FD4 /* PushBannerPolicy.swift in Sources */,
@@ -2833,6 +2857,8 @@
 				BB27ACB9001EFA7DC069B944 /* Outbox.swift in Sources */,
 				C8BFC36B3366F2DA467E70F7 /* PairingView.swift in Sources */,
 				15DDA91187D75D7EB63AC818 /* ParsedDelta.swift in Sources */,
+				FA3CE239AC2AC02775F3CDF9 /* PendingSends.swift in Sources */,
+				955A82EC112F02DEE75E80EB /* PendingSendsView.swift in Sources */,
 				EC60DBF127519086EF1F044F /* PhotoLocation.swift in Sources */,
 				5AE770498E298C5768D787A1 /* PhotoViewer.swift in Sources */,
 				9F853FD0E14359C7774A5A9A /* PhotosSaver.swift in Sources */,

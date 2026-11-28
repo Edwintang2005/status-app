@@ -7,6 +7,8 @@ struct OfflineBanner: View {
     let mobileDataDenied: Bool
     /// Reconnecting won't send it: the owner's iCloud has no room.
     let storageFull: Bool
+    /// Opens the list of what's waiting (`PendingSendsView`).
+    var onShowPending: () -> Void = {}
 
     private var title: String {
         mobileDataDenied ? String(localized: "Mobile data is off for \(AppConfig.appName)") : String(localized: "You're offline")
@@ -36,19 +38,29 @@ struct OfflineBanner: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
+            if pendingCount > 0 {
+                Image(systemName: "chevron.right")
+                    .font(Theme.rounded(13, .semibold))
+                    .foregroundStyle(Theme.mutedText)
+            }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 10)
         .card(shape: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .contentShape(Rectangle())
+        .onTapGesture { if pendingCount > 0 { onShowPending() } }
         .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(pendingCount > 0 ? .isButton : [])
+        .accessibilityHint(pendingCount > 0 ? Text("Shows what's waiting to send") : Text(""))
     }
 }
 
 /// The bottom line: sync state, and — as a pill — a send just confirmed or
-/// one still waiting, which taps to retry.
+/// one still waiting, which opens the list of what's waiting.
 struct SyncFooter: View, Equatable {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let inputs: SyncFooterLine.Inputs
+    /// The "waiting" pill: opens the list of what's waiting.
     let onRetry: () -> Void
     var onSync: () -> Void = {}
 
@@ -88,7 +100,7 @@ struct SyncFooter: View, Equatable {
                         .modifier(FooterPill(tint: Theme.warmText))
                 }
                 .buttonStyle(.plain)
-                .accessibilityHint("Retries the send now")
+                .accessibilityHint("Shows what's waiting, to send it now or not at all")
             case .failing(let lastSyncedAt):
                 Button(action: onSync) {
                     Group {

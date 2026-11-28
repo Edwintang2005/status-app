@@ -403,6 +403,21 @@ final class AppModel {
         return count
     }
 
+    /// The list behind the offline card and the footer's "waiting" pill.
+    var pendingSends: PendingSends {
+        let claims = store.shareUploadClaims
+        let sending = outbox.uploadsInFlight.union(claims.keys.filter { ShareIntake.isClaimed($0, in: claims) })
+        return PendingSends(history: history, sending: sending,
+                            status: myStatusWaitingToSend ? snapshot.mine : nil, waiting: pendingSendCount)
+    }
+
+    /// "Don't send": an unsent moment of ours, not uploading, off this phone —
+    /// and told to iCloud too, in case an upload landed unheard (`deleteMoment`).
+    func cancelSend(_ moment: Moment) async {
+        guard let item = pendingSends.moments.first(where: { $0.id == moment.id }), !item.sending else { return }
+        await deleteMoment(moment)
+    }
+
     /// When the partner saw the status currently in `mine` — the "Seen …" line
     /// under it. `nil` while unseen, for an older status, or with receipts off.
     var myStatusSeenAt: Date? {

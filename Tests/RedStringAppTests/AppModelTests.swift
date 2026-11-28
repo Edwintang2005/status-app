@@ -184,3 +184,29 @@ final class StatusHistoryOwedTests: XCTestCase {
     }
 }
 
+/// "Don't send": an unsent moment of ours, gone from this phone and owed as a delete.
+@MainActor
+final class CancelSendTests: XCTestCase {
+    func testAnUnsentMomentCanBeTakenBack() async {
+        let (model, _, stores) = makeModel()
+        var photo = Fixtures.moment("p1", fromMe: true)
+        photo.uploaded = false
+        stores.index.insert([photo])
+        model.reload()
+        XCTAssertEqual(model.pendingSends.moments.map(\.id), ["p1"])
+
+        await model.cancelSend(photo)
+        XCTAssertTrue(stores.index.load().isEmpty, "off this phone")
+        XCTAssertTrue(model.pendingSends.moments.isEmpty)
+    }
+
+    func testOneAlreadySentIsNotTakenBackHere() async {
+        let (model, _, stores) = makeModel()
+        var photo = Fixtures.moment("p1", fromMe: true)
+        photo.uploaded = true
+        stores.index.insert([photo])
+        model.reload()
+        await model.cancelSend(photo)
+        XCTAssertEqual(stores.index.load().map(\.id), ["p1"], "\"Delete for both of you\" is for that")
+    }
+}

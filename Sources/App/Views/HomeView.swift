@@ -10,6 +10,7 @@ struct HomeView: View {
     @State private var showingVoiceComposer = false
     @State private var showingLibrary = false
     @State private var showingStatusHistory = false
+    @State private var showingPendingSends = false
     /// The easter egg — see `EasterEggView`.
     @State private var showingAnniversary = false
     /// The partner's fresh start request, or a clear that keeps failing.
@@ -111,7 +112,8 @@ struct HomeView: View {
             if model.isOffline {
                 OfflineBanner(pendingCount: pendingCount,
                               mobileDataDenied: model.mobileDataDenied,
-                              storageFull: model.storageFullAt != nil)
+                              storageFull: model.storageFullAt != nil,
+                              onShowPending: { showingPendingSends = true })
                     .transition(.opacity)
             }
             if let notice, notice.urgent {
@@ -188,7 +190,8 @@ struct HomeView: View {
                            isParticipant: model.role == .participant,
                            isRestoring: model.isRestoringHistory,
                            syncFailing: model.syncKeepsFailing),
-                       onRetry: { Task { await model.retryPendingNow() } },
+                       // The list has "Send now", and "Don't send" for a moment sent by mistake.
+                       onRetry: { showingPendingSends = true },
                        onSync: { Task { await model.refresh() } })
                 .equatable()
         }
@@ -248,6 +251,7 @@ struct HomeView: View {
                    showingVoiceComposer: $showingVoiceComposer,
                    showingLibrary: $showingLibrary,
                    showingStatusHistory: $showingStatusHistory,
+                   showingPendingSends: $showingPendingSends,
                    showingAnniversary: $showingAnniversary,
                    showingFreshStart: $showingFreshStart,
                    recap: $recap,
@@ -377,7 +381,7 @@ struct HomeView: View {
     /// is only consumed when it can actually be shown.
     private var anySheetShowing: Bool {
         showingPicker || showingSettings || composer != nil || showingVoiceComposer
-            || showingLibrary || showingStatusHistory || showingAnniversary
+            || showingLibrary || showingStatusHistory || showingPendingSends || showingAnniversary
             || showingFreshStart || !carouselQueue.isEmpty || recap != nil
     }
 
@@ -499,6 +503,7 @@ private struct HomeSheets: ViewModifier {
     @Binding var showingVoiceComposer: Bool
     @Binding var showingLibrary: Bool
     @Binding var showingStatusHistory: Bool
+    @Binding var showingPendingSends: Bool
     @Binding var showingAnniversary: Bool
     @Binding var showingFreshStart: Bool
     @Binding var recap: RecapRequest?
@@ -570,6 +575,11 @@ private struct HomeSheets: ViewModifier {
             .sheet(isPresented: $showingStatusHistory) {
                 StatusHistoryView()
                     .presentsModelErrors()
+            }
+            .sheet(isPresented: $showingPendingSends) {
+                PendingSendsView()
+                    .presentsModelErrors()
+                    .presentationDetents([.medium, .large])
             }
             .sheet(isPresented: $showingAnniversary) {
                 EasterEggView()

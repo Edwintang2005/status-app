@@ -26,6 +26,9 @@ Version 1.8 (build 88), one heading per day it was built, newest first.
 - **Their status says "New"** on the card, with a glow, when it changed since you
   last looked — even if you weren't in the app when it came. It works with
   read receipts off, and tells them nothing.
+- **See what's waiting to send.** Tap the offline card or the "waiting" note at
+  the bottom of Home for the list — and "Don't send" for a photo, doodle or
+  memo sent by mistake that hasn't started uploading. "Send now" is there too.
 - **Favourites on the photo widget.** Edit the widget and choose Show:
   Favourites for a different starred moment each day. A new picture from them
   still shows first.
