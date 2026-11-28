@@ -210,3 +210,37 @@ final class CancelSendTests: XCTestCase {
         XCTAssertEqual(stores.index.load().map(\.id), ["p1"], "\"Delete for both of you\" is for that")
     }
 }
+
+/// Statuses set in the app are told to iOS, so Siri Suggestions learn your routine.
+@MainActor
+final class StatusDonationTests: XCTestCase {
+    /// What the model told iOS; `nil` is "forget them all".
+    private final class Donations: @unchecked Sendable {
+        private let lock = NSLock()
+        private var items: [String?] = []
+        func add(_ status: StatusOption?) { lock.withLock { items.append(status.map { "\($0.emoji) \($0.message)" }) } }
+        var all: [String?] { lock.withLock { items } }
+    }
+
+    private func makeModel(_ donations: Donations) -> AppModel {
+        var environment = AppEnvironment.detached
+        environment.donateStatus = { donations.add($0) }
+        return AppModel(stores: makeStores(paired: .owner), backend: FakeAppBackend(), environment: environment)
+    }
+
+    func testAStatusSetHereIsToldToSiriButNotACelebration() async throws {
+        let donations = Donations()
+        let model = makeModel(donations)
+        _ = await model.setStatus(emoji: "☕️", message: "coffee")
+        _ = await model.setStatus(emoji: "🎉", message: "surprise", celebration: .confetti)
+        try await waitUntil { donations.all == ["☕️ coffee"] }
+    }
+
+    /// Statuses set for them aren't suggestions for whoever comes next.
+    func testUnlinkingForgetsThem() async throws {
+        let donations = Donations()
+        let model = makeModel(donations)
+        model.forceLocalReset(startingOver: false)
+        try await waitUntil { donations.all == [nil] }
+    }
+}

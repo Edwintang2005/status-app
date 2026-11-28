@@ -714,6 +714,11 @@ final class AppModel {
         store.mutate { $0.adoptOwnStatus(payload, paired: paired) }
         stores.statusLog.record(payload, fromMe: true, unlogged: paired)
         reload()
+        // Your routine, for Siri Suggestions — not a celebration, which is an occasion.
+        if paired, celebration == nil {
+            let donate = environment.donateStatus
+            Task { await donate(StatusOption(emoji: payload.emoji, message: payload.message)) }
+        }
 
         guard paired else { return nil }
         statusSendsInFlight += 1

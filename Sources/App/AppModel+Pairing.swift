@@ -183,6 +183,9 @@ extension AppModel {
         store.clearPairing(keepingName: !startingOver)
         invite.forget()
         pendingInvite = nil
+        // Statuses set for them aren't suggestions for whoever comes next.
+        let forget = environment.donateStatus
+        Task { await forget(nil) }
         reload()
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }

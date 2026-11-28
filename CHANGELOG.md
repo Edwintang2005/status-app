@@ -23,6 +23,9 @@ Version 1.8 (build 88), one heading per day it was built, newest first.
   date timed out and you changed it again, the late change no longer
   overwrites the newer date; a late removal puts the newer date straight back.
   On an owner's second iPhone, the newer date is taken rather than overwritten.
+- **Siri learns your routine.** Statuses you set in the app teach Siri
+  Suggestions and Spotlight when you tend to set them, so "At work" can be
+  waiting as a suggestion around nine. Unlinking forgets them.
 - **Their status says "New"** on the card, with a glow, when it changed since you
   last looked — even if you weren't in the app when it came. It works with
   read receipts off, and tells them nothing.
