@@ -230,6 +230,16 @@ final class OutboxTests: XCTestCase {
         XCTAssertTrue(backend.statusLogs.isEmpty)
     }
 
+    func testAnEmptyDeleteProvesNoRoom() async {
+        queue(["a"])
+        backend.fail("send", with: quota)
+        await outbox.retryPendingUploads(automatic: true)
+        backend.deletesNothing = true
+        store.pendingMomentDeletions = ["gone"]
+        await outbox.sendDeletions()
+        XCTAssertNotNil(outbox.storageFullAt, "nothing deleted, nothing freed")
+    }
+
     func testTheOwnerNeverAsksForTheDate() async {
         store.mutate { $0.anniversaryRequestedAt = Fixtures.t0; $0.anniversaryRequestPublished = false }
         await outbox.republishAnniversaryRequest()
@@ -332,6 +342,26 @@ final class OutboxTests: XCTestCase {
         await outbox.retryPendingUploads(automatic: true, now: later)
         XCTAssertEqual(Set(backend.sent), ["a", "b"], "and resume after the interval")
         XCTAssertNil(outbox.storageFullAt, "a landed send proves there's room")
+    }
+
+    /// A status landing doesn't mean a photo fits: the full iCloud stands until
+    /// an upload lands, or a delete frees room.
+    func testOnlyAnUploadOrADeleteEndsAFullICloud() async {
+        queue(["a"])
+        backend.fail("send", with: quota)
+        await outbox.retryPendingUploads(automatic: true)
+        XCTAssertNotNil(outbox.storageFullAt)
+
+        store.mutate { $0.mine = Fixtures.status("🍜", "lunch"); $0.myStatusPublished = false }
+        await outbox.republishStatus()
+        XCTAssertTrue(store.snapshot.myStatusPublished)
+        XCTAssertNotNil(outbox.storageFullAt, "a few bytes fit where a photo doesn't")
+        await outbox.retryPendingUploads(automatic: true)
+        XCTAssertTrue(backend.sent.isEmpty, "the photo still waits out the full iCloud")
+
+        store.pendingMomentDeletions = ["old"]
+        await outbox.sendDeletions()
+        XCTAssertNil(outbox.storageFullAt, "a delete frees room")
     }
 
     /// A send iCloud refuses outright isn't re-uploaded on every refresh, but

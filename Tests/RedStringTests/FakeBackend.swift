@@ -124,10 +124,12 @@ class FakeBackend: SyncBackend, @unchecked Sendable {
             _statusSeen.append(statusSeen)
         }
     }
+    /// Every delete answers that nothing went.
+    var deletesNothing = false
     func deleteMoments(ids: [String]) async throws -> Set<String> {
         try check("delete")
         lock.withLock { _deleted.append(ids) }
-        return Set(ids)
+        return deletesNothing ? [] : Set(ids)
     }
     func updateCaption(of moment: Moment) async throws {
         try check("caption")

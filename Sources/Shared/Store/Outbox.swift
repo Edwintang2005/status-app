@@ -111,9 +111,10 @@ final class Outbox {
         pacing.noteFailure(error, now: now)
     }
 
-    /// Anything landing proves there's room again, and that we're let through.
-    func noteSendSucceeded() {
-        pacing.noteSuccess()
+    /// Anything landing proves we're let through; only an upload or a delete
+    /// (`provesRoom`) that iCloud has room again (`RetryPacing.noteSuccess`).
+    func noteSendSucceeded(provesRoom: Bool = false) {
+        pacing.noteSuccess(provesRoom: provesRoom)
     }
 
     private func automaticRetryAllowed(now: Date) -> Bool {
@@ -357,7 +358,7 @@ final class Outbox {
             }
             store.pendingMomentDeletions.subtract(done)
             owedDeletionCount = store.pendingMomentDeletions.count
-            noteSendSucceeded()
+            noteSendSucceeded(provesRoom: !done.isEmpty)
             return !done.isEmpty
         } catch {
             log.error("Moment delete failed: \(error.localizedDescription, privacy: .public)")
@@ -431,7 +432,7 @@ final class Outbox {
     }
 
     private func confirm(_ moment: Moment) {
-        noteSendSucceeded()
+        noteSendSucceeded(provesRoom: true)
         // Deleted while it flew: no "Sent", and the freed link sends the delete.
         if !store.pendingMomentDeletions.contains(moment.id) { uploaded(moment) }
         freeLinkIfIdle()
@@ -482,6 +483,8 @@ final class Outbox {
                     if landed == true, let moment = index.load().first(where: { $0.id == id }) {
                         confirm(moment)
                     } else if landed != nil {
+                        // Landed, if not first: still proof a photo fits.
+                        noteSendSucceeded(provesRoom: true)
                         freeLinkIfIdle()
                     }
                 } catch {

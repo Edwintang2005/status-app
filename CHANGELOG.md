@@ -23,6 +23,8 @@ Version 1.8 (build 88), one heading per day it was built, newest first.
   date timed out and you changed it again, the late change no longer
   overwrites the newer date; a late removal puts the newer date straight back.
   On an owner's second iPhone, the newer date is taken rather than overwritten.
+- **"iCloud is full" stays until a photo actually fits.** A status getting
+  through no longer ends the wait while your photos still can't send.
 
 ### 27 November 2026
 

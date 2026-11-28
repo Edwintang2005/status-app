@@ -696,38 +696,36 @@ Ranked by harm: data loss and trust first. Numbers like #5 are the September
 4. **A replaced zone keeps its zone ID**, so a partner rejoining it skips the
    media wipe (`adoptPairing`'s `lastPairing.sameZone`) and re-sends unsent
    media from the old space. Same after an owner unlink and re-invite. (S)
-7. **Re-seat and zone-gone** (S): the 120 s zone-gone window is justified by
+5. **Re-seat and zone-gone** (S): the 120 s zone-gone window is justified by
    "ten seconds", but a re-seated partner is off the share until they re-tap.
    Show "tap the link once more" while `zoneGoneSeenAt` is set; reword
    `linkEnded` when `lastPairing` is kept; pass `rejoining: true` in
    `acceptShare` for the same zone (#25); clear the change tokens *before*
    erasing media in the wipe; let extensions only stamp the sighting.
-8. **Pairing edge cases** (S–M): #24 a join that half-fails leaves the join
+6. **Pairing edge cases** (S–M): #24 a join that half-fails leaves the join
     screen over a paired app; #25 re-accepting the same zone posts "👋 just
     joined"; #26 the owner's `sameZone` check is always true; #27 zone-recovery
     edge cases (token-expired retry skips the second-sighting rule;
     `unknownItem` counts as zone gone; unpair ignores the per-zone result); #42
     Rejoin picks the first shared zone.
-9. **A successful status publish clears the full-iCloud back-off** even if a
-    photo still can't fit. (S)
-10. **Store I/O and `flock` waits run on the main actor** from `CloudSync`; now
+7. **Store I/O and `flock` waits run on the main actor** from `CloudSync`; now
     that the stores are `Sendable`, drop the `MainActor.run` hops (profile a
     resync). (S)
-11. **One shared `isBusy` spans nine overlapping operations.** (S)
-12. **The lock-screen heart's account lookup** still precedes its write when the
+8. **One shared `isBusy` spans nine overlapping operations.** (S)
+9. **The lock-screen heart's account lookup** still precedes its write when the
     shared cache is stale (`sendNudge` → `requirePairing`); running it alongside
     the record fetch needs a `saveNudge` restructure. The app's own refresh can
     still request two widget reloads (apply, then the media prefetch's). (S)
-13. **Review notes (September 2026):** a new moment found by a background
+10. **Review notes (September 2026):** a new moment found by a background
     refresh goes out passive if an *older* generic/held moment banner is still
     in Notification Centre (stamp the moment id to match exactly); a
     lock-screen heart whose save lands after the 8 s deadline shows as failed
     although it sent (the trade for never showing a failed one as sent). (S)
-14. **The status read receipt** is forward-only by the words' date; after a
+11. **The status read receipt** is forward-only by the words' date; after a
     partner's clock ran ahead, a later status with an earlier stamp isn't
     stamped "seen" until the stored stamp is in the past (rare; would need a
     local-only order key on `StatusSeen`). (S)
-15. **Fresh start follow-ups** (shipped October 2026; left on file):
+12. **Fresh start follow-ups** (shipped October 2026; left on file):
     - Verify on the live service, as for the invite handshake: that
       `lastModifiedUserRecordID` names this account (`__defaultOwner__` or its
       own record name) on both databases, so a second device trusts its own
@@ -755,19 +753,19 @@ Ranked by harm: data loss and trust first. Numbers like #5 are the September
       own card). Extensions never purge.
     - Asks need a connection (an ask queued offline would move the epoch); the
       sheet says so rather than queueing.
-16. **#21 remainder:** an own second device writing while this phone is locked
+13. **#21 remainder:** an own second device writing while this phone is locked
     is worded as the partner's (the held record can't be told apart). (—)
-17. **CloudKit overhead leftovers** (S each): widget media in parallel
+14. **CloudKit overhead leftovers** (S each): widget media in parallel
     (`prefetchMedia` fetches thumbnails, then the full photo, one after the
     other); a longer account cache in extensions (the NSE re-looks-up the user
     record once `accountCacheLifetime`, 5 min, passes — it overlaps the fetch, so
     this saves a request, not time).
-18. **Coverage still missing (M):** `SharedStore`'s static locks still resolve
+15. **Coverage still missing (M):** `SharedStore`'s static locks still resolve
     the real container in tests (lock files only; inject a lock directory);
     `CloudSync` itself has no `CKDatabase` seam, so the per-zone fetch error
     path (#16 of the October review) and the CloudKit calls behind the pure
     policies are untested.
-19. **A deleted moment can come back from your own second device (S–M).** A
+16. **A deleted moment can come back from your own second device (S–M).** A
     second device on your account that misses the deletion long enough for its
     change token to expire re-queues the moment on its next full fetch
     (`requeueMissingUploads` checks only `clearedBefore`); a guard like the

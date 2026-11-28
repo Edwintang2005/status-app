@@ -2,8 +2,8 @@ import Foundation
 
 /// When automatic retries may go again — every send loop's backoff in one place
 /// (`Outbox`). Two holds stop every automatic pass: a full iCloud (for
-/// `storageFullRetryInterval`, or until anything lands) and a throttle (until
-/// iCloud's retry-after). Then per send: one iCloud refused outright waits a fixed
+/// `storageFullRetryInterval`, or until an upload lands or a delete frees
+/// room) and a throttle (until iCloud's retry-after, or anything landing). Then per send: one iCloud refused outright waits a fixed
 /// interval (`hold`), and one failing repeatedly backs off, doubling (`backOff`).
 /// In memory: after a relaunch, one try finds out again. A tap never asks.
 struct RetryPacing: Equatable, Sendable {
@@ -46,9 +46,11 @@ struct RetryPacing: Equatable, Sendable {
         return failure
     }
 
-    /// Anything landing proves there's room again, and that we're let through.
-    mutating func noteSuccess() {
-        storageFullAt = nil
+    /// Anything landing proves we're let through. Only `provesRoom` — an
+    /// upload landing, a delete freeing space — says iCloud has room: a status
+    /// is a few bytes, and fits where a photo still doesn't.
+    mutating func noteSuccess(provesRoom: Bool) {
+        if provesRoom { storageFullAt = nil }
         throttledUntil = nil
     }
 

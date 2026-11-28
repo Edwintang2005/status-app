@@ -13,8 +13,19 @@ final class RetryPacingTests: XCTestCase {
         XCTAssertFalse(pacing.allowsAutomatic(.upload("m"), now: Fixtures.date(interval - 1)), "per send too")
         XCTAssertTrue(pacing.allowsAutomatic(now: Fixtures.date(interval)))
         XCTAssertTrue(pacing.allowsAutomatic(now: Fixtures.date(-60)), "a stamp ahead of the clock doesn't hold")
-        pacing.noteSuccess()
-        XCTAssertNil(pacing.storageFullAt, "anything landing proves there's room")
+        pacing.noteSuccess(provesRoom: true)
+        XCTAssertNil(pacing.storageFullAt, "an upload landing proves there's room")
+    }
+
+    /// A status is a few bytes: it fits where a photo still doesn't.
+    func testASmallSendLiftsAThrottleButNotAFullICloud() {
+        var pacing = RetryPacing()
+        pacing.noteFailure(CKError(.quotaExceeded), now: Fixtures.t0)
+        pacing.noteFailure(CKError(.requestRateLimited, userInfo: [CKErrorRetryAfterKey: 120.0]), now: Fixtures.t0)
+        pacing.noteSuccess(provesRoom: false)
+        XCTAssertNil(pacing.throttledUntil, "it went through: not throttled now")
+        XCTAssertEqual(pacing.storageFullAt, Fixtures.t0, "still full for a photo")
+        XCTAssertFalse(pacing.allowsAutomatic(now: Fixtures.date(60)))
     }
 
     func testAThrottleHoldsUntilItsRetryAfterAndTheLatestWins() {
