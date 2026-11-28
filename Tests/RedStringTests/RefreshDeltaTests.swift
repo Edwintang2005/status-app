@@ -1,3 +1,4 @@
+import CloudKit
 import XCTest
 
 /// How one change fetch folds into the snapshot: the newer-local status rule,
@@ -167,5 +168,55 @@ final class RefreshDeltaTests: XCTestCase {
         RefreshDelta(partnerErased: true).fold(into: &snapshot)
         XCTAssertEqual(snapshot.lastSeenPartnerNudgeCount, 0,
                        "a rejoining participant restarts at 1; a stale mark would swallow their nudges")
+    }
+
+    // MARK: A late anniversary delete
+
+    private var date: Anniversary { Anniversary(startsAt: Fixtures.date(1_000), timeZoneID: "UTC") }
+
+    /// Cleared, the delete timed out, a new date was set and saved — then the
+    /// old delete landed. The date goes back up instead of vanishing on both phones.
+    func testOurOwnLateDeleteOverANewerDatePutsTheDateBack() {
+        var snapshot = Snapshot.empty
+        snapshot.anniversary = date
+        snapshot.anniversaryDeleteInFlightSince = Fixtures.date(0)
+        RefreshDelta(anniversaryErased: true).fold(into: &snapshot, now: Fixtures.date(60))
+        XCTAssertEqual(snapshot.anniversary, date, "kept")
+        XCTAssertFalse(snapshot.anniversaryPublished, "and owed again: the outbox puts it back")
+        XCTAssertNil(snapshot.anniversaryDeleteInFlightSince, "that delete has landed now")
+    }
+
+    func testADeletionWithNoneOfOursInFlightIsMeant() {
+        var snapshot = Snapshot.empty
+        snapshot.anniversary = date
+        RefreshDelta(anniversaryErased: true).fold(into: &snapshot)
+        XCTAssertNil(snapshot.anniversary, "another of the owner's devices cleared it")
+        XCTAssertTrue(snapshot.anniversaryPublished)
+    }
+
+    func testALongAgoTimedOutDeleteNoLongerCounts() {
+        var snapshot = Snapshot.empty
+        snapshot.anniversary = date
+        snapshot.anniversaryDeleteInFlightSince = Fixtures.date(0)
+        RefreshDelta(anniversaryErased: true).fold(into: &snapshot, now: Fixtures.date(AppConfig.lateDeleteWindow + 1))
+        XCTAssertNil(snapshot.anniversary)
+    }
+
+    func testOurDeleteLandingAsMeantJustSettles() {
+        var snapshot = Snapshot.empty
+        snapshot.anniversaryDeleteInFlightSince = Fixtures.date(0)
+        RefreshDelta(anniversaryErased: true).fold(into: &snapshot, now: Fixtures.date(60))
+        XCTAssertNil(snapshot.anniversary)
+        XCTAssertTrue(snapshot.anniversaryPublished)
+        XCTAssertNil(snapshot.anniversaryDeleteInFlightSince)
+    }
+
+    /// A mark from the future (a clock change) is stale, not a delete of ours on its way.
+    func testAFutureDeleteMarkIsStale() {
+        var snapshot = Snapshot.empty
+        snapshot.anniversary = date
+        snapshot.anniversaryDeleteInFlightSince = Fixtures.date(10_000)
+        RefreshDelta(anniversaryErased: true).fold(into: &snapshot, now: Fixtures.date(60))
+        XCTAssertNil(snapshot.anniversary)
     }
 }

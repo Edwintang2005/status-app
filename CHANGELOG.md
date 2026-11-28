@@ -19,6 +19,10 @@ Version 1.8 (build 88), one heading per day it was built, newest first.
   last one: set "coffee" then "at work" on a train, and once you're back
   online "coffee" appears in its place in both histories (quietly, no banner)
   and comes back after a reinstall.
+- **A slow date change can't undo a newer one.** If changing or removing your
+  date timed out and you changed it again, the late change no longer
+  overwrites the newer date; a late removal puts the newer date straight back.
+  On an owner's second iPhone, the newer date is taken rather than overwritten.
 
 ### 27 November 2026
 

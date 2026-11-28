@@ -107,6 +107,16 @@ enum BackendReadiness: Equatable, Sendable {
     case unavailable(String)
 }
 
+/// What an anniversary publish found in the zone.
+enum AnniversaryPublishOutcome: Equatable, Sendable {
+    /// Written or deleted. `foundRecord: false`: there was none — so any earlier
+    /// delete of ours has landed.
+    case done(foundRecord: Bool)
+    /// A newer edit was already there and stands (another of the owner's
+    /// devices): its date and stamp. A cleared date has no record to hold one.
+    case superseded(Anniversary, editedAt: Date)
+}
+
 /// The sync surface — what the send loops, the runner and the extensions call.
 /// Pairing and the invite link are `PairingBackend`'s; the app holds both
 /// (`AppBackend`), so demo mode and previews never reach the real share.
@@ -156,7 +166,8 @@ protocol SyncBackend: Sendable {
     /// retract. No-op for backends without a partner.
     func publishReceipts(_ seen: [String: Date], statusSeen: StatusSeen?) async throws
     /// Owner only: writes the pair's anniversary, or deletes it with `nil`.
-    func publishAnniversary(_ anniversary: Anniversary?) async throws
+    /// `editedAt` stamps the edit: a newer one already in the zone wins.
+    func publishAnniversary(_ anniversary: Anniversary?, editedAt: Date?) async throws -> AnniversaryPublishOutcome
     /// Participant only: asks the owner to set the date. Fixed record name,
     /// so re-asking overwrites.
     func publishAnniversaryRequest(at date: Date) async throws
@@ -438,7 +449,9 @@ struct DemoBackend: AppBackend {
     }
     func publishReceipts(_ seen: [String: Date], statusSeen: StatusSeen?) async throws {}
     func publishStatusLogs(_ entries: [StatusHistoryEntry]) async throws -> [Date] { entries.map(\.at) }
-    func publishAnniversary(_ anniversary: Anniversary?) async throws {}
+    func publishAnniversary(_ anniversary: Anniversary?, editedAt: Date?) async throws -> AnniversaryPublishOutcome {
+        .done(foundRecord: true)
+    }
     func publishAnniversaryRequest(at date: Date) async throws {}
     /// No partner to agree: an ask simply stands, stamped now.
     func publishFreshStart(_ intent: FreshStartIntent) async throws -> FreshStartPublishResult {

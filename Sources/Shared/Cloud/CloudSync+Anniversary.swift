@@ -6,43 +6,68 @@ import os
 extension CloudSync {
     /// Writes (or, with `nil`, deletes) the pair's `Anniversary` record. Owner
     /// only — the UI gates it, and this refuses too, so a participant build
-    /// can never overwrite the owner's date.
-    func publishAnniversary(_ anniversary: Anniversary?) async throws {
+    /// can never overwrite the owner's date. A delete can't be made conditional
+    /// in CloudKit; a late one is caught on the way back (`RefreshDelta`).
+    func publishAnniversary(_ anniversary: Anniversary?, editedAt: Date?) async throws -> AnniversaryPublishOutcome {
         let pairing = try await requirePairing()
         guard pairing.role == .owner else { throw SyncError.notOwner }
         let database = self.database(for: pairing)
         let recordID = CKRecord.ID(recordName: Self.anniversaryRecordName,
                                    zoneID: zoneID(for: pairing))
 
-        try await withZoneRecovery(pairing) {
+        return try await withZoneRecovery(pairing) {
             guard let anniversary else {
+                let existing = try await fetchRecord(recordID, in: database)
+                if let newer = try Self.newerEdit(existing, than: editedAt) { return newer }
+                guard existing != nil else { return .done(foundRecord: false) }
                 do {
                     let result = try await database.waited { try await $0.modifyRecords(saving: [], deleting: [recordID]) }
                     try Self.confirmDeleted(result, recordID)
                 } catch let error as CKError where Self.isUnknownItem(error) {
-                    // Never set, or already cleared: the outcome is the same.
+                    // Already cleared: the outcome is the same.
                 }
-                return
+                return .done(foundRecord: true)
             }
-            try await retryingConflicts("Anniversary") {
-                try await saveAnniversary(anniversary, to: recordID, in: database)
+            return try await retryingConflicts("Anniversary") {
+                try await saveAnniversary(anniversary, editedAt: editedAt, to: recordID, in: database)
             }
         }
     }
 
+    /// Re-judged on every attempt, the conflict retry's too: a save timed out
+    /// and landing late, or retried after a newer edit beat it, never overwrites
+    /// that edit — the record's `updatedAt` is when its date was edited.
     func saveAnniversary(_ anniversary: Anniversary,
+                         editedAt: Date?,
                          to recordID: CKRecord.ID,
-                         in database: CKDatabase) async throws {
-        let record = try await fetchRecord(recordID, in: database)
-            ?? CKRecord(recordType: RecordType.anniversary, recordID: recordID)
+                         in database: CKDatabase) async throws -> AnniversaryPublishOutcome {
+        let existing = try await fetchRecord(recordID, in: database)
+        if let newer = try Self.newerEdit(existing, than: editedAt) { return newer }
+        let record = existing ?? CKRecord(recordType: RecordType.anniversary, recordID: recordID)
         record.encryptedValues[Field.startsAt] = anniversary.startsAt
         record.encryptedValues[Field.timeZone] = anniversary.timeZoneID
-        record[Field.updatedAt] = Date() as CKRecordValue
+        record[Field.updatedAt] = (editedAt ?? Date()) as CKRecordValue
         // Change-tag checked, so the conflict retry in `publishAnniversary` can fire.
         let result = try await database.waited { try await $0.modifyRecords(saving: [record],
                                                       deleting: [],
                                                       savePolicy: .ifServerRecordUnchanged) }
         try Self.confirmSaved(result, recordID)
+        return .done(foundRecord: existing != nil)
+    }
+
+    /// The zone's copy, when it was edited after `editedAt`: ours stands aside and
+    /// takes it. Its stamp is capped by server time (invariant 23), so a skewed or
+    /// forged one can't hold every later edit off; unreadable, it's judged later.
+    static func newerEdit(_ record: CKRecord?, than editedAt: Date?) throws -> AnniversaryPublishOutcome? {
+        guard let record, let held = heldStamp(record), let editedAt, held > editedAt else { return nil }
+        guard let anniversary = anniversary(from: record) else { throw SyncError.saveUnconfirmed }
+        return .superseded(anniversary, editedAt: held)
+    }
+
+    /// When the record's date was edited — an unstamped edit (`nil`) always writes.
+    static func heldStamp(_ record: CKRecord?) -> Date? {
+        guard let record, let held = record[Field.updatedAt] as? Date else { return nil }
+        return TrustedTime.plausible(held, serverTime: record.modificationDate)
     }
 
     /// Participant only: asks the owner to set the date. One fixed record, so a

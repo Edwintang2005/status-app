@@ -202,14 +202,25 @@ final class Outbox {
         // it goes out here once that send lands (bounded: a slow, busy editor).
         for _ in 0..<Self.supersededResendLimit where !current.anniversaryPublished {
             let anniversary = current.anniversary
+            let editedAt = current.anniversaryEditedAt
+            // A delete that times out may still land, after a newer date: noted
+            // before it goes, so the refresh that sees it land can put that date back.
+            if anniversary == nil { store.mutate { $0.anniversaryDeleteInFlightSince = now } }
+            let outcome: AnniversaryPublishOutcome
             do {
-                try await withDeadline(AppConfig.publishDeadline) { try await backend.publishAnniversary(anniversary) }
+                outcome = try await withDeadline(AppConfig.publishDeadline) {
+                    try await backend.publishAnniversary(anniversary, editedAt: editedAt)
+                }
             } catch {
                 noteSendFailed(error, now: now)
+                // Only a timeout leaves a delete that may still be on its way.
+                if anniversary == nil, !(error is CancellationError) {
+                    store.mutate { $0.anniversaryDeleteInFlightSince = nil }
+                }
                 log.error("Anniversary republish failed: \(error.localizedDescription, privacy: .public)")
                 return false
             }
-            current = store.mutate { $0.markAnniversaryPublished(anniversary) }
+            current = store.mutate { $0.settleAnniversaryPublish(anniversary, outcome: outcome) }
             guard store.pairing?.role == .owner else { break }
         }
         log.info("Republished the offline anniversary update")
@@ -787,6 +798,23 @@ extension Snapshot {
     mutating func markAnniversaryPublished(_ published: Anniversary?) {
         guard anniversary == published else { return }
         anniversaryPublished = true
+    }
+
+    /// What publishing `sent` found. Written or deleted: published, and — written
+    /// onto nothing, or a delete done — no delete of ours is still on its way.
+    /// A newer edit already there: taken in place of ours, unless ours moved on since.
+    mutating func settleAnniversaryPublish(_ sent: Anniversary?, outcome: AnniversaryPublishOutcome) {
+        switch outcome {
+        case .done(let foundRecord):
+            if sent == nil || !foundRecord { anniversaryDeleteInFlightSince = nil }
+            markAnniversaryPublished(sent)
+        case .superseded(let newer, let stamp):
+            if sent == nil { anniversaryDeleteInFlightSince = nil }
+            guard anniversary == sent else { return }
+            anniversary = newer
+            anniversaryEditedAt = stamp
+            anniversaryPublished = true
+        }
     }
 
     mutating func markAnniversaryRequestPublished(_ date: Date) {

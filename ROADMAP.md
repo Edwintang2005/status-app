@@ -693,9 +693,7 @@ Ranked by harm: data loss and trust first. Numbers like #5 are the September
    participant record names on each successful refresh (or `shareCheck()`). (S)
 3. **#14 A failed account lookup at pairing** leaves `userRecordName` nil, which
    disables the different-account guard for good. (S)
-5. **An anniversary save or delete abandoned at its deadline** can land after a
-   newer edit (a late delete removes the new date on both phones). (S)
-6. **A replaced zone keeps its zone ID**, so a partner rejoining it skips the
+4. **A replaced zone keeps its zone ID**, so a partner rejoining it skips the
    media wipe (`adoptPairing`'s `lastPairing.sameZone`) and re-sends unsent
    media from the old space. Same after an owner unlink and re-invite. (S)
 7. **Re-seat and zone-gone** (S): the 120 s zone-gone window is justified by

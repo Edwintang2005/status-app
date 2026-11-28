@@ -68,6 +68,8 @@ final class WidgetRedrawTests: XCTestCase {
             "myStatusSeenByPartner": (false, { $0.myStatusSeenByPartner = StatusSeen(statusUpdatedAt: Fixtures.t0, seenAt: later) }),
             "anniversary": (true, { $0.anniversary = Anniversary(startsAt: Fixtures.t0) }),
             "anniversaryPublished": (false, { $0.anniversaryPublished.toggle() }),
+            "anniversaryEditedAt": (false, { $0.anniversaryEditedAt = later }),
+            "anniversaryDeleteInFlightSince": (false, { $0.anniversaryDeleteInFlightSince = later }),
             "anniversaryRequestedAt": (false, { $0.anniversaryRequestedAt = later }),
             "anniversaryRequestPublished": (false, { $0.anniversaryRequestPublished.toggle() }),
             "anniversaryRequestDismissedAt": (false, { $0.anniversaryRequestDismissedAt = later }),

@@ -142,11 +142,16 @@ class FakeBackend: SyncBackend, @unchecked Sendable {
         return entries.map(\.at)
     }
 
-    func publishAnniversary(_ anniversary: Anniversary?) async throws {
+    /// What each anniversary publish reports.
+    var anniversaryOutcome = AnniversaryPublishOutcome.done(foundRecord: true)
+    func publishAnniversary(_ anniversary: Anniversary?, editedAt: Date?) async throws -> AnniversaryPublishOutcome {
         try check("anniversary")
         duringAnniversary?()
-        lock.withLock { _anniversaries.append(anniversary) }
+        lock.withLock { _anniversaries.append(anniversary); _anniversaryStamps.append(editedAt) }
+        return anniversaryOutcome
     }
+    /// Each anniversary publish's `editedAt`, in order.
+    var anniversaryStamps: [Date?] { lock.withLock { _anniversaryStamps } }
     func publishAnniversaryRequest(at date: Date) async throws {
         try check("request")
         duringAnniversary?()

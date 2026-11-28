@@ -1,3 +1,4 @@
+import CloudKit
 import XCTest
 
 /// The anniversary the owner sets: whole-second storage, the owner's calendar,
@@ -116,5 +117,42 @@ final class AnniversaryTests: XCTestCase {
         let all = began.milestones()
         let days = all.map { began.calendar.startOfDay(for: $0.date) }
         XCTAssertEqual(Set(days).count, days.count, "one celebration a day")
+    }
+
+    // MARK: A late save (`CloudSync.newerEdit`)
+
+    private func record(startsAt: Date? = Fixtures.date(2_000), editedAt: Date) -> CKRecord {
+        let record = CKRecord(recordType: CloudSync.RecordType.anniversary,
+                              recordID: CKRecord.ID(recordName: CloudSync.anniversaryRecordName, zoneID: Fixtures.zone))
+        if let startsAt { record.encryptedValues[CloudSync.Field.startsAt] = startsAt }
+        record[CloudSync.Field.updatedAt] = editedAt as CKRecordValue
+        return record
+    }
+
+    /// A save that timed out and lands late — or retries after a newer edit beat
+    /// it — finds that edit's later stamp and takes it rather than overwriting.
+    func testAnOlderEditStandsAsideAndTakesTheNewerOne() throws {
+        let held = record(editedAt: Fixtures.date(500))
+        guard case .superseded(let newer, let stamp)? = try CloudSync.newerEdit(held, than: Fixtures.date(100)) else {
+            return XCTFail("the newer edit should stand")
+        }
+        XCTAssertEqual(newer.startsAt, Fixtures.date(2_000))
+        XCTAssertEqual(stamp, Fixtures.date(500))
+        XCTAssertNil(try CloudSync.newerEdit(held, than: Fixtures.date(900)), "a newer edit writes")
+        XCTAssertNil(try CloudSync.newerEdit(held, than: Fixtures.date(500)), "the same edit retried writes")
+        XCTAssertNil(try CloudSync.newerEdit(nil, than: Fixtures.date(100)), "nothing there yet")
+        XCTAssertNil(try CloudSync.newerEdit(held, than: nil), "an unstamped edit writes")
+    }
+
+    /// Invariant 23: a stamp far ahead of the server can't hold every later edit off.
+    func testAFutureStampIsCappedByServerTime() throws {
+        let forged = record(editedAt: Date().addingTimeInterval(10 * 365 * 86_400))
+        let justPast = Date().addingTimeInterval(AppConfig.clockSkewAllowance + 3_600)
+        XCTAssertNil(try CloudSync.newerEdit(forged, than: justPast),
+                     "capped at the server's time plus the skew allowance, ten years out counts as no later")
+    }
+
+    func testANewerEditThatCantBeReadYetIsJudgedLater() {
+        XCTAssertThrowsError(try CloudSync.newerEdit(record(startsAt: nil, editedAt: Fixtures.date(500)), than: Fixtures.date(100)))
     }
 }

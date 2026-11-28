@@ -96,12 +96,22 @@ struct RefreshDelta: Sendable, Equatable {
         // The owner's own unpublished edit outranks the server copy —
         // `Outbox.republishAnniversary` carries it over. A record that arrived
         // unreadable is neither value nor removal: only a deletion clears the date.
-        if snapshot.anniversaryPublished {
-            if anniversaryErased {
-                snapshot.anniversary = nil
-            } else if let anniversary {
-                snapshot.anniversary = anniversary
+        if anniversaryErased {
+            // Our own timed-out delete, landing after a newer date was saved: the
+            // date goes back up rather than vanishing from both phones.
+            // A mark from the future (a clock change) is stale, not recent.
+            let lateDelete = snapshot.anniversaryDeleteInFlightSince
+                .map { (0..<AppConfig.lateDeleteWindow).contains(now.timeIntervalSince($0)) } ?? false
+            snapshot.anniversaryDeleteInFlightSince = nil
+            if snapshot.anniversaryPublished {
+                if lateDelete, snapshot.anniversary != nil {
+                    snapshot.anniversaryPublished = false
+                } else {
+                    snapshot.anniversary = nil
+                }
             }
+        } else if snapshot.anniversaryPublished, let anniversary {
+            snapshot.anniversary = anniversary
         }
 
         if receiptReadable {

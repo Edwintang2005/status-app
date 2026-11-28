@@ -267,6 +267,8 @@ final class SnapshotCodableTests: XCTestCase {
         snapshot.myStatusSeenByPartner = StatusSeen(statusUpdatedAt: Fixtures.date(11), seenAt: Fixtures.date(12))
         snapshot.anniversary = Anniversary(startsAt: Fixtures.date(13), timeZoneID: "Australia/Sydney")
         snapshot.anniversaryPublished = false
+        snapshot.anniversaryEditedAt = Fixtures.date(13)
+        snapshot.anniversaryDeleteInFlightSince = Fixtures.date(13)
         snapshot.anniversaryRequestedAt = Fixtures.date(14)
         snapshot.anniversaryRequestPublished = false
         snapshot.anniversaryRequestDismissedAt = Fixtures.date(15)

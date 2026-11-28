@@ -955,6 +955,7 @@ final class AppModel {
         store.mutate {
             $0.anniversary = anniversary
             $0.anniversaryPublished = false
+            $0.anniversaryEditedAt = Date().wholeSeconds
             // Setting a date answers any standing ask, so it can't resurface
             // if the date is later removed.
             if let asked = $0.anniversaryRequestedAt { $0.anniversaryRequestDismissedAt = asked }

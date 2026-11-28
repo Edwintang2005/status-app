@@ -362,6 +362,12 @@ struct Snapshot: Codable, Hashable {
     /// Owner side: whether `anniversary` has reached CloudKit — the twin of
     /// `myStatusPublished`, republished on the next refresh.
     var anniversaryPublished: Bool = true
+    /// Owner side: when the date was last edited here — the `Anniversary`
+    /// record's stamp, so a late save never overwrites a newer edit.
+    var anniversaryEditedAt: Date?
+    /// Owner side: a delete of the date that timed out unconfirmed and may still
+    /// land. Seen landing over a newer date, that date goes back up (`RefreshDelta`).
+    var anniversaryDeleteInFlightSince: Date?
 
     /// The participant asking the owner for the date: when they last asked, as
     /// the `AnniversaryRequest` record carries it. Participant side it's the
@@ -403,7 +409,7 @@ struct Snapshot: Codable, Hashable {
         case lastAnnouncedPartnerStatusAt
         case receiptsDirty, receiptsUnsettled
         case partnerStatusSeen, myStatusSeenByPartner
-        case anniversary, anniversaryPublished
+        case anniversary, anniversaryPublished, anniversaryEditedAt, anniversaryDeleteInFlightSince
         case lastAnnouncedPartnerStatus
         case anniversaryRequestedAt, anniversaryRequestPublished, anniversaryRequestDismissedAt
         case newsAfter
@@ -457,6 +463,8 @@ struct Snapshot: Codable, Hashable {
         myStatusSeenByPartner = value(StatusSeen.self, .myStatusSeenByPartner)
         anniversary = value(Anniversary.self, .anniversary)
         anniversaryPublished = value(Bool.self, .anniversaryPublished) ?? true
+        anniversaryEditedAt = value(Date.self, .anniversaryEditedAt)
+        anniversaryDeleteInFlightSince = value(Date.self, .anniversaryDeleteInFlightSince)
         lastAnnouncedPartnerStatus = value(StatusPayload.self, .lastAnnouncedPartnerStatus)
         // Pre-field: a published status was logged by the old build (or was a
         // rename it deliberately didn't log) — either way, don't log it again.
@@ -514,6 +522,8 @@ struct Snapshot: Codable, Hashable {
         try container.encodeIfPresent(myStatusSeenByPartner, forKey: .myStatusSeenByPartner)
         try container.encodeIfPresent(anniversary, forKey: .anniversary)
         try container.encode(anniversaryPublished, forKey: .anniversaryPublished)
+        try container.encodeIfPresent(anniversaryEditedAt, forKey: .anniversaryEditedAt)
+        try container.encodeIfPresent(anniversaryDeleteInFlightSince, forKey: .anniversaryDeleteInFlightSince)
         try container.encodeIfPresent(lastAnnouncedPartnerStatus, forKey: .lastAnnouncedPartnerStatus)
         try container.encodeIfPresent(anniversaryRequestedAt, forKey: .anniversaryRequestedAt)
         try container.encode(anniversaryRequestPublished, forKey: .anniversaryRequestPublished)

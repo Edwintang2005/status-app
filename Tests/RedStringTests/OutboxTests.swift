@@ -166,6 +166,57 @@ final class OutboxTests: XCTestCase {
         XCTAssertTrue(store.snapshot.anniversaryPublished)
     }
 
+    /// The edit's own time travels with it: the record's stamp, so a late save
+    /// can't beat a newer edit.
+    func testTheDateGoesWithWhenItWasEdited() async {
+        let date = Anniversary(startsAt: Fixtures.date(1_000), timeZoneID: "UTC")
+        store.mutate { $0.anniversary = date; $0.anniversaryPublished = false; $0.anniversaryEditedAt = Fixtures.date(50) }
+        await outbox.republishAnniversary()
+        XCTAssertEqual(backend.anniversaryStamps, [Fixtures.date(50)])
+    }
+
+    /// A delete that times out may still land later: noted until it's known to
+    /// have gone or never left.
+    func testATimedOutDeleteIsNotedAndANeverSentOneIsnt() async {
+        store.mutate { $0.anniversary = nil; $0.anniversaryPublished = false }
+        backend.fail("anniversary", with: CancellationError())
+        await outbox.republishAnniversary()
+        XCTAssertNotNil(store.snapshot.anniversaryDeleteInFlightSince, "it may have reached iCloud")
+
+        backend.fail("anniversary", with: CKError(.networkFailure))
+        await outbox.republishAnniversary()
+        XCTAssertNil(store.snapshot.anniversaryDeleteInFlightSince, "only a timeout leaves one on its way")
+
+        await outbox.republishAnniversary()
+        XCTAssertNil(store.snapshot.anniversaryDeleteInFlightSince, "confirmed gone")
+        XCTAssertTrue(store.snapshot.anniversaryPublished)
+    }
+
+    /// Another of the owner's devices edited after this one: its date stands,
+    /// and this phone takes it rather than marking its own older one sent.
+    func testANewerEditFromAnotherDeviceIsTakenNotOverwritten() async {
+        let mine = Anniversary(startsAt: Fixtures.date(1_000), timeZoneID: "UTC")
+        let theirs = Anniversary(startsAt: Fixtures.date(2_000), timeZoneID: "UTC")
+        store.mutate { $0.anniversary = mine; $0.anniversaryPublished = false; $0.anniversaryEditedAt = Fixtures.date(10) }
+        backend.anniversaryOutcome = .superseded(theirs, editedAt: Fixtures.date(20))
+        await outbox.republishAnniversary()
+        XCTAssertEqual(store.snapshot.anniversary, theirs)
+        XCTAssertEqual(store.snapshot.anniversaryEditedAt, Fixtures.date(20))
+        XCTAssertTrue(store.snapshot.anniversaryPublished)
+    }
+
+    /// Written onto nothing: whatever delete of ours was on its way has landed.
+    func testASaveOntoNoRecordSettlesALateDelete() async {
+        store.mutate {
+            $0.anniversary = Anniversary(startsAt: Fixtures.date(1_000), timeZoneID: "UTC")
+            $0.anniversaryPublished = false
+            $0.anniversaryDeleteInFlightSince = Fixtures.date(0)
+        }
+        backend.anniversaryOutcome = .done(foundRecord: false)
+        await outbox.republishAnniversary()
+        XCTAssertNil(store.snapshot.anniversaryDeleteInFlightSince)
+    }
+
     /// A clear judges records by when they were created: none made for an older
     /// status while a fresh start is under way.
     func testEarlierStatusesWaitOutAFreshStart() async {

@@ -165,6 +165,10 @@ enum AppConfig {
     /// Ceiling on any CloudKit call made from a widget or its intent — WidgetKit
     /// kills the process past its budget, and a kill mid-write leaves claims unreleased.
     static let widgetDeadline: TimeInterval = 8
+    /// How long a timed-out anniversary delete is suspected of landing late
+    /// (`Snapshot.anniversaryDeleteInFlightSince`); past it, a deletion seen is
+    /// taken as meant — another of the owner's devices.
+    static let lateDeleteWindow: TimeInterval = 24 * 60 * 60
     /// The widget's resend of a status Siri or its button couldn't send: only
     /// after a refresh that left room (`owedRetryExtensionBudget`), and within it.
     static let owedStatusWidgetDeadline: TimeInterval = 4
